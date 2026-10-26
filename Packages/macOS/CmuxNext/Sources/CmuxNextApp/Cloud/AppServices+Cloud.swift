@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextPhone
@@ -56,7 +57,7 @@ extension AppServices {
     /// (``feedIfBuilt`` stays nil until then) with the `feed.github` setting already applied.
     var feed: FeedService {
         if let feedIfBuilt { return feedIfBuilt }
-        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, energy: mainWork.energy, shown: features.isEnabled(.hiddenPollPause) ? appVisibility.shownWindows : nil, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
         feedIfBuilt = feed
         if let feedGitHub { feed.configureGitHub(enabled: feedGitHub.enabled, pollIntervalSeconds: feedGitHub.pollIntervalSeconds) }
         return feed

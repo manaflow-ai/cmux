@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "tab-group-create-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "tab-group-create-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +80,27 @@
       "args": {
         "method": "tab_group.create",
         "params": {
-          "tabs": []
+          "tabs": [
+            "$step:fx-workspace#/value/tab_id",
+            "$step:fx-split#/value/tab_id"
+          ],
+          "name": "oracle",
+          "color": "blue"
         },
         "idempotencyKey": "tab-group-create-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "tab group members must share one pane"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tabs breaks its catalog type (value has too few items); the daemon's catalog check refuses it"
+      "note": "tabs of two panes cannot form one group (tab_groups.rs tab_group_create); no group is made"
     }
   ],
   "invariants": [

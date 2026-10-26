@@ -36,7 +36,8 @@ struct AppSleepsOnWakeLeewayTests {
         let source = GatedSource()
         let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-cadence-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], clock: clock, ledger: WakeupLedger())
+        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: EnergyPolicySource(),
+                                           clock: clock, ledger: WakeupLedger())
 
         service.start()
         await source.waitForHarvests(1)
@@ -56,12 +57,32 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(source.harvests == 2)
     }
 
+    /// p14-energy-032: under Energy Saver the next harvest waits the interval times the poll stretch.
+    @Test func theErrorJournalHarvestWaitsTheStretchedIntervalUnderTheSaver() async throws {
+        let clock = ManualClock()
+        let source = GatedSource()
+        let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-saver-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let saver = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
+        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: saver,
+                                          clock: clock, ledger: WakeupLedger())
+
+        service.start()
+        await source.waitForHarvests(1)
+        source.release()
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == ErrorJournalService.harvestInterval * 4,
+                "the saver's harvest waits four intervals")
+        await service.stop()
+    }
+
     @Test func theErrorJournalPlansNoHarvestWhileOneRuns() async throws {
         let clock = ManualClock()
         let source = GatedSource()
         let folder = FileManager.default.temporaryDirectory.appending(path: "error-journal-overlap-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], clock: clock, ledger: WakeupLedger())
+        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], energy: EnergyPolicySource(),
+                                           clock: clock, ledger: WakeupLedger())
 
         service.start()
         await source.waitForHarvests(1)
@@ -145,9 +166,9 @@ struct AppSleepsOnWakeLeewayTests {
         let asks = CloudAccessAsks()
         let poll = RoundGate()
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start while a round runs started another")
         #expect(rig.deadlines.nextFire == nil, "a round in flight planned the next one")
@@ -157,7 +178,7 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(!asks.isTriaging)
         #expect(asks.isTriageScheduled, "the round's pause planned no next round")
         #expect(rig.deadlines.nextFire.map { $0 >= .seconds(30) && $0 <= .seconds(31) } == true, "the next round is one pause away")
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start during the pause skipped it")
 
@@ -169,12 +190,25 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(asks.isTriageScheduled, "the second round's pause planned no third")
     }
 
+    /// p14-energy-032: under Energy Saver a round's pause is stretched four times.
+    @Test func aTriageRoundsPauseIsStretchedUnderTheSaver() async throws {
+        let rig = MainDeadlineRig()
+        let asks = CloudAccessAsks()
+        let poll = RoundGate()
+
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)), poll: poll.round)
+        await poll.waitForRounds(1)
+        poll.answer(.seconds(30))
+        await asks.triageSettled()
+        #expect(rig.deadlines.nextFire.map { $0 >= .seconds(120) && $0 <= .seconds(121) } == true, "the saver's pause is four pauses")
+    }
+
     @Test func aRoundThatAnswersNilStopsTheRoundsUntilTheNextStart() async throws {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(nil)
         await asks.triageSettled()
@@ -182,7 +216,7 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(!asks.isTriageScheduled, "a round that answered nil planned another")
         #expect(rig.deadlines.nextFire == nil, "the stopped rounds kept a wake")
 
-        asks.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(2)
         #expect(poll.started == 2, "a start after the rounds stopped ran no round")
         poll.answer(nil)
@@ -194,7 +228,7 @@ struct AppSleepsOnWakeLeewayTests {
         var asks: CloudAccessAsks? = CloudAccessAsks()
         let poll = RoundGate()
 
-        asks?.startRounds(deadlines: rig.deadlines, poll: poll.round)
+        asks?.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(.seconds(30))
         await asks?.triageSettled()

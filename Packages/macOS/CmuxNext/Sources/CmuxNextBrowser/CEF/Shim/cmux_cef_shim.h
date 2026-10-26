@@ -330,6 +330,30 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeo
 // nothing in another process. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
                                                         unsigned int deadline_frames);
+// Fork API 34 (cmux_browser_set_embedder_visibility; p03-rendering-058): the
+// app gives browser_id's layer-hosted page its window-level visibility, as
+// Chrome's browser window gives its tabs theirs
+// (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm), so the page
+// window's order and macOS's occlusion no longer decide it: a page whose
+// window never orders in keeps drawing while the app shows it.
+typedef enum {
+  // The page window's order and occlusion decide (the default).
+  CMUX_SHIM_EMBEDDER_VISIBILITY_WINDOW = 0,
+  // Visible: the page draws, ordered in or not.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_VISIBLE = 1,
+  // Occluded: the page draws no frames and reads as hidden (after Chrome's
+  // one second of coalescing), as a tab of a covered Chrome window.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_OCCLUDED = 2,
+  // Hidden: the page's compositor is suspended and the page is hidden.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_HIDDEN = 3,
+} cmux_shim_embedder_visibility_t;
+// visibility is a cmux_shim_embedder_visibility_t; it applies while the page
+// is layer hosted (kept across hosting off and on). While it is not WINDOW
+// only the app changes the page's visibility (its parent view's hidden state
+// does not), and the page window is the input target only. Returns 1, or 0
+// for an unknown value or browser, a browser with no page window, or a fork
+// without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
@@ -1056,6 +1080,20 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// cmux's vote in Chromium's memory pressure aggregator (fork
+// cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
+// own platform voter (content/browser/browser_main_loop.cc
+// CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. The fork
+// calls MemoryPressureVoter::SetVote(level, /*notify_listeners=*/false), so
+// Chromium's listeners run only when the aggregate level changes, and a
+// kernel event that the platform voter also reports does not run them twice.
+// Inside the call run only the sync listeners (async ones are posted tasks
+// that run in later cmux_shim_do_work calls); in host library mode the call
+// is one post to the Chromium Host. Main thread, after cmux_shim_initialize.
+// Returns 1 when the fork took the vote, 0 when the fork lacks the call,
+// for a level out of range, or once quit began (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

@@ -119,7 +119,11 @@ impl ExitSettleTimer {
             let state = self.state.lock().unwrap();
             // An earlier deadline scheduled meanwhile restarts the loop.
             if Self::earliest(&state) == Some(next) {
-                let _ = self.changed.wait_timeout(state, Duration::from_millis(next - now_ms));
+                let _ = cmux_threads::checked::sync::wait_timeout(
+                    &self.changed,
+                    state,
+                    Duration::from_millis(next - now_ms),
+                );
             }
         }
     }

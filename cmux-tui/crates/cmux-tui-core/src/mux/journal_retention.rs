@@ -388,15 +388,16 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
         }
         let now = Instant::now();
         let Some(due) = schedule.due_at() else {
-            schedule = shared.changed.wait(schedule).unwrap_or_else(PoisonError::into_inner);
+            schedule = cmux_threads::checked::sync::wait(&shared.changed, schedule)
+                .unwrap_or_else(PoisonError::into_inner);
             continue;
         };
         if due > now {
-            schedule = shared
-                .changed
-                .wait_timeout(schedule, due - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            // wakeup-allow: deadline the next retention due time; with nothing due the wait above is untimed
+            schedule =
+                cmux_threads::checked::sync::wait_timeout(&shared.changed, schedule, due - now)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             continue;
         }
         let Some(batch) = schedule.take_due(now) else { continue };

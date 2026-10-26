@@ -72,7 +72,8 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
     private(set) var crashOverlay: NSView?
-    /// The page's last picture while no host shows it; only ``showStandIn(_:)`` and ``removeStandIn()`` set it.
+    /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
+    /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
     var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
@@ -96,6 +97,12 @@ public final class ChromiumHostPageView: NSView {
     /// from the event handler: a sink must write or queue, never wait. Returns where the
     /// input writer put the frame (its browser and input seq), or nil when it stamped none.
     var sink: ((ChromiumHostFrame) -> ChromiumHostInputReceipt?)?
+    /// Where composition, commit and edit-command ops go (``InputTarget/view``
+    /// only): the same ordered stream as ``sink``, after the key frames sent before them
+    /// (ChromiumHostPageView+TextInput.swift).
+    var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
+    /// The page's text input: the state the host pushed and the input method's marked text.
+    var textInput = ChromiumHostTextInput()
     private var tracking: NSTrackingArea?
     #endif
 
@@ -156,6 +163,7 @@ public final class ChromiumHostPageView: NSView {
         onFocusChange?(focused)
         #if DEBUG || CMUX_BENCH_HOOKS
         _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
+        if !focused { textInputDidResign() }
         #endif
     }
 
@@ -370,7 +378,9 @@ extension ChromiumHostPageView {
                                     t0: Self.nanoseconds(event.timestamp)))
     }
 
+    /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+        if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)

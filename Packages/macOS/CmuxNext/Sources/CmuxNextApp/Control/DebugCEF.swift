@@ -10,9 +10,12 @@ import Darwin
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
-/// fallbacks so far, the external pump's counters (`pump`) and what the
-/// fork's page tracker read from host views (`tracker`). Helper
-/// processes are separate; measure them with `ps`.
+/// fallbacks so far, where Chromium's browser process runs (`backend`:
+/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
+/// the external pump's counters (`pump`) and the page windows over each
+/// DevTools tab (`devtools[].child_windows`).
+/// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
     static func report(_ services: AppServices) -> JSONValue {
@@ -45,10 +48,12 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        let backend = services.chromiumRuntime.backend
+        object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
-        object["devtools"] = .array(devTools(services))
-        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
+        object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
+                                    tracker: services.cache.cef.trackerStats)) { $1 }
         object["windows"] = windows(services.cache.cef.windowReport)
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
@@ -59,10 +64,11 @@ enum DebugCEF {
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
-    /// DevTools areas and the Chromium child windows over the tab (screen
-    /// coordinates, AppKit origin), so a check can see that the DevTools
-    /// window sits exactly over its area.
-    private static func devTools(_ services: AppServices) -> [JSONValue] {
+    /// DevTools areas and, when Chromium's pages are child windows
+    /// (`pageWindows`, in process), the Chromium child windows over the tab
+    /// (screen coordinates, AppKit origin), so a check can see that the
+    /// DevTools window sits exactly over its area.
+    private static func devTools(_ services: AppServices, pageWindows: Bool) -> [JSONValue] {
         var out: [JSONValue] = []
         for controller in services.windows.controllers {
             guard let window = controller.window else { continue }
@@ -83,12 +89,14 @@ enum DebugCEF {
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
                     object["devtools_frame"] = frames.devTools.map(rect) ?? .null
-                    let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
-                    let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
-                    object["child_windows"] = .array(children.map { child in
-                        .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
-                                 "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
-                    })
+                    if pageWindows {
+                        let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
+                        let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
+                        object["child_windows"] = .array(children.map { child in
+                            .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
+                                     "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
+                        })
+                    }
                 }
                 out.append(.object(object))
             }
@@ -135,6 +143,19 @@ enum DebugCEF {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
+    /// The engine's counters, by backend. In process: the external pump's (`pump`) and the fork's
+    /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
+    /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
+    /// has `hosted_pages` alone.
+    static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
+        guard backend == .inProcess else {
+            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
+        }
+        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker)]
+        if let pump { counters["pump"] = pumpReport(pump) }
+        return counters
+    }
+
     /// Pump wakeups per second = the change of `work_runs` over an interval.
     static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
         .object([
@@ -176,6 +197,8 @@ enum DebugCEF {
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
+            "pages_attached": .number(Double(stats.pagesAttached)),
+            "attach_refused": .number(Double(stats.attachRefused)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
             "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
             // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.

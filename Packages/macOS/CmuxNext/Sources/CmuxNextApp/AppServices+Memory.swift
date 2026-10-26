@@ -14,6 +14,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
@@ -23,6 +24,7 @@ import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -71,10 +73,12 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
+        registerTabCaches()  // CmuxNextTabs
         registerTerminalLastFrames()  // CmuxNextTerminal
     }
 
@@ -97,6 +101,13 @@ struct AppMemoryConsumers {
     func registerDaemonCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store
+    /// every window shares) are one lossless consumer (p07-memory-053).
+    func registerDesignCaches(backdrops: BackdropImageStore = .shared) {
+        guard services.features.isEnabled(.memoryBackdropImages) else { return }
+        backdrops.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical
@@ -180,6 +191,14 @@ struct AppMemoryConsumers {
         cache.registerMemoryConsumer(with: registry)
     }
 
+    /// `memoryTabCaches` (default off): the tab strips' drawn symbols, pack icons, agent marks, emoji and
+    /// known symbol names are lossless consumers that keep only what was drawn in the last 2 s at critical
+    /// (p07-memory-052). The hover card thumbnails register with each strip (PaneController).
+    private func registerTabCaches() {
+        guard services.features.isEnabled(.memoryTabCaches) else { return }
+        TabIconMemoryConsumers(registry: services.memoryCoordinator).register()
+    }
+
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
     /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
     private func registerTerminalLastFrames() {
@@ -238,7 +257,7 @@ struct AppMemoryConsumers {
         services.webUI.lifecycle = lifecycle
         // Crash budgets per renderer: Chromium groups pages only with `pageProcessGroups` (FirstPartyPageSchemes).
         services.webUI.crashGroups = PageCrashGroups(chromiumSharesByGroup: services.features.isEnabled(.pageProcessGroups)) { page in
-            guard let chromium = page.chromiumPage else { return WebContentProcess.identifier(of: page.webKitView).map { .webKit(pid: $0) } }
+            guard let chromium = page.chromiumPage else { return page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }.map { .webKit(pid: $0) } }
             return (chromium as? CEFPageChromiumPage)?.soleRendererClientID.map { .chromium(client: $0) }
         }
         services.cache.pageLifecycle = lifecycle
