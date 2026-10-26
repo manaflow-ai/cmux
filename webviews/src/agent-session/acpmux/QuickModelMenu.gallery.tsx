@@ -7,7 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
 
-type Props = { tab?: string; expand?: boolean };
+type Props = { tab?: string; expand?: boolean; chat?: boolean; fast?: boolean };
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
 
@@ -17,6 +17,8 @@ const families: QuickFamily[] = [
     name: "Claude Code",
     mark: "claude",
     models: models("claude", ["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]),
+    accounts: [{ id: "personal", name: "Personal" }, { id: "work", name: "Work" }],
+    account: "personal",
     more: models("claude", ["Opus 4.1", "Sonnet 4.5", "Haiku 4.5", "Opus 4", "Sonnet 4"]),
   },
   {
@@ -68,13 +70,14 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand }: Props) {
+        function GalleryQuickModelMenu({ tab, expand, chat, fast = false }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
+          const [isFast, setFast] = useState(fast);
           const list = tab ? [...families].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : families;
           return (
-            <OnNewTab.Provider value={true}>
-              <div style={{ padding: 16 }} data-expand={expand ? "" : undefined}>
+            <OnNewTab.Provider value={!chat}>
+              <div style={{ padding: 16, paddingTop: chat ? 400 : 16 }} data-expand={expand ? "" : undefined}>
                 <QuickModelMenu
                   open={isOpen}
                   onOpenChange={setOpen}
@@ -85,10 +88,12 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
+                    fast: { checked: isFast, onChange: setFast },
                     families: {
                       list,
                       current: tab ?? "claude",
                       onPick: () => undefined,
+                      onAccount: () => undefined,
                       onAddHarness: () => undefined,
                     },
                   }}
@@ -102,6 +107,9 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    combined: { props: { chat: true }, play: open },
+    "combined-fast": { props: { chat: true, fast: true }, play: open },
+    "combined-signed-out": { props: { chat: true, tab: "unii" }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {
       props: {},
