@@ -9,12 +9,16 @@ import Testing
 @MainActor
 struct IconPickerWarmTests {
     @Test func preparingMakesThePickerWarmBeforeAnyOpen() async {
-        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost())
+        let host = WebUIHost.iconPickerTestHost()
+        let picker = IconPickerService(services: nil, webUI: host)
         #expect(!picker.isWarm)
+        #expect(host.openPages.isEmpty)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             picker.prepare { done.resume() }
         }
         #expect(picker.isWarm)
+        // The warm page is opened through the injected host, not around it.
+        #expect(host.openPages.count == 1)
     }
 }
 
