@@ -6,6 +6,11 @@
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
       "owner": "PL-cef-helper"
     },
+    "cef-host-control": {
+      "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (ping_us); ChromiumHostControlChannelTests never-reading peer",
+      "owner": "PL-cef-helper"
+    },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
       "bench": "scripts/cmux-next/bench-typing.py",
