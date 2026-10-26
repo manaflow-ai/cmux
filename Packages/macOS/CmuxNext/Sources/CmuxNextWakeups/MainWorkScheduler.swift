@@ -86,7 +86,8 @@ public final class MainWorkScheduler {
     }
 
     /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:targetTimestamp:)``,
-    /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
+    /// and render passes reach the budget only through ``renderPassEnded(nanos:)`` (or
+    /// ``MainFrameBudget/noteRenderPass(nanos:)`` directly).
     ///
     /// - Parameters:
     ///   - budget: The budget (tests inject its clock and input source).
@@ -100,6 +101,25 @@ public final class MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),
                           startup: startup, renderPasses: nil)
+    }
+
+    /// A discrete input (a key-down, a mouse-down, `debug.key`) finished its dispatch; the App's
+    /// `InputDispatchContext` calls it once per input. With `expectsFrame`, automation, background and
+    /// idle work wait for the render pass of the link's next tick (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``).
+    ///
+    /// - Parameter expectsFrame: The input's turn changed something the next frame shows.
+    public func noteDiscreteInput(expectsFrame: Bool) {
+        budget.noteDiscreteInput(expectsFrame: expectsFrame)
+    }
+
+    /// One render pass of the main run loop ended (the app's meter does the same; tests call it after
+    /// ``frameDidFire(timestamp:refreshInterval:targetTimestamp:)``). It is charged to the next frame and
+    /// ends the input response when a link tick began after the latest frame-expecting input
+    /// (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///
+    /// - Parameter nanos: The pass's length.
+    public func renderPassEnded(nanos: UInt64) {
+        budget.noteRenderPass(nanos: nanos)
     }
 
     /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when it is shown.
