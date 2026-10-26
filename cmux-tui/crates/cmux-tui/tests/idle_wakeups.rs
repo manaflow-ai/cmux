@@ -397,6 +397,22 @@ fn cmux_next_daemon_idle_all_app_streams() {
     );
 }
 
+/// A daemon-rendered browser tab (`new-browser-tab`, as the terminal UI and
+/// the phone lane open one, or a restored one) while no cmux-browser
+/// provider is attached: the app renders its own tabs in WebKit and
+/// registers no provider, so this tab waits for a CDP target that never
+/// comes. Its bootstrap thread must sleep until a provider registers or the
+/// tab closes; a 250 ms re-check of its cancel flag woke the daemon 4 times
+/// a second (41-43 context switches per 10 s window on Linux).
+#[test]
+fn cmux_next_daemon_idle_unprovided_browser_tab() {
+    assert_idle_session(
+        &mut Daemon::start("unprovided"),
+        Session { unprovided_browser_tab: true, ..Session::ONE_TERMINAL },
+        || {},
+    );
+}
+
 /// A journal hook (session.journal.hook.put) that already ran once: its
 /// dispatcher and delivery workers then wait for the next journal record.
 #[test]
@@ -443,13 +459,17 @@ struct Session {
     /// Every stream the app keeps (see [`open_app_streams`]) instead of the
     /// event subscription and one attach of the visible terminal.
     all_app_streams: bool,
+    /// A daemon-rendered browser tab no provider takes, with a viewer
+    /// attached (see [`open_unprovided_browser_tab`]).
+    unprovided_browser_tab: bool,
     /// A journal plugin (a producer and a hook on its records, see
     /// [`install_hook_plugin`]) whose hook ran once before settling.
     hook: bool,
 }
 
 impl Session {
-    const ONE_TERMINAL: Self = Self { terminals: 1, all_app_streams: false, hook: false };
+    const ONE_TERMINAL: Self =
+        Self { terminals: 1, all_app_streams: false, unprovided_browser_tab: false, hook: false };
 }
 
 struct Terminal {
@@ -486,7 +506,7 @@ fn assert_idle_session(
             Terminal { surface: created["surface"].as_u64().expect("the terminal's surface") }
         })
         .collect();
-    let _streams = if session.all_app_streams {
+    let mut streams = if session.all_app_streams {
         open_app_streams(daemon, &terminals)
     } else {
         // An event subscription and one attach per visible terminal.
@@ -499,6 +519,9 @@ fn assert_idle_session(
             ),
         ]
     };
+    if session.unprovided_browser_tab {
+        streams.push(open_unprovided_browser_tab(daemon, &terminals));
+    }
     if let Some(marker) = hook_ran {
         let deadline = Instant::now() + Duration::from_secs(20);
         while fs::metadata(&marker).map(|meta| meta.len()).unwrap_or(0) == 0 {
@@ -582,9 +605,12 @@ fn assert_idle_session(
 /// - a page relay that hears its page's events (`PageRelayHandshake`; the
 ///   history page, the one page-router.json gives events);
 /// - one attach per terminal;
-/// - the frame stream of a daemon-rendered browser tab (`new-browser-tab`,
-///   as the terminal UI opens one), beside a tab the app renders itself
-///   (WebKit), which has no daemon stream.
+/// - a browser tab the app renders itself (WebKit,
+///   `new-frontend-browser-tab`), which has no daemon stream.
+///
+/// The app opens no daemon-rendered browser tab and registers no browser
+/// provider; [`cmux_next_daemon_idle_unprovided_browser_tab`] covers that
+/// tab apart.
 ///
 /// A notification is posted first, so the notifications list is not empty.
 /// Not here: the OSC 52 clipboard-read broker (`TerminalClipboardReadService`),
@@ -614,13 +640,6 @@ fn open_app_streams(daemon: &Daemon, terminals: &[Terminal]) -> Vec<OpenStream> 
         }),
     )
     .expect("new-frontend-browser-tab");
-    let browser = request(
-        &daemon.socket,
-        serde_json::json!({"id": 11, "cmd": "new-browser-tab", "url": "about:blank", "pane": pane}),
-    )
-    .expect("new-browser-tab")["surface"]
-        .as_u64()
-        .expect("the browser tab's surface");
 
     let mut streams = vec![
         open_stream(
@@ -634,21 +653,6 @@ fn open_app_streams(daemon: &Daemon, terminals: &[Terminal]) -> Vec<OpenStream> 
                 serde_json::json!({"id": 15, "cmd": "subscribe", "tree_events": "coarse"}),
             ],
         ),
-        // A browser attach needs the app's pointer-frame capability. Unsized:
-        // a sized one first waits for a browser engine to take the size, and
-        // a headless daemon has none.
-        open_stream_after(
-            &daemon.socket,
-            &[
-                serde_json::json!({
-                    "id": 16,
-                    "cmd": "set-client-info",
-                    "name": "idle-test",
-                    "capabilities": ["browser-pointer-frame-guard-v1"],
-                }),
-                serde_json::json!({"id": 17, "cmd": "attach-surface", "surface": browser}),
-            ],
-        ),
     ];
     streams.extend(terminals.iter().map(|terminal| {
         open_stream(
@@ -657,6 +661,36 @@ fn open_app_streams(daemon: &Daemon, terminals: &[Terminal]) -> Vec<OpenStream> 
         )
     }));
     streams
+}
+
+/// Opens a daemon-rendered browser tab beside the first terminal and
+/// attaches a viewer to it, as the terminal UI does. No provider is
+/// attached, so the tab stays `starting` and no frame ever streams.
+fn open_unprovided_browser_tab(daemon: &Daemon, terminals: &[Terminal]) -> OpenStream {
+    let first = terminals.first().expect("a terminal").surface;
+    let pane = pane_of(&daemon.socket, first).expect("the first terminal's pane");
+    let browser = request(
+        &daemon.socket,
+        serde_json::json!({"id": 11, "cmd": "new-browser-tab", "url": "about:blank", "pane": pane}),
+    )
+    .expect("new-browser-tab")["surface"]
+        .as_u64()
+        .expect("the browser tab's surface");
+    // A browser attach needs the pointer-frame capability. Unsized: a sized
+    // attach first waits for a browser engine to take the size, and no
+    // provider is here to take it.
+    open_stream_after(
+        &daemon.socket,
+        &[
+            serde_json::json!({
+                "id": 16,
+                "cmd": "set-client-info",
+                "name": "idle-test",
+                "capabilities": ["browser-pointer-frame-guard-v1"],
+            }),
+            serde_json::json!({"id": 17, "cmd": "attach-surface", "surface": browser}),
+        ],
+    )
 }
 
 /// The pane that shows `surface`.

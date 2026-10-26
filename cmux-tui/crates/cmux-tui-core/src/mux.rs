@@ -1021,6 +1021,8 @@ impl Drop for Mux {
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
+        // A provider bootstrap cancels once its weak mux no longer upgrades.
+        self.browser_providers.wake_waiters();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
         {
