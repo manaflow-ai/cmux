@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import random
 import sys
 import unittest
@@ -24,6 +25,7 @@ def _load(name: str, path: Path):
 
 
 pinpoint = _load("perf_lab_pinpoint", LAB / "pinpoint.py")
+verify = _load("perf_lab_verify", LAB / "verify.py")
 perf_stats = pinpoint.perf_stats
 
 CLASS = "apple-m4/16gb/60hz"
@@ -57,12 +59,13 @@ def jitter(index: int) -> float:
 class FakeExecutor:
     """Builds and runs synchronously; level(commit index) is the metric's level at that commit."""
 
-    def __init__(self, range_, level, *, unbuildable=(), unmeasurable=(), noise=None):
+    def __init__(self, range_, level, *, unbuildable=(), unmeasurable=(), noise=None, failing=None):
         self.position = {c.change: i for i, c in enumerate(range_)}
         self.level = level
         self.unbuildable = {sha(i) for i in unbuildable}
         self.unmeasurable = {sha(i) for i in unmeasurable}
         self.noise = noise
+        self.failing = failing  # failing(commit index, attempt index): the attempt measured nothing
         self.builds: list[str] = []
         self.runs: list = []
 
@@ -74,6 +77,8 @@ class FakeExecutor:
         if change.sha in self.unmeasurable:
             return pinpoint.Attempt(change, index, measurable=False)
         i = self.position[change]
+        if self.failing and self.failing(i, index):
+            return pinpoint.Attempt(change, index, failed=True)
         spread = self.noise(i, index) if self.noise else jitter(index)
         return pinpoint.Attempt(change, index, values=(self.level(i) + spread,))
 
@@ -193,6 +198,38 @@ class BisectTests(unittest.TestCase):
         self.assertEqual(result.skipped, tuple((sha(i), pinpoint.NOT_MEASURABLE) for i in range(3)))
         self.assertEqual(result.comparisons[0].parent.sha, sha(3))
 
+    def test_capability_boundary_is_bisected_not_walked(self) -> None:
+        # The story's capability lands at `capability`; every older commit is not measurable.
+        for capability, regression in ((58, 60), (40, 50)):
+            range_ = commits(64)
+            fake = FakeExecutor(range_, step_at(regression), unmeasurable=range(capability))
+            result = fake.run(pinpoint.JobState(bisect_job(range_)))
+            self.assertEqual(result.outcome, pinpoint.CULPRITS)
+            self.assertEqual([c.commits for c in result.culprits], [(sha(regression),)])
+            self.assertFalse(result.build_limit_hit)
+            self.assertEqual(result.comparisons[0].parent.sha, sha(capability))
+            self.assertEqual(result.skipped[-1], (sha(capability - 1), pinpoint.NOT_MEASURABLE))
+            # O(log n): the ends, about log2(62) probes for the boundary and log2 of the rest for the step.
+            self.assertLessEqual(len(fake.builds), 2 + 2 * 6)
+            self.assertEqual(len(fake.builds), len(set(fake.builds)))
+
+    def test_boundary_probes_prefer_batch_tips_and_stored_builds(self) -> None:
+        range_ = commits(64, tip_every=8, stored=lambda i, tip: tip)
+        fake = FakeExecutor(range_, step_at(60), unmeasurable=range(58))
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual([c.commits for c in result.culprits], [(sha(60),)])
+        probed = [int(r.change.sha, 16) for r in fake.runs if r.start == 0]
+        # The boundary search runs over tips 8..56 (all free), then inside the last batch.
+        self.assertTrue({8, 16, 24, 32, 40, 48, 56} & set(probed))
+        self.assertTrue(all(int(s, 16) > 56 for s in fake.builds))
+
+    def test_unbuildable_ends_narrow_the_range(self) -> None:
+        range_ = commits(64)
+        fake = FakeExecutor(range_, step_at(37), unbuildable=[0, 1, 63])
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual(culprit_shas(result), [sha(37)])
+        self.assertEqual((result.comparisons[0].parent.sha, result.comparisons[-1].change.sha), (sha(2), sha(62)))
+
     def test_not_measurable_midpoint_is_skipped(self) -> None:
         range_ = commits(64)
         fake = FakeExecutor(range_, step_at(37), unmeasurable=[31])
@@ -265,6 +302,124 @@ class BisectTests(unittest.TestCase):
                          pinpoint.NO_CULPRIT)
 
 
+class FailureTests(unittest.TestCase):
+    """Performance mode compares the failure rate first, as catapult job_state._Compare."""
+
+    def test_story_that_breaks_from_a_commit_on_is_the_culprit(self) -> None:
+        range_ = commits(64)
+        fake = FakeExecutor(range_, lambda i: 10.0, failing=lambda i, k: i >= 37)
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual(result.outcome, pinpoint.CULPRITS)
+        (culprit,) = result.culprits
+        self.assertEqual(culprit.commits, (sha(37),))
+        self.assertEqual(culprit.comparison.basis, pinpoint.FAILURES)
+        self.assertEqual((culprit.comparison.failures_parent, culprit.comparison.failures_change), (0, 10))
+        # No UNKNOWN loop: every Change kept its 10 attempts.
+        self.assertTrue(all(r.start + r.count == pinpoint.MIN_ATTEMPTS for r in fake.runs))
+
+    def test_failure_rate_step_with_the_same_values_is_the_culprit(self) -> None:
+        range_ = commits(64)
+        fake = FakeExecutor(range_, lambda i: 10.0, failing=lambda i, k: i >= 37 and k % 2 == 0)
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual(culprit_shas(result), [sha(37)])
+        self.assertEqual(result.culprits[0].comparison.basis, pinpoint.FAILURES)
+
+    def test_midpoint_that_fails_every_attempt_does_not_hide_the_step(self) -> None:
+        range_ = commits(64)
+        fake = FakeExecutor(range_, step_at(37), failing=lambda i, k: i == 31)
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual(result.outcome, pinpoint.CULPRITS)
+        # 31 breaks the story (a functional culprit); 32 fixes it, and the values still find 37.
+        self.assertEqual(culprit_shas(result), [sha(31), sha(37)])
+        self.assertEqual([c.comparison.basis for c in result.culprits], [pinpoint.FAILURES, pinpoint.VALUES])
+        self.assertLessEqual(max(r.start + r.count for r in fake.runs), 20)
+
+    def test_fewer_failures_is_not_a_culprit(self) -> None:
+        range_ = commits(64)
+        fake = FakeExecutor(range_, lambda i: 10.0, failing=lambda i, k: i < 37)
+        result = fake.run(pinpoint.JobState(bisect_job(range_)))
+        self.assertEqual(result.outcome, pinpoint.NO_CULPRIT)
+
+
+def verify_job(**changes) -> pinpoint.Job:
+    range_ = commits(2)
+    return bisect_job(range_, **{"kind": pinpoint.VERIFY, "commits": (), **changes})
+
+
+def sampled(parent: list, culprit: list):
+    """An attempt callback: attempt k of each arm returns that arm's k-th sample."""
+    samples = {sha(0): parent, sha(1): culprit}
+    return lambda change, index: pinpoint.Attempt(change, index, values=(samples[change.sha][index],))
+
+
+class VerifyTests(unittest.TestCase):
+    BASE = [10 + 0.1 * (i % 7) for i in range(20)]
+
+    def run_verify(self, parent, culprit, **changes):
+        state = pinpoint.JobState(verify_job(**changes))
+        runs = []
+
+        def attempt(change, index):
+            runs.append((change.sha, index))
+            return sampled(parent, culprit)(change, index)
+
+        result = pinpoint.run_to_end(state, lambda change: True, attempt)
+        return result, runs
+
+    def test_verify_runs_20_attempts_each_and_finishes(self) -> None:
+        state = pinpoint.JobState(verify_job())
+        builds = pinpoint.step(state)
+        self.assertEqual([type(a) for a in builds], [pinpoint.Build, pinpoint.Build])
+        for action in builds:
+            state.record_build(action.change, True)
+        runs = pinpoint.step(state)
+        self.assertEqual([(r.start, r.count) for r in runs], [(0, 20), (0, 20)])
+
+    def test_verify_unknown_stays_unknown_at_20(self) -> None:
+        # FLAT vs FEW_SLOW at 20 attempts: floored DIFFERENT, strict UNKNOWN (test_verify.py).
+        result, runs = self.run_verify([0.0] * 20, [0.0] * 15 + [1.0] * 5)
+        self.assertEqual(len(runs), 40)
+        self.assertEqual(result.outcome, pinpoint.UNRESOLVED)
+        self.assertEqual(result.comparisons[0].strict, perf_stats.UNKNOWN)
+        self.assertEqual(result.comparisons[0].floored, perf_stats.DIFFERENT)
+
+    def test_verify_verdict_equals_verify_judge(self) -> None:
+        rng = random.Random(15)
+        cases = [
+            (self.BASE, [x + 0.3 for x in self.BASE]),  # a regression
+            (self.BASE, [x - 0.3 for x in self.BASE]),  # an improvement
+            ([0.0] * 20, [0.0] * 15 + [1.0] * 5),  # floored DIFFERENT, strict UNKNOWN
+            (self.BASE, list(self.BASE)),  # no change
+            ([10.0] * 20, [10.0] * 10 + [12.0] * 5 + [8.0] * 5),  # a spread change, same median
+        ] + [([rng.gauss(10, 1) for _ in range(20)], [rng.gauss(10.5, 1) for _ in range(20)]) for _ in range(8)]
+        host = verify.LabHost("cmux17", CLASS, "pinpoint")
+        for parent, culprit in cases:
+            for better in ("lower", "higher"):
+                with self.subTest(parent=parent[:3], culprit=culprit[:3], better=better):
+                    result, _ = self.run_verify(parent, culprit, better=better)
+                    (comparison,) = result.comparisons
+                    request = verify.Request(1, sha(0), sha(1), "terminal.key-frame.light", "key_to_frame_ms",
+                                             CLASS, better)
+                    plan = verify.plan(request, [host])
+                    arms = {verify.PARENT: iter(parent), verify.CULPRIT: iter(culprit)}
+                    judged = verify.judge(plan, [verify.AttemptResult(a, a.host, (next(arms[a.arm]),))
+                                                 for a in plan.attempts])
+                    self.assertEqual(comparison.verdict == perf_stats.DIFFERENT, judged.verified)
+                    self.assertEqual(result.outcome == pinpoint.CULPRITS, judged.verified)
+                    self.assertEqual((comparison.strict, comparison.floored), (judged.strict, judged.floored))
+                    self.assertAlmostEqual(comparison.p_value, judged.p_value)
+                    self.assertEqual((comparison.median_parent, comparison.median_change),
+                                     (judged.parent_p50, judged.culprit_p50))
+
+    def test_attempts_are_checked(self) -> None:
+        for bad in (0, -1, pinpoint.MAX_ATTEMPTS + 1, 2.5, True):
+            with self.assertRaises(pinpoint.PinpointError):
+                verify_job(attempts=bad)
+        self.assertEqual(verify_job().initial_attempts(), pinpoint.VERIFY_ATTEMPTS)
+        self.assertEqual(verify_job(attempts=8).initial_attempts(), 8)
+        self.assertEqual(verify_job(kind=pinpoint.TRY).initial_attempts(), pinpoint.MIN_ATTEMPTS)
+
+
 class AttemptGrowthTests(unittest.TestCase):
     def test_unknown_doubles_attempts_10_to_160(self) -> None:
         always_unknown = perf_stats.ComparisonResults(perf_stats.UNKNOWN, 0.03, 0.01, 0.5)
@@ -325,6 +480,71 @@ class ContractTests(unittest.TestCase):
         pinpoint.step(state)
         with self.assertRaises(pinpoint.PinpointError):
             state.record_attempt(pinpoint.Attempt(range_[0].change, 0, values=(1.0,)))
+
+    def test_a_build_result_counts_once(self) -> None:
+        range_ = commits(8)
+        state = pinpoint.JobState(bisect_job(range_))
+        pinpoint.step(state)
+        state.record_build(range_[0].change, False)
+        for ok in (False, True):
+            with self.assertRaises(pinpoint.PinpointError):
+                state.record_build(range_[0].change, ok)
+        state.record_build(range_[-1].change, True)
+        with self.assertRaises(pinpoint.PinpointError):
+            state.record_build(range_[-1].change, True)
+
+    def test_state_round_trips_mid_job_without_repeating_work(self) -> None:
+        range_ = commits(64, tip_every=8, stored=lambda i, tip: i == 24)
+        level = step_at(37)
+        expected = FakeExecutor(range_, level, unmeasurable=range(3)).run(pinpoint.JobState(bisect_job(range_)))
+
+        fake = FakeExecutor(range_, level, unmeasurable=range(3))
+        state = pinpoint.JobState(bisect_job(range_))
+        issued: list = []  # every Build and attempt any step() returned, before and after the restart
+
+        def issue(actions) -> None:
+            for action in actions:
+                if isinstance(action, pinpoint.Build):
+                    issued.append(("build", action.change.sha))
+                elif isinstance(action, pinpoint.Run):
+                    issued.extend(("run", action.change.sha, k) for k in range(action.start, action.start + action.count))
+
+        lost: list = []  # the last action of each step: in flight when the executor dies
+        for _ in range(4):
+            actions = pinpoint.step(state)
+            issue(actions)
+            lost.extend(actions[-1:])
+            self.assertIsNone(fake.answer(state, actions[:-1]))
+
+        saved = json.loads(json.dumps(state.to_dict()))
+        restored = pinpoint.JobState.from_dict(saved)
+        self.assertEqual(json.loads(json.dumps(restored.to_dict())), saved)
+        outstanding = restored.outstanding()
+        self.assertTrue(outstanding)
+        self.assertEqual(outstanding, state.outstanding())
+        self.assertEqual(sorted(map(repr, outstanding)), sorted(repr(a) for a in lost if a.change in restored.changes))
+
+        # The resumed executor answers the outstanding work, then steps on; nothing is issued twice.
+        self.assertIsNone(fake.answer(restored, outstanding))
+        result = None
+        for _ in range(10_000):
+            actions = pinpoint.step(restored)
+            issue(actions)
+            result = fake.answer(restored, actions)
+            if result is not None:
+                break
+        self.assertEqual(len(issued), len(set(issued)))
+        self.assertEqual(result.to_json(), expected.to_json())
+        finished = pinpoint.JobState.from_dict(json.loads(json.dumps(restored.to_dict())))
+        self.assertEqual(pinpoint.step(finished), [pinpoint.Done(result)])
+
+    def test_bad_saved_state_is_refused(self) -> None:
+        range_ = commits(8)
+        saved = pinpoint.JobState(bisect_job(range_)).to_dict()
+        for broken in ({**saved, "version": 99}, {k: v for k, v in saved.items() if k != "tracked"},
+                       {**saved, "changes": [0, 99]}):
+            with self.assertRaises(pinpoint.PinpointError):
+                pinpoint.JobState.from_dict(broken)
 
     def test_job_definition_is_checked(self) -> None:
         range_ = commits(4)
