@@ -42,7 +42,13 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public func loadScript(work: BackgroundWork) async throws -> CloudMachineBootstrap? {
         guard let path = bootstrapPath else { return nil }
         let kind = bootstrapKind
-        let data = try? await work.run(.userBlocking, mayBlock: .files) { try Data(blockingContentsOf: URL(fileURLWithPath: path)) }
+        let data = try? await work.run(.userBlocking, mayBlock: .files) { () -> Data? in
+            // A regular file of at most maxBytes: never a FIFO or a device, and nothing larger read.
+            let attributes = try FileManager.checked.attributesOfItem(atPath: path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular,
+                  let size = attributes[.size] as? Int, size <= CloudMachineBootstrap.maxBytes else { return nil }
+            return try Data(blockingContentsOf: URL(fileURLWithPath: path))
+        } ?? nil
         guard let data, !data.isEmpty, data.count <= CloudMachineBootstrap.maxBytes else { throw ScriptUnreadable(path: path) }
         return CloudMachineBootstrap(kind: kind, contents: data)
     }

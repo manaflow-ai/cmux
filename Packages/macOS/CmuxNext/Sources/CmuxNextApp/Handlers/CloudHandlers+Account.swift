@@ -44,6 +44,15 @@ extension CloudHandlers {
     /// The invocation's `name`, `size`, `persistent`, `bootstrap` and `bootstrapScript`. Reads no
     /// file: the script is loaded off the main thread before the create.
     static func newMachineRequest(_ invocation: ActionInvocation) throws -> CloudMachineRequest {
+        // A text flag given with no value (`--bootstrap-script` last on the line) arrives as `true`:
+        // refuse it rather than make a machine without what was asked.
+        for name in ["name", "size", "bootstrap", "bootstrapScript"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
+            switch name {
+            case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
+            case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
+            default: throw ActionFailure(message: CloudStrings.bootstrapScriptRequired)
+            }
+        }
         var request = CloudMachineRequest()
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         request.name = name?.isEmpty == false ? name : nil

@@ -457,6 +457,8 @@ final class CloudService {
             do {
                 try await api.setIdlePause(machine.id, minutes: idlePause)
                 machine.idlePauseMinutes = idlePause
+                // A refresh may have listed the machine meanwhile: its session holds the record.
+                machines.session(machine.id)?.machine.idlePauseMinutes = idlePause
             } catch {
                 logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
             }

@@ -54,6 +54,23 @@ struct CloudNewMachineTests {
         #expect(!request.isDefault)
     }
 
+    @Test func aTextFlagWithNoValueIsRefusedNotIgnored() {
+        for name in ["bootstrapScript", "bootstrap", "size", "name"] {
+            #expect(throws: ActionFailure.self, "\(name)") { try CloudHandlers.newMachineRequest(Self.invocation([name: .bool(true)])) }
+        }
+    }
+
+    @Test func aFifoOrDeviceIsNotReadAsAScript() async throws {
+        let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("/dev/zero")]))
+        await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
+    }
+
+    @Test func everyMachineCommandNamesTheWorkUser() {
+        #expect(CloudMachineBootstrap.prepareCommand.contains("root chown cmux:cmux"))
+        #expect(CloudMachineBootstrap.startCommand.contains(#"--uid="$u""#))
+        #expect(CloudMachineBootstrap.startCommand.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
+    }
+
     @Test func aQuotedTildeScriptIsTheHomeFolders() throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("~/boot.sh")]))
         #expect(request.bootstrapPath == NSHomeDirectory() + "/boot.sh")

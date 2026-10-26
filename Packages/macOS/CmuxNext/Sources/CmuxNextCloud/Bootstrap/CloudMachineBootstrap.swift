@@ -88,22 +88,34 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Runs as the machine's user (uid 1000, `cmux`), the public exec's account.
-    public static let prepareCommand = "mkdir -p \(directory) && chmod 700 \(directory)"
+    /// The image's work user (uid 1000), whose home holds ``directory``. The exec API may run a
+    /// command as root or as this user (the provider's default differs by path), so every
+    /// command names it: as root it acts directly, as the user through passwordless sudo.
+    public static let user = "cmux"
 
-    /// The file API may write as root, so the files are handed back to the machine's user, and a
-    /// start that cannot own them fails here instead of in the runner. A runner holds `lock`
-    /// while it runs (systemd or not), so a second start says `running`. The runner goes to a
-    /// transient systemd unit (it outlives the exec); without systemd, passwordless sudo, or when
-    /// `systemd-run` fails, it gets `setsid`.
+    /// `root CMD`: CMD as root, from either account.
+    static let rootHelper = #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#
+    /// `as_u CMD`: CMD as the work user `$u`, from either account.
+    static let userHelper = #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#
+
+    public static let prepareCommand = [
+        "set -eu", rootHelper, "d=\(directory)",
+        #"root mkdir -p "$d" && root chown \#(user):\#(user) "$d" && root chmod 700 "$d""#,
+    ].joined(separator: "; ")
+
+    /// The file API may write as root, so the files go to the work user first, and a start that
+    /// cannot hand them over fails here instead of in the runner. A runner holds `lock` while it
+    /// runs (systemd or not), so a second start says `running`. The runner always runs as the
+    /// work user with its home, in a transient systemd unit (it outlives the exec); without
+    /// systemd, or when `systemd-run` fails, under `setsid`.
     public static let startCommand = [
-        "set -eu", "d=\(directory)",
-        #"sudo -n chown -R "$(id -u):$(id -g)" "$d" 2>/dev/null || true"#,
-        #"for f in script env run; do [ -O "$d/$f" ] || { echo "$d/$f is not the machine user's and passwordless sudo is unavailable" >&2; exit 1; }; done"#,
-        #"if ! flock -n "$d/lock" true; then echo running; exit 0; fi"#,
+        "set -eu", rootHelper, userHelper, "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#,
+        #"root chown -R "$u:$u" "$d" 2>/dev/null || true"#,
+        #"for f in script env run; do [ "$(stat -c %U "$d/$f")" = "$u" ] || { echo "$d/$f is not $u's: the start needs root or passwordless sudo" >&2; exit 1; }; done"#,
+        #"if ! as_u flock -n "$d/lock" true; then echo running; exit 0; fi"#,
         #"sum=$(sha256sum "$d/script" | cut -d' ' -f1)"#,
         #"if grep -q "\"state\":\"done\".*\"script_sha256\":\"$sum\"" "$d/status.json" 2>/dev/null; then echo skipped; exit 0; fi"#,
-        #"if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null && { sudo -n systemctl reset-failed \#(unit) 2>/dev/null || true; sudo -n systemd-run --quiet --collect --unit=\#(unit) --uid="$(id -u)" --gid="$(id -g)" --setenv=HOME="$HOME" --working-directory="$HOME" "$d/run"; }; then :; else setsid nohup "$d/run" >/dev/null 2>&1 </dev/null & fi"#,
+        #"if command -v systemd-run >/dev/null 2>&1 && { root systemctl reset-failed \#(unit) 2>/dev/null || true; root systemd-run --quiet --collect --unit=\#(unit) --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$d/run"; }; then :; else as_u env HOME="$h" setsid nohup "$d/run" >/dev/null 2>&1 </dev/null & fi"#,
         "echo started",
     ].joined(separator: "; ")
 
