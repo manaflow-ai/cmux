@@ -42,7 +42,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private var loneRailWatch: FrameObservation<Bool>?
 
     /// - Parameter mainWork: the app's main-thread scheduler; a Debug Settings change lays out on its frames.
-    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler) {
+    /// - Parameter caches: Home's cache consumer (`memoryHomeLabCaches`): the list's bitmaps join it, and the
+    ///   split counts as a shown Home view while it is in a window and not hidden; nil keeps MessagesLab's sizes.
+    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler,
+                caches: MessagesLabMemoryConsumer? = nil) {
         self.widths = widths
         self.mainWork = mainWork
         list = sidebar
@@ -59,6 +62,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.foldMayHaveChanged() }
         loneRailWatch = followLoneConversationTunable()
+        caches?.track(visibility)
+        caches?.track(sidebar: sidebar)
     }
 
     @available(*, unavailable)

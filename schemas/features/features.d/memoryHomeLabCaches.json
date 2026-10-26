@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryHomeLabCaches",
+  "owner": "PL-memory",
+  "description": "Home conversation caches join the memory coordinator: row pictures, attachments, long message tiles and list rows share one budget, shrink as the limit falls and empty at critical pressure or after 60 s with no Home view shown. They are drawn again when next shown.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}
