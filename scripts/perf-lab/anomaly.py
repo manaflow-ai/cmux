@@ -4,20 +4,19 @@
 - find_change_points(): catapult `dashboard/dashboard/find_change_points.py` FindChangePoints. It runs
   the E-Divisive approximation (anomaly_edivisive.ClusterAndFindSplit) over the newest
   MAX_WINDOW_SIZE points, then keeps the candidates that pass _PassesThresholds, newest first.
-- detect(): find_change_points on one series, split by the series' better direction into
-  regressions (alerts) and improvements (recorded, never alerted).
-- series_from_points(): one point per run, the median of its samples (or its p99, a separate series),
-  from store.Point rows.
-- row_floor(): MIN_ABSOLUTE_CHANGE for a series is the floor of its threshold row, read by reference
-  (target_ref path + key) from the existing threshold file, never copied (p12 rule R4).
+- row_floor(): MIN_ABSOLUTE_CHANGE for a series is its catalog metric's floor_ref (stories.d), the
+  threshold row's noise floor read by reference with catalog.resolve_ref, never copied (p12 rule R4).
 - target_miss(): the second rule, for the 12 fixed program targets: the newest segment (at least
   MIN_SEGMENT_SIZE points) has a median past the target and the segment before it did not.
+
+alerts.py is the consumer: it computes the per-run points (median, p99 as a separate series), passes
+each series' row_floor as min_absolute_change, and records improvements without alerting them.
 
 The detection is reproducible: the permutation test draws from random.Random(DEFAULT_SEED) unless the
 caller passes its own generator (catapult uses an unseeded one).
 
 Load it by file path (spec_from_file_location); it needs only the standard library and
-anomaly_edivisive.py and perf_stats.py next to it.
+anomaly_edivisive.py and catalog.py next to it.
 """
 
 #
@@ -36,11 +35,10 @@ anomaly_edivisive.py and perf_stats.py next to it.
 
 import collections
 import importlib.util
-import json
 import os
 import random
-import re
 import sys
+from pathlib import Path
 
 
 def _load_sibling(name, filename):
@@ -55,7 +53,7 @@ def _load_sibling(name, filename):
 
 
 edivisive = _load_sibling("perf_lab_anomaly_edivisive", "anomaly_edivisive.py")
-perf_stats = _load_sibling("perf_lab_perf_stats", "perf_stats.py")
+catalog = _load_sibling("perf_lab_catalog", "catalog.py")
 
 
 # ---------- catapult defaults.py ----------
@@ -67,7 +65,7 @@ MAX_WINDOW_SIZE = 50
 # results by ignoring results that were found from looking at too few points.
 MIN_SEGMENT_SIZE = 6
 
-# Minimum absolute difference between medians before and after. The lab passes
+# Minimum absolute difference between medians before and after. alerts.py passes
 # the series' threshold-row floor instead (row_floor); this is catapult's default.
 MIN_ABSOLUTE_CHANGE = 0
 
@@ -86,14 +84,11 @@ MULTIPLE_OF_STD_DEV = 2.5
 # The seed of the permutation test's generator when the caller passes none (catapult's tests use 1).
 DEFAULT_SEED = 1
 
-# The per-run point statistic of each series kind: the median, and the p99 as a separate series.
-POINT_STATISTICS = {"p50": 0.50, "p99": 0.99}
-
 BETTER_DIRECTIONS = ("lower", "higher")
 
 
 class AnomalyError(ValueError):
-    """A detector input is malformed (unknown direction or statistic, unresolvable threshold row)."""
+    """A detector input is malformed (an unknown direction, a window or segment size that is not a count)."""
 
 
 class ChangePoint(
@@ -128,12 +123,6 @@ class ChangePoint(
     def AsDict(self):
         """Returns a dictionary mapping attributes to values."""
         return self._asdict()
-
-
-class Detection(collections.namedtuple('Detection', ('regressions', 'improvements'))):
-    """detect()'s result: regressions alert; improvements are recorded only. Both newest first."""
-
-    __slots__ = ()
 
 
 class TargetMiss(
@@ -177,6 +166,8 @@ def find_change_points(series,
     Returns:
       A list of zero to many ChangePoint object(s), newest first.
     """
+    _check_count("max_window_size", max_window_size, least=1)
+    _check_count("min_segment_size", min_segment_size, least=0)
     if len(series) < 2:
         return []  # Not enough points to possibly contain a valid split point.
     series = list(series)[-max_window_size:]
@@ -290,75 +281,21 @@ def passes_thresholds(values, split_index, min_segment_size, min_absolute_change
 # ---------- the lab's use of it ----------
 
 
-def is_regression(change_point, better):
-    """True when the change point moves the median the wrong way for `better` ('lower' or 'higher')."""
-    _check_better(better)
-    if better == "lower":
-        return change_point.median_after > change_point.median_before
-    return change_point.median_after < change_point.median_before
+def row_floor(floor_ref, repo_root):
+    """MIN_ABSOLUTE_CHANGE for a series: the number its catalog metric's floor_ref names.
 
-
-def detect(series, better, min_absolute_change=MIN_ABSOLUTE_CHANGE, rand=None):
-    """find_change_points with catapult's defaults and the row floor; improvements are not alerts.
-
-    Args:
-      series: A list of (x, y) pairs, oldest first (series_from_points).
-      better: 'lower' or 'higher', the series' improvement direction.
-      min_absolute_change: The series' threshold-row floor (row_floor).
-      rand: As in find_change_points.
+    floor_ref is a catalog.Ref or its {"path", "key"} dict, as stories.d writes it: a JSON pointer into a
+    .json threshold file ({"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/<pattern>/floor"})
+    or NAME/key in a .py file. catalog.resolve_ref reads it (raising catalog.RefError); None gives
+    catapult's default.
     """
-    _check_better(better)
-    points = find_change_points(series, min_absolute_change=min_absolute_change, rand=rand)
-    regressions = [p for p in points if is_regression(p, better)]
-    improvements = [p for p in points if not is_regression(p, better)]
-    return Detection(regressions, improvements)
-
-
-def point_value(samples, statistic="p50"):
-    """One run's point: the median of its samples ('p50') or their p99 ('p99'), perf_stats.pct."""
-    if statistic not in POINT_STATISTICS:
-        raise AnomalyError(f"statistic {statistic!r} is not one of {', '.join(POINT_STATISTICS)}")
-    value = perf_stats.pct(samples, POINT_STATISTICS[statistic])
-    if value is None:
-        raise AnomalyError("a run point needs at least one numeric sample")
-    return value
-
-
-def series_from_points(points, statistic="p50"):
-    """[(commit_pos, point_value)] from store.Point rows (store.series_points order, oldest first)."""
-    return [(point.commit_pos, point_value(point.samples, statistic)) for point in points]
-
-
-def row_floor(target_ref, repo_root):
-    """MIN_ABSOLUTE_CHANGE for a series: the `floor` of the threshold row its target_ref names.
-
-    target_ref is a perf_result.TargetRef or its dict form with `path` (repository-relative threshold
-    file with a `rows` object, such as scripts/cmux-next/perf-budgets.json) and `key`. The key is a row
-    name: the exact row key, else the first row pattern that full-matches it (perf-budgets.py's rule).
-    None, or a ref without a path (a targets.json id), or a row without a floor gives catapult's default.
-    """
-    if target_ref is None:
+    if floor_ref is None:
         return MIN_ABSOLUTE_CHANGE
-    ref = target_ref if isinstance(target_ref, dict) else target_ref.to_dict()
-    path, key = ref.get("path"), ref.get("key")
-    if path is None:
-        return MIN_ABSOLUTE_CHANGE
-    if not key:
-        raise AnomalyError(f"target_ref {ref!r} names a file but no row key")
-    file_path = os.path.join(repo_root, path)
-    try:
-        with open(file_path, encoding="utf-8") as handle:
-            rows = json.load(handle).get("rows")
-    except (OSError, ValueError, AttributeError) as error:
-        raise AnomalyError(f"threshold file {path}: {error}") from error
-    if not isinstance(rows, dict):
-        raise AnomalyError(f"threshold file {path} has no rows object")
-    row = rows.get(key)
-    if row is None:
-        row = next((spec for pattern, spec in rows.items() if re.fullmatch(pattern, key)), None)
-    if row is None:
-        raise AnomalyError(f"threshold file {path} has no row for {key!r}")
-    return row.get("floor", MIN_ABSOLUTE_CHANGE)
+    if isinstance(floor_ref, dict):
+        if set(floor_ref) != {"path", "key"}:
+            raise AnomalyError(f"floor_ref {floor_ref!r} is not a {{path, key}} reference")
+        floor_ref = catalog.Ref(floor_ref["path"], floor_ref["key"])
+    return catalog.resolve_ref(Path(repo_root), floor_ref)
 
 
 def target_miss(series, target, better="lower", rand=None):
@@ -412,6 +349,11 @@ def _as_pairs(series):
     if series and isinstance(series[0], (int, float)):
         return list(enumerate(series))
     return series
+
+
+def _check_count(name, value, least):
+    if isinstance(value, bool) or not isinstance(value, int) or value < least:
+        raise AnomalyError(f"{name} {value!r} is not an integer of at least {least}")
 
 
 def _check_better(better):

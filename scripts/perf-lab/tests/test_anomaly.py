@@ -14,7 +14,6 @@ import random
 import sys
 import tempfile
 import unittest
-from collections import namedtuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAB = os.path.dirname(HERE)
@@ -31,7 +30,10 @@ def _load(name, path):
 
 anomaly = _load("perf_lab_anomaly_under_test", os.path.join(LAB, "anomaly.py"))
 ccd = anomaly.edivisive
-perf_result = _load("perf_lab_perf_result_for_anomaly", os.path.join(LAB, "perf_result.py"))
+
+# stories.d/motion.json's cmd_n metric floor_ref, as the catalog stores it.
+with open(os.path.join(LAB, "stories.d", "motion.json"), encoding="utf-8") as _handle:
+    MOTION_CMD_N_FLOOR_REF = next(m["floor_ref"] for m in json.load(_handle)["metrics"] if m["name"].startswith("cmd_n"))
 
 # find_change_points_test.py testFindChangePoints_ShortSequences: (values, max_window_size,
 # catapult's ClusterAndFindSplit candidates, catapult's FindChangePoints x-values).
@@ -88,6 +90,10 @@ def _step_series(rng, before, after, step, base=100.0, noise=1.0):
     ys = [rng.gauss(base, noise) for _ in range(before)]
     ys += [rng.gauss(base * (1 + step), noise) for _ in range(after)]
     return list(enumerate(ys))
+
+
+def _rises(change_point):
+    return change_point.median_after > change_point.median_before
 
 
 class Constants(unittest.TestCase):
@@ -207,14 +213,12 @@ class LabAcceptance(unittest.TestCase):
         # (after=17 gives [20, 18] from its own FindChangePoints); the alert group merges it.
         for after in range(1, 31):
             with self.subTest(after=after):
-                series = _step_series(random.Random(1000 + after), 20, after, 0.15)
-                detection = anomaly.detect(series, "lower")
-                found = [c.x_value for c in detection.regressions]
+                found = anomaly.find_change_points(_step_series(random.Random(1000 + after), 20, after, 0.15))
                 if after < anomaly.MIN_SEGMENT_SIZE:
                     self.assertEqual(found, [])
                 else:
-                    self.assertEqual(found[:1], [20])
-                self.assertEqual(detection.improvements, [])
+                    self.assertEqual([c.x_value for c in found][:1], [20])
+                    self.assertTrue(all(_rises(c) for c in found))
 
     def test_step_after_17_points_matches_catapult(self):
         series = _step_series(random.Random(1017), 20, 17, 0.15)
@@ -227,78 +231,70 @@ class LabAcceptance(unittest.TestCase):
                 self.assertEqual(anomaly.find_change_points(series), [])
 
     def test_at_most_10_alerts_on_1000_noise_series(self):
+        # Every change point counts, in either direction: a stricter bound than regressions only.
         rng = random.Random(3000)
         alerts = 0
         for _ in range(1000):
             base = rng.uniform(5, 200)
             series = [(k, rng.gauss(base, base * 0.05)) for k in range(60)]
-            alerts += len(anomaly.detect(series, "lower").regressions)
+            alerts += len(anomaly.find_change_points(series))
         self.assertLessEqual(alerts, 10)
 
-    def test_improvement_recorded_not_alerted(self):
-        series = _step_series(random.Random(4000), 20, 12, -0.15)
-        detection = anomaly.detect(series, "lower")
-        self.assertEqual(detection.regressions, [])
-        self.assertEqual([c.x_value for c in detection.improvements], [20])
-        flipped = anomaly.detect(series, "higher")
-        self.assertEqual([c.x_value for c in flipped.regressions], [20])
-        self.assertEqual(flipped.improvements, [])
-
-    def test_row_floor_is_min_absolute_change(self):
+    def test_min_absolute_change_is_the_floor_filter(self):
         series = _step_series(random.Random(1012), 20, 12, 0.15)
-        self.assertEqual(len(anomaly.detect(series, "lower", min_absolute_change=1.0).regressions), 1)
-        self.assertEqual(anomaly.detect(series, "lower", min_absolute_change=50.0).regressions, [])
+        self.assertEqual(len(anomaly.find_change_points(series, min_absolute_change=1.0)), 1)
+        self.assertEqual(anomaly.find_change_points(series, min_absolute_change=50.0), [])
 
     def test_only_the_window_is_examined(self):
         old_step = _step_series(random.Random(5000), 20, 60, 0.3)
         self.assertEqual(anomaly.find_change_points(old_step), [])
 
+    def test_counts_must_be_integers(self):
+        series = _step_series(random.Random(1012), 20, 12, 0.15)
+        for config in ({"max_window_size": 40.0}, {"max_window_size": 0}, {"min_segment_size": 6.0},
+                       {"min_segment_size": -1}, {"max_window_size": True}):
+            with self.subTest(config=config), self.assertRaises(anomaly.AnomalyError):
+                anomaly.find_change_points(series, **config)
+
     def test_unknown_direction_raises(self):
         with self.assertRaises(anomaly.AnomalyError):
-            anomaly.detect([(0, 1.0), (1, 2.0)], "faster")
-
-
-class PointValues(unittest.TestCase):
-    Point = namedtuple("Point", "commit_pos samples")
-
-    def test_median_and_p99_series(self):
-        points = [self.Point(10, [1.0, 2.0, 9.0]), self.Point(11, [4.0, 2.0, 3.0, 5.0])]
-        self.assertEqual(anomaly.series_from_points(points), [(10, 2.0), (11, 3.5)])
-        p99 = anomaly.series_from_points(points, "p99")
-        self.assertAlmostEqual(p99[0][1], 8.86)
-        self.assertAlmostEqual(p99[1][1], 4.97)
-
-    def test_empty_samples_and_unknown_statistic_raise(self):
-        with self.assertRaises(anomaly.AnomalyError):
-            anomaly.point_value([])
-        with self.assertRaises(anomaly.AnomalyError):
-            anomaly.point_value([1.0], "p90")
+            anomaly.target_miss([(0, 1.0), (1, 2.0)], 1.5, better="faster")
 
 
 class RowFloor(unittest.TestCase):
-    def test_reads_the_perf_budgets_row_by_reference(self):
+    def test_a_stories_floor_ref_resolves_to_the_perf_budgets_floor(self):
         with open(os.path.join(REPO, "scripts", "cmux-next", "perf-budgets.json"), encoding="utf-8") as handle:
             rows = json.load(handle)["rows"]
-        pattern, spec = next(iter(rows.items()))
-        ref = perf_result.TargetRef(path="scripts/cmux-next/perf-budgets.json", key=pattern)
-        self.assertEqual(anomaly.row_floor(ref, REPO), spec["floor"])
-        self.assertEqual(anomaly.row_floor(ref.to_dict(), REPO), spec["floor"])
+        self.assertEqual(MOTION_CMD_N_FLOOR_REF["key"], "/rows/cmd_n\\..*/floor")
+        expected = rows["cmd_n\\..*"]["floor"]
+        self.assertEqual(anomaly.row_floor(MOTION_CMD_N_FLOOR_REF, REPO), expected)
+        ref = anomaly.catalog.Ref(MOTION_CMD_N_FLOOR_REF["path"], MOTION_CMD_N_FLOOR_REF["key"])
+        self.assertEqual(anomaly.row_floor(ref, REPO), expected)
 
-    def test_row_name_matches_the_first_full_match_pattern(self):
+    def test_every_catalog_floor_ref_resolves(self):
+        stories = anomaly.catalog.load_catalog(anomaly.catalog.Path(REPO)).stories
+        refs = [m.floor_ref for story in stories for m in story.metrics if m.floor_ref is not None]
+        self.assertTrue(refs)
+        for ref in refs:
+            with self.subTest(ref=ref.describe()):
+                self.assertGreaterEqual(anomaly.row_floor(ref, REPO), 0)
+
+    def test_python_name_key_reference(self):
         with tempfile.TemporaryDirectory() as root:
-            with open(os.path.join(root, "t.json"), "w", encoding="utf-8") as handle:
-                json.dump({"rows": {"a\\..*": {"floor": 0.3}, "a\\.b": {"floor": 3.0}, "c": {}}}, handle)
-            self.assertEqual(anomaly.row_floor({"path": "t.json", "key": "a.b"}, root), 0.3)
-            self.assertEqual(anomaly.row_floor({"path": "t.json", "key": "a\\.b"}, root), 3.0)
-            self.assertEqual(anomaly.row_floor({"path": "t.json", "key": "c"}, root), anomaly.MIN_ABSOLUTE_CHANGE)
-            with self.assertRaises(anomaly.AnomalyError):
-                anomaly.row_floor({"path": "t.json", "key": "zzz"}, root)
-            with self.assertRaises(anomaly.AnomalyError):
-                anomaly.row_floor({"path": "missing.json", "key": "a"}, root)
+            with open(os.path.join(root, "budgets.py"), "w", encoding="utf-8") as handle:
+                handle.write("FLOORS = {'sidebar_rows_shown': 2.5}\n")
+            self.assertEqual(anomaly.row_floor({"path": "budgets.py", "key": "FLOORS/sidebar_rows_shown"}, root), 2.5)
+
+    def test_broken_references_raise_typed_errors(self):
+        with self.assertRaises(anomaly.catalog.RefError):
+            anomaly.row_floor({"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/no-such-row/floor"}, REPO)
+        with self.assertRaises(anomaly.catalog.RefError):
+            anomaly.row_floor({"path": "scripts/perf-lab/missing.json", "key": "/rows/a/floor"}, REPO)
+        with self.assertRaises(anomaly.AnomalyError):
+            anomaly.row_floor({"target": "key-frame-p50"}, REPO)
 
     def test_no_reference_is_catapult_default(self):
         self.assertEqual(anomaly.row_floor(None, REPO), anomaly.MIN_ABSOLUTE_CHANGE)
-        self.assertEqual(anomaly.row_floor({"target": "key-frame-p50"}, REPO), anomaly.MIN_ABSOLUTE_CHANGE)
 
 
 class TargetMiss(unittest.TestCase):
@@ -361,10 +357,23 @@ class AlertsDetectorSeam(unittest.TestCase):
 
     def test_target_miss_takes_plain_values_in_both_directions(self):
         lower = [y for _, y in _step_series(random.Random(6000), 20, 8, 0.15, base=7.5, noise=0.1)]
-        self.assertTrue(self.detector.target_miss(lower, 8.3, "lower"))
+        self.assertEqual(self.detector.target_miss(lower, 8.3, "lower"), 20)
         higher = [y for _, y in _step_series(random.Random(6004), 20, 10, -0.15, base=125.0, noise=1.0)]
-        self.assertTrue(self.detector.target_miss(higher, 118.0, "higher"))
-        self.assertFalse(self.detector.target_miss(higher, 118.0, "lower"))
+        self.assertEqual(self.detector.target_miss(higher, 118.0, "higher"), 20)
+        self.assertIsNone(self.detector.target_miss(higher, 118.0, "lower"))
+
+    def test_change_points_are_newest_first(self):
+        values = [y for _, y in _step_series(random.Random(1017), 20, 17, 0.15)]
+        starts = [change.extended_start for change in self.detector.change_points(values, {})]
+        self.assertEqual(len(starts), 2)
+        self.assertEqual(starts, sorted(starts, reverse=True))
+
+    def test_a_parsed_whole_float_config_runs_the_real_detector(self):
+        entry, = self.alerts.Subscriptions.parse({"build_configs": ["bench"], "subscriptions": [
+            {"name": "x", "kind": "perf-hot", "owner": "A", "match": {"metric": "*"},
+             "anomaly_config": {"max_window_size": 40.0, "min_segment_size": 6.0}}]}).entries
+        values = [y for _, y in _step_series(random.Random(5100), 20, 8, 0.15)]
+        self.assertEqual(len(self.detector.change_points(values, entry.anomaly_config)), 1)
 
 
 if __name__ == "__main__":
