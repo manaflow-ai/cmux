@@ -102,7 +102,10 @@ final class TerminalCopyMode {
         // Output or a mouse scroll may have moved the cursor or the selection.
         syncCursor()
         guard var current = session else { return true }
-        let resolution = CopyModeKeys(asciiCharacter: GhosttyInput.asciiCharacter(forKeyCode:)).resolve(
+        // Only a key that types a non-ASCII character needs the layout's ASCII map, built once per layout.
+        let typesASCII = event.charactersIgnoringModifiers?.unicodeScalars.first?.isASCII ?? true
+        let asciiKeys = typesASCII ? ASCIIKeyMap.empty : GhosttyRuntime.shared.inputSources.asciiKeyMap()
+        let resolution = CopyModeKeys(asciiCharacter: asciiKeys.character(forKeyCode:)).resolve(
             keyCode: event.keyCode, charactersIgnoringModifiers: event.charactersIgnoringModifiers,
             modifiers: modifiers, hasSelection: current.selection != .off, state: &current.input)
         session?.input = current.input

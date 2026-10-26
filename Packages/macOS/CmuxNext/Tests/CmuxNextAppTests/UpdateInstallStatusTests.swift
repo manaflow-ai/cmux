@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxUpdater
 import Foundation
 import Testing
@@ -59,7 +60,8 @@ import CmuxNextWakeupsTestSupport
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = try #require(UserDefaults(suiteName: "UpdateInstallStatusTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, now: { wall.now }, clock: clock)
+                                     enableSparkle: false, recordsUpdates: false, now: { wall.now }, clock: clock,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         var abandoned = 0
         updater.installAbandoned = { abandoned += 1 }
