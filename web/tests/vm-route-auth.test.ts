@@ -2702,8 +2702,9 @@ describe("VM REST auth", () => {
     expect(payload).toMatchObject({
       error: "vm_cloud_service_unavailable",
       retryable: true,
-      details: { providerCode: "provider_error", providerMessage: "provider error" },
+      details: { providerCode: "provider_error" },
     });
+    expect(payload.details.providerMessage).toBeUndefined();
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain("internal.example");
     expect(serialized).not.toContain("sentinel");

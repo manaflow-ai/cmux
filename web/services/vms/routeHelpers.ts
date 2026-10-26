@@ -1831,7 +1831,7 @@ function sanitizedProviderMessage(message: string): string {
   // Unknown provider text may contain URLs, tenant identifiers, request
   // metadata, or credentials. Keep it out of the API response; the original
   // error remains available to server-side telemetry.
-  return "provider error";
+  return "";
 }
 
 function sanitizedProviderCode(code: string): string {
