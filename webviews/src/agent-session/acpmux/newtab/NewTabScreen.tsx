@@ -347,7 +347,6 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
-    loading,
     unsettled,
     cancel,
     retry,
@@ -363,7 +362,7 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(loading, undefined, unsettled);
+  const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(

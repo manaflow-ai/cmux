@@ -524,9 +524,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (editorView.dragging) return false;
                 if (!data || data.files.length || [...data.types].includes("Files")) return false;
                 const whole = data.getData("text/plain");
-                if (whole.length <= PASTE_FILE_CHARS) return false;
+                if (whole.length <= PASTE_FILE_CHARS || !beforeInput(editorView, whole, true)) return false;
                 event.preventDefault();
-                beforeInput(editorView, whole, true);
                 return true;
               },
               paste: (editorView, event) => {
@@ -536,9 +535,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // or parses it (ProseMirror would lay out every line of it first): the composer
                 // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
                 const whole = data.getData("text/plain");
-                if (whole.length > PASTE_FILE_CHARS && !data.files.length) {
+                // A surface without a file intake (Home Channels) takes it as before.
+                if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
                   event.preventDefault();
-                  beforeInput(editorView, whole, true);
                   return true;
                 }
                 const lifted = liftInlineImages(whole);

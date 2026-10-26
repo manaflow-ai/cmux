@@ -115,3 +115,41 @@ test("a paste past what a prompt carries is a file of its text, made a slice per
   expect(file.name).toBe("Pasted text.txt");
   expect(await file.text()).toBe(text);
 });
+
+// Review (Codex): a batch's host takes its files in the manifest's order; a file cancelled before its
+// upload begins is begun and cancelled at once, so the files after it still go.
+test("a file cancelled before its upload begins keeps the batch's order for the rest", async () => {
+  const begun: string[] = [];
+  const cancels: string[] = [];
+  const host = async (method: string, params: Record<string, unknown>) => {
+    if (method === "chat.upload.begin") {
+      begun.push(params.name as string);
+      return { token: params.name, size: params.size, chunkSize: 512 * 1024, batchToken: "b" };
+    }
+    if (method === "chat.upload.chunk")
+      return { offset: (params.offset as number) + atob(params.data as string).length };
+    if (method === "chat.upload.finish") return { path: `/tmp/${String(params.token)}` };
+    if (method === "chat.upload.cancel") cancels.push(params.token as string);
+    return null;
+  };
+  const files = ["a.bin", "b.bin", "c.bin"].map((name) => new File(["bytes"], name));
+  const sent = await uploadToMachine(files, host, (index) => index === 1);
+  expect(begun).toEqual(["a.bin", "b.bin", "c.bin"]);
+  expect(cancels).toEqual(["b.bin"]);
+  expect(sent).toEqual({ paths: ["/tmp/a.bin", "", "/tmp/c.bin"] });
+});
+
+test("an older host still gets the one-frame upload when the first file is cancelled", async () => {
+  const calls: string[] = [];
+  const host = async (method: string, params: Record<string, unknown>) => {
+    calls.push(method);
+    if (method === "chat.upload.begin") throw Object.assign(new Error("unsupported"), { code: "unsupported" });
+    if (method === "chat.upload")
+      return { uploads: (params.files as { name: string }[]).map((file) => ({ path: `/tmp/${file.name}` })) };
+    return null;
+  };
+  const files = ["a.txt", "b.txt"].map((name) => new File(["bytes"], name));
+  const sent = await uploadToMachine(files, host, (index) => index === 0);
+  expect(calls).toContain("chat.upload");
+  expect(sent).toEqual({ paths: ["", "/tmp/b.txt"] });
+});

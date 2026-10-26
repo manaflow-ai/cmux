@@ -165,6 +165,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
+  /// The chips a render has staged: one not yet rendered is not gone, only not drawn yet.
+  const everStaged = useRef(new Set<string>());
+  for (const attachment of attachments) everStaged.current.add(attachment.id);
   /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
   /// still lands where it was pasted, across batches too.
   const places = useRef(new Map<string, number>());
@@ -263,7 +266,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           cancelled: (index) => {
             const chip = made[index];
             if (!chip) return !sources.current.has(shown[index]!.id);
-            return staged.has(chip) && !stagedNow.current.some((attachment) => attachment.id === chip);
+            return (
+              staged.has(chip) &&
+              everStaged.current.has(chip) &&
+              !stagedNow.current.some((attachment) => attachment.id === chip)
+            );
           },
         },
         {
