@@ -1636,7 +1636,12 @@ const RowFrame = React.memo(function RowFrame({
   const [entering] = useState(enter);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
-  const messageEntering = entering && (row.kind === "user" || row.kind === "assistant");
+  // Hidden user rows intentionally render no content and must keep the empty-row geometry.  Do not
+  // add a presentation wrapper to them, or `article.acpmux-row:empty` can no longer collapse them.
+  const messageEntering =
+    entering &&
+    (row.kind === "user" || row.kind === "assistant") &&
+    !(row.kind === "user" && row.incoming?.kind === "hidden");
   const [olderFade] = useState(older);
   const copyRowResult = useCallback(
     (id: string) =>
@@ -4001,7 +4006,9 @@ export function VirtualTranscript({
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
-                      enter={enteringRows.current.has(row.id)}
+                      // A session switch is a load, not a live arrival. The reset effect runs after
+                      // this render, so gate it here as well to avoid a reused row id animating once.
+                      enter={!sessionChanged && enteringRows.current.has(row.id)}
                       onEntered={onEntered}
                       older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                       onOlderShown={onOlderShown}

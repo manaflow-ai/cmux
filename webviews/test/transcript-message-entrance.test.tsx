@@ -63,7 +63,8 @@ const row = (id: string, kind: "user" | "assistant", text: string, version = 1):
 });
 
 test("new user and assistant rows enter once, while streamed versions stay still", async () => {
-  const Row = ({ row: item }: { row: AcpmuxRow }) => <div data-testid={`content-${item.id}`}>{item.text}</div>;
+  const Row = ({ row: item }: { row: AcpmuxRow }) =>
+    item.incoming?.kind === "hidden" ? null : <div data-testid={`content-${item.id}`}>{item.text}</div>;
   const registry = { user: Row, assistant: Row } as never;
   const root = createRoot(dom.window.document.getElementById("root")!);
   const render = (rows: AcpmuxRow[]) =>
@@ -113,6 +114,12 @@ test("new user and assistant rows enter once, while streamed versions stay still
     expect(replyPresentationAfter).toBe(replyPresentation);
     expect(promptAfter?.classList.contains("acpmux-row--message-enter")).toBe(promptEntered);
     expect(replyAfter?.classList.contains("acpmux-row--message-enter")).toBe(replyEntered);
+
+    const hidden = { ...row("hidden-1", "user", ""), incoming: { kind: "hidden" as const } };
+    await render([...existing, hidden]);
+    const hiddenNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="hidden-1"]');
+    expect(hiddenNode?.matches(":empty")).toBe(true);
+    expect(hiddenNode?.querySelector(".acpmux-row__message-presentation")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
