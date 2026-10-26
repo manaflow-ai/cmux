@@ -4,6 +4,8 @@ public enum OnceContinuationError: Error, Sendable, Equatable {
     /// callback. Without this the waiting task would hang for ever.
     case abandoned
     /// The waiting task was cancelled, and the wait was made with ``OnceContinuationCancellation/cancellable``.
+    /// ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)`` throws it as
+    /// `CancellationError`; a typed wait hands it to its `failingWith` mapping.
     case cancelled
 
     /// The error ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)`` throws
@@ -24,9 +26,11 @@ public enum OnceContinuationCancellation: Sendable, Equatable {
     /// Cancellation does not end the wait; only the producer's resume (or abandonment) does. A raw
     /// `withCheckedContinuation` behaves so, which is why it is the default.
     case notCancellable
-    /// Cancellation ends the wait at once with ``OnceContinuationError/cancelled``; the producer's later
-    /// resume is a no-op and no fault. Choose it only where the producer's work is cancelled too, or is
-    /// harmless to finish unobserved.
+    /// Cancellation ends the wait at once: `CancellationError` from
+    /// ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)``, the mapped
+    /// ``OnceContinuationError/cancelled`` from a typed wait. The producer's first resume after it is a no-op
+    /// and no fault; a second is a double resume and reports one. Choose it only where the producer's work is
+    /// cancelled too, or is harmless to finish unobserved.
     case cancellable
 }
 
@@ -37,18 +41,21 @@ public enum OnceContinuationCancellation: Sendable, Equatable {
 ///
 /// Chromium's `base::OnceCallback` (base/functional/callback.h) is the model: one run, consumed by it, and
 /// its destruction without a run is defined, never a hang. Make one with
-/// ``withOnceContinuation(isolation:cancellation:faults:function:fileID:line:_:)``,
+/// ``withOnceContinuation(isolation:faults:function:fileID:line:_:)``,
 /// ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)`` or
 /// ``withOnceContinuation(isolation:cancellation:failingWith:faults:function:fileID:line:_:)``.
 public final class OnceContinuation<Success: Sendable, Failure: Error>: Sendable {
     typealias Raw = CheckedContinuation<Result<Success, Failure>, Never>
 
     /// Where the continuation is in its one life. Only `waiting` holds the raw continuation, so it can be
-    /// resumed only on the one transition out of `waiting`.
+    /// resumed only on the one transition out of `waiting`. A cancelled wait still records the producer's
+    /// resume (`cancelledThenResumed`), so a second producer resume after a cancel is a fault as it is
+    /// without one.
     enum Phase: Sendable {
         case waiting(Raw)
         case resumed
         case cancelled
+        case cancelledThenResumed
     }
 
     private let phase: Mutex<Phase>
@@ -69,7 +76,7 @@ public final class OnceContinuation<Success: Sendable, Failure: Error>: Sendable
     }
 
     /// Resumes the waiting task with `value`. Returns false, without a resume, when the continuation already
-    /// ended: a second resume also reports a fault; a resume after a cancelled wait does not.
+    /// ended: a second producer resume also reports a fault; the first resume after a cancelled wait does not.
     @discardableResult
     public func resume(returning value: Success) -> Bool {
         resume(with: .success(value))
@@ -84,14 +91,26 @@ public final class OnceContinuation<Success: Sendable, Failure: Error>: Sendable
     /// Resumes the waiting task with `result`; returns as ``resume(returning:)`` does.
     @discardableResult
     public func resume(with result: Result<Success, Failure>) -> Bool {
-        switch end(as: .resumed) {
+        let previous: Phase = phase.withLock { current in
+            let previous = current
+            switch current {
+            case .waiting:
+                current = .resumed
+            case .cancelled:
+                current = .cancelledThenResumed
+            case .resumed, .cancelledThenResumed:
+                break
+            }
+            return previous
+        }
+        switch previous {
         case .waiting(let raw):
             raw.resume(returning: result)
             return true
-        case .resumed:
-            faults.report(OnceContinuationFault(.resumedTwice, at: site))
-            return false
         case .cancelled:
+            return false
+        case .resumed, .cancelledThenResumed:
+            faults.report(OnceContinuationFault(.resumedTwice, at: site))
             return false
         }
     }

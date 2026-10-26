@@ -198,7 +198,11 @@ private let thisFile = "CmuxSafeConcurrencyTests/OnceContinuationTests.swift"
         let parked = Parked<Int, OnceContinuationError>()
         let (ready, signal) = AsyncStream<Void>.makeStream()
         let task = Task {
-            try await withOnceContinuation(cancellation: .cancellable, faults: log.reporter) { (once: IntOnce) in
+            try await withOnceContinuation(
+                cancellation: .cancellable,
+                failingWith: { $0 },
+                faults: log.reporter
+            ) { (once: IntOnce) in
                 parked.park(once)
                 signal.yield()
             }
@@ -210,6 +214,31 @@ private let thisFile = "CmuxSafeConcurrencyTests/OnceContinuationTests.swift"
         #expect(!once.resume(returning: 7))
         parked.drop()
         #expect(log.recorded.isEmpty)
+    }
+
+    @Test func aSecondResumeAfterACancelIsADoubleResumeFault() async throws {
+        let log = FaultLog()
+        let parked = Parked<Int, OnceContinuationError>()
+        let (ready, signal) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            try await withOnceContinuation(
+                cancellation: .cancellable,
+                failingWith: { $0 },
+                faults: log.reporter
+            ) { (once: IntOnce) in
+                parked.park(once)
+                signal.yield()
+            }
+        }
+        for await _ in ready { break }
+        task.cancel()
+        await #expect(throws: OnceContinuationError.cancelled) { try await task.value }
+        let once = try #require(parked.continuation)
+        let outcomes = [once.resume(returning: 1), once.resume(returning: 2)]
+        #expect(outcomes == [false, false])
+        #expect(log.kinds == [.resumedTwice])
+        parked.drop()
+        #expect(log.kinds == [.resumedTwice])
     }
 
     @Test(arguments: [OnceContinuationCancellation.notCancellable, .cancellable])
@@ -224,6 +253,7 @@ private let thisFile = "CmuxSafeConcurrencyTests/OnceContinuationTests.swift"
             do throws(OnceContinuationError) {
                 let value: Int = try await withOnceContinuation(
                     cancellation: cancellation,
+                    failingWith: { $0 },
                     faults: log.reporter
                 ) { once in
                     outcomes.record(once.resume(returning: 1))
@@ -275,7 +305,11 @@ private let thisFile = "CmuxSafeConcurrencyTests/OnceContinuationTests.swift"
             let parked = Parked<Int, OnceContinuationError>()
             let (ready, signal) = AsyncStream<Void>.makeStream()
             let task = Task {
-                try await withOnceContinuation(cancellation: .cancellable, faults: log.reporter) { (once: IntOnce) in
+                try await withOnceContinuation(
+                    cancellation: .cancellable,
+                    failingWith: { $0 },
+                    faults: log.reporter
+                ) { (once: IntOnce) in
                     parked.park(once)
                     signal.yield()
                 }

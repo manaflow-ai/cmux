@@ -1,10 +1,12 @@
 /// Suspends the current task, calls `body` with a ``OnceContinuation`` for it, and returns the value the
 /// continuation resumes with. The replacement for `withCheckedContinuation`: a dropped continuation throws
-/// ``OnceContinuationError/abandoned`` instead of hanging, a second resume is a no-op instead of a crash, and
-/// with `cancellation: .cancellable` a cancelled task throws ``OnceContinuationError/cancelled`` at once.
+/// ``OnceContinuationError/abandoned`` instead of hanging, and a second resume is a no-op instead of a crash.
+/// Cancellation does not end the wait, as with the raw one. A cancellable wait throws `CancellationError`
+/// from ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)``, or the
+/// caller's own mapping of ``OnceContinuationError/cancelled`` from
+/// ``withOnceContinuation(isolation:cancellation:failingWith:faults:function:fileID:line:_:)``.
 public func withOnceContinuation<Success: Sendable>(
     isolation: isolated (any Actor)? = #isolation,
-    cancellation: OnceContinuationCancellation = .notCancellable,
     faults: OnceContinuationFaultReporter = .systemLog,
     function: String = #function,
     fileID: String = #fileID,
@@ -13,7 +15,7 @@ public func withOnceContinuation<Success: Sendable>(
 ) async throws(OnceContinuationError) -> Success {
     try await withOnceContinuation(
         isolation: isolation,
-        cancellation: cancellation,
+        cancellation: .notCancellable,
         failingWith: { $0 },
         faults: faults,
         function: function,
@@ -23,7 +25,7 @@ public func withOnceContinuation<Success: Sendable>(
     )
 }
 
-/// ``withOnceContinuation(isolation:cancellation:faults:function:fileID:line:_:)`` for a producer that can
+/// ``withOnceContinuation(isolation:faults:function:fileID:line:_:)`` for a producer that can
 /// fail with any error. The replacement for `withCheckedThrowingContinuation`: a dropped continuation throws
 /// ``OnceContinuationError/abandoned``; a cancelled `.cancellable` wait throws `CancellationError`.
 public func withOnceThrowingContinuation<Success: Sendable>(
@@ -47,8 +49,10 @@ public func withOnceThrowingContinuation<Success: Sendable>(
     )
 }
 
-/// ``withOnceContinuation(isolation:cancellation:faults:function:fileID:line:_:)`` for a producer with a typed
-/// error: `ending` turns an abandoned or cancelled wait into a `Failure`, which the call throws.
+/// ``withOnceContinuation(isolation:faults:function:fileID:line:_:)`` for a producer with a typed
+/// error: `ending` turns an abandoned or cancelled wait into a `Failure`, which the call throws. A
+/// `.cancellable` wait that should end as `CancellationError` maps through ``OnceContinuationError/thrown``
+/// or uses ``withOnceThrowingContinuation(isolation:cancellation:faults:function:fileID:line:_:)``.
 public func withOnceContinuation<Success: Sendable, Failure: Error>(
     isolation: isolated (any Actor)? = #isolation,
     cancellation: OnceContinuationCancellation = .notCancellable,

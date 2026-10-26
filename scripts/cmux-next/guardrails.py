@@ -2716,8 +2716,8 @@ RAW_CONTINUATION_RULES = (
          "resume-once helpers each fixed one site (p10-stability.md, CONTINUATIONS)",
          "CmuxSafeConcurrency's `withOnceContinuation { once in ... }` (or `withOnceThrowingContinuation`, or "
          "`withOnceContinuation(failingWith:)` for a typed error): resume exactly once, a drop throws "
-         "`OnceContinuationError.abandoned`; pass `cancellation: .cancellable` only where the producer's work is "
-         "cancelled too",
+         "`OnceContinuationError.abandoned`; pass `cancellation: .cancellable` (throwing or typed form only; "
+         "the throwing form throws CancellationError) only where the producer's work is cancelled too",
          "// raw-continuation-allow: <why OnceContinuation cannot serve this site>",
          raw_continuation,
          scope=("Packages/",)),
