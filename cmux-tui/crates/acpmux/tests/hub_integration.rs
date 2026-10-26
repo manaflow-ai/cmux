@@ -31,6 +31,8 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
@@ -51,8 +53,6 @@ mod prompt_withdraw;
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
-#[path = "hub_integration/log_retention.rs"]
-mod log_retention;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]

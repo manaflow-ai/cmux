@@ -274,9 +274,10 @@ fn mux_meta(params: &mut Value) -> Option<&mut serde_json::Map<String, Value>> {
 /// this daemon's root, never one to tag.
 fn reply_lacks_lineage(reply: &Value) -> bool {
     reply.get("peer").is_some()
-        || !reply.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|m| {
-            m.contains_key(crate::hub::lineage::PARENT_FIELD)
-        })
+        || !reply
+            .pointer("/_meta/acpmux")
+            .and_then(Value::as_object)
+            .is_some_and(|m| m.contains_key(crate::hub::lineage::PARENT_FIELD))
 }
 
 /// An error reply from the daemon. It prints as the message alone and
