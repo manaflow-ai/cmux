@@ -65,7 +65,7 @@ public final class MemoryConsumerList<Record: MemoryConsumerListRecord> {
     ///
     /// - Returns: The live entries.
     public func liveEntries() -> [MemoryConsumerEntry] {
-        liveRecords().map(\.entry)
+        liveRecords().map { $0.entry }
     }
 
     /// How many records the list holds now, released ones not yet dropped included.
