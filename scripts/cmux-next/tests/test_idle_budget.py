@@ -18,6 +18,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
@@ -734,14 +735,14 @@ class SaverAndThermalTests(unittest.TestCase):
         entry = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=reads)}, {"kinds": {}})
         self.assertEqual(entry["anim"]["raf_per_s"], 30.0)
         self.assertEqual(entry["anim"]["visibility"], ["visible", "visible"])
-        self.assertEqual(ib.refusals(entry), [])
+        self.assertEqual(ib.refusals({**entry, **SHIPPING_RAN}), [])
 
     def test_gate_refuses_energy_saver_without_a_raf_rate(self):
         unread = ({"error": "the page posted no rAF count in 10 s"}, {"count": 1, "t_ms": 2})
         entry = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=unread)}, {"kinds": {}})
-        self.assertEqual([what for what, _ in ib.refusals(entry)], ["anim"])
+        self.assertEqual([what for what, _ in ib.refusals({**entry, **SHIPPING_RAN})], ["anim"])
         light = ib.summarize("light", {"processes": [], "ends": ends(False, False)}, {"kinds": {}})
-        self.assertEqual(ib.refusals(light), [])
+        self.assertEqual(ib.refusals({**light, **SHIPPING_RAN}), [])
         self.assertIn("error", ib.anim_rate({"error": "no target"}, {"count": 1, "t_ms": 2}))
 
     def test_window_facts_reach_the_v2_session_rows(self):
@@ -1006,17 +1007,44 @@ class XbenchChromeSwitchTests(unittest.TestCase):
         self.assertFalse(any(s.startswith("--load-extension") for s in plain))
 
 
-def bundle(folder, debug):
-    """A `cmux DEV t.app` with an empty main executable; `debug` adds Xcode's `.debug.dylib` beside it."""
+
+def bundle(folder, debug, ident="com.cmuxterm.app.debug.t"):
+    """A `cmux DEV t.app` with an empty main executable and an Info.plist naming `ident`; `debug` adds Xcode's
+    `.debug.dylib` beside the executable."""
+    import plistlib
     macos = os.path.join(folder, "cmux DEV t.app", "Contents", "MacOS")
     os.makedirs(macos)
     open(os.path.join(macos, "cmux DEV"), "wb").close()
     if debug:
         open(os.path.join(macos, "cmux DEV.debug.dylib"), "wb").close()
-    return os.path.dirname(os.path.dirname(macos))
+    contents = os.path.dirname(macos)
+    if ident:
+        with open(os.path.join(contents, "Info.plist"), "wb") as handle:
+            plistlib.dump({"CFBundleIdentifier": ident}, handle)
+    return os.path.dirname(contents)
 
 
-SHIPPING_KEYS = {"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1"}
+def fake_tool(folder, name, code=0, stderr=""):
+    """An executable that appends its arguments (one line, tab-separated) to `<folder>/<name>.calls` and exits `code`."""
+    path = os.path.join(folder, name)
+    calls = path + ".calls"
+    with open(path, "w") as handle:
+        handle.write(f"#!/bin/sh\nprintf '%s\\t' \"$@\" >> '{calls}'\necho >> '{calls}'\n")
+        if stderr:
+            handle.write(f"echo '{stderr}' >&2\n")
+        handle.write(f"exit {code}\n")
+    os.chmod(path, 0o755)
+    return path, calls
+
+
+SHIPPING_KEYS = {"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1",
+                 "CMUX_NEXT_ISOLATED_LAUNCH": "1"}
+# debug.shipping_mode of a bench-hooks launch in the shipping configuration.
+MODE_SENDING = {"draws_when_occluded": False, "pages_render_when_covered": False, "sentry_should_start": True,
+                "hang_reports": {"available": True, "setting": True, "decision": "send", "enabled": True}}
+# The shipping fields of a session that ran the shipping configuration (no shipping refusal).
+SHIPPING_RAN = {"activated": {"activated": True, "error": ""}, "sentry_started": True,
+                "hang_reports": {"available": True, "setting": True, "decision": "send", "enabled": True, "on": True}}
 
 
 class ShippingModeTests(unittest.TestCase):
@@ -1024,33 +1052,113 @@ class ShippingModeTests(unittest.TestCase):
         self.folder = tempfile.mkdtemp(prefix="idle-budget-test-")
         self.addCleanup(shutil.rmtree, self.folder, True)
 
-    def test_launch_env_holds_the_three_keys_and_drops_no_activate(self):
+    def bench_app(self, **kwargs):
+        import bench_launch
+        return bench_launch.BenchApp(bundle(self.folder, debug=False), out=os.path.join(self.folder, "out"),
+                                     teardown=False, **kwargs)
+
+    def test_launch_env_holds_the_keys_and_drops_no_activate(self):
         env = ib.launch_env()
         for key, value in SHIPPING_KEYS.items():
             self.assertEqual(env[key], value)
         self.assertIn("CMUX_NEXT_NO_ACTIVATE", env)
         self.assertIsNone(env["CMUX_NEXT_NO_ACTIVATE"])  # None removes BASE_ENV's value
         self.assertNotIn("CMUX_NEXT_BENCH_SHIPPING_DRAW", ib.launch_env(shipping_draw=False))
+        self.assertEqual(ib.launch_env(shipping_draw=False)["CMUX_NEXT_ISOLATED_LAUNCH"], "1")
 
-    def test_the_app_is_started_with_the_three_keys(self):
-        import bench_launch
-        app = bench_launch.BenchApp(bundle(self.folder, debug=False), out=os.path.join(self.folder, "out"),
-                                    teardown=False, env=ib.launch_env())
-        env = app.environment()
+    def test_the_app_is_started_isolated_at_the_fixed_window_frame(self):
+        """No CMUX_NEXT_NO_ACTIVATE, so the app may activate; CMUX_NEXT_ISOLATED_LAUNCH keeps TestWindowPlacement
+        (the same frame on every host) and the other isolation guards (LaunchIsolation.isolated)."""
+        env = self.bench_app(env=ib.launch_env()).environment()
         for key, value in SHIPPING_KEYS.items():
             self.assertEqual(env.get(key), value)
         self.assertNotIn("CMUX_NEXT_NO_ACTIVATE", env)
         self.assertEqual(env["CMUX_NEXT_SOCKET_MODE"], "automation")  # the bench still reaches the socket
+        self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_FRAME"], "40,40,1440,900")
+        self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_SCREEN"], "0")
+
+    def test_every_session_asks_for_hang_reports(self):
+        for session in ib.SESSIONS:
+            self.assertEqual(ib.session_config(session)["diagnostics"], {"hangReports": True}, session)
 
     def test_activate_refuses_a_no_activate_launch(self):
-        import bench_launch
-        app = bench_launch.BenchApp(bundle(self.folder, debug=False), out=os.path.join(self.folder, "out"),
-                                    teardown=False)
+        app = self.bench_app()
         app.process = types.SimpleNamespace(poll=lambda: None)
         app.launched_env = app.environment()
         result = app.activate()
         self.assertFalse(result["activated"])
         self.assertIn("CMUX_NEXT_NO_ACTIVATE=1", result["error"])
+
+    def launched(self, replies):
+        """A shipping-mode BenchApp that 'runs', whose debug.window_list answers `replies` in turn (the last one
+        repeats)."""
+        app = self.bench_app(env=ib.launch_env())
+        app.process = types.SimpleNamespace(poll=lambda: None)
+        app.launched_env = app.environment()
+        calls = []
+
+        def rpc(method, params=None, timeout=60):
+            calls.append(method)
+            return replies[min(len(calls), len(replies)) - 1]
+        app.rpc = rpc
+        return app, calls
+
+    def test_activate_sees_a_key_window(self):
+        osascript, osascript_calls = fake_tool(self.folder, "osascript")
+        app, calls = self.launched([{"windows": [{"key": False}]}, {"windows": [{"key": False}, {"key": True}]}])
+        with unittest.mock.patch.dict(os.environ, {"BENCH_LAUNCH_OSASCRIPT": osascript}):
+            result = app.activate(timeout=5)
+        self.assertEqual(result, {"activated": True, "error": ""})
+        self.assertEqual(calls, ["debug.window_list", "debug.window_list"])
+        with open(osascript_calls) as handle:
+            self.assertIn('tell application id "com.cmuxterm.app.debug.t" to activate', handle.read())
+
+    def test_activate_reports_osascript_failure(self):
+        osascript, _ = fake_tool(self.folder, "osascript", code=1, stderr="execution error: not allowed")
+        app, calls = self.launched([{"windows": [{"key": True}]}])
+        with unittest.mock.patch.dict(os.environ, {"BENCH_LAUNCH_OSASCRIPT": osascript}):
+            result = app.activate(timeout=5)
+        self.assertFalse(result["activated"])
+        self.assertIn("osascript exit 1", result["error"])
+        self.assertIn("not allowed", result["error"])
+        self.assertEqual(calls, [])  # no window poll after a failed activate
+
+    def test_activate_times_out_without_a_key_window(self):
+        osascript, _ = fake_tool(self.folder, "osascript")
+        app, calls = self.launched([{"windows": [{"key": False}]}])
+        with unittest.mock.patch.dict(os.environ, {"BENCH_LAUNCH_OSASCRIPT": osascript}):
+            result = app.activate(timeout=0.3)
+        self.assertFalse(result["activated"])
+        self.assertIn("no window of the app is key 0.3 s after activate", result["error"])
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_hang_report_consent_is_written_into_the_tag_domain_only(self):
+        import bench_launch
+        defaults, defaults_calls = fake_tool(self.folder, "defaults")
+        with unittest.mock.patch.dict(os.environ, {"BENCH_LAUNCH_DEFAULTS": defaults}):
+            app = bundle(self.folder, debug=False)
+            self.assertEqual(bench_launch.seed_hang_report_consent(app, now=0), "")
+            with open(defaults_calls) as handle:
+                self.assertEqual(handle.read().split("\t")[:5], ["write", "com.cmuxterm.app.debug.t",
+                                                                 "cmux.next.hangReports.consentedAt", "-date",
+                                                                 "1970-01-01 00:00:00 +0000"])
+            shutil.rmtree(app)
+            user = bundle(self.folder, debug=False, ident="com.cmuxterm.app")
+            self.assertIn("not a tagged DEV bundle id", bench_launch.seed_hang_report_consent(user))
+        failing, _ = fake_tool(self.folder, "defaults-fails", code=1, stderr="Could not write domain")
+        with unittest.mock.patch.dict(os.environ, {"BENCH_LAUNCH_DEFAULTS": failing}):
+            shutil.rmtree(user)
+            self.assertIn("defaults exit 1", bench_launch.seed_hang_report_consent(bundle(self.folder, debug=False)))
+
+    def test_build_config_reads_the_binary_bench_app_launches(self):
+        import bench_launch
+        app = bundle(self.folder, debug=False)
+        self.assertEqual(bench_launch.main_binary(app), self.bench_app_at(app).binary)
+        self.assertEqual(ib.bundle_build_config(app), "release")
+
+    def bench_app_at(self, app):
+        import bench_launch
+        return bench_launch.BenchApp(app, out=os.path.join(self.folder, "out"), teardown=False)
 
     def test_gate_on_a_debug_bundle_exits_non_zero_with_the_reason(self):
         app = bundle(self.folder, debug=True)
@@ -1063,37 +1171,84 @@ class ShippingModeTests(unittest.TestCase):
         self.assertIn("refuses a Debug build", out.getvalue())
         self.assertFalse(os.path.exists(os.path.join(self.folder, "out")))  # refused before any launch or output
 
+    def test_shipping_draw_off_is_refused_where_it_changes_nothing(self):
+        """Only a Debug automation launch draws occluded windows: on a Release or bench-hooks build `--shipping-draw
+        off` would measure the same draw twice."""
+        app = bundle(self.folder, debug=False)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as raised:
+            ib.main(["--app", app, "--shipping-draw", "off", "--out", os.path.join(self.folder, "out")])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--shipping-draw off has no effect on a release build", out.getvalue())
+        self.assertIsNotNone(ib.gate_refusal("bench-hooks", False, "off"))
+        self.assertIsNone(ib.gate_refusal("debug", False, "off"))
+
     def test_gate_accepts_release_and_bench_hooks_and_no_gate_accepts_debug(self):
-        self.assertEqual(ib.bundle_build_config(bundle(self.folder, debug=False)), "release")
         self.assertIsNone(ib.gate_refusal("release", True))
         self.assertIsNone(ib.gate_refusal("bench-hooks", True))
         self.assertIsNone(ib.gate_refusal("debug", False))
 
-    def test_the_five_fields(self):
+    def test_the_five_fields_come_from_the_app(self):
         import bench_launch
         env = {**bench_launch.BASE_ENV, **{k: v for k, v in ib.launch_env().items() if v is not None}}
         env.pop("CMUX_NEXT_NO_ACTIVATE", None)
         fields = ib.shipping_fields("bench-hooks", env, ["main", "SentryCrash Exception Handler (Primary)"],
-                                    {"installed": True}, {"activated": True, "error": ""})
+                                    MODE_SENDING, {"activated": True, "error": ""})
         self.assertEqual(tuple(fields), ib.SHIPPING_FIELDS)
         self.assertEqual(set(ib.SHIPPING_FIELDS),
                          {"build_config", "sentry_started", "hang_reports", "draws_when_occluded", "activated"})
         self.assertEqual(fields["build_config"], "bench-hooks")
         self.assertTrue(fields["sentry_started"])
-        self.assertEqual(fields["hang_reports"], {"dev_opt_in": True, "watchdog": True})
-        self.assertFalse(fields["draws_when_occluded"])
+        self.assertEqual(fields["hang_reports"],
+                         {"available": True, "setting": True, "decision": "send", "enabled": True, "on": True})
+        self.assertEqual(fields["draws_when_occluded"], {"windows": False, "pages": False, "predicted": False})
         self.assertTrue(fields["activated"]["activated"])
+        self.assertIsNone(ib.draw_mismatch(fields))
+        self.assertEqual(ib.shipping_refusals(fields), [])
+
+    def test_an_app_that_did_not_answer_records_unknown_and_hang_reports_off(self):
         quiet = ib.shipping_fields("debug", {}, ["main"], {}, {"activated": False, "error": "x"})
         self.assertFalse(quiet["sentry_started"])
-        self.assertEqual(quiet["hang_reports"], {"dev_opt_in": False, "watchdog": False})
+        self.assertEqual(quiet["hang_reports"],
+                         {"available": None, "setting": None, "decision": None, "enabled": None, "on": False})
+        self.assertEqual(quiet["draws_when_occluded"], {"windows": None, "pages": None, "predicted": False})
+        self.assertIsNone(ib.draw_mismatch(quiet))
 
-    def test_draws_when_occluded_follows_window_draw_policy(self):
+    def test_the_app_answer_wins_and_a_mismatch_is_named(self):
         automation = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation"}
-        self.assertTrue(ib.draws_when_occluded("debug", automation))
-        self.assertFalse(ib.draws_when_occluded("debug", {**automation, "CMUX_NEXT_BENCH_SHIPPING_DRAW": "1"}))
-        self.assertFalse(ib.draws_when_occluded("bench-hooks", automation))
-        self.assertFalse(ib.draws_when_occluded("release", automation))
-        self.assertFalse(ib.draws_when_occluded("debug", {}))
+        fields = ib.shipping_fields("debug", automation, [], {**MODE_SENDING, "pages_render_when_covered": False},
+                                    {"activated": True, "error": ""})
+        self.assertEqual(fields["draws_when_occluded"], {"windows": False, "pages": False, "predicted": True})
+        self.assertIn("the launch env predicts True", ib.draw_mismatch(fields))
+
+    def test_predicted_draw_follows_window_draw_policy(self):
+        automation = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation"}
+        self.assertTrue(ib.predicted_draws_when_occluded("debug", automation))
+        self.assertFalse(ib.predicted_draws_when_occluded("debug", {**automation, "CMUX_NEXT_BENCH_SHIPPING_DRAW": "1"}))
+        self.assertFalse(ib.predicted_draws_when_occluded("bench-hooks", automation))
+        self.assertFalse(ib.predicted_draws_when_occluded("release", automation))
+        self.assertFalse(ib.predicted_draws_when_occluded("debug", {}))
+
+    def test_gate_refuses_a_session_not_activated(self):
+        entry = {**SHIPPING_RAN, "activated": {"activated": False, "error": "no window of the app is key 10 s after activate"}}
+        self.assertEqual(ib.shipping_refusals(entry),
+                         [("activated", "the app was not activated: no window of the app is key 10 s after activate")])
+
+    def test_gate_refuses_a_session_without_sentry(self):
+        self.assertEqual([what for what, _ in ib.shipping_refusals({**SHIPPING_RAN, "sentry_started": False})],
+                         ["sentry"])
+
+    def test_gate_refuses_a_session_without_hang_reports(self):
+        for hang in ({"available": True, "setting": True, "decision": "confirm", "enabled": False, "on": False},
+                     {"available": False, "setting": True, "decision": None, "enabled": False, "on": False},
+                     {"available": True, "setting": False, "decision": "invite", "enabled": False, "on": False}):
+            reasons = ib.shipping_refusals({**SHIPPING_RAN, "hang_reports": hang})
+            self.assertEqual([what for what, _ in reasons], ["hang_reports"], hang)
+            self.assertIn(json.dumps(hang["decision"]), reasons[0][1])
+
+    def test_gate_refuses_a_session_with_no_shipping_record(self):
+        self.assertEqual([what for what, _ in ib.refusals({"saver": {"mismatch": None}})],
+                         ["activated", "sentry", "hang_reports"])
 
 
 if __name__ == "__main__":

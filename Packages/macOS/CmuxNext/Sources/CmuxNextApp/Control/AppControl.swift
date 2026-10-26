@@ -353,6 +353,8 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
+            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            DebugShippingMode.live(services: services).method,
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
