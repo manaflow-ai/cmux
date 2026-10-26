@@ -409,6 +409,7 @@
         "CmuxNextMacScreen",
         "CmuxNextMobile",
         "CmuxNextNowPlaying",
+        "CmuxNextOnboarding",
         "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",

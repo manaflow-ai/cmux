@@ -137,6 +137,7 @@ final class ExternalOpenController {
         switch route {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
+        case .ssh(let target): pane.newTerminalTab(cwd: nil, typing: target.command + "\n")
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .deepLink, .unsupported: return
