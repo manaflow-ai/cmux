@@ -314,10 +314,10 @@ async fn a_cut_turn_with_no_retry_records_the_decision_for_watchers() {
     assert_eq!(row["lastTurn"]["status"], "failed", "{settled}");
     assert_eq!(row["retry"], Value::Null, "{settled}");
     assert_eq!(row["retryDeciding"], Value::Null, "{settled}");
-    let records = records(&hub, &id, "auto_resume_settled");
-    assert_eq!(records.len(), 1, "{records:?}");
-    assert_eq!(records[0]["why"], "off", "{records:?}");
-    assert_eq!(records[0]["turnId"], row["lastTurn"]["turnId"], "{records:?}");
+    let decided = records(&hub, &id, "auto_resume_settled");
+    assert_eq!(decided.len(), 1, "{decided:?}");
+    assert_eq!(decided[0]["why"], "off", "{decided:?}");
+    assert_eq!(decided[0]["turnId"], row["lastTurn"]["turnId"], "{decided:?}");
     // A turn that failed on another error, or ended well, records none.
     c.request(
         method::SESSION_PROMPT,

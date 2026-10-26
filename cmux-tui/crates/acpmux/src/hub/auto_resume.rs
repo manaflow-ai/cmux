@@ -315,7 +315,11 @@ impl Hub {
             if ending.is_some() {
                 pending.remove(&session.id);
                 drop(pending);
-                self.settled_unretried(session, turn_id, if ending == Some(false) { "stopped" } else { "not_retried" });
+                self.settled_unretried(
+                    session,
+                    turn_id,
+                    if ending == Some(false) { "stopped" } else { "not_retried" },
+                );
             }
             return;
         };
@@ -673,7 +677,8 @@ mod tests {
         let mut reads = vec![(None, true), (Some(("t1".to_owned(), retry("t1"))), false)];
         let row = settled_retry_row(|| reads.pop().unwrap(), |_| false);
         assert_eq!(row, (None, true), "the retry started: it is being decided");
-        let row = settled_retry_row(|| (Some(("t1".to_owned(), retry("t1"))), false), |t| t == "t1");
+        let row =
+            settled_retry_row(|| (Some(("t1".to_owned(), retry("t1"))), false), |t| t == "t1");
         assert_eq!(row, (Some(retry("t1")), false));
         // Superseded every time (a person's prompt took the chat): no retry, nothing deciding.
         let mut count = 0;
