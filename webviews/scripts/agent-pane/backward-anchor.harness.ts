@@ -133,7 +133,13 @@ try {
     `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId}`,
   );
   await page.getByText("Synthetic question 899", { exact: true }).waitFor();
-  const receipts: { frames: number; moved: number; missing: number; remounts: number }[] = [];
+  const receipts: {
+    frames: number;
+    moved: number;
+    missing: number;
+    identityMissing: number;
+    remounts: number;
+  }[] = [];
   for (let batch = 0; batch < 4; batch++) {
     await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -156,8 +162,21 @@ try {
       });
       const anchor = existing[0]!;
       if (!anchor) throw new Error("No stable visible anchor");
+      const anchorId = anchor.dataset.rowId!;
       const top = anchor.getBoundingClientRect().top;
-      const receipt = { id: anchor.dataset.rowId, frames: 0, moved: 0, missing: 0, remounts: 0, maxDelta: 0 };
+      const receipt = {
+        id: anchorId,
+        frames: 0,
+        moved: 0,
+        // Logical presence is measured by the current row with this id. A remount can leave
+        // that row present while still losing the existing DOM node, which is tracked separately.
+        missing: 0,
+        identityMissing: 0,
+        remounts: 0,
+        maxDelta: 0,
+        top: [] as number[],
+        topReversals: 0,
+      };
       const observer = new MutationObserver((records) => {
         for (const record of records)
           for (const removed of record.removedNodes)
@@ -166,8 +185,19 @@ try {
       observer.observe(scroller, { childList: true, subtree: true });
       const stop = window.cmuxAfterPaint(() => {
         receipt.frames++;
-        if (existing.some((row) => !row.isConnected)) receipt.missing++;
-        const delta = Math.abs(anchor.getBoundingClientRect().top - top);
+        const scrollTop = scroller.scrollTop;
+        const previousTop = receipt.top.at(-1);
+        receipt.top.push(scrollTop);
+        if (previousTop !== undefined && scrollTop < previousTop - 1) receipt.topReversals++;
+        if (existing.some((row) => !row.isConnected)) receipt.identityMissing++;
+        const current = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+          (row) => row.dataset.rowId === anchorId,
+        );
+        if (!current) {
+          receipt.missing++;
+          return;
+        }
+        const delta = Math.abs(current.getBoundingClientRect().top - top);
         receipt.maxDelta = Math.max(receipt.maxDelta, delta);
         if (delta > 1) receipt.moved++;
       });
@@ -189,7 +219,15 @@ try {
       const probe = (
         window as unknown as {
           pagingProbe: {
-            receipt: { frames: number; moved: number; missing: number; remounts: number };
+            receipt: {
+              frames: number;
+              moved: number;
+              missing: number;
+              identityMissing: number;
+              remounts: number;
+              top: number[];
+              topReversals: number;
+            };
             stop(): void;
           };
         }
@@ -255,8 +293,10 @@ try {
   for (const receipt of receipts) {
     assert.ok(receipt.frames > 0);
     assert.equal(receipt.moved, 0, "painted frames with anchor motion >1px");
-    assert.equal(receipt.missing, 0, "painted frames missing the existing row");
+    assert.equal(receipt.missing, 0, "painted frames missing the logical anchor row");
+    assert.equal(receipt.identityMissing, 0, "painted frames missing the original anchor node");
     assert.equal(receipt.remounts, 0, "existing row mount identity changed during prepend");
+    assert.equal(receipt.topReversals, 0, "scrollbar thumb reversed while prepending history");
   }
   assert.ok(Math.abs(bottom.gap) <= 1, `final bottom gap ${bottom.gap}`);
   assert.equal(bottom.badFrames, 0, "a late measurement must not produce short or bouncing bottom frames");
