@@ -172,6 +172,12 @@ pub struct HolderLink {
     spawn_timeout: Duration,
 }
 
+/// The class of the holder-link reader thread: every echoed key's output
+/// passes through it, so it is the daemon's key echo path class
+/// (`thread_qos::ThreadType::InputCritical` in cmux-tui-core, which sits
+/// above this crate and tests that the two agree).
+pub const LINK_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInteractive;
+
 /// How long a spawn waits for the holder's answer.
 pub const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -224,7 +230,7 @@ impl HolderLink {
             spawn_timeout,
         });
         let weak = Arc::downgrade(&link);
-        std::thread::Builder::new().name("holder-link".into()).spawn(move || {
+        cmux_threads::spawn("holder-link", LINK_READER_QOS, move || {
             let end = read_loop(&stream, reader, &weak, watch);
             if let Some(link) = weak.upgrade() {
                 link.lost();
