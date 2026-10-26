@@ -444,7 +444,7 @@ test("an unavailable current provider keeps its available grouped landing row", 
       ],
     },
   ];
-  await mount("openrouter/qwen/coder-3", false, catalog);
+  await mount("openrouter/qwen/coder-3", true, catalog);
   const rows = modelRows(menus()[0]!);
   expect(rows).toHaveLength(1);
   expect(detailOf(rows[0]!)).toBe("Together");
@@ -587,14 +587,16 @@ test("expanded search reserves provider rows for each logical result", async () 
     {
       id: "opencode",
       name: "OpenCode",
-      models: Array.from({ length: 12 }, (_, index) => [
-        { id: `openrouter/model-${index}`, name: `Model ${index}` },
-        { id: `together/model-${index}`, name: `Model ${index}` },
-      ]).flat(),
+      models: Array.from({ length: 18 }, (_, index) =>
+        (index < 9 ? ["openrouter"] : ["openrouter", "together", "groq", "fireworks", "opencode"]).map((provider) => ({
+          id: `${provider}/model-${index}`,
+          name: `${index < 9 ? "Model" : "Tail"} ${index}`,
+        })),
+      ).flat(),
     },
   ];
   await mount(undefined, true, catalog, "expanded");
-  await typeSearch("Model");
+  await typeSearch("Tail");
   const body = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
   const spacerRows = body
     .querySelector<HTMLElement>(".acpmux-quick-spacer")!
@@ -718,4 +720,30 @@ test("submenu width probes use only the rendered chevron marker", async () => {
   expect(probe).toBeDefined();
   expect(probe?.querySelector(".ui-submenu-chevron")).not.toBeNull();
   expect(probe?.querySelector(".ui-menu-check, .ui-menu-shortcut")).toBeNull();
+});
+
+test("the submenu slider receives focus before an animation frame", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { EffortTrack } = await import("../src/agent-session/acpmux/EffortTrack");
+  const frame = scope.requestAnimationFrame;
+  scope.requestAnimationFrame = () => 0;
+  try {
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <EffortTrack
+          efforts={[
+            { id: "low", name: "Low" },
+            { id: "high", name: "High" },
+          ]}
+          current="low"
+          onPick={() => undefined}
+          focusOnMount
+        />,
+      ),
+    );
+    expect(dom.window.document.activeElement).toBe(host.querySelector(".acpmux-effort-range"));
+  } finally {
+    scope.requestAnimationFrame = frame;
+  }
 });
