@@ -1267,6 +1267,16 @@ def main():
                 update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
             # FAKE_STARTUP_MODE=<id>: the harness reports that mode while its session starts,
             # before it answers session/new (one that declares no modes may still report one).
+            # FAKE_NEW_GATE=<path>: before that report it writes its pid to <path>.started and waits
+            # while <path> exists (at most 30 s).
+            if os.environ.get("FAKE_NEW_GATE"):
+                import time as pause  # main() binds `time` locally
+                gate = os.environ["FAKE_NEW_GATE"]
+                with open(gate + ".started", "w") as f:
+                    f.write(f"{os.getpid()}\n")
+                until = pause.monotonic() + 30
+                while os.path.exists(gate) and pause.monotonic() < until:
+                    pause.sleep(0.05)
             # FAKE_STARTUP_SID=<sid>: that report names <sid> (empty allowed) instead of the new one.
             if os.environ.get("FAKE_STARTUP_MODE"):
                 update(os.environ.get("FAKE_STARTUP_SID", new_sid), {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})

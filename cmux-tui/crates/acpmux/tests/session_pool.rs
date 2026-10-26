@@ -732,6 +732,30 @@ async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_n
     }
 }
 
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 73): a pooled agent that reports full
+/// access while it starts and then holds its `session/new` answer ends then, not at the answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_starting_pooled_agent_that_reports_full_access_ends_then() {
+    let hold = std::env::temp_dir().join(format!("asp-hold-{}", std::process::id()));
+    std::fs::write(&hold, "").unwrap();
+    let path = hold.to_string_lossy().into_owned();
+    let env = [
+        ("FAKE_NO_MODES", "1"),
+        ("FAKE_STARTUP_MODE", "bypassPermissions"),
+        ("FAKE_NEW_HOLD", path.as_str()),
+    ];
+    let started = Instant::now();
+    let (_daemon, _rpc, kept) = prewarmed_under_an_off("fastart", &env).await;
+    let waited = started.elapsed();
+    let _ = std::fs::remove_file(&hold);
+    let _ = std::fs::remove_file(format!("{path}.reported"));
+    assert!(!kept, "a pooled agent that reported full access while it started was kept");
+    assert!(
+        waited < Duration::from_secs(12),
+        "a starting pooled agent in full access ran on under the off until it answered: {waited:?}"
+    );
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 71): a report of full access that
 /// comes after the take's check, before the entry's lines go to the chat, still keeps the agent
 /// from the chat, though the chat may not have read it yet when the start is capped.

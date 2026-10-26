@@ -116,6 +116,11 @@ fn home(name: &str) -> PathBuf {
             // `self-reporter` that then holds its `session/new` answer while `hold` exists.
             "self-holder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                             "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_HOLD": dir.join("hold")}},
+            // `self-holder` that first waits while `gate` exists, then reports and holds its
+            // answer while `gate-hold` exists.
+            "self-gated": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_GATE": dir.join("gate"),
+                           "FAKE_NEW_HOLD": dir.join("gate-hold")}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -535,6 +540,34 @@ const PROBES: &[Case] = &[
                     refused,
                     "the probe in full access kept its models past the off: {entry:?}"
                 );
+            })
+        },
+    ),
+    (
+        "review 73: a probe started under the off ends on a report that comes after an unset",
+        |name| {
+            Box::pin(async move {
+                let (dir, _daemon, mut app) = daemon(name, true).await;
+                let (gate, hold) = (dir.join("gate"), dir.join("gate-hold"));
+                std::fs::write(&gate, "").unwrap();
+                std::fs::write(&hold, "").unwrap();
+                app.push(off()).await;
+                let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+                let pid = started_pid(&dir.join("gate.started")).await;
+                // The unset lands before the harness reports bypassPermissions and holds its answer.
+                app.push(json!({})).await;
+                std::fs::remove_file(&gate).unwrap();
+                let answered =
+                    tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+                let _ = std::fs::remove_file(&hold);
+                let listed = answered.expect("the refresh waited on a probe the off started under");
+                assert!(ends(pid).await, "the probe started under the off runs on in full access");
+                let all = listed["result"]["harnesses"].as_array().cloned().unwrap_or_default();
+                let entry = all.iter().find(|h| h["harness"] == "self-gated");
+                let refused = entry.is_some_and(|e| {
+                    e["probeError"].as_str().is_some_and(|m| m.contains("full access"))
+                });
+                assert!(refused, "the probe started under the off kept its models: {entry:?}");
             })
         },
     ),
