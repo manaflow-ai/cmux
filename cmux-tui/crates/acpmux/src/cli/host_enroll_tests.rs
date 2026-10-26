@@ -634,7 +634,7 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
     // A matching binary is already installed on the remote: restarting its
     // stale daemon is safe even though this invoking machine is another OS.
     let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
+        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/home/leo/.local/bin/acpmux (deleted)\"}}\0{CONFIG}",
         std::env::consts::ARCH,
         crate::hub::BUILD
     ));

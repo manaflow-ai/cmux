@@ -97,7 +97,12 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
-    let used_path = used.as_ref().map(|u| u.path.clone());
+    // Linux reports a running executable that was replaced in place as
+    // `PATH (deleted)`.  The installed binary probe has the real path, so
+    // compare normalized paths before deciding whether a safe restart can
+    // use the current-target binary.
+    let used_path =
+        used.as_ref().map(|u| u.path.strip_suffix(" (deleted)").unwrap_or(&u.path).to_owned());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before

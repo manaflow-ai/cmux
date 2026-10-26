@@ -156,7 +156,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row["latencyMs"] = json!(started.elapsed().as_millis() as u64);
             row["healthUnsupported"] = json!(true);
             row["error"] = json!(format!(
-                "{}; `acpmux host update {name}` brings it to this build",
+                "{}; peer target is unknown: run `acpmux host update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
                 e.message
             ));
         }

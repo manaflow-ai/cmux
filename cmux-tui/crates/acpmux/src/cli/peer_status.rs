@@ -38,6 +38,11 @@ pub fn outdated_hint(name: &str, peer: &Value) -> Option<String> {
             "  (differs from this build: acpmux host update {name} --binary-dir DIR (DIR/acpmux-{target}), or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
         ));
     }
+    if target.is_none() {
+        return Some(format!(
+            "  (peer target unknown: acpmux host update {name} only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
+        ));
+    }
     Some(format!("  (differs from this build: acpmux host update {name})"))
 }
 
@@ -222,7 +227,9 @@ mod tests {
         );
         let unknown = json!({"outdated": true, "health": {"cpus": 4}});
         let hint = outdated_hint("unknown-platform", &unknown).unwrap();
-        assert!(hint.contains("acpmux host update unknown-platform"), "{hint}");
+        assert!(hint.contains("peer target unknown"), "{hint}");
+        assert!(hint.contains("only with a matching build"), "{hint}");
+        assert!(hint.contains("or rebuild acpmux on unknown-platform"), "{hint}");
     }
 
     #[test]
