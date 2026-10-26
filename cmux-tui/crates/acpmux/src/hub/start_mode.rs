@@ -643,8 +643,15 @@ impl Hub {
     /// Stops `session`'s agent, which runs in a full access the setting does not allow; the chat
     /// stays open and idle, and its next prompt starts an agent under the setting.
     pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>) {
-        if let Some(started) = session.child.lock().await.take() {
-            started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        // Taken first: the child slot's lock is not held while the agent ends.
+        let started = session.child.lock().await.take();
+        if let Some(started) = started {
+            // Bounded: a host whose link stopped reading never takes the terminate; it is then
+            // ended by its nonce below (review 31 of #23322).
+            let grace = super::shutdown::SHUTDOWN_GRACE;
+            if tokio::time::timeout(grace * 2, started.terminate(grace)).await.is_err() {
+                tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
+            }
         }
         // A host that outlived the grace would be re-adopted, still in full access.
         if Self::host_record_live(&session.id) {

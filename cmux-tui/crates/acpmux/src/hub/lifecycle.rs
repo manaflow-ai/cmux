@@ -693,6 +693,8 @@ impl Hub {
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;
+        // What a Claude process was started in: its profile's argv and the mode it was given.
+        let mut spawned = super::full_access_bound::FullAccessView::default();
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -744,6 +746,11 @@ impl Hub {
             if !super::start_mode::profile_sets_mode(profile) {
                 started_mode = Some(mode.clone());
             }
+            spawned = super::full_access_bound::FullAccessView {
+                argv: profile.argv.clone(),
+                mode: Some(mode.clone()),
+                ..Default::default()
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -877,6 +884,9 @@ impl Hub {
         }
 
         if is_claude {
+            // MDM may have forced full access off since `ensure_child` checked the profile: the
+            // process runs nothing, not even a fork's priming turn, in full access (review 31).
+            self.refuse_started_in_full_access(session, &spawned).await?;
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
             let known = child.claude_state().await.and_then(|state| state.session_id);
@@ -922,6 +932,12 @@ impl Hub {
                     self.append(session, "mux", "resumed", json!({"level": level}));
                 }
             }
+            // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
+            self.refuse_started_in_full_access(
+                session,
+                &super::full_access_bound::FullAccessView::of_session(session),
+            )
+            .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
             self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
                 .await;

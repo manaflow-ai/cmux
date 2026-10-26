@@ -132,6 +132,22 @@ impl Hub {
         Ok(())
     }
 
+    /// A start that passed `refuse_pinned_full_access` and then awaited (a cold Claude start, which
+    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile. When the
+    /// started agent runs in it by `view`, the agent stops and the chat stays open and idle. Without
+    /// MDM's off nothing changes.
+    pub(super) async fn refuse_started_in_full_access(
+        &self,
+        session: &Arc<Session>,
+        view: &FullAccessView,
+    ) -> Result<(), RpcError> {
+        if self.full_access_managed_off() && runs_full_access(view).is_some() {
+            self.stop_full_access_agent(session).await;
+            return Err(super::start_mode::full_access_off());
+        }
+        Ok(())
+    }
+
     /// MDM has just forced full access off (`apply_full_access_push`).
     pub(super) async fn full_access_turned_off(&self) {
         // Pooled agents started under the old bound (a profile pinning full access among them)
