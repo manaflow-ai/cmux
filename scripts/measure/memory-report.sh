@@ -13,7 +13,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/memory-report.sh \
 #     --ref <sha> --artifact artifacts/memory-report/report.json [--arg=--phases=home] [--arg=--vdisplay=60]
 # The glyph atlas measurement (task 039, ATLAS line, atlas_bytes_per_extra_terminal) is --arg=--phases=home,atlas
-# (or home,atlas,stress: atlas runs before STRESS builds its 60 workspaces).
+# in its own launch: memory-report.py refuses atlas with stress, since the atlas it grows stays grown and
+# would inflate every STRESS terminal's frame textures.
 # --config=<debug|release|bench> picks reload.sh's configuration; every other argument goes to memory-report.py.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"

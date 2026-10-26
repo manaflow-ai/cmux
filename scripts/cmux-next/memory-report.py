@@ -38,17 +38,21 @@ without a fixed owner is then unexplained.
 
 The atlas phase (p07-memory task 039) asks whether the terminals share one glyph atlas texture. In a new
 workspace on the STRESS window it samples the GPU groups (IOAccelerator, IOSurface, owned unmapped memory)
-at 1..N visible terminals tiling the window, has every terminal show a sheet of 2,000 CJK glyphs (the
-atlas grows past 1024 x 1024 to 2048 x 2048 R8), and samples again while the panes close back to one.
-It prints `ATLAS ... atlas_bytes_per_extra_terminal=... verdict=shared|per_surface|unmeasured`: the
-change in GPU bytes per extra terminal that the atlas growth caused. Shared is 0; per surface is about
-the growth one terminal saw (each surface keeping its own texture copies).
+at 1..N visible terminals tiling the window in two columns, has every terminal show a sheet of CJK
+glyphs sized for the window's backing scale (about 6,200 at 1x, the STRESS virtual display's scale: the
+grayscale atlas grows from 512 x 512 past 1024 x 1024 to 2048 x 2048 R8), and samples again while the
+panes close back to one. It prints `ATLAS ... atlas_bytes_per_extra_terminal=...
+verdict=shared|per_surface|unmeasured`: the change in GPU bytes per extra terminal that the atlas growth
+caused. Shared is 0; per surface is about the growth one terminal saw (each surface keeping its own
+texture copies); unmeasured prints it as unknown. The atlas phase leaves the shared CPU atlas grown, so
+it does not run in the same launch as the stress phase.
 
 Usage:
-  memory-report.py --app BUNDLE [--phases home,atlas,stress] [--settle 30] [--heap] [--vdisplay HZ]
+  memory-report.py --app BUNDLE [--phases home,stress | home,atlas] [--settle 30] [--heap] [--vdisplay HZ]
       [--atlas-terminals 4] [--atlas-settle 5] [--out FILE.json]
       Launch a tagged DEV app (the STRESS launcher of perf-stress-session.py), measure Home idle,
-      then (atlas) the GPU bytes per extra visible terminal, then build STRESS in it and measure again.
+      then build STRESS in it and measure again, or (atlas, its own launch: the grown atlas would
+      inflate STRESS) the GPU bytes per extra visible terminal.
       STRESS and the atlas window need a 1920 x 1200 virtual main display (perf-stress-session.py
       start_vdisplay): with either phase it starts one at 120 Hz before the launch unless --vdisplay 0.
       Fleet only (scripts/measure/memory-report.sh).
@@ -114,17 +118,24 @@ TERMINAL_IOSURFACE_KEY = "hidden_nonvolatile_iosurface_bytes"
 GPU_GROUPS = ("IOAccelerator", "IOSurface", "owned unmapped memory")
 ATLAS_TERMINALS = 4  # visible terminals the phase tiles the window into, one at a time
 ATLAS_SETTLE = 5.0  # seconds after each change before a GPU sample
-# The glyph sheet: CJK ideographs from U+4E00 (fallback font, grayscale atlas), each two cells wide. 2,000
-# glyphs at 2x need about 2.2 M atlas pixels, past a 1024 x 1024 atlas: it grows to 2048 x 2048 R8 (4 MiB).
-ATLAS_GLYPHS = 2000
+# The glyph sheet: CJK ideographs from U+4E00 (fallback font, grayscale atlas), each two cells wide. At 1x
+# and the default font a glyph takes about 16 x 17 px with its padding (ATLAS_GLYPH_PIXELS_1X), 4x that at
+# 2x. The sheet holds ATLAS_SHEET_PIXELS of glyphs at the window's backing scale: past a 1024 x 1024 atlas
+# (1 M px) and well inside 2048 x 2048 (4 M px), so the atlas doubles twice, 512 -> 1024 -> 2048 R8
+# (SharedGrid grows by doubling), whatever the scale.
+ATLAS_GLYPH_PIXELS_1X = 340
+ATLAS_SHEET_PIXELS = 2 * 1048576
 ATLAS_FIRST_CODEPOINT = 0x4E00
+ATLAS_LAST_CODEPOINT = 0x9FFF  # CJK Unified Ideographs: 20,992 glyphs at most
 ATLAS_LINE_GLYPHS = 20  # 40 columns
 ATLAS_PAGE_LINES = 10  # a page fits a quarter of the 1600 x 1000 pt STRESS window at the default font
 ATLAS_PAGE_SECONDS = 0.3  # each page stays on screen this long, several frames
-ATLAS_MIN_GROWTH_BYTES = 2 * 1048576  # less growth on one terminal: the atlas did not grow
+ATLAS_START_BYTES = 512 * 512  # the grayscale atlas at launch (SharedGrid.zig:92), R8
+ATLAS_EXPECTED_BYTES = 2048 * 2048  # one shared atlas after the sheet (the expectation in p07-memory.md task 039)
+# The smallest real growth one terminal can see is one shared texture doubling once: 1024 x 1024 - 512 x 512
+# R8 = 768 KiB. Less than two thirds of that on one terminal: the atlas did not grow.
+ATLAS_MIN_GROWTH_BYTES = (1024 * 1024 - ATLAS_START_BYTES) * 2 // 3
 ATLAS_PER_SURFACE_SHARE = 0.5  # an extra terminal paying this share of the growth or more: per surface
-# One shared 2048 x 2048 R8 atlas (the expectation in p07-memory.md task 039).
-ATLAS_EXPECTED_BYTES = 2048 * 2048
 
 SIZE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)B?$", re.I)
 UNITS = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
@@ -555,7 +566,21 @@ def gpu_bytes(categories: dict[str, int]) -> int:
     return sum(value for category, value in categories.items() if group_of(category) in GPU_GROUPS)
 
 
-def glyph_pages(count: int = ATLAS_GLYPHS) -> list[str]:
+def atlas_glyph_count(scale: float) -> int:
+    """The glyphs whose rasterized area at backing `scale` is ATLAS_SHEET_PIXELS (at most the CJK block)."""
+    return min(-(-ATLAS_SHEET_PIXELS // round(ATLAS_GLYPH_PIXELS_1X * scale * scale)),
+               ATLAS_LAST_CODEPOINT - ATLAS_FIRST_CODEPOINT + 1)
+
+
+def backing_scale(rpc) -> float | None:
+    """The app windows' backing scale (`debug.pane_chrome` windows[].scale; the largest when they differ), or None."""
+    reply = rpc("debug.pane_chrome")
+    windows = reply.get("windows") if isinstance(reply, dict) else None
+    scales = [w["scale"] for w in windows or [] if isinstance(w, dict) and isinstance(w.get("scale"), (int, float)) and w["scale"] > 0]
+    return max(scales) if scales else None
+
+
+def glyph_pages(count: int) -> list[str]:
     """`count` distinct CJK ideographs in pages that each fit a quarter of the STRESS window, so every
     glyph is on screen in some frame (a glyph that scrolls away before a frame is never rasterized)."""
     glyphs = [chr(ATLAS_FIRST_CODEPOINT + index) for index in range(count)]
@@ -593,7 +618,8 @@ def atlas_summary(start: list[tuple[int, int]], grown: list[tuple[int, int]]) ->
     summary = {"terminals": max((k for k, _ in start + grown), default=0),
                "gpu_bytes_per_extra_terminal_start": None if before is None else round(before),
                "gpu_bytes_per_extra_terminal_grown": None if after is None else round(after),
-               "atlas_bytes_per_extra_terminal": None, "atlas_growth_one_terminal_bytes": None,
+               "atlas_bytes_per_extra_terminal": None, "gpu_slope_change_bytes": None,
+               "atlas_growth_one_terminal_bytes": None,
                "per_surface_share": None, "verdict": "unmeasured", "expected_shared_atlas_bytes": ATLAS_EXPECTED_BYTES,
                "start": [{"terminals": k, "gpu_bytes": b} for k, b in start],
                "grown": [{"terminals": k, "gpu_bytes": b} for k, b in grown]}
@@ -601,13 +627,15 @@ def atlas_summary(start: list[tuple[int, int]], grown: list[tuple[int, int]]) ->
         summary["why"] = "fewer than two terminal counts measured in each series, or no one-terminal step"
         return summary
     per_extra, growth = round(after - before), one_after - one_before
-    summary.update(atlas_bytes_per_extra_terminal=per_extra, atlas_growth_one_terminal_bytes=growth)
+    # The raw slope change is kept in its own field: atlas_bytes_per_extra_terminal is the recorded number
+    # (memory-DESIGN.md), so it stays unknown unless the verdict is measured.
+    summary.update(gpu_slope_change_bytes=per_extra, atlas_growth_one_terminal_bytes=growth)
     if growth < ATLAS_MIN_GROWTH_BYTES:
         summary["why"] = f"the glyph sheet grew one terminal's GPU bytes by {mb(growth)} MB only: the atlas did not grow"
         return summary
     share = per_extra / growth
-    summary["per_surface_share"] = round(share, 2)
-    summary["verdict"] = "per_surface" if share >= ATLAS_PER_SURFACE_SHARE else "shared"
+    summary.update(atlas_bytes_per_extra_terminal=per_extra, per_surface_share=round(share, 2),
+                   verdict="per_surface" if share >= ATLAS_PER_SURFACE_SHARE else "shared")
     return summary
 
 
@@ -616,9 +644,11 @@ def print_atlas(summary: dict):
           f"{'unknown' if summary['atlas_bytes_per_extra_terminal'] is None else summary['atlas_bytes_per_extra_terminal']} "
           f"gpu_per_extra_start_mb={mb(summary['gpu_bytes_per_extra_terminal_start'])} "
           f"gpu_per_extra_grown_mb={mb(summary['gpu_bytes_per_extra_terminal_grown'])} "
+          f"slope_change_mb={mb(summary['gpu_slope_change_bytes'])} "
           f"growth_one_terminal_mb={mb(summary['atlas_growth_one_terminal_bytes'])} "
           f"share={summary['per_surface_share']} verdict={summary['verdict']} "
-          f"expected_shared_atlas_mb={mb(summary['expected_shared_atlas_bytes'])}"
+          f"expected_shared_atlas_mb={mb(summary['expected_shared_atlas_bytes'])} "
+          f"scale={summary.get('backing_scale')} glyphs={summary.get('glyphs')}"
           + (f" why={summary['why']!r}" if summary.get("why") else ""))
     sys.stdout.flush()
 
@@ -780,17 +810,37 @@ def gpu_sample(pid: int, raw_stem: str) -> int | None:
     return gpu_bytes(categories)
 
 
-def measure_atlas(builder, stem: str, terminals: int, settle: float, sample) -> dict:
+def measure_atlas(builder, stem: str, terminals: int, settle: float, sample, wait) -> dict:
     """The atlas phase: in a new workspace on the placed STRESS window, GPU bytes (`sample(raw_stem)`) at
-    1..`terminals` visible terminals tiling the window; then every terminal shows the glyph sheet, which
-    grows the shared CPU atlas; then GPU bytes again while the panes close back to one. `builder` is a
-    perf-stress-session Stress. Returns atlas_summary's dict."""
+    1..`terminals` visible terminals tiling the window in two columns; then every terminal shows the
+    glyph sheet (sized for the window's backing scale), which grows the shared CPU atlas; then GPU bytes
+    again while the panes close back to one. `builder` is a perf-stress-session Stress and `wait` its
+    bounded poll (`wait(predicate, seconds, step)`). The workspace closes even when a step fails, so
+    no later phase measures its terminals. Returns atlas_summary's dict with the scale and glyph count."""
     builder.size_window()
     workspace = builder.new_workspace()
     if not workspace:
         raise RuntimeError("the atlas workspace did not appear")
+    try:
+        return measure_atlas_in(builder, workspace, stem, terminals, settle, sample, wait)
+    finally:
+        builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+
+
+def measure_atlas_in(builder, workspace: str, stem: str, terminals: int, settle: float, sample, wait) -> dict:
+    """measure_atlas's steps in its new `workspace`."""
     builder.show(workspace)  # splits size evenly only in a shown workspace (Stress.build_measured)
-    panes = [builder.panes(builder.workspace(workspace))[0]["id"]]
+    scale = backing_scale(builder.rpc)
+    if scale is None:
+        raise RuntimeError("no window backing scale (debug.pane_chrome): the glyph sheet cannot be sized")
+    glyphs = atlas_glyph_count(scale)
+
+    def pane_ids() -> list[str]:
+        return [p["id"] for p in builder.panes(builder.workspace(workspace))]
+
+    panes = pane_ids()[:1]
+    if not panes:
+        raise RuntimeError(f"the atlas workspace {workspace} has no pane")
     builder.record_first(workspace, panes[0])
 
     def take(series: list, label: str):
@@ -803,8 +853,10 @@ def measure_atlas(builder, stem: str, terminals: int, settle: float, sample) -> 
     start: list[tuple[int, int]] = []
     take(start, "start")
     while len(panes) < terminals:
-        # Alternate the split direction so the panes tile the window in a grid.
-        made = builder.split(workspace, panes[(len(panes) - 1) // 2], "splitRight" if len(panes) % 2 else "splitDown")
+        # Two columns: the first split goes right, then each new pane goes under the pane two before it
+        # (p0 | p1, then p2 under p0, p3 under p1, ...), so 4 terminals are a 2 x 2 grid.
+        target, verb = (panes[0], "splitRight") if len(panes) == 1 else (panes[-2], "splitDown")
+        made = builder.split(workspace, target, verb)
         if not made:
             raise RuntimeError(f"split {len(panes) + 1} made no pane (refusals: {builder.refusals[-3:]})")
         panes.append(made)
@@ -813,7 +865,8 @@ def measure_atlas(builder, stem: str, terminals: int, settle: float, sample) -> 
 
     folder = f"{stem}-glyphs"  # kept beside the report with the raw samples
     os.makedirs(folder, exist_ok=True)
-    for index, page in enumerate(glyph_pages()):
+    pages = glyph_pages(glyphs)
+    for index, page in enumerate(pages):
         write(os.path.join(folder, f"page-{index:03d}.txt"), page)
     show = f"for f in {shlex.quote(folder)}/page-*.txt; do clear; cat \"$f\"; sleep {ATLAS_PAGE_SECONDS}; done\r"
     for pane in panes:
@@ -821,17 +874,18 @@ def measure_atlas(builder, stem: str, terminals: int, settle: float, sample) -> 
         if not terminal:
             raise RuntimeError(f"pane {pane} has no terminal for the glyph sheet")
         builder.send(terminal["id"], show)
-    pages = -(-ATLAS_GLYPHS // (ATLAS_LINE_GLYPHS * ATLAS_PAGE_LINES))
-    time.sleep(pages * ATLAS_PAGE_SECONDS + 2)  # test script: every page shown in every terminal
+    time.sleep(len(pages) * ATLAS_PAGE_SECONDS + 2)  # test script: every page shown in every terminal
 
     grown: list[tuple[int, int]] = []
     take(grown, "grown")
     while len(panes) > 1:
-        builder.action("closePane", target=f"pane:{panes.pop()}", focus=False)
+        closed = panes.pop()
+        builder.action("closePane", target=f"pane:{closed}", focus=False)
+        if not wait(lambda: closed not in pane_ids(), 15, 0.1):
+            raise RuntimeError(f"closePane left pane {closed} open (refusals: {builder.refusals[-3:]})")
         builder.action("equalizeSplits", target=f"pane:{panes[0]}")
         take(grown, "grown")
-    builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
-    return atlas_summary(start, grown)
+    return {**atlas_summary(start, grown), "backing_scale": scale, "glyphs": glyphs}
 
 
 def write(path: str, text: str):
@@ -853,7 +907,8 @@ def main(argv: list[str] | None = None) -> int:
     where.add_argument("--footprint-file", help="offline: saved `footprint -j` JSON (or its text output)")
     parser.add_argument("--socket", help="with --pid: the app's control socket, for debug.memory")
     parser.add_argument("--phases", default="home",
-                        help="with --app: a comma list of home, atlas and stress, run in that order as given (default home)")
+                        help="with --app: a comma list of home, atlas and stress, run in that order as given; atlas and stress "
+                             "need separate launches (default home)")
     parser.add_argument("--settle", type=float, default=30, help="seconds idle before each measurement (default 30)")
     parser.add_argument("--heap", action="store_true", help="walk the heap for the MQ-CACHE order (stalls the app)")
     parser.add_argument("--vdisplay", type=float, default=None,
@@ -877,6 +932,10 @@ def main(argv: list[str] | None = None) -> int:
     phases_asked = [p for p in args.phases.split(",") if p]
     if any(p not in ("home", "atlas", "stress") for p in phases_asked):
         parser.error(f"--phases takes home, atlas and stress, got {args.phases!r}")
+    if "atlas" in phases_asked and "stress" in phases_asked:
+        # The atlas phase leaves the shared CPU atlas grown, so every STRESS terminal would sync its frame
+        # textures to the grown size: that STRESS footprint is not comparable with a home,stress run.
+        parser.error("--phases cannot hold both atlas and stress: the grown atlas inflates STRESS; launch them separately")
     if args.atlas_terminals < 2:
         parser.error("--atlas-terminals needs at least 2 (the slope is over the terminal count)")
 
@@ -1003,7 +1062,8 @@ def run_launched(args, phases: list[str], report: dict, samples: list, out: str)
                 pid = app.process.pid
                 try:
                     report["atlas"] = measure_atlas(atlas_builder, f"{stem}-atlas", args.atlas_terminals,
-                                                    args.atlas_settle, lambda raw: gpu_sample(pid, raw))
+                                                    args.atlas_settle, lambda raw: gpu_sample(pid, raw),
+                                                    stress_module.wait)
                 except Exception as error:  # a refused split, a missing display, a reply the steps did not expect
                     report["atlas"] = {"error": f"{type(error).__name__}: {error}"[:600]}
                 finally:
