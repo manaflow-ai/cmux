@@ -23,8 +23,9 @@ public import QuartzCore
 /// runs for it: when no frame came in time its subscribers tick anyway, and after repeated stalls the
 /// link is rebuilt. Frames do not touch the deadline (a new timer task per frame cost two
 /// cooperative-pool wakes a frame): when it fires after a frame came, it is armed again for the rest
-/// of the timeout from that frame. Each time the deadline fires, every subscriber of the display
-/// resolves its display again and moves there when it changed: a window dragged to another screen,
+/// of the timeout from that frame. A window dragged to another screen moves at once (its
+/// ``WindowScreenFamily``). Each time the deadline fires, every subscriber of the display also
+/// resolves its display again and moves there when it changed: a window whose move was missed,
 /// a screen unplugged, the main display changed (Chrome's `DisplayLinkMac` consumers register on the
 /// link of the display they are on now, `ui/display/mac/display_link_mac.h`). So a display whose
 /// screen went away never keeps its subscribers on the deadline's 10 Hz.
@@ -201,8 +202,12 @@ public final class DisplayClock {
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
+        // A scheduler that just came from another display skips a frame that starts or is shown no
+        // later than its last one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
         let ticking = display.subscribers.compactMap { scheduler -> (FrameScheduler, FrameTick)? in
-            guard let pace = pace(scheduler, hiddenUntil: hiddenUntil) else { return nil }
+            guard let pace = pace(scheduler, hiddenUntil: hiddenUntil),
+                  scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
+            else { return nil }
             return (scheduler, scheduler.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval,
                                                     targetTimestamp: targetTimestamp, offLink: pace == .stallRate))
         }
