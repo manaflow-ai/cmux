@@ -47,4 +47,16 @@ import Testing
         #expect(names.contains("conversation") && names.contains("pinned"))
         #expect(descriptor.arguments.allSatisfy { !$0.isRequired })
     }
+
+    /// cmux#25586: Chief and agents pin a workspace outright (`cmux workspace <ws> pin|unpin`, MCP
+    /// `app_workspace_pin_unpin {pinned}`), so a retried pin never unpins; the palette and the
+    /// right-click menu still toggle, since a person is not asked for the state.
+    @Test func workspacePinTakesAWorkspaceAndAState() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.toggleWorkspacePin" })
+        #expect(descriptor.cliName == "workspace pin-unpin")
+        #expect(descriptor.targets == [.workspace])
+        let pinned = try #require(descriptor.arguments.first { $0.name == "pinned" }, "no pinned argument")
+        #expect(pinned.kind == .bool)
+        #expect(!pinned.isRequired)
+    }
 }
