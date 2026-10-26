@@ -771,11 +771,13 @@ final class AppServices {
     func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: KeepAwake's battery rule, the video wallpaper, and the saver itself to the
-    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself. Only
+    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself; the local daemon
+    /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        daemon.follow(mainWork.energy)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)

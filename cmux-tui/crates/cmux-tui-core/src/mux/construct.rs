@@ -409,6 +409,7 @@ impl Mux {
             #[cfg(unix)]
             access_requests: Default::default(),
             activity: Default::default(),
+            energy: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             cold_scrollback_wake: OnceLock::new(),

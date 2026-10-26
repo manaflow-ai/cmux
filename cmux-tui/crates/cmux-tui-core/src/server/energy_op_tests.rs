@@ -1,0 +1,208 @@
+//! `energy.set` and `energy.status` on the wire (p14-energy-033): a round
+//! trip through the connection's frame path, the override over the daemon's
+//! own reading, one watcher call per edge and none for a repeat, and who may
+//! send which line.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::SurfaceOptions;
+use crate::server::{
+    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
+    handle_connection_message,
+};
+
+struct Caller {
+    id: u64,
+    writer: MessageWriter,
+    outbound: Arc<BoundedOutbound>,
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+}
+
+impl Caller {
+    fn new(mux: &Arc<Mux>, transport: ClientTransport, app: bool) -> Self {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let id = mux.control_clients.register(transport, writer.clone());
+        if app {
+            origin_gate::set_role_for_test(mux, id, "main");
+            origin_gate::set_verified_app_for_test(mux, id, true);
+        }
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        Self { id, writer, outbound, scheduler }
+    }
+
+    /// The reply to `request`, sent through the whole frame path (route
+    /// lookup included). The route answers on this thread.
+    fn call(&self, mux: &Arc<Mux>, request: Value) -> Value {
+        assert!(handle_connection_message(
+            mux,
+            self.id,
+            &request.to_string(),
+            &self.writer,
+            &self.scheduler,
+        ));
+        let line = self.outbound.try_pop().expect("the route answers before it returns");
+        serde_json::from_str(&line).unwrap()
+    }
+}
+
+fn code(reply: &Value) -> &str {
+    assert_eq!(reply["ok"], false, "{reply}");
+    reply["error_code"].as_str().unwrap_or_default()
+}
+
+#[test]
+fn energy_set_round_trip_flips_the_mode_and_status_reads_it() {
+    let mux = Mux::new_for_test("energy-round-trip", SurfaceOptions::default());
+    let app = Caller::new(&mux, ClientTransport::Unix, true);
+    let edges = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&edges);
+    let _watch = mux.energy.mode().watch(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+
+    let status = app.call(&mux, json!({"id": 1, "cmd": STATUS}));
+    assert_eq!(
+        status["data"],
+        json!({"saver": false, "source": "daemon", "reason": null, "override": null, "reading": false}),
+        "{status}"
+    );
+
+    let set = app.call(&mux, json!({"id": 2, "cmd": SET, "saver": true, "reason": "battery"}));
+    assert_eq!(
+        (set["id"].clone(), set["data"].clone()),
+        (json!(2), json!({"changed": true, "saver": true}))
+    );
+    assert!(mux.energy.mode().is_saver());
+    assert_eq!(edges.load(Ordering::SeqCst), 1);
+
+    // The same value again is no edge: nobody is told.
+    let again = app.call(&mux, json!({"id": 3, "cmd": SET, "saver": true, "reason": "battery"}));
+    assert_eq!(again["data"]["changed"], false, "{again}");
+    assert_eq!(edges.load(Ordering::SeqCst), 1);
+
+    let status = app.call(&mux, json!({"id": 4, "cmd": STATUS}));
+    assert_eq!(
+        status["data"],
+        json!({"saver": true, "source": "app", "reason": "battery", "override": true, "reading": false}),
+        "{status}"
+    );
+
+    let off = app.call(&mux, json!({"id": 5, "cmd": SET, "saver": false}));
+    assert_eq!(off["data"], json!({"changed": true, "saver": false}), "{off}");
+    assert!(!mux.energy.mode().is_saver());
+    assert_eq!(edges.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn energy_override_wins_over_the_reading_until_cleared() {
+    let energy = DaemonEnergy::default();
+    assert!(energy.set_reading(true));
+    assert_eq!(energy.status().source, EnergySource::Daemon);
+    assert!(energy.mode().is_saver());
+
+    assert!(energy.set_override(Some(false), None));
+    assert!(!energy.status().saver);
+    assert_eq!(energy.status().source, EnergySource::App);
+    // The reading moves under the override without moving the mode.
+    assert!(!energy.set_reading(false));
+    assert!(!energy.set_reading(true));
+    assert!(!energy.mode().is_saver());
+
+    assert!(energy.set_override(None, None));
+    assert_eq!(
+        energy.status(),
+        EnergyStatus {
+            saver: true,
+            source: EnergySource::Daemon,
+            reason: None,
+            app_override: None,
+            reading: true,
+        }
+    );
+    assert!(energy.mode().is_saver());
+}
+
+#[test]
+fn energy_reason_is_kept_only_while_the_override_holds_the_saver_on() {
+    let energy = DaemonEnergy::default();
+    for reason in SaverReason::ALL {
+        energy.set_override(Some(true), Some(reason));
+        assert_eq!(energy.status().reason, Some(reason));
+    }
+    energy.set_override(Some(false), None);
+    assert_eq!(energy.status().reason, None);
+}
+
+#[test]
+fn energy_racing_writers_leave_the_mode_on_the_last_inputs() {
+    let energy = Arc::new(DaemonEnergy::default());
+    let writers: Vec<_> = (0..8)
+        .map(|index| {
+            let energy = Arc::clone(&energy);
+            std::thread::spawn(move || {
+                for round in 0..2_000 {
+                    if index % 2 == 0 {
+                        energy.set_override(Some(round % 2 == 0), Some(SaverReason::Setting));
+                    } else {
+                        energy.set_reading(round % 3 == 0);
+                    }
+                }
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    assert_eq!(energy.mode().is_saver(), energy.status().saver);
+}
+
+#[test]
+fn energy_set_needs_the_verified_app_and_well_formed_fields() {
+    let mux = Mux::new_for_test("energy-refusals", SurfaceOptions::default());
+    let app = Caller::new(&mux, ClientTransport::Unix, true);
+    let cli = Caller::new(&mux, ClientTransport::Unix, false);
+    let web = Caller::new(&mux, ClientTransport::WebSocket, true);
+
+    assert_eq!(
+        code(&cli.call(&mux, json!({"id": 1, "cmd": SET, "saver": true}))),
+        "energy.not_trusted"
+    );
+    assert_eq!(
+        code(&web.call(&mux, json!({"id": 2, "cmd": SET, "saver": true}))),
+        "energy.not_trusted"
+    );
+    assert_eq!(code(&web.call(&mux, json!({"id": 3, "cmd": STATUS}))), "energy.not_trusted");
+    // A local CLI reads the status (`cmux energy status`).
+    assert_eq!(cli.call(&mux, json!({"id": 4, "cmd": STATUS}))["ok"], true);
+
+    for bad in [
+        json!({"id": 5, "cmd": SET}),
+        json!({"id": 6, "cmd": SET, "saver": "yes"}),
+        json!({"id": 7, "cmd": SET, "saver": false, "reason": "battery"}),
+        json!({"id": 8, "cmd": SET, "saver": true, "reason": "sunny"}),
+        json!({"id": 9, "cmd": SET, "saver": true, "extra": 1}),
+        json!({"id": 10, "cmd": STATUS, "saver": true}),
+    ] {
+        assert_eq!(code(&app.call(&mux, bad.clone())), "energy.bad_request", "{bad}");
+    }
+    assert!(!mux.energy.mode().is_saver(), "no refused line flips the mode");
+
+    let cleared = app.call(&mux, json!({"id": 11, "cmd": SET, "saver": null}));
+    assert_eq!(cleared["data"], json!({"changed": false, "saver": false}), "{cleared}");
+}
+
+#[test]
+fn energy_lines_are_routed_and_the_capability_is_advertised() {
+    for cmd in COMMANDS {
+        let route = crate::server::routes::find(cmd).expect("routed");
+        assert_eq!(route.stage, crate::server::FrameStage::Route);
+    }
+    assert!(crate::server::routes::find("energy.").is_none());
+    let mux = Mux::new_for_test("energy-capability", SurfaceOptions::default());
+    assert!(crate::server::identify_capabilities(&mux).contains(&CAPABILITY));
+}

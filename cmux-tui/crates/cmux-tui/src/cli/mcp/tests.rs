@@ -1362,6 +1362,7 @@ mod agent_events;
 mod agent_wait;
 
 mod catalog;
+mod energy;
 mod machine_catalog;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
