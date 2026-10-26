@@ -33,7 +33,7 @@ public final class DaemonService {
     /// Where this machine's daemon connections count their wire traffic (``DaemonWireStats``,
     /// `debug.daemon.wire`): the app's recorder in Debug and bench builds, else nil.
     let wireStats: DaemonWireStats?
-    public let store = DaemonStore()
+    public let store: DaemonStore
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
@@ -97,6 +97,8 @@ public final class DaemonService {
                 wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
+        // Its keyed waits' timeouts share the main thread's one deadline timer.
+        store = DaemonStore(waitDeadlines: mainWork.wakeUps)
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)

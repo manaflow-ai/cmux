@@ -48,6 +48,8 @@ extension AppControl {
                 return .value(DebugTabDrag.report(services: services))
             },
         ])
+        // The refactor oracle's `debug.oracle.*` over the app's one facet list (AppServices+OracleHost).
+        service?.router.register(OracleControl(host: services).methods)
         #endif
     }
 

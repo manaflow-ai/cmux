@@ -424,6 +424,12 @@ impl Tracer {
         })
     }
 
+    /// Maps the recording ring now, so a later [`Tracer::start_recording`] does no disk I/O: its
+    /// size in bytes. Blocking: call it off any loop that serves input. Idempotent.
+    pub fn prepare_recording(&self) -> u64 {
+        self.recording_ring().layout().total_bytes as u64
+    }
+
     /// `trace.start`: the black-box categories plus `categories`, written into the recording
     /// ring. The first start maps the recording file (blocking: call it off the main thread).
     pub fn start_recording(&self, categories: u64) -> Result<Status, TraceError> {

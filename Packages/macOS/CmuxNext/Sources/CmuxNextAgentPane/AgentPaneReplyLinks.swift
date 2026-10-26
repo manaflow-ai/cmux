@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextSettings
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextRemoteFetch
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -53,9 +54,18 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
+    /// The fetch for web images; it fetches nothing until ``useResolver(_:)``.
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
-    /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
+    /// The fetch for web video and audio (``AgentPaneSafeFetch/media``); nothing until ``useResolver(_:)``.
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
+
+    /// Gives the image and media fetches the App's resolver (`SystemRemoteResolver` on its lanes).
+    public func useResolver(_ resolver: any RemoteAddressResolving) {
+        var images = AgentPaneSafeFetch(), media = AgentPaneSafeFetch.media
+        images.guarded.resolver = resolver
+        media.guarded.resolver = resolver
+        (fetcher, mediaFetcher) = (images, media)
+    }
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()

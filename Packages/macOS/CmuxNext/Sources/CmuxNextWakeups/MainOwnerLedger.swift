@@ -1,6 +1,6 @@
 import CmuxNextCompat
 import Darwin
-import Dispatch
+public import Dispatch
 
 /// Per-owner wait and run time of the main-thread scheduler's tasks (plans/cmux-next/chrome-parity/
 /// p06-scheduler.md, task 009; machine queue Q12's source): for each owner and class, how long its

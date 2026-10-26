@@ -25,6 +25,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxHomeCore"),
+        .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
         .target(
@@ -35,7 +36,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeRenderTests",
-            dependencies: ["CmuxHomeRender", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            dependencies: [
+                "CmuxHomeRender",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

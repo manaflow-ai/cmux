@@ -22,7 +22,7 @@ import Testing
         let work = BackgroundWork(label: "test.hang-scope", hangs: hangs)
         let expected = RecordingHangWatch.Scope(name: "lane.\(lane)", deadline: .seconds(seconds))
 
-        let inside = try await work.run(.userVisible, mayBlock: lane) { hangs.open }
+        let inside = try await work.run(.userVisible, mayBlock: lane) { () throws -> [RecordingHangWatch.Scope] in hangs.open }
         var left = hangs.left.makeAsyncIterator()
 
         #expect(inside == [expected])
@@ -45,7 +45,7 @@ import Testing
         var startedIterator = started.makeAsyncIterator()
         _ = await startedIterator.next()
 
-        let second = Task { try await work.run(.userVisible, mayBlock: .files) { hangs.entered.count } }
+        let second = Task { try await work.run(.userVisible, mayBlock: .files) { () throws -> Int in hangs.entered.count } }
         var queuedIterator = queued.makeAsyncIterator()
         _ = await queuedIterator.next()
 

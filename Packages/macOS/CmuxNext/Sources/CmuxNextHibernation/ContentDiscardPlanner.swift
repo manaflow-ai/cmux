@@ -56,6 +56,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         package var isNeighbor = false
         /// An agent called the page within its grace (browser pages).
         package var isAgentDriving = false
+        /// The page a pane shows while its window is off screen (browser pages).
+        package var isActiveTab = false
 
         // The lead rule's facts (p07-memory.md section 3.C). A web page's probe fills them right
         // before a discard (`PageProbe.fill(_:)`); other kinds set them from their own state.

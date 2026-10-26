@@ -64,6 +64,9 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// cmux's own web pages (the WebUI host): lifecycle changes, opens to first paint, preload slot moves and
     /// `cmux-page://` scheme work. Owner: p13-webui.
     case webui
+    /// The `tracing` and `log` crate events of the Rust daemons (acpmux's `trace_layer.rs`), one instant per
+    /// event, like Chrome's log messages in the trace (`base/logging.cc`). Swift writes none. Owner: p09-observability.
+    case log
 
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
@@ -94,6 +97,7 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
         case .ghostty: 18
         case .resize: 19
         case .webui: 20
+        case .log: 21
         }
     }
 
@@ -104,7 +108,7 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
         switch self {
         case .action, .key, .switch, .create, .cef, .launch, .daemon, .hang, .crash: true
         case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize,
-             .webui:
+             .webui, .log:
             false
         }
     }
