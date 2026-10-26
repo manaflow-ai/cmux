@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
-use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
-use cmux_holder::wire::TraceStart;
+use cmux_holder::link::{FrameWatch, HolderLink, LinkEnd, SPAWN_TIMEOUT, TerminalSink};
+use cmux_holder::wire::{Kind, TraceStart};
 use cmux_holder::{Listed, SpawnRequest};
 
 use super::{HolderSink, HolderTerminal};
@@ -37,6 +37,36 @@ struct LinkSlot {
     /// [`HolderService::trace_control`].
     trace: Option<TraceStart>,
 }
+
+/// The holder link's hang tier: a frame its reader thread routes (a
+/// terminal's output into its parser's queue, a spawn's answer) busy this
+/// long is written to the hang log with the reader's stack (the request
+/// watchdog's `holder-link` scope). Every terminal's output waits behind it.
+pub(crate) const HOLDER_LINK_HANG: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The frame kinds the holder sends, by wire value.
+pub(crate) fn holder_frame_name(kind: u32) -> &'static str {
+    match u16::try_from(kind).ok().and_then(Kind::from_u16) {
+        Some(Kind::Spawned) => "spawned",
+        Some(Kind::Adopted) => "adopted",
+        Some(Kind::Data) => "data",
+        Some(Kind::Gap) => "gap",
+        Some(Kind::Exit) => "exit",
+        Some(Kind::Error) => "error",
+        Some(Kind::Pong) => "pong",
+        Some(_) => "other",
+        None => "unknown",
+    }
+}
+
+/// Every frame the link's reader routes is a `holder-link` scope of the
+/// process's request watchdog.
+const HOLDER_FRAME_WATCH: FrameWatch = FrameWatch {
+    enter: |kind| {
+        crate::server::process_enter(crate::server::WatchKind::HolderLink, u32::from(kind))
+    },
+    exit: crate::server::process_exit,
+};
 
 /// The holder of one terminal host root (one daemon session).
 pub(crate) struct HolderService {
@@ -463,7 +493,7 @@ impl HolderService {
 
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
-        HolderLink::connect(
+        HolderLink::connect_watched(
             &self.socket,
             &self.token,
             Box::new(move |end| {
@@ -487,6 +517,8 @@ impl HolderService {
                         }
                     });
             }),
+            SPAWN_TIMEOUT,
+            HOLDER_FRAME_WATCH,
         )
     }
 

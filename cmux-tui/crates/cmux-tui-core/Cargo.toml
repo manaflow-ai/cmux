@@ -29,6 +29,7 @@ cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+# The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true

@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The panic log of cmux's background processes: one JSON line per panic, which the cmux-next app sends to Sentry"
+description = "The panic and hang logs of cmux's background processes: one JSON line per panic or hung scope, which the cmux-next app sends to Sentry"
 
 [lints]
 workspace = true
