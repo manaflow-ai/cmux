@@ -852,6 +852,9 @@ impl Hub {
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
                         self.note_load_failed(session, &e);
+                        if meta.harness == "cmux-harness" {
+                            return Err(Self::explain_start_failure(session, e).await);
+                        }
                         false
                     }
                 }

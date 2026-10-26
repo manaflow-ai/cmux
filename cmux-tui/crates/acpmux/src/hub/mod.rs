@@ -312,6 +312,9 @@ pub struct PromptOptions {
     /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
     /// (`Hub::full_access_hold`).
     pub full_access_device: Option<String>,
+    /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
+    /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
+    pub no_queue: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -578,6 +581,7 @@ impl Hub {
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
+        hub.recover_staged_replacements();
         hub.load_from_store(deferred);
         if !deferred {
             hub.load_logs();
@@ -696,8 +700,12 @@ impl Hub {
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
-        self.mark_unknown_outcomes(&hosted);
+        let continued = self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        // A cut turn goes on before what waited behind it (`restart_resume.rs`).
+        for (session, prompt_id) in continued {
+            let _ = self.move_queued(&session, &prompt_id, 0, None);
+        }
         // A watched chat goes on following its transcript where it stopped (`watch.rs`).
         if tokio::runtime::Handle::try_current().is_ok() {
             sessions.iter().for_each(|s| self.start_watch(s));
@@ -1157,8 +1165,13 @@ impl Hub {
 
     /// After a restart: a turn that started but never settled gets a
     /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
-    /// may have run to completion.
-    pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
+    /// may have run to completion; its continuation is queued instead
+    /// (`restart_resume.rs`). Returns the chats and their continuations' prompt ids.
+    pub(super) fn mark_unknown_outcomes(
+        &self,
+        hosted: &std::collections::HashSet<String>,
+    ) -> Vec<(Arc<Session>, String)> {
+        let mut continued = Vec::new();
         for session in self.sessions() {
             // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
             if hosted.contains(&session.id) || session.meta().watching.is_some() {
@@ -1185,11 +1198,17 @@ impl Hub {
                 continue;
             }
             if let Some((seq, turn_id)) = open {
+                if let Some(id) =
+                    turn_id.as_str().and_then(|t| self.log_restart_continuation(&session, t))
+                {
+                    continued.push((session.clone(), id));
+                }
                 let error = "the daemon restarted before this turn settled";
                 self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
+        continued
     }
 
     /// Saves the session's record; never a purged session's. A late save (a generated title after

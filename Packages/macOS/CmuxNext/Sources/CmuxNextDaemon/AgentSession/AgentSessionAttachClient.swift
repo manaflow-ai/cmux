@@ -11,7 +11,7 @@ import os
 /// names a session, a folder or a command: the daemon pins the session from its tab record.
 public actor AgentSessionAttachClient {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
-    /// One push for the attachment: `agent-session-record`, `-permission` or `-closed`, with
+    /// One push for the attachment: `agent-session-record`, `-permission`, `-changed`, `-presence` or `-closed`, with
     /// the line's JSON object.
     public typealias EventHandler = @Sendable (_ event: String, _ line: Data) -> Void
 
@@ -68,6 +68,8 @@ public actor AgentSessionAttachClient {
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-children-v1`.
     private var servesChildren = false
+    /// The connected daemon serves `agent-session-presence-v1`.
+    private var servesPresence = false
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
     /// is the acpmux run the app holds a key for, nil when it holds none.
@@ -179,6 +181,22 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-children", [:])
     }
 
+    /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
+    /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
+    public func typing(_ on: Bool) async throws {
+        _ = try await liveTransport()
+        guard servesPresence else { return }
+        _ = try await call("agent-session-typing", ["on": on])
+    }
+
+    /// `agent-session-view` (`agent-session-presence-v1`): whether the person's window shows the
+    /// attached chat now. A daemon without the verb keeps counting the attach as shown.
+    public func view(_ visible: Bool) async throws {
+        _ = try await liveTransport()
+        guard servesPresence else { return }
+        _ = try await call("agent-session-view", ["visible": visible])
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
@@ -269,8 +287,12 @@ public actor AgentSessionAttachClient {
             servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
             servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
             servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
+            servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
             _ = try await DaemonConnection.perform(
-                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
+                // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
+                // from before it would end its attachment on an event it does not know).
+                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind,
+                                     capabilities: servesPresence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
             transport.close()
