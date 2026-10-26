@@ -9,8 +9,9 @@ import CoreText
 /// and values made only of them. Each is immutable once made and safe to read from any thread
 /// (Core Text Programming Guide, "Thread Safety"; Chromium shares immutable `SkImage` and
 /// `SkTextBlob` across raster threads the same way, cc/paint/paint_image.h). Never a
-/// CTTypesetter, a mutable string or a builder object. Each conformance is declared here, so a
-/// new one shows in review. MessagesLabSidebar has the same rule (`SidebarShareable`).
+/// CTTypesetter, a mutable string or a builder object. Every conformance is declared in this file,
+/// never beside its type, so a new one shows in review here. MessagesLabSidebar has the same rule
+/// (`SidebarShareable`).
 protocol HomeShareable {}
 
 /// cmux (p10-stability-055): a ``HomeShareable`` value inside a checked `Sendable` type or lock
@@ -34,5 +35,9 @@ extension UIImage: HomeShareable {}
 extension MDFrag: HomeShareable {}
 /// A Markdown box; an image box holds its CGImage.
 extension MDBox: HomeShareable {}
+/// A Markdown layout's lines and boxes, drawn from any thread.
+extension MarkdownLayout.Drawn: HomeShareable {}
+/// A laid-out Markdown block as the layout cache shares it (lines, boxes and Sendable values).
+extension MarkdownLayoutEngine.LaidBlock: HomeShareable {}
 extension Array: HomeShareable where Element: HomeShareable {}
 extension Optional: HomeShareable where Wrapped: HomeShareable {}

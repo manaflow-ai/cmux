@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
 /// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
@@ -770,7 +771,7 @@ final class MeasureCache: Sendable {
         var hits = 0, misses = 0, estimates = 0, reuses = 0
     }
     // Lock carve-out: the measure threads and main look up and store measurements; no measuring under the lock.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     var hits: Int { state.withLock { $0.hits } }
     var misses: Int { state.withLock { $0.misses } }
     var estimates: Int { state.withLock { $0.estimates } }

@@ -1,6 +1,6 @@
 import AppKit
 import ImageIO
-import os
+import CmuxSafeConcurrency
 import UniformTypeIdentifiers
 
 /// The app's side of MessagesLab's flight recorder (Vendor/appkit-native/
@@ -39,7 +39,7 @@ public struct HomeFlightRecorder {
         var logFolder = "cmux"
     }
     // Lock carve-out: one launch write and one read per send or dump; no work under the lock.
-    private static let policy = OSAllocatedUnfairLock(initialState: Policy())
+    private static let policy = Mutex(Policy())
 
     /// Writes the last ~10 s now ("Save Last 10 Seconds"); the dump folder,
     /// or nil when the recorder is off or no Home transcript is shown.

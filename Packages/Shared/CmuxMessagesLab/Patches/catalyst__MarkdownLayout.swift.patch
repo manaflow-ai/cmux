@@ -4,11 +4,11 @@
  #else
  import AppKit
  #endif
-+import os // cmux: OSAllocatedUnfairLock
++import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
  
  // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
  // a display list in body-local points (origin = the bubble's top-left; text starts
-@@ -73,10 +74,14 @@
+@@ -73,10 +74,15 @@
      var children: [MDAXNode] = []
  }
  
@@ -21,12 +21,13 @@
 -    let boxes: [MDBox]
 +    var frags: [MDFrag] { drawn.value.frags }
 +    var boxes: [MDBox] { drawn.value.boxes }
-+    private struct Drawn: HomeShareable { let frags: [MDFrag]; let boxes: [MDBox] }
++    /// Shared with the draw threads (HomeShareable: its conformance is in HomeShared.swift).
++    struct Drawn { let frags: [MDFrag]; let boxes: [MDBox] }
 +    private let drawn: HomeShared<Drawn>
      let regions: [MDRegion]
      /// Display text: what selection offsets index and what Copy returns.
      let plain: String
-@@ -88,7 +93,7 @@
+@@ -88,7 +94,7 @@
      let proxy: TextLayout
  
      init(size: CGSize, frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, source: String, ax: [MDAXNode], identity: Int) {
@@ -35,7 +36,7 @@
          self.plain = plain; self.source = source; self.ax = ax; self.identity = identity
          let n = (plain as NSString).length
          proxy = TextLayout(text: plain, runs: [], lines: [TextLayout.Line(range: NSRange(location: 0, length: n), width: size.width)], width: size.width)
-@@ -157,7 +162,7 @@
+@@ -157,7 +163,7 @@
  
  enum MarkdownLayoutEngine {
      /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
@@ -44,13 +45,14 @@
      struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
  
      /// A block laid out at y = 0, x = 0 (content-local).
-@@ -172,6 +177,15 @@
+@@ -172,6 +178,16 @@
          var ax: [MDAXNode] = []
      }
  
 +    /// cmux (p10-stability-055): a laid-out block as the cache shares it between the layout threads:
 +    /// the filled `BlockLayout`, frozen (the builder was the cached object itself).
-+    struct LaidBlock: HomeShareable {
++    /// HomeShareable: its conformance is in HomeShared.swift.
++    struct LaidBlock {
 +        let frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, height: CGFloat, extent: CGFloat, ax: [MDAXNode]
 +        init(_ b: BlockLayout) {
 +            frags = b.frags; boxes = b.boxes; regions = b.regions; plain = b.plain; height = b.height; extent = b.extent; ax = b.ax
@@ -60,7 +62,7 @@
      /// `tableColumns`: fixed column widths for the first table (a long message's table continued
      /// from an earlier block). `fill`: the inner width is the whole column (long rows are always
      /// column wide), not the widest content.
-@@ -188,14 +202,15 @@
+@@ -188,14 +204,15 @@
              var cols: [CGFloat]?
              if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
              let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
@@ -82,7 +84,7 @@
              }
              if let p = prev {
                  y += gap(p, b, nested: false)
-@@ -684,27 +699,36 @@
+@@ -684,27 +701,36 @@
  
  // MARK: - LRU
  
@@ -98,7 +100,7 @@
 +        var tick = 0
 +    }
 +    // Lock carve-out: the layout threads look up and insert blocks; the eviction is a filter of at most `capacity`.
-+    private let state = OSAllocatedUnfairLock(initialState: State())
++    private let state = Mutex(State())
      let capacity: Int
      init(capacity: Int) { self.capacity = capacity }
      func get(_ k: K) -> V? {

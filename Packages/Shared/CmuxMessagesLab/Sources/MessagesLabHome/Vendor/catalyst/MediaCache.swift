@@ -4,7 +4,7 @@ import UIKit
 import AppKit
 #endif
 import ImageIO
-import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// Decoded images for row drawing (Images.load), bounded by bytes, and image sizes from
 /// metadata (no decode). shared/LONG-MESSAGES.md, media-heavy conversations.
@@ -37,7 +37,7 @@ final class MediaCache: Sendable {
         var decodeMsTotal = 0.0, decodeMsMax = 0.0
     }
     // Lock carve-out: the row bitmap queue and main look up and store decoded images; no decode under the lock.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     var budget: Int {
         get { state.withLock { $0.budget } }
         set { state.withLock { $0.budget = newValue } }

@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// Long messages (agent output: logs, code, 100k-line pastes). shared/LONG-MESSAGES.md.
 /// A long text part is cut into blocks of about 4 KB (index, width independent);
@@ -292,7 +293,7 @@ final class BlockLayout: Sendable {
     /// Its line count in the Fenwick tree (markdown: its height in 16 pt lines, rounded up).
     let lineCount: Int
     // Lock carve-out: the tile renderers read and fill two attributed strings per block; none is built under the lock.
-    private let drawAttr = OSAllocatedUnfairLock(initialState: [Bool: HomeShared<NSAttributedString>]())
+    private let drawAttr = Mutex([Bool: HomeShared<NSAttributedString>]())
 
     init(md: MarkdownLayout, lines n: Int) {
         self.md = md
@@ -376,7 +377,7 @@ final class BlockLayoutCache: Sendable {
         var tick = 0
     }
     // Lock carve-out: the measure threads and main look up and insert blocks; the trim sorts at most 320 entries.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     static let capacity = 256
     func get(_ k: Key) -> BlockLayout? {
         state.withLock { s -> BlockLayout? in
@@ -429,7 +430,7 @@ final class LongTextLayout: Sendable {
         var retired = false
     }
     // Lock carve-out: the measure and tail queues report counts and main applies them; no layout under the lock.
-    private let state: OSAllocatedUnfairLock<State>
+    private let state: Mutex<State>
     var measured: Int { state.withLock { $0.measured } }
     /// Replaced by a newer index (streaming) or a scanned one (placeholder).
     var retired: Bool {
@@ -482,7 +483,7 @@ final class LongTextLayout: Sendable {
             hint = cHint
         }
         estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // Int32 widens exactly
-        state = OSAllocatedUnfairLock(initialState: State(hint: hint, tree: Fenwick(v), exact: ex, measured: ex.filter { $0 }.count))
+        state = Mutex(State(hint: hint, tree: Fenwick(v), exact: ex, measured: ex.filter { $0 }.count))
         placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
                                                                    in: CrashGuard.countRange)) // no trap on a zero column
         if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // a negative keep built an inverted range
@@ -577,7 +578,7 @@ final class LongTextLayout: Sendable {
                 }
             }
             let drawn: [PendingTile] = tiles.map { (key: $0.0, image: HomeShared($0.1)) }
-            self.state.withLock { s in
+            self.state.withLock { [counts] s in
                 for (b, c) in counts { s.inFlight.remove(b); if !(s.exact[checked: b] ?? true) { s.pending.updateValue(Int32(clamping: c), forKey: b) } }
                 s.pendingTiles += drawn
             }
@@ -905,7 +906,7 @@ final class LongTextStore: Sendable {
         var lineageSerial = 0
     }
     // Lock carve-out: rows on the loader queue and main look up and register indexes and layouts; no work under the lock.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     static let maxIndexes = 12
     static let syncBytes = 512 << 10
 
@@ -938,17 +939,23 @@ final class LongTextStore: Sendable {
         }
         if let found { return found }
         let l = LongTextLayout(index: idx, width: width, carry: carry?.column == Metrics(width: width).maxTextWidth ? carry : nil, markdown: md)
-        let dropped = state.withLock { s -> [LongTextLayout] in
+        // cmux: a thread that laid out the same width first keeps its layout (every caller gets one), and
+        // this one is retired with the layouts it would have pushed out (it was left measuring, unregistered).
+        let (kept, dropped) = state.withLock { s -> (LongTextLayout, [LongTextLayout]) in
             var per = s.layouts[id] ?? [:]
+            if let first = per[wk] { return (first, [l]) }
             var dropped: [LongTextLayout] = []
             if per.count >= 3 { dropped = Array(per.values); per.removeAll() }
             per.updateValue(l, forKey: wk) // dictionary write
             s.layouts[id] = per
-            return dropped
+            return (l, dropped)
         }
         dropped.forEach { $0.retired = true }
-        return l
+        return kept
     }
+
+    /// cmux: the layouts registered for a text's index now, without registering anything (tests).
+    func registeredLayouts(_ text: String) -> [LongTextLayout] { index(for: text, create: false).map(layoutsOf) ?? [] }
 
     /// The lineage of a text if it is indexed.
     func lineage(_ text: String) -> Int? { index(for: text, create: false)?.lineage }
@@ -1034,7 +1041,9 @@ final class LongTextStore: Sendable {
                         let tailOffMain = LongText.offMainTail
                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
                         let iid = ObjectIdentifier(i), wk = o.markdown || !i.markdown ? o.width : -o.width
-                        state.withLock { $0.layouts[iid, default: [:]][wk] = l }
+                        // cmux: a layout another thread registered for the new index meanwhile is retired, not left measuring.
+                        let replaced = state.withLock { s in s.layouts[iid, default: [:]].updateValue(l, forKey: wk) }
+                        replaced?.retired = true
                         if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                         // The previous rule: the new tail is measured now (about 4 KB).
                         let reuse = BlockLayoutCache.shared.get(o.key(keep))

@@ -4,7 +4,7 @@
  #else
  import AppKit
  #endif
-+import os // cmux: OSAllocatedUnfairLock
++import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
  
  /// Parsed documents and the per-message "Show Markdown Source" state.
  /// Parse results are cached by text. A text that extends a cached text (a stream)
@@ -33,7 +33,7 @@
 +        var source = Set<ID>()
 +    }
 +    // Lock carve-out: the measure threads and main look up and store parsed documents; no parse under the lock.
-+    private let state = OSAllocatedUnfairLock(initialState: State())
++    private let state = Mutex(State())
 +    var fullParses: Int { state.withLock { $0.fullParses } }
 +    var tailParses: Int { state.withLock { $0.tailParses } }
  

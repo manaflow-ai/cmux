@@ -8,8 +8,9 @@ import Testing
 
 /// The transcript's measure, parse, decode and long-text caches, used from the row threads at once
 /// (p10-stability-055): they were `@unchecked Sendable` classes over an NSLock and are now checked
-/// `Sendable` with one lock state each. Every concurrent lookup is counted once, a byte budget holds,
-/// an attributed string is built once per side, and the flight recorder's policy reads what the app set.
+/// `Sendable` with one `Mutex` state each. Every concurrent lookup is counted once, a byte budget holds,
+/// an attributed string is built once per side, a dropped long-text layout is retired and every index has
+/// its own lineage.
 @Suite struct CatalystCachesSendableTests {
     static let threads = 8
 
@@ -137,16 +138,78 @@ import Testing
         #expect(lru.get(-1) == 7)
     }
 
-    /// The app's policy (CmuxNextHome's HomeFlightRecording.install) is what the recorder reads, from any thread.
-    @Test func flightRecorderReadsThePolicyTheAppSet() async {
-        let folder = HomeFlightRecorder.logFolder
-        defer { HomeFlightRecorder.logFolder = folder }
-        HomeFlightRecorder.logFolder = "cmux-policy-test"
-        let read: String = await withCheckedContinuation { done in
-            DispatchQueue(label: "catalyst-caches.flight", qos: .utility).async { done.resume(returning: HomeFlightRecorder.logFolder) }
+    /// The rows lay out one long text at six widths on many threads while the measure queue runs its blocks:
+    /// at most three layouts stay registered, and every other layout a caller got is retired (its queued
+    /// measuring stops). Before the fix `retired` was a plain var the measure queue read while a layout or
+    /// register call wrote it (TSan: data race), and two threads that laid out the same width at once both
+    /// registered theirs, the first one dropped but never retired.
+    @Test func longTextStoreRetiresEveryDroppedLayoutUnderConcurrentLayout() {
+        let store = LongTextStore()
+        let text = (0..<2000).map { "line \($0) of a long message with some words in it" }.joined(separator: "\n")
+        let widths: [CGFloat] = [360, 440, 520, 600, 680, 760]
+        let got = OSAllocatedUnfairLock(initialState: [LongTextLayout]())
+        DispatchQueue.concurrentPerform(iterations: Self.threads) { t in
+            for r in 0..<12 {
+                let l = store.layout(text, width: widths[(t + r) % widths.count])
+                got.withLock { $0.append(l) }
+            }
         }
-        #expect(read == "cmux-policy-test")
-        #expect(!HomeFlightRecorder.isEnabled(), "off until the app turns it on")
-        #expect(!HomeFlightRecorder.capturesWindow())
+        let registered = store.registeredLayouts(text)
+        let live = Set(registered.map(ObjectIdentifier.init))
+        #expect(!registered.isEmpty)
+        #expect(registered.count <= 3)
+        #expect(registered.allSatisfy { !$0.retired })
+        let all = got.withLock { $0 }
+        #expect(all.count == Self.threads * 12)
+        let unretired = all.filter { !live.contains(ObjectIdentifier($0)) && !$0.retired }
+        #expect(unretired.isEmpty, "\(unretired.count) dropped layouts still measuring")
+        LongTextLayout.measureQueue.waitUntilAllOperationsAreFinished()
+    }
+
+    /// Distinct texts indexed on many threads at once get distinct lineages (a lineage keys the block and
+    /// tile caches, so two texts sharing one draw each other's tiles). Before the fix the serial was bumped
+    /// outside the store's lock (TSan: data race; a lost update gives two indexes one lineage).
+    @Test func longTextStoreGivesEveryConcurrentIndexItsOwnLineage() {
+        let store = LongTextStore()
+        let body = (0..<300).map { "line \($0) of a long message with some words in it" }.joined(separator: "\n")
+        let texts = (0..<LongTextStore.maxIndexes).map { "text \($0) starts here\n" + body }
+        let indexes = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: LongTextIndex]())
+        DispatchQueue.concurrentPerform(iterations: Self.threads) { t in
+            for k in 0..<texts.count {
+                let i = store.layout(texts[(k + t) % texts.count], width: 520).index
+                indexes.withLock { $0[ObjectIdentifier(i)] = i }
+            }
+        }
+        let built = indexes.withLock { Array($0.values) }
+        #expect(built.count >= texts.count)
+        #expect(Set(built.map(\.lineage)).count == built.count)
+        LongTextLayout.measureQueue.waitUntilAllOperationsAreFinished()
+    }
+}
+
+/// The flight recorder's policy (CmuxNextHome's HomeFlightRecording.install sets it at launch; the recorder
+/// reads it after a send and on its dump queue). Many threads read it while one writes it: before the fix the
+/// three statics were `nonisolated(unsafe)` vars (TSan: data race). The writer stores the values already set,
+/// so no other test sees a changed policy; serialized because it writes process-global state.
+@Suite(.serialized) struct HomeFlightRecorderPolicyTests {
+    @Test func policyReadsAndWritesFromManyThreadsAtOnce() {
+        let enabled = HomeFlightRecorder.isEnabled
+        let captures = HomeFlightRecorder.capturesWindow
+        let folder = HomeFlightRecorder.logFolder
+        let on = enabled(), capturing = captures()
+        let mismatches = OSAllocatedUnfairLock(initialState: 0)
+        DispatchQueue.concurrentPerform(iterations: 8) { t in
+            for _ in 0..<2000 {
+                if t == 0 {
+                    HomeFlightRecorder.isEnabled = enabled
+                    HomeFlightRecorder.capturesWindow = captures
+                    HomeFlightRecorder.logFolder = folder
+                } else if HomeFlightRecorder.isEnabled() != on || HomeFlightRecorder.capturesWindow() != capturing
+                    || HomeFlightRecorder.logFolder != folder {
+                    mismatches.withLock { $0 += 1 }
+                }
+            }
+        }
+        #expect(mismatches.withLock { $0 } == 0)
     }
 }

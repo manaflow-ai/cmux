@@ -3,7 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
-import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
 // a display list in body-local points (origin = the bubble's top-left; text starts
@@ -80,7 +80,8 @@ final class MarkdownLayout: Hashable, Sendable {
     let size: CGSize
     var frags: [MDFrag] { drawn.value.frags }
     var boxes: [MDBox] { drawn.value.boxes }
-    private struct Drawn: HomeShareable { let frags: [MDFrag]; let boxes: [MDBox] }
+    /// Shared with the draw threads (HomeShareable: its conformance is in HomeShared.swift).
+    struct Drawn { let frags: [MDFrag]; let boxes: [MDBox] }
     private let drawn: HomeShared<Drawn>
     let regions: [MDRegion]
     /// Display text: what selection offsets index and what Copy returns.
@@ -179,7 +180,8 @@ enum MarkdownLayoutEngine {
 
     /// cmux (p10-stability-055): a laid-out block as the cache shares it between the layout threads:
     /// the filled `BlockLayout`, frozen (the builder was the cached object itself).
-    struct LaidBlock: HomeShareable {
+    /// HomeShareable: its conformance is in HomeShared.swift.
+    struct LaidBlock {
         let frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, height: CGFloat, extent: CGFloat, ax: [MDAXNode]
         init(_ b: BlockLayout) {
             frags = b.frags; boxes = b.boxes; regions = b.regions; plain = b.plain; height = b.height; extent = b.extent; ax = b.ax
@@ -707,7 +709,7 @@ final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
         var tick = 0
     }
     // Lock carve-out: the layout threads look up and insert blocks; the eviction is a filter of at most `capacity`.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     let capacity: Int
     init(capacity: Int) { self.capacity = capacity }
     func get(_ k: K) -> V? {
