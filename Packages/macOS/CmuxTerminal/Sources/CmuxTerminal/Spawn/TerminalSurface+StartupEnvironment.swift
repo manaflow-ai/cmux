@@ -57,7 +57,13 @@ extension TerminalSurface {
     ]
 
     /// Applies the managed terminal identity (`TERM`, `COLORTERM`,
-    /// `TERM_PROGRAM`) and protects those keys.
+    /// `TERM_PROGRAM`, an empty `TERM_PROGRAM_VERSION`) and protects those keys.
+    ///
+    /// Codex treats Ghostty 1.2.0 or later as providing native selection while
+    /// a TUI owns the mouse, and turns off its own copy-on-select. cmux forwards
+    /// those drags to the TUI, so advertising the embedded Ghostty version
+    /// leaves nothing for Command-C. Ghostty exports its version before applying
+    /// these values, so the key is blanked rather than removed.
     public static func applyManagedTerminalIdentityEnvironment(
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
@@ -68,6 +74,8 @@ extension TerminalSurface {
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+        environment["TERM_PROGRAM_VERSION"] = ""
+        protectedKeys.insert("TERM_PROGRAM_VERSION")
     }
 
     /// Applies the managed cmux context identity keys and protects them.
