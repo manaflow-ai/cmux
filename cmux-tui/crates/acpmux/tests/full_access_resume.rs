@@ -53,9 +53,11 @@ fn home(name: &str, extra: Value) -> PathBuf {
             "codex": {"argv": [codex, "app-server"]},
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             // An ACP adapter whose session/load restores the chat's full-access mode itself.
-            "restores": {"argv": ["env", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "python3", FAKE_AGENT]},
+            // Its other modes are real ids (`default`, `plan`): a mode the full-access allowlist
+            // (spec/full-access-modes.json) does not know counts as full access.
+            "restores": {"argv": ["env", "FAKE_MODE_IDS=default,plan", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "python3", FAKE_AGENT]},
             // One that restores full access and offers no lower mode after the load.
-            "stuck": {"argv": ["env", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "FAKE_LOAD_ONLY_MODE=1", "python3", FAKE_AGENT]},
+            "stuck": {"argv": ["env", "FAKE_MODE_IDS=default,plan", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "FAKE_LOAD_ONLY_MODE=1", "python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -173,11 +175,11 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
     assert_eq!(r["result"]["restarted"], json!(3), "{r}");
     // Each comes back on its own harness, in that harness's mode that asks: Claude's `default`,
     // the Codex bridge's `agent`, and for the harness that restored full access on load, the mode
-    // acpmux then sent it explicitly (`normal`, its first mode that does not skip approvals).
+    // acpmux then sent it explicitly (`default`, its first mode that does not skip approvals).
     for (id, harness, mode) in [
         (&claude, "claude", "default"),
         (&codex, "codex", "agent"),
-        (&restores, "restores", "normal"),
+        (&restores, "restores", "default"),
     ] {
         let r = app.call("_acpmux/info", json!({"sessionId": id})).await;
         assert_eq!(r["result"]["harness"], harness, "{r}");

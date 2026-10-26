@@ -25,12 +25,23 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
 
     public init() {}
 
+    /// `sessions.allowFullAccess` read strictly, as acpmux reads it (`start_mode.rs` `strict_allow`):
+    /// no key or `null` is the default (on); only `true` allows, so `false`, `0` or `"false"` is off.
+    public static func fullAccessAllowed(_ value: JSONValue?) -> Bool {
+        switch value {
+        case nil, .null?: allowFullAccessDefault
+        case .bool(true)?: true
+        default: false
+        }
+    }
+
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         if var reader = ConfigFieldReader(root, at: ["sessions"], diagnostics: &diagnostics) {
             if let value = reader.choice("keepAwake", SessionKeepAwakeSetting.self) { settings.keepAwake = value }
             if let value = reader.bool("resumeAgents") { settings.resumesAgents = value }
-            if let value = reader.bool("allowFullAccess") { settings.allowsFullAccess = value }
+            settings.allowsFullAccess = Self.fullAccessAllowed(reader.members["allowFullAccess"])
+            _ = reader.bool("allowFullAccess") // records the diagnostic for a value that is not a boolean
             if let value = reader.bool("promptSuggestions") { settings.promptSuggestions = value }
             diagnostics += reader.diagnostics
         }

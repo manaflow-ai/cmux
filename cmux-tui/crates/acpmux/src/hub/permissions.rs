@@ -422,8 +422,25 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
+    /// The policy that answers `session`'s permission requests: its own, else the daemon's
+    /// (`config_policy`). While `sessions.allowFullAccess` is off, approve-all (the policy form
+    /// of full access, from config.json `permissionPolicy`, a preset, a profile default or a
+    /// session set before the switch went off) answers nothing itself: it runs as `ask`.
     pub(super) fn policy_for(
         &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
+        let policy = Self::stored_policy_for(session, config_policy);
+        if super::start_mode::policy_is_full_access(policy) && !self.full_access_allowed() {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// `policy_for` as stored, before `sessions.allowFullAccess` caps it: for the person rule,
+    /// which must not treat an approve-all session as asking while the switch is off.
+    pub(super) fn stored_policy_for(
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
@@ -464,7 +481,7 @@ impl Hub {
         let needs_person = super::questions::needs_person(&request);
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -848,14 +865,16 @@ impl Hub {
     }
 }
 
-/// The Full access mode chat `m` runs in now: its current mode, when the shared rule
-/// (`spec/full-access-modes.json`, `start_mode::is_full_access`) names it full access and cmux set
-/// it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode the
-/// harness reported on its own, `trust_wait.rs` `full_access_by_cmux`).
+/// The Full access mode chat `m` runs in now: its current mode, when the shared rule's markers
+/// (`spec/full-access-modes.json`, `start_mode::names_full_access`) name it full access and cmux
+/// set it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode
+/// the harness reported on its own, `trust_wait.rs` `full_access_by_cmux`). Only a mode the
+/// markers name: a mode merely missing from `allowedModes` (`start_mode::is_full_access`, which
+/// fails closed to refuse it while the switch is off) approves nothing on its own.
 fn full_access_mode(m: &SessionMeta) -> Option<String> {
     let mode = crate::web_modes::mode_of(m)?;
     (m.mode_set_by_cmux.as_deref() == Some(mode.as_str())
-        && super::start_mode::is_full_access(&mode))
+        && super::start_mode::names_full_access(&mode))
     .then_some(mode)
 }
 

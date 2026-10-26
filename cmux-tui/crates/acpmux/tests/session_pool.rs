@@ -614,6 +614,8 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pooled_chat_that_started_in_full_access_leaves_it_when_off() {
     let mut fakeb = profile("b");
+    // Real mode ids: a mode the full-access allowlist does not know counts as full access.
+    fakeb["env"]["FAKE_MODE_IDS"] = json!("default,plan");
     fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
     fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
     let off = json!({"sessions": {"allowFullAccess": false}});
@@ -627,7 +629,7 @@ async fn a_pooled_chat_that_started_in_full_access_leaves_it_when_off() {
     let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
-    assert_eq!(info["modes"]["currentModeId"], "normal", "{info}");
+    assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
 }
 
 /// `sessions.allowFullAccess` off does not touch a profile that pins its mode in its argv
@@ -658,6 +660,9 @@ async fn a_pooled_chat_pinned_to_full_access_by_its_argv_keeps_it_when_off() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pooled_chat_whose_harness_never_leaves_full_access_fails_with_a_deadline() {
     let mut fakeb = profile("b");
+    // A reviewed mode to move to (spec/full-access-modes.json), so acpmux sends the switch the
+    // harness never answers; with none it would refuse at once.
+    fakeb["env"]["FAKE_MODE_IDS"] = json!("default,plan");
     fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
     fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
     fakeb["env"]["FAKE_SET_MODE_SILENT"] = json!("1");
