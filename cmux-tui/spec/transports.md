@@ -168,9 +168,11 @@ before decoding or allocating its payload.
 ### Binary frames (cmux-ipc, not yet negotiated)
 
 The `cmux-ipc` crate defines binary frames that a local Unix connection will
-carry next to JSON lines once a client negotiates them. No server grants them
-yet; until a later capability does, a frame on any connection is a bad
-message. WebSocket, relay and bridged connections keep JSON lines only.
+carry next to JSON lines once a client negotiates them. The daemon grants
+`ipc-frames-v2` as [Framed IPC grants](#framed-ipc-grants) says, but its
+reader does not read frames until p05-ipc-061 lands. Until then, a frame on
+any connection is a bad message. WebSocket, relay and bridged connections
+keep JSON lines only.
 
 A message that starts with byte `0xFF` is a frame; any other first byte starts
 a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
