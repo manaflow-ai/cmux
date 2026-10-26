@@ -737,6 +737,48 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_report_queued_behind_a_busy_parent_that_then_closes_never_runs() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        let (h, p) = (hub.clone(), parent.clone());
+        let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
+        let busy = tokio::spawn(async move {
+            h.prompt_with(&p, blocks, "test", false, PromptOptions::default()).await
+        });
+        for _ in 0..100 {
+            if parent.turn().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(parent.turn().is_some(), "the parent's turn never started");
+        // The report queues behind the parent's turn; then the parent closes.
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
+        let now = now_ms();
+        let due = hub.lane_take_due(&lane.id, now).unwrap();
+        hub.lane_hand_over(&lane.id, due, now).await;
+        for _ in 0..100 {
+            if parent.queued() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(parent.queued(), 1, "the report never queued behind the parent's turn");
+        let turns = parent.meta().turn_count;
+        hub.kill(&parent, false).await.unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), busy).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(parent.meta().turn_count, turns, "the queued report ran after the close");
+        assert!(parent.child.lock().await.is_none(), "the report started the parent's agent again");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
     /// Quit Everything (`_acpmux/shutdown endAgents`) ends the parent with its lanes, and no
     /// agent may start once the shutdown has begun: a lane's turn it cancels reports nothing.
     #[tokio::test]
