@@ -1625,6 +1625,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
                 "CmuxNextBrowserTabs",
+                "CmuxNextChiefMemory",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",

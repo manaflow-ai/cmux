@@ -438,12 +438,39 @@ export interface RequestMeta {
   cmuxGesture?: (string | null);
 }
 
+/** What `_acpmux/retry` retried: the chat's own turn, or one of its subagents. */
+export type RetryKind = "turn" | "subagent";
+
+/**
+ * `_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,
+ * in the same session (`hub/auto_resume/retry_turn.rs`).
+ */
+export interface RetryParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /**
+   * One of the chat's failed subagents to resume instead. Refused for now
+   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   */
+  subagentId?: (string | null);
+}
+
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
  * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
  * agent process died mid-turn.
  */
 export type RetryReason = "capacity" | "transport" | "agent_exited";
+
+/**
+ * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
+ * failed prompt) and the turn it started.
+ */
+export type RetryResult = {
+  kind: RetryKind;
+  promptId: string;
+  turnId?: (string | null);
+} & Record<string, unknown>;
 
 /**
  * An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`

@@ -1829,6 +1829,11 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_suite_skips.py"
+lane = "manual"
+reason = "A regression test for package-test-lane.sh suite's skip reporting, run by its author (CLAUDE.md: no new CI tests). Stdlib Python with a fake swift and xcrun; runs anywhere: python3 tests/test_ci_package_lane_suite_skips.py."
+
+[[test]]
 path = "tests/test_cmux_bug_triage.py"
 lane = "linux-guard"
 

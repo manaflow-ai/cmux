@@ -346,3 +346,59 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
     let e = web.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap_err();
     assert!(e.contains("lasting grant"), "{e}");
 }
+
+/// A group answer is told to a later answer for one of its items at once (`permission_settled.rs`),
+/// before each asking task logs its decision.
+#[tokio::test]
+async fn an_answer_after_a_group_answer_is_told_the_group_won() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "late-item").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: parallel", None)).await;
+    let g = ready(&mut c).await;
+    let item = g["items"][0]["permissionId"].clone();
+    let mut r = connect(&hub).await;
+    r.request(RESPOND, decision(&id, &g, "all", "deny")).await.unwrap();
+    r.next += 1;
+    let late = json!({"sessionId": id, "permissionId": item, "optionId": "no"});
+    let line = Message::request(r.next, method::MUX_PERMISSION_RESPOND, late).to_line();
+    r.tx.send(line).await.unwrap();
+    let error = loop {
+        let line = r.rx.recv().await.expect("connection closed");
+        if let Message::Response { id, error, .. } = Message::parse(&line).unwrap()
+            && id == json!(r.next)
+        {
+            break error.expect("the late answer is refused");
+        }
+    };
+    let data = error.data.expect("who won, and how");
+    assert_eq!(data["answeredBy"], Value::Null, "{data}");
+    assert!(data["outcome"]["outcome"].is_string(), "{data}");
+    assert!(c.response(rid).await.0.is_ok());
+}
+
+/// An `ask` rule always reaches a person: the chat allowance never answers a
+/// request the session's rules send to the person (a `git push` rule, here
+/// the fixture's `Write`).
+#[tokio::test]
+async fn the_chat_allowance_never_answers_an_ask_rule() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "chat-ask").await;
+    let mut r = connect(&hub).await;
+    // Rules first: changing them withdraws a chat allowance.
+    r.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": {"ask": ["Write"]}}))
+        .await
+        .unwrap();
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(state["chatAllowance"]["active"], true, "{state}");
+    let autos = |hub: &Arc<Hub>| find(&hub.events(&id, 0, 5000).unwrap(), "permission_auto").len();
+    let before = autos(&hub);
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    assert_eq!(autos(&hub), before, "the ask rule prompted despite the chat allowance");
+    r.request(RESPOND, decision(&id, &g, "asked", "allow_once")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+}

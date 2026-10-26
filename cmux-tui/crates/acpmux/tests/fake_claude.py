@@ -58,7 +58,7 @@ FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
 process outside its own (forked twice, so a kill of its group and descendants misses it) that 1 s
-later writes a /context answer, then a `system/late_probe` line, then creates <path>: a replaced
+later writes a /context answer and a rate_limit_event, then a `system/late_probe` line, then creates <path>: a replaced
 Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
 server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
@@ -68,6 +68,9 @@ token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
+"rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
+(`utilization` a 0-1 fraction): the session and weekly windows, then the
+session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
 import os
@@ -527,6 +530,8 @@ while True:
                 time.sleep(1.0)
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
                       "response": CONTEXT_USAGE}})
+                send({"type": "rate_limit_event", "uuid": "rl-late", "session_id": SESSION, "rate_limit_info": {
+                      "status": "rejected", "rateLimitType": "five_hour", "utilization": 1.0, "resetsAt": 1}})
                 send({"type": "system", "subtype": "late_probe"})
                 open(late, "w").close()
                 os._exit(0)
@@ -724,6 +729,15 @@ while True:
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
                   "compact_metadata": {"trigger": "manual", "pre_tokens": 4500}})
+        # "rate-limits-probe": the account's plan usage limits, then a later event for one window.
+        if said.strip() == "rate-limits-probe" or os.environ.get("FAKE_CLAUDE_LIMITS") == "1":
+            send({"type": "rate_limit_event", "uuid": "rl-1", "session_id": SESSION, "rate_limit_info": {
+                "status": "allowed", "isUsingOverage": False, "unifiedWindows": {
+                    "five_hour": {"utilization": 0.12, "resetsAt": 1790000000},
+                    "seven_day": {"utilization": 0.4, "resetsAt": 1790500000}}}})
+            send({"type": "rate_limit_event", "uuid": "rl-2", "session_id": SESSION, "rate_limit_info": {
+                "status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.9,
+                "resetsAt": 1790000000}})
         # "bg-probe": the turn starts two shells in the background (Bash run_in_background); Claude
         # Code reports each as a local_bash task, and one is killed while the other finishes.
         if said.strip() == "bg-probe":
