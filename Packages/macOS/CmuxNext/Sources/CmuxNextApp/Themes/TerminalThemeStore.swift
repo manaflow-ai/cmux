@@ -120,6 +120,7 @@ final class TerminalThemeStore {
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
         let previous = lastWrite, logger = logger
+        // priority-allow: only tests await lastWrite (flush); no person waits for a save
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {
