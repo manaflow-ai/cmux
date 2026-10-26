@@ -131,11 +131,21 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
     private let healReplaced: (@Sendable () async -> Bool)?
+    /// Restarts this app's own daemon when it is alive but stops answering, while
+    /// `restartsUnresponsive` (the `agent.restartUnresponsiveAcpmux` toggle) is on.
+    private let unresponsive: AcpmuxUnresponsiveWatch
+    private let restartsUnresponsive: @Sendable () -> Bool
 
     /// - Parameter healReplaced: called once per daemon pid when a daemon this
     ///   host does not start (`startsDaemons: false`) runs from a replaced bundle.
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
                 healReplaced: (@Sendable () async -> Bool)? = nil) {
+        self.init(environment: environment, startsDaemons: startsDaemons, healReplaced: healReplaced, unresponsive: .shared)
+    }
+
+    init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true, healReplaced: (@Sendable () async -> Bool)? = nil,
+         unresponsive: AcpmuxUnresponsiveWatch,
+         restartsUnresponsive: @escaping @Sendable () -> Bool = { AgentPaneTunables.restartUnresponsiveAcpmux.value }) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
@@ -144,6 +154,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
+        self.unresponsive = unresponsive
+        self.restartsUnresponsive = restartsUnresponsive
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
@@ -164,6 +176,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
         self.healReplaced = nil
+        self.unresponsive = .shared
+        self.restartsUnresponsive = { AgentPaneTunables.restartUnresponsiveAcpmux.value }
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -235,7 +249,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        // Only a daemon this app owns is ever restarted for not answering.
+        let watch = owned && restartsUnresponsive() ? unresponsive : nil
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, watch: watch) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -351,12 +367,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
     }
 
+    /// - Parameter watch: counts status calls that miss their deadline and restarts this app's
+    ///   own daemon once it stopped answering (``AcpmuxUnresponsiveWatch``); nil: never.
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?,
+                                    watch: AcpmuxUnresponsiveWatch? = nil) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            watch?.answered(home: environment.home.standardizedFileURL.path)
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.
             guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
