@@ -2993,6 +2993,7 @@
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
 		318A10362EFC47DB03BF1D5C /* ProBadgeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */; };
+		CD2E66763635610652AC06EC /* ProBadgeLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F6A3943E84656FD315D5A0 /* ProBadgeLayoutTests.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
 		BA49793C0FF869905F27D2BB /* ProcessDetectedTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */; };
@@ -7663,6 +7664,7 @@
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
 		F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeActions.swift; sourceTree = "<group>"; };
+		76F6A3943E84656FD315D5A0 /* ProBadgeLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProBadgeLayoutTests.swift"; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
 		DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedTerminalBinding.swift; sourceTree = "<group>"; };
@@ -14281,6 +14283,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				76F6A3943E84656FD315D5A0 /* ProBadgeLayoutTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19186,6 +19189,7 @@
 					F83620010000000000000001 /* PortScannerTTYFreshnessTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
+				CD2E66763635610652AC06EC /* ProBadgeLayoutTests.swift in Sources */,
 				AC0FCEFB6665CF134634D60B /* ProcessExitWait.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */,
