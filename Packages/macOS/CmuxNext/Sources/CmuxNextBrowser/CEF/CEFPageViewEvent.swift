@@ -10,4 +10,7 @@ nonisolated enum CEFPageViewEvent: Equatable, Sendable {
     case dragOperation(Int64)
     /// The page's tooltip changed (TOOLTIP, task 054; host mode turns it on): the text, "" for none.
     case tooltip(String)
+    /// The page's autofill, password or `<datalist>` suggestions (SUGGESTIONS, task 061; host mode with
+    /// feature `chromiumHostSuggestions`): the page view's ``ChromiumHostSuggestionList`` draws them.
+    case suggestions(ChromiumHostSuggestionEvent)
 }

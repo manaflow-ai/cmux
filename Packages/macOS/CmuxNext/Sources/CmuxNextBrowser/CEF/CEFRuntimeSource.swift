@@ -31,6 +31,10 @@ public final class CEFRuntimeSource {
     /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
     /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
     public var fencesHostResizes = false
+    /// Host mode: a page's autofill, password and `<datalist>` suggestions show in cmux's list, not
+    /// Chromium's popup, which would open in the host (feature `chromiumHostSuggestions`, set by the App;
+    /// p01-process-061). Read when the runtime adopts the source; in process it changes nothing.
+    public var drawsHostSuggestions = false
 
     /// Creates a source.
     ///

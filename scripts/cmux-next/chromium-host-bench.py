@@ -104,7 +104,9 @@ Per mode:
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions, then the
+autofill and password rows (chromium_host_suggestions.py, p01-process-061): the field's suggestions in cmux's list
+(`debug.cef` `host_suggestions`) with feature chromiumHostSuggestions on.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match

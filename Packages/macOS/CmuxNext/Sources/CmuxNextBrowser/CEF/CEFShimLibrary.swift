@@ -268,6 +268,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
+    let suggestions: CEFShimSuggestionOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

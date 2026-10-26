@@ -10,6 +10,8 @@ by the Chromium host and shown by cmux from their layer contexts (ChromiumHostWi
                     cmux's DevTools window)
   extension_popup   a click on a test extension's action: its popup in a cmux panel (`extension_popup`)
   side_panel        a click on a side panel extension's action: the panel's page over its tab (`side_panel`)
+  autofill,         a page's suggestions in cmux's own list (chromium_host_suggestions.py, p01-process-061, feature
+  password          `chromiumHostSuggestions`); with it on, the datalist row's options come in that list too
 
 Each row passes when `debug.cef` `host_widgets` lists a shown widget of its kind with a non-empty screen frame
 within the row's deadline; it records the widget and how long it took to show. Without a widget host (`host_widgets`
@@ -19,13 +21,15 @@ import json
 import os
 import time
 
+import chromium_host_suggestions as suggestions
+
 PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <style>body{margin:0;font:16px system-ui} input,button{position:fixed;left:40px;width:240px;height:32px;font-size:16px}</style>
 <input id=date type=date style="top:40px">
 <input id=list list=opts autocomplete=off style="top:100px">
 <datalist id=opts><option value=alpha><option value=bravo><option value=charlie></datalist>
 <button id=pop style="top:160px" onclick="window.open('about:blank#native-ui-popup', '', 'popup,width=420,height=320')">popup</button>
-"""
+""" + suggestions.FIELDS
 
 EXTENSIONS = (
     ("Native UI Popup", {"action": {"default_popup": "popup.html"}}),
@@ -58,7 +62,8 @@ def write_extensions(root):
 
 def launch_env(extension_paths):
     """What the app needs for these rows: the feature, and the test extensions."""
-    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets", "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
+    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostSuggestions",
+            "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
 def host_widgets(rpc):
@@ -91,7 +96,8 @@ def run(rpc, wait, page_eval, url):
     if host_widgets(rpc) is None:
         reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
         return {name: {"ok": False, "not_run": reason} for name in
-                ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel")}, False
+                ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel",
+                 *suggestions.ROWS)}, False
 
     def center(element):
         rect = page_eval(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); "
@@ -111,7 +117,7 @@ def run(rpc, wait, page_eval, url):
 
     click("list")
     rpc("debug.key", {"target": "page", "key": "a"})
-    rows["datalist"] = wait_shown(rpc, wait, ("page_popup",))
+    rows["datalist"] = suggestions.datalist(rpc, wait) if suggestions.drawn(rpc) else wait_shown(rpc, wait, ("page_popup",))
     dismiss_page_popup()
 
     click("pop")
@@ -136,4 +142,5 @@ def run(rpc, wait, page_eval, url):
         rows[row] = wait_shown(rpc, wait, (kind,))
         if kind == "extension_popup":
             rpc("debug.extensions.popup", {"hide": True})
+    rows.update(suggestions.run(rpc, wait, page_eval, click))
     return rows, all(row.get("ok") for row in rows.values())

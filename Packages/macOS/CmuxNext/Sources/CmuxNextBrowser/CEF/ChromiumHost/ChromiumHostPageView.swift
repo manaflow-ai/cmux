@@ -116,6 +116,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityWindowClose: EventSubscription?
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
+    /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
+    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -426,19 +428,6 @@ extension ChromiumHostPageView {
     func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    // MARK: Edit menu
-
-    @objc public func copy(_ sender: Any?) { edit(0) }
-    @objc public func cut(_ sender: Any?) { edit(1) }
-    @objc public func paste(_ sender: Any?) { edit(2) }
-    @objc public override func selectAll(_ sender: Any?) { edit(3) }
-    @objc public func undo(_ sender: Any?) { edit(4) }
-    @objc public func redo(_ sender: Any?) { edit(5) }
-
-    private func edit(_ command: Int32) {
-        _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency

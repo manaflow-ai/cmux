@@ -27,6 +27,9 @@ final class CEFHostStart {
     var widgetHost: ChromiumHostWidgetHost?
     /// Page resizes hold their window's commit on a fence (feature `chromiumHostResizeFence`).
     let fencesResizes: Bool
+    /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
+    /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
+    var drawsSuggestions = false
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
@@ -66,7 +69,10 @@ final class CEFHostStart {
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome { (remote, mapsClientIDs, hostGone) = (host.remote, host.mapsClientIDs, false) }
+        guard case .success(let host) = outcome else { return outcome }
+        (remote, mapsClientIDs, hostGone) = (host.remote, host.mapsClientIDs, false)
+        // Before initialize: a preinit op, which the remote shim replays to every later host.
+        if drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
     }
 
