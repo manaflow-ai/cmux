@@ -380,6 +380,8 @@ impl Hub {
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             last_turn: m.last_turn.clone(),
+            // A retry of its failed last turn waits (`auto_resume.rs`).
+            retry: self.waiting_retry(session),
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),
@@ -483,6 +485,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "openWaits": self.open_waits.load(Ordering::SeqCst),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

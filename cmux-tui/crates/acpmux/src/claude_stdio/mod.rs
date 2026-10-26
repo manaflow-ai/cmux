@@ -248,6 +248,14 @@ mod tests;
 mod workflow_tests;
 mod workflows;
 
+/// Longest failure text a failed subagent's end carries, in characters.
+const MAX_FAILURE_CHARS: usize = 600;
+
+/// Most failed subagents remembered for a resume (`failed_agents`); the oldest goes first. A
+/// resume of one forgotten still streams under its own session (`subagent_route.rs`); only its
+/// `running` again is not said.
+const MAX_FAILED_AGENTS: usize = 64;
+
 /// The internal ACP request that stops one of Claude Code's background
 /// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
 /// `stop_task` control request. The answer is `{}` once Claude Code took it;
@@ -433,6 +441,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// Subagents that ended failed, oldest first: the agent id SendMessage resumes each by, its
+    /// Agent call and its session, so a resume reports that subagent running again.
+    failed_agents: Mutex<std::collections::VecDeque<(String, String, String)>>,
     /// Running Workflow tool calls (`workflows.rs`): each run's transcript
     /// dir once its launch named it, and what was last sent of its agents.
     workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
@@ -545,6 +556,7 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),

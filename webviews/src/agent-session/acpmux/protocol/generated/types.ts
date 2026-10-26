@@ -439,6 +439,27 @@ export interface RequestMeta {
 }
 
 /**
+ * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
+ * agent process died mid-turn.
+ */
+export type RetryReason = "capacity" | "transport" | "agent_exited";
+
+/**
+ * An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
+ * of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
+ * session, for the cut turn `turnId`.
+ */
+export type RetrySummary = {
+  attempt: number;
+  nextAt: number;
+  of: number;
+  promptId: string;
+  reason: RetryReason;
+  turnId: string;
+} & Record<string, unknown>;
+
+/**
  * To watchers when a session changed: its new summary (only its id when
  * purged), the coarse `kind` and the log record behind it.
  */
@@ -530,6 +551,11 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -689,6 +715,11 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;

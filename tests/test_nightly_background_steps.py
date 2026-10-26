@@ -107,7 +107,7 @@ class BackgroundStepTests(unittest.TestCase):
     def test_the_sentry_upload_overlaps_the_artifact_uploads_and_stays_non_fatal(self):
         job = "build-nightly-app"
         self.assertLess(index(job, SENTRY_START), index(job, "Archive unsigned nightly app"))
-        self.assertLess(index(job, "Keep the nightly-next dSYMs (90 days)"), index(job, SENTRY_FINISH))
+        self.assertLess(index(job, "Keep the nightly-next dSYMs for publication"), index(job, SENTRY_FINISH))
         self.assertEqual(step(job, SENTRY_START)["if"], step(job, SENTRY_FINISH)["if"])
         self.assertIs(step(job, SENTRY_START)["continue-on-error"], True)
         self.assertIs(step(job, SENTRY_FINISH)["continue-on-error"], True)

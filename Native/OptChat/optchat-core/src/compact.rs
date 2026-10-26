@@ -402,7 +402,7 @@ pub fn size_check_for(tries: &[String], limit: usize, input: &str) -> SizeCheck 
             return SizeCheck::Retry(REFUSAL_RETRY.to_owned());
         }
         if real.is_empty() {
-            return SizeCheck::Accept(input_as_line(input, limit));
+            return SizeCheck::Accept(refusal_stand_in(input, limit));
         }
     }
     let fitting = real.iter().copied().filter(|t| t.len() <= limit);
@@ -430,7 +430,7 @@ pub fn size_check_for(tries: &[String], limit: usize, input: &str) -> SizeCheck 
             });
         return SizeCheck::Accept(match best {
             Some(best) => best.to_string(),
-            None if !input.trim().is_empty() => input_as_line(input, limit),
+            None if !input.trim().is_empty() => refusal_stand_in(input, limit),
             None => last.to_string(),
         });
     }
@@ -497,11 +497,22 @@ pub fn is_refusal(reply: &str) -> bool {
     REFUSAL_STARTS.iter().any(|s| head.starts_with(s))
 }
 
-/// The input as one line within `limit` bytes: the fallback when every try
-/// refused, so the node keeps its facts instead of a refusal.
-fn input_as_line(input: &str, limit: usize) -> String {
-    let flat = input.split_whitespace().collect::<Vec<_>>().join(" ");
-    cut_at_bytes(&flat, limit).to_owned()
+/// The input as one line within `limit` bytes: what a node keeps when every
+/// try refused, so it keeps its facts instead of a refusal. A merge's input
+/// is its two lines: each gets an equal share of the limit (what one leaves
+/// unused goes to the other), so the second line is never cut away whole.
+pub fn refusal_stand_in(input: &str, limit: usize) -> String {
+    let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lines: Vec<String> = input.lines().map(flat).filter(|l| !l.is_empty()).collect();
+    if lines.len() != 2 {
+        return cut_at_bytes(&flat(input), limit).to_owned();
+    }
+    let room = limit.saturating_sub(1);
+    let half = room / 2;
+    let (a, b) = (&lines[0], &lines[1]);
+    let a_cut = cut_at_bytes(a, half.max(room.saturating_sub(b.len())));
+    let b_cut = cut_at_bytes(b, room - a_cut.len());
+    format!("{a_cut} {b_cut}")
 }
 
 /// The distinct words of `text` that carry content (names, numbers, paths:
