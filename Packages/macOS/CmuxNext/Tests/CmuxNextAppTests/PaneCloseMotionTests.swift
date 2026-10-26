@@ -265,6 +265,7 @@ struct PaneCloseMotionTests {
         window.addChildWindow(panel, ordered: .above)
         page.addChildWindow(nested, ordered: .above)
         defer { [nested, panel, page].forEach { $0.parent?.removeChildWindow($0) } }
+        #expect(window.childWindows?.count == 2 && page.childWindows?.count == 1, "the child windows were not added")
         let motion = WindowCloseMotion(window: window) {}
         motion.start(handingKeysTo: nil, driven: false)
         var frames = 0

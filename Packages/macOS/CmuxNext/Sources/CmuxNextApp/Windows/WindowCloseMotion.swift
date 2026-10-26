@@ -23,10 +23,10 @@ import CmuxNextWakeups
     private let parameters: SpringParameters
     private let close: () -> Void
     private var finished = false
-    /// Each child window the fade has dimmed, with the alpha it had: it fades from there and gets
-    /// it back when the fade ends. A child added during the fade (the fork re-adds a page window
-    /// that becomes visible) joins in the next frame.
-    private var children: [ObjectIdentifier: (window: NSWindow, alpha: CGFloat)] = [:]
+    /// Each child window the fade has dimmed, with the alpha it had and the last alpha the fade
+    /// set: it fades from the first and gets it back when the fade ends. A child added during the
+    /// fade (the fork re-adds a page window that becomes visible) joins in the next frame.
+    private var children: [ObjectIdentifier: (window: NSWindow, alpha: CGFloat, set: CGFloat)] = [:]
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
         self?.step(tick.elapsed) ?? false
     }
@@ -77,7 +77,12 @@ import CmuxNextWakeups
         // A closed window may show again (reopen): it shows whole.
         window.alphaValue = 1
         window.ignoresMouseEvents = false
-        for child in children.values { child.window.alphaValue = child.alpha }
+        // A child gets its alpha back unless its owner set another during the fade, or it left
+        // the window and still shows (a page its host let go of on close): that one stays faded.
+        for child in children.values where child.window.alphaValue == child.set
+            && (child.window.parent === window || !child.window.isVisible) {
+            child.window.alphaValue = child.alpha
+        }
         children = [:]
     }
 
@@ -89,8 +94,8 @@ import CmuxNextWakeups
             pending += child.childWindows ?? []
             let id = ObjectIdentifier(child)
             let base = children[id]?.alpha ?? child.alphaValue
-            children[id] = (child, base)
             child.alphaValue = base * value
+            children[id] = (child, base, child.alphaValue)
         }
     }
 }
