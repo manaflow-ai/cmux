@@ -162,8 +162,10 @@ import Testing
 
     @Test func recordWorkRunCountsTheSliceAsLong() {
         var stats = CEFPumpStats()
-        #expect(!stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2))
-        #expect(stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice))
+        let half = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2)
+        #expect(!half)
+        let full = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice)
+        #expect(full)
         #expect(stats.workRuns == 2)
         #expect(stats.longWorkRuns == 1)
         #expect(stats.workSeconds == CEFPumpSchedule.timeSlice * 1.5)
