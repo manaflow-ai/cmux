@@ -165,7 +165,7 @@ import Foundation
 //     the session state machine; no UI)
 //   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
 //     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
-//   CmuxNextFiles -> system frameworks only (Files pane core: listing, FSEvents, file operations,
+//   CmuxNextFiles -> Compat, Wakeups (Files pane core: listing, FSEvents, file operations,
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
 //     path bar, Quick Look, drag in and out)
@@ -865,7 +865,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
-            dependencies: ["CmuxNextWakeups"],
+            // Compat: the FSEvents callback's CallbackRegistry (p10-stability-081).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

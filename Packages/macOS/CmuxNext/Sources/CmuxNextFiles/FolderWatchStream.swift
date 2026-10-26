@@ -1,15 +1,21 @@
+import CmuxNextCompat
 import CoreServices
 import Foundation
 
-/// The FSEventStream behind one ``FolderWatcher`` stream.
+/// The live FolderWatchStreams by the token each gives FSEvents as its context.
+private let folderWatchCallbacks = CallbackRegistry<FolderWatchStream>(capacity: 1024)
+
+/// The FSEventStream behind one ``FolderWatcher`` stream. The stream's termination handler
+/// (``FolderWatcher/changes(in:)``) owns it until `stop()` has run.
 // FSEvents has no async API; the stream is created, scheduled, and stopped on
 // `queue`, and its callback runs there too, so every mutation happens on `queue`.
-final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` changes only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
+final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` and `token` change only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
     private let folderPath: String
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
     private let queue = DispatchQueue(label: "cmux.files.fsevents", qos: .userInitiated)
     private var stream: FSEventStreamRef?
+    private var token: CallbackToken?
 
     init(folder: URL, latency: CFTimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
         self.folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
@@ -19,16 +25,21 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
 
     func start() {
         queue.async { [self] in
-            var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
-                                               retain: nil, release: nil, copyDescription: nil)
+            guard let token = try? folderWatchCallbacks.register(self) else { continuation.finish(); return }
+            // SAFETY: FSEventStreamCreate copies the context, a local live for the call; its `info` is a token.
+            var context = unsafe FSEventStreamContext(version: 0, info: token.context,
+                                                      retain: nil, release: nil, copyDescription: nil)
             let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
                 | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagUseCFTypes)
-            guard let created = FSEventStreamCreate(nil, folderWatchCallback, &context, [folderPath] as CFArray,
-                                                    FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
-            else { continuation.finish(); return }
+            guard let created = unsafe FSEventStreamCreate(nil, folderWatchCallback, &context, [folderPath] as CFArray,
+                                                           FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
+            else {
+                folderWatchCallbacks.unregister(token)
+                continuation.finish()
+                return
+            }
             stream = created
-            // Keeps self alive while the stream may call back; released in stop().
-            _ = Unmanaged.passRetained(self)
+            self.token = token
             FSEventStreamSetDispatchQueue(created, queue)
             FSEventStreamStart(created)
         }
@@ -41,7 +52,9 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             self.stream = nil
-            Unmanaged.passUnretained(self).release()
+            // Invalidated on its own queue, the stream can no longer call back with the token.
+            if let token { folderWatchCallbacks.unregister(token) }
+            token = nil
         }
     }
 
@@ -71,8 +84,8 @@ private func folderWatchCallback(
     _ paths: UnsafeMutableRawPointer, _ flags: UnsafePointer<FSEventStreamEventFlags>,
     _ ids: UnsafePointer<FSEventStreamEventId>
 ) {
-    guard let info else { return }
-    let watcher = Unmanaged<FolderWatchStream>.fromOpaque(info).takeUnretainedValue()
+    // A token whose watcher stopped or went away is ignored (and counted by the registry).
+    guard let watcher = unsafe folderWatchCallbacks.target(forContext: info) else { return }
     let list = (Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String]) ?? []
     watcher.deliver(paths: list, flags: Array(UnsafeBufferPointer(start: flags, count: count)))
 }
