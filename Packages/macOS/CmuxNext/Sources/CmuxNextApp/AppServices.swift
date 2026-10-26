@@ -167,7 +167,11 @@ final class AppServices {
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
+    /// `env` finds gh on the PATH of gh's environment when it starts (the App's PATH, then gh's install folders),
+    /// so opening Find Work checks no file on the main thread.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(
+        executable: "/usr/bin/env", environment: ProcessInfo.processInfo.environment.merging(
+            ["PATH": AgentChatPullRequestReader.searchPath(ProcessInfo.processInfo.environment)]) { $1 })
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).

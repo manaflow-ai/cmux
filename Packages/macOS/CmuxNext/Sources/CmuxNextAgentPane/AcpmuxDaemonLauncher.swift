@@ -75,20 +75,23 @@ nonisolated enum AcpmuxDaemonLauncher {
 
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
     /// with an error only after that long with no write to the daemon's log, or at its exit.
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
+    ///
+    /// Its home's creation and the spawn block the caller's thread, so it runs on the caller's
+    /// executor: ``AcpmuxHost``'s own queue, never the main thread or the cooperative pool.
+    static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
         try await launch(environment, deadline: deadline, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
-                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+    static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+                       onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
-        try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: environment.home, withIntermediateDirectories: true)
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)
         logger.info("acpmux launch environment home=\(variables["ACPMUX_HOME", default: ""], privacy: .public) socket=\(variables["ACPMUX_SOCKET", default: ""], privacy: .public) pathPresent=\(variables["PATH"] != nil, privacy: .public)")
         var outputPipe: [Int32] = [-1, -1]
@@ -163,7 +166,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
             try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
                 "/bin/sh".withCString { executable in
-                    posix_spawn(&processIdentifier, executable, &actions, &attributes, argv, envp)
+                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp)
                 }
             }
         }

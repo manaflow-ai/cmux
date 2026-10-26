@@ -162,6 +162,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
+  `cmux.next.agent-pane.acpmux-host` (the `AcpmuxHost` actor's executor, user-initiated: its LocalApp token and
+  `daemon.pid` reads and the daemon's spawn block this queue, never a pool thread),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
   `com.cmuxterm.app.next.agent-pane.pull-request` (gh reads for the header chip, utility, 2 at once),

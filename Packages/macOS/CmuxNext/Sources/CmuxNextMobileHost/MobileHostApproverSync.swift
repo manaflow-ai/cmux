@@ -111,7 +111,7 @@ final class MobileHostApproverSync {
            onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
     }
 
-    private static func frame(id: Int, method: String, params: [String: Any]) -> Data {
+    private nonisolated static func frame(id: Int, method: String, params: [String: Any]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "method": method,
                                                                  "params": params])) ?? Data()
         data.append(0x0A)
@@ -126,13 +126,13 @@ final class MobileHostApproverSync {
         case 1:
             let meta = ((message["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let challenge = meta?["personChallenge"] as? [String: Any]
-            guard let nonce = challenge?["nonce"] as? String, let connectionID = challenge?["connection"] as? String,
-                  let proof = line.personProof(nonce: nonce, connection: connectionID) else {
-                logger.error("no person challenge or no key for this daemon; retrying")
-                line.cancel()
-                return lost(line)
+            guard let nonce = challenge?["nonce"] as? String, let connectionID = challenge?["connection"] as? String else {
+                return refused(line)
             }
-            line.send(Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
+            // The proof is made and sent on the line's queue; a refusal comes back here.
+            line.sendPersonProof(nonce: nonce, connection: connectionID, request: { proof in
+                Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof])
+            }, refused: { [weak self] in Task { @MainActor in self?.refused(line) } })
         case 2:
             guard (message["result"] as? [String: Any])?["person"] as? Bool == true else {
                 logger.error("acpmux refused the person proof; retrying")
@@ -150,6 +150,14 @@ final class MobileHostApproverSync {
                 logger.info("acpmux took \(count, privacy: .public) approvers or workspace folders")
             }
         }
+    }
+
+    /// No person proof for `line` (no challenge, or no key for this daemon): ends it and retries later.
+    private func refused(_ line: AcpmuxCheckedLine) {
+        guard connection === line else { return }
+        logger.error("no person challenge or no key for this daemon; retrying")
+        line.cancel()
+        lost(line)
     }
 
     private func send() {

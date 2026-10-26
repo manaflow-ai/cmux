@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 
@@ -6,7 +7,9 @@ import CmuxNextWakeups
 /// link (a hover card's `pr.inspect`). Nil when gh is not installed, there is no such pull
 /// request, or gh does not answer in time; it never prompts.
 public nonisolated struct AgentChatPullRequestReader: Sendable {
-    /// `gh`'s path; nil looks in the App's PATH and the usual install folders.
+    /// `gh`'s path; nil runs `gh` through `/usr/bin/env`, which finds it on the PATH of gh's
+    /// environment (``environment(_:)``: the App's PATH, then the usual install folders) as the
+    /// child starts, so nothing checks a file before the read.
     var gh: String?
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
@@ -186,29 +189,35 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// gh's output for `arguments`, on the queue; nil when gh is missing, fails (unless `anyExit`)
     /// or does not answer in time.
     private func run(_ arguments: [String], in folder: String?, anyExit: Bool) async -> Data? {
-        guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
+        let executable = gh ?? Self.env, command = gh == nil ? ["gh"] + arguments : arguments
         let timeout = timeout, environment = Self.environment(environment)
         return await withCheckedContinuation { continuation in
             Self.queue.addOperation {
-                continuation.resume(returning: Self.run(gh, arguments: arguments, in: folder, environment: environment,
+                continuation.resume(returning: Self.run(executable, arguments: command, in: folder, environment: environment,
                                                         timeout: timeout, anyExit: anyExit))
             }
         }
     }
 
-    /// gh's environment: no prompts, the App's PATH and gh's install folders, HOME, and the user's
-    /// GitHub settings.
+    /// Where `/usr/bin/env gh` looks for gh: the App's PATH, then the folders an app launched from
+    /// Finder lacks on it (``installFolders``).
+    public static func searchPath(_ app: [String: String]) -> String {
+        ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")
+    }
+
+    /// Runs `gh` found on its environment's PATH (``gh`` nil).
+    static let env = "/usr/bin/env"
+    /// `env`'s exit status when it finds no `gh` on that PATH: gh is not installed.
+    static let notFound: Int32 = 127
+
+    /// gh's environment: no prompts, the App's PATH and gh's install folders (``searchPath(_:)``), HOME,
+    /// and the user's GitHub settings. Run as `/usr/bin/env gh` with it, gh is found on that PATH.
     static func environment(_ app: [String: String]) -> [String: String] {
         var environment = ["GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "GIT_TERMINAL_PROMPT": "0",
-                           "PATH": ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")]
+                           "PATH": searchPath(app)]
         environment["HOME"] = app["HOME"]
         for key in githubVariables { environment[key] = app[key] }
         return environment
-    }
-
-    public static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
-        return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     /// The process, for the deadline.
@@ -216,32 +225,35 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         let process = Process()
     }
 
-    private static func run(_ gh: String, arguments: [String], in folder: String?, environment: [String: String],
+    /// Runs on ``queue`` only (a thread of its own, never the main thread or the cooperative pool): it
+    /// writes a file, starts gh and waits for its end.
+    private static func run(_ executable: String, arguments: [String], in folder: String?, environment: [String: String],
                             timeout: Duration, anyExit: Bool) -> Data? {
         let held = Held(), process = held.process
-        process.executableURL = URL(fileURLWithPath: gh)
+        process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         if let folder { process.currentDirectoryURL = URL(fileURLWithPath: folder) }
         process.environment = environment
         // A file, not a pipe: a child gh left holding its output cannot keep this read (and one of
         // the queue's two runs) waiting past the deadline.
         let file = FileManager.default.temporaryDirectory.appending(path: "cmux-gh-pr-\(UUID().uuidString).json")
-        guard FileManager.default.createFile(atPath: file.path, contents: nil),
+        guard FileManager.checked.createFile(atPath: file.path, contents: nil),
               let output = try? FileHandle(forWritingTo: file) else { return nil }
-        defer { try? FileManager.default.removeItem(at: file) }
+        defer { try? FileManager.checked.removeItem(at: file) }
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
+        guard (try? process.blockingRun()) != nil else { return nil }
         try? output.close()
         let deadline = DemandTimer(owner: "header-pull-request")
         deadline.schedule(after: timeout) { if held.process.isRunning { held.process.terminate() } }
         defer { deadline.cancel() }
-        // concurrency-allow: run is called only on read's own operation queue, bounded by the deadline above.
-        process.waitUntilExit()
-        // A deadline kill is never an answer.
-        guard process.terminationStatus == 0 || (anyExit && process.terminationReason == .exit) else { return nil }
-        return try? Data(contentsOf: file)
+        // Only on read's own operation queue, bounded by the deadline above.
+        process.blockingWaitUntilExit()
+        // A deadline kill is never an answer, nor env's "no gh".
+        guard process.terminationStatus == 0
+            || (anyExit && process.terminationReason == .exit && process.terminationStatus != notFound) else { return nil }
+        return try? Data(blockingContentsOf: file)
     }
 }
 

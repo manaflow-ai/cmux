@@ -44,15 +44,20 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         }
     }
 
-    /// The person proof for this connection's challenge (acpmux `hub/person.rs`, transport unix),
-    /// made only here so a proof exists only for a connection whose server peer was checked.
-    /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
-    /// never leaves this process.
-    public func personProof(nonce: String, connection: String) -> String? {
-        let checked = queue.sync { descriptor >= 0 && !closed }
-        guard checked else { return nil }
-        return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
-                                     connection: connection)
+    /// Sends the person proof for this connection's challenge (acpmux `hub/person.rs`, transport unix)
+    /// as the request `request` makes of it. The proof is made only on the line's queue, so a proof
+    /// exists only for a connection whose server peer was checked, and it goes out before any request
+    /// sent after this call. `refused` runs on the line's queue instead before the check passed, after
+    /// the line closed, or when this app holds no key for this daemon. The caller never waits for the
+    /// queue (a write there can wait for the socket), and the key itself never leaves this process.
+    public func sendPersonProof(nonce: String, connection: String, request: @escaping @Sendable (String) -> Data,
+                                refused: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard descriptor >= 0, !closed,
+                  let proof = AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
+                                                    connection: connection) else { return refused() }
+            write(request(proof))
+        }
     }
 
     /// Sends another request on the live connection.
