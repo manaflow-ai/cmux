@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
-import CmuxNextHomeEngine
+@testable import CmuxNextHomeEngine
 import CmuxNextWakeups
 
 /// #25262 (cmux NEXT nightly 4023940374302): a Chief subagent's chat tab said "This chat belongs
@@ -70,10 +70,13 @@ import CmuxNextWakeups
         tabs.chiefHost = chiefHost
         tabs.chiefPaneHost = NamedHost(name: "chief")
         tabs.localSessionHost = NamedHost(name: "app")
-        tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork()) { _ in NamedHost(name: "old-home") }
+        tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, starts in
+            NamedHost(name: starts ? "old-home, started" : "old-home")
+        }
 
-        // The old home's acpmux keeps the chat: the tab attaches there (starting it again).
-        #expect(await reached(tabs.chiefTabHost(oldHost), session: kept) == "old-home")
+        // The old home's acpmux keeps the chat: the tab attaches there. No brain holds that home,
+        // so its daemon starts again when it ended.
+        #expect(await reached(tabs.chiefTabHost(oldHost), session: kept) == "old-home, started")
         // A session that home does not keep runs on this Mac's acpmux.
         #expect(await reached(tabs.chiefTabHost(oldHost), session: "01a1610c-24e0-75a3-8440-e4bcf537a4ba") == "app")
         // The app's own Chief home keeps its pane host.
@@ -84,7 +87,7 @@ import CmuxNextWakeups
     @Test func aHomeMadeAfterTheFirstLookupIsFound() async throws {
         let (base, _, _) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
-        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork()) { _ in NamedHost(name: "later-home") }
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), rescanInterval: .zero, environment: { _ in nil }) { _, _ in NamedHost(name: "later-home") }
         let later = base.appendingPathComponent("com.cmuxterm.app.debug.25262.later", isDirectory: true)
         let laterHost = ChiefHomeAcpmux.host(muxHome: later)
         let pane = ChiefHomeSessionHost(host: laterHost, homes: directory, fallback: NamedHost(name: "app"))
@@ -92,6 +95,22 @@ import CmuxNextWakeups
         try FileManager.default.createDirectory(at: later.appendingPathComponent("acpmux/sessions/\(kept)", isDirectory: true),
                                                 withIntermediateDirectories: true)
         #expect(await reached(pane, session: kept) == "later-home")
+    }
+
+    /// A Chief home whose brain host runs (another build that is open) owns its acpmux: a tab of
+    /// that home only attaches to it, never starts it (cx-ebm.54).
+    @Test func aLiveBuildsChiefAcpmuxIsOnlyAttached() async throws {
+        let (base, _, old) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let lockPath = old.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lock = try #require(ChiefMigration.HostLock(path: lockPath))
+        defer { lock.release() }
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, starts in
+            NamedHost(name: starts ? "starts" : "attaches")
+        }
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: NamedHost(name: "app"))
+        #expect(await reached(pane, session: kept) == "attaches")
     }
 
     /// A Chief home no longer on this Mac: its chat is looked for in this Mac's acpmux, never
@@ -103,7 +122,7 @@ import CmuxNextWakeups
         let record = AgentSessionRef(host: gone, session: kept, harness: "claude")
         #expect(AgentPaneHostKind(record, localHost: local, chiefHost: ChiefHomeAcpmux.host(muxHome: current.muxHome),
                                   listedHere: true) == .chief)
-        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork()) { _ in NamedHost(name: "home") }
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in NamedHost(name: "home") }
         #expect(await reached(ChiefHomeSessionHost(host: gone, homes: directory, fallback: NamedHost(name: "app")), session: kept) == "app")
     }
 
