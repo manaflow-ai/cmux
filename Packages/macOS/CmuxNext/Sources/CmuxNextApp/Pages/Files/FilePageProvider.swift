@@ -222,8 +222,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return PageSubscription(frozenDelivery: .latest) { [weak self] in self?.changeListeners[id] = nil }
         case kind.op("look"):
             let stop = host.listenLook(onEvent)
-            // Each event names only the look keys that changed (FilePageLook.publish), and the page merges
-            // them without a re-read on a gap: none may drop. They come only from settings changes.
+            // Each event names only the look keys that changed (FilePageLook.publish: the settings and syntax
+            // theme, each theme.css save with its whole text, the imported editor's settings files, the
+            // language packs), and the page merges them with no re-read on a gap: none may drop.
             return PageSubscription(frozenDelivery: .ordered) { stop() }
         default:
             throw PageError.unknownOp(stream)
