@@ -28,7 +28,7 @@ const MAX_FIELDS: usize = 8;
 /// The option an optional field adds: choosing it leaves the field out.
 const NO_ANSWER: &str = "No answer";
 /// How a client joins a multi-select answer's labels (`webviews` model.ts,
-/// `question_answer.rs`): a multi-select label never holds it.
+/// `question_answer.rs`): a multi-select label holds no comma at all.
 const JOIN: &str = ", ";
 
 /// One pending elicitation: the form's fields, by item, until the answer.
@@ -350,8 +350,9 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
 }
 
 /// What a property asks for, when it is one of the MCP flat field shapes.
-/// Its choices have distinct, non-empty labels; a multi-select label never
-/// holds [`JOIN`], so an answer's labels split back exactly.
+/// Its choices have distinct, non-empty labels; a multi-select label holds
+/// no comma, so an answer's labels split back exactly, whether joined by
+/// [`JOIN`] or split on commas (`question_answer.rs`, `acpmux answer`).
 fn kind(property: &Value) -> Option<Kind> {
     let titled = |list: &Value| -> Option<Vec<(String, Value)>> {
         let list = list.as_array()?;
@@ -379,7 +380,7 @@ fn kind(property: &Value) -> Option<Kind> {
         let ok = !choices.is_empty()
             && choices
                 .iter()
-                .all(|(label, _)| seen.insert(label.clone()) && !(multi && label.contains(JOIN)));
+                .all(|(label, _)| seen.insert(label.clone()) && !(multi && label.contains(',')));
         ok.then_some(Kind::Choice { choices, multi })
     };
     match property["type"].as_str()? {

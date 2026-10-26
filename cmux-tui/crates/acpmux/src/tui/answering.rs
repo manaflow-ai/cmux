@@ -133,8 +133,10 @@ impl App {
         let empty = self.editor().is_empty();
         let Some(flow) = self.live_answering() else { return false };
         let (multi, highlight, count) = (flow.multi(), flow.highlight, flow.option_count());
-        let typed_number = flow.typed_number();
-        let shortcut = |c: char| !typed_number && c.is_ascii_digit() && c != '0';
+        // Digits pick options, except on an item that is typed (a number, or
+        // no options at all): there they are the answer's text.
+        let typed = flow.typed_number() || count == 0;
+        let shortcut = |c: char| !typed && c.is_ascii_digit() && c != '0';
         let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
