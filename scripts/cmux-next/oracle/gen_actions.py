@@ -39,7 +39,8 @@ tasks 082-087 close them); `no-live-catalog` when the catalog is the export; `fl
 it by a catalog flag (destructive, debug-only, waits for a person, palette-internal); `state` when the plan skips
 it for the session's state; `expected-refusal` when the sweep's EXPECTED_REFUSALS refuses a script caller and no
 family tuning names the typed error yet; `live-value` when an argument has only a live value (the sweep's
-`<base.*>` or `<fixture ...>` placeholders). What fails a whole-catalog sweep (exit 4) stops generation
+`<base.*>` or `<fixture ...>` placeholders); `tuning` when the family's tuning blocks it (`blocked`: what a run would
+break, and the open task whose fix unblocks it). What fails a whole-catalog sweep (exit 4) stops generation
 (GenError): an id a SKIPS pattern excludes that the reviewed `excluded` list does not name, and a plan gap the
 `gaps` list does not name. A blocked case of a live catalog is written whole into `_blocked.json` (oracle.py skips
 `_` files), with its reason in `untested`; when its reason goes, regeneration moves it to its own file.
@@ -48,7 +49,7 @@ coverage.json counts the runnable cases as covered and each blocked action as ex
 Cases are flat (`actions/<slug>.json`): oracle.py load_case takes a case's id from its path after the suite, and
 a case-v1 id is a slug with no `/`. The families of tasks 072-081 tune their actions in `<family>/_tuning.json`
 (FAMILIES), which this generator reads, so regeneration keeps the tuning and stays byte-stable: {"actions": {id:
-{entry, params, receipt, error, before, waitFor, settleMaxMs, invariants, untested, requires, note}}}. Every
+{entry, params, receipt, error, before, waitFor, settleMaxMs, invariants, untested, requires, note, blocked}}}. Every
 case, tuned or not, is checked against schemas/oracle/case-v1.schema.json before anything is written.
 
 Usage:
@@ -178,7 +179,9 @@ SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 PLACEHOLDER = re.compile(r"<(base\.[a-z_]+|fixture [^>]+)>")
 # Why a case is blocked (the module doc says when each applies).
-BLOCK_KINDS = ("gap", "no-live-catalog", "flag", "state", "expected-refusal", "live-value")
+BLOCK_KINDS = ("gap", "no-live-catalog", "flag", "state", "expected-refusal", "live-value", "tuning")
+# A tuned block names the open task whose fix unblocks the case, so every block has an owner.
+TASK_ID = re.compile(r"\bp[0-9]{2}-[a-z]+-[0-9]{3}\b")
 # What an action.list entry has that the export lacks, and the sweep's plan reads: without them the plan cannot see a
 # registry context, an argument, or a flag that keeps the action out of the sweep.
 LIVE_KEYS = ("requires", "arguments", "destructive", "debug_only", "waits_for_person", "surfaces")
@@ -190,7 +193,7 @@ NO_LIVE_CATALOG = (f"the catalog is plans/cmux-next/action-surfaces.json, which 
 BASE_REQUIRES = ("actions", "gui")
 CHROMIUM_CONTEXTS = frozenset({"chromium", "omnibar"})
 TUNING_KEYS = frozenset({"entry", "params", "receipt", "error", "before", "waitFor", "settleMaxMs", "invariants",
-                         "untested", "requires", "note"})
+                         "untested", "requires", "note", "blocked"})
 TUNING_CAPABILITIES = frozenset({"keys", "gui", "chromium", "mcp"})
 BEFORE_OPS = frozenset({"action.run", "key", "cli", "mcp", "settle", "snapshot"})
 
@@ -572,7 +575,7 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
     entry (key|action), params (merged into action.run's; null removes a key), receipt (an ActionEffect kind) or
     error (a typed error: the correct answer is a refusal), before (case-v1 steps between the setup and the
     action), waitFor and settleMaxMs and note (on the action step), invariants (added), untested (the reasons),
-    requires (capabilities beyond actions and keys)."""
+    requires (capabilities beyond actions and keys), blocked (why the case cannot run yet, naming the open task)."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -613,6 +616,9 @@ def check_spec(where: str, spec: Any) -> None:
         items = spec.get(key, [])
         if not isinstance(items, list) or not all(isinstance(i, str) and i for i in items):
             raise GenError(f"{where}: {key} is a list of statements")
+    if "blocked" in spec and not (isinstance(spec["blocked"], str) and TASK_ID.search(spec["blocked"])):
+        raise GenError(f"{where}: blocked is a statement that names the open task (pNN-name-NNN) whose fix unblocks "
+                       f"the case")
     requires = spec.get("requires", [])
     if not isinstance(requires, list) or not set(requires) <= TUNING_CAPABILITIES:
         raise GenError(f"{where}: requires takes only {sorted(TUNING_CAPABILITIES)}")
@@ -698,6 +704,8 @@ def generate(catalog: Catalog, gaps: Gaps, tuning: Mapping[str, Mapping[str, Any
             blocked, kind = (f"the sweep's EXPECTED_REFUSALS: a script caller is refused ({row['expected_refusal']}), "
                              f"and no typed error is known; {FAMILY_TASK[family]} names it as `error` in "
                              f"{family}/{TUNING}"), "expected-refusal"
+        if "blocked" in spec and not blocked:
+            blocked, kind = f"{spec['blocked']} ({family}/{TUNING})", "tuning"
         case, entry = build_case(action, row, planner, catalog, spec, blocked)
         live = [p for step in case["steps"] for p in placeholders(step.get("args", {}), f"{step['id']}.args")]
         if live and not blocked:
@@ -863,7 +871,7 @@ class GenActionsSelfTest(unittest.TestCase):
         self.assertEqual((coverage["total"], coverage["covered"], len(coverage["excluded"])), (len(ids), 0, len(ids)))
         self.assertEqual((coverage["total"], coverage["not_in_suite"]), (984, 217))
         self.assertEqual(coverage["blocked_by"], {"gap": 87, "no-live-catalog": 897, "flag": 0, "state": 0,
-                                                  "expected-refusal": 0, "live-value": 0})
+                                                  "expected-refusal": 0, "live-value": 0, "tuning": 0})
         self.assertEqual(sorted(i for i, e in coverage["actions"].items() if e["blocked_by"] == "gap"),
                          sorted(set(ids) & set(self.gaps.gaps)))
         self.assertEqual(coverage["catalog_kind"], "action-surfaces")
@@ -1099,6 +1107,7 @@ class GenActionsSelfTest(unittest.TestCase):
             ({"actions": {ident: {"receipt": "mutation_result"}}}, "receipt is one of"),
             ({"actions": {ident: {"receipt": "action.done", "error": "control.failed"}}}, "not both"),
             ({"actions": {ident: {"error": "Failed"}}}, "typed code"),
+            ({"actions": {ident: {"blocked": "the case leaves state behind"}}}, "names the open task"),
             ({"actions": {ident: {"before": [{"id": "action", "op": "settle"}]}}}, "generated step's"),
             ({"actions": {ident: {"before": [{"id": "x", "op": "kill"}]}}}, "a before step is"),
             ({"actions": {"noSuchAction": {}}}, "not an action of"),
@@ -1113,6 +1122,17 @@ class GenActionsSelfTest(unittest.TestCase):
                 with self.assertRaises(GenError) as raised:
                     load_tuning(out, self.catalog)
                 self.assertIn(words, str(raised.exception), data)
+
+    def test_a_tuned_block_moves_the_case_to_blocked_with_its_task(self) -> None:
+        reason = "the case leaves the right sidebar open (p15-oracle-301)"
+        files = generate(self.catalog, self.gaps, {"openSettings": {"blocked": reason}})
+        self.assertNotIn("open-settings.json", files)
+        blocked = files[BLOCKED]["cases"]["open-settings"]
+        self.assertEqual(blocked["reason"], f"{reason} (misc/{TUNING})")
+        self.assertEqual(blocked["case"]["untested"][0], f"blocked: {reason} (misc/{TUNING})")
+        self.assertEqual(files[COVERAGE]["actions"]["openSettings"]["blocked_by"], "tuning")
+        self.assertEqual(files[COVERAGE]["blocked_by"]["tuning"], 1)
+        self.assertEqual(files[COVERAGE]["covered"], self.coverage["covered"] - 1)
 
     def test_a_tuned_step_that_breaks_case_v1_is_refused(self) -> None:
         ident = next(a for a, e in self.coverage["actions"].items() if family_of(a) == "appearance" and "blocked" not in e)

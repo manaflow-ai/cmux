@@ -1002,7 +1002,8 @@
     "flag": 0,
     "state": 0,
     "expected-refusal": 0,
-    "live-value": 0
+    "live-value": 0,
+    "tuning": 0
   },
   "missing": [],
   "not_in_suite": 217,
