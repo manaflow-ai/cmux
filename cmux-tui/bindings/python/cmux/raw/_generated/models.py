@@ -1575,6 +1575,7 @@ class ServerStatsSlowRequest:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequest'
     client: int
     busy_ms: int
+    duration_ms: Union[int, None]
     method: str
     started_ms: int
 
@@ -1582,7 +1583,9 @@ class ServerStatsSlowRequest:
 @dataclass(frozen=True)
 class ServerStatsSlowRequests:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequests'
+    expected_waits: int
     recent: List[ServerStatsSlowRequest]
+    spawn_failures: int
     threshold_ms: int
     total: int
     unwatched: int

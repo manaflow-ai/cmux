@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196";
+inline constexpr std::string_view kProtocolIrSha256 = "a4c0662cc94214bfef7db245bbd99a20013773cdb8ecad78992342f93b3721fa";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4905,13 +4905,16 @@ struct ServerStatsResourceProjection {
 struct ServerStatsSlowRequest {
     std::uint64_t busy_ms{};
     std::uint64_t client{};
+    std::optional<std::uint64_t> duration_ms{};
     std::string method{};
     std::uint64_t started_ms{};
     friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
 };
 
 struct ServerStatsSlowRequests {
+    std::uint64_t expected_waits{};
     std::vector<ServerStatsSlowRequest> recent{};
+    std::uint64_t spawn_failures{};
     std::uint64_t threshold_ms{};
     std::uint64_t total{};
     std::uint64_t unwatched{};

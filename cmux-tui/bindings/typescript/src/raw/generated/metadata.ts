@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196. */
+/* cmux-tui mux protocol 12, IR a4c0662cc94214bfef7db245bbd99a20013773cdb8ecad78992342f93b3721fa. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196" as const;
+export const SDK_IR_SHA256 = "a4c0662cc94214bfef7db245bbd99a20013773cdb8ecad78992342f93b3721fa" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10630,8 +10630,9 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsSlowRequest": {
     "additional_properties": false,
     "constraints": [
-      "method is the request cmd tag, or unknown.",
-      "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded."
+      "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
+      "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+      "duration_ms is how long the request ran in total, null while it still runs."
     ],
     "fields": {
       "busy_ms": {
@@ -10644,6 +10645,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "client": {
         "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "duration_ms": {
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
@@ -10674,9 +10683,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "Counters accumulate since daemon start.",
       "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
-      "unwatched counts requests that started while every watchdog slot was taken."
+      "unwatched counts requests that started while every watchdog slot was taken.",
+      "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+      "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
     ],
     "fields": {
+      "expected_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "recent": {
         "nullable": false,
         "presence": "required",
@@ -10686,6 +10705,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "ServerStatsSlowRequest"
           },
           "kind": "array"
+        }
+      },
+      "spawn_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "threshold_ms": {

@@ -75,6 +75,11 @@
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
       "owner": "Performance Lead (PL-instant)"
+    },
+    "daemon-request": {
+      "what": "every daemon request and connection frame, key input included: the request watchdog's slot claim, clock read and release (cmux-tui-core server/request_watchdog.rs begin and RequestScope end)",
+      "bench": "cargo test -p cmux-tui-core --release --lib -- request_watchdog_begin_bench --ignored --nocapture (ns per run), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-conn"
     }
   }
 }

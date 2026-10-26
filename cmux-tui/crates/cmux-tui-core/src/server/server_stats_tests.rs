@@ -65,6 +65,8 @@ fn server_stats_include_reports_slow_requests() {
     assert_eq!(section["threshold_ms"], json!(250), "{full}");
     assert_eq!(section["total"], json!(0), "{full}");
     assert_eq!(section["unwatched"], json!(0), "{full}");
+    assert!(section["expected_waits"].is_u64(), "{full}");
+    assert_eq!(section["spawn_failures"], json!(0), "{full}");
     assert!(section["watchdog_wakeups"].is_u64(), "{full}");
     assert_eq!(section["recent"], json!([]), "{full}");
 }

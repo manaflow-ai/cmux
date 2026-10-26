@@ -19568,6 +19568,10 @@
       "/data/slow_requests": {
         "ty": "object"
       },
+      "/data/slow_requests/expected_waits": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/slow_requests/recent": {
         "ty": "array",
         "required": true
@@ -19583,11 +19587,20 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/slow_requests/recent/*/duration_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
       "/data/slow_requests/recent/*/method": {
         "ty": "string",
         "required": true
       },
       "/data/slow_requests/recent/*/started_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/spawn_failures": {
         "ty": "uint64",
         "required": true
       },

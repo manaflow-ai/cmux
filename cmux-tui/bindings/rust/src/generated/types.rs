@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196.
+// cmux-tui mux protocol 12, IR a4c0662cc94214bfef7db245bbd99a20013773cdb8ecad78992342f93b3721fa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1777,6 +1777,7 @@ pub struct ServerStatsResult {
 pub struct ServerStatsSlowRequest {
     pub busy_ms: u64,
     pub client: u64,
+    pub duration_ms: Nullable<u64>,
     pub method: String,
     pub started_ms: u64,
 }
@@ -1784,7 +1785,9 @@ pub struct ServerStatsSlowRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsSlowRequests {
+    pub expected_waits: u64,
     pub recent: Vec<ServerStatsSlowRequest>,
+    pub spawn_failures: u64,
     pub threshold_ms: u64,
     pub total: u64,
     pub unwatched: u64,

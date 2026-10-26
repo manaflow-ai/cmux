@@ -6268,6 +6268,22 @@
      "presence": "required",
      "nullable": false
     },
+    "expected_waits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "spawn_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
     "watchdog_wakeups": {
      "type": {
       "kind": "scalar",
@@ -6292,7 +6308,9 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
-    "unwatched counts requests that started while every watchdog slot was taken."
+    "unwatched counts requests that started while every watchdog slot was taken.",
+    "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+    "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
    ]
   },
   "ServerStatsSlowRequest": {
@@ -6329,12 +6347,21 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
     }
    },
    "additional_properties": false,
    "constraints": [
-    "method is the request cmd tag, or unknown.",
-    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded."
+    "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
+    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+    "duration_ms is how long the request ran in total, null while it still runs."
    ]
   },
   "GuestUrlOpenResult": {
