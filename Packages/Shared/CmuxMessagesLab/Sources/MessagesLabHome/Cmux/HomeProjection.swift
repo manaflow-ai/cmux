@@ -849,14 +849,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// newest row is on screen and the user can see it.
     private func reportReadIfNeeded() {
         guard isVisibleToUser, !stopped, let store = controller.store, store.state.ui.scroll.pinnedToBottom,
-              var newest = shown.last(where: { $0.seq != nil })?.seq else { return }
-        // Done markers right after the newest row have no row (HomeTimeline) but count as read: the
-        // Chief's last message is often one, and the chat would keep one unread it never shows.
-        for item in homeStore.transcript(for: conversation) {
-            guard let seq = item.seq, seq > newest else { continue }
-            guard item.isDoneMarker else { break }
-            newest = seq
-        }
+              let newest = shown.last(where: { $0.seq != nil })?.seq else { return }
         let cursor = max(reportedRead, shownSummary?.readCursors[me] ?? 0)
         guard newest > cursor else { return }
         reportedRead = newest

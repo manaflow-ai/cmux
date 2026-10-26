@@ -68,8 +68,7 @@ extension HomeMirror {
         }
         let rows = summaries.values.map { summary -> InboxRow in
             let pending = pendingSend[summary.id]
-            // A done marker is no content: no preview of its session name (Message.isDoneMarker).
-            let last = summary.lastMessage.flatMap { $0.isRetracted || $0.isDoneMarker ? nil : $0 }
+            let last = summary.lastMessage?.isRetracted == true ? nil : summary.lastMessage
             var preview = last.map { Self.previewText($0.parts) } ?? ""
             var attachments: AttachmentPreview? = if let last {
                 AttachmentPreview.of(last.parts)

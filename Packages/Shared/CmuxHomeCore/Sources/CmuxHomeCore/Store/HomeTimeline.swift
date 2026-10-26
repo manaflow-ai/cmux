@@ -24,14 +24,12 @@ public struct HomeTimeline: Hashable, Sendable {
     public var streams: [HomeStreamRow]
 
     /// Makes a timeline; a stream whose posted message is already among `items` is dropped.
-    /// A done marker (``TranscriptItem/isDoneMarker``) is no row, but it still ends its turn's
-    /// stream: before, it drew as a bubble holding the session name, quoting the message it closed.
     ///
     /// - Parameters:
     ///   - items: the transcript rows, already in order (``HomeStore/transcript(for:)``).
     ///   - streams: the running replies in begin order.
     public init(items: [TranscriptItem], streams: [HomeStreamRow]) {
-        self.items = items.filter { !$0.isDoneMarker }
+        self.items = items
         if streams.isEmpty {
             self.streams = []
         } else {
