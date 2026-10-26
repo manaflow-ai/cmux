@@ -108,12 +108,28 @@ extension SurfaceResumeRunPromptBatch {
         guard bindingWillLaunch,
               let resumeBinding,
               resumeBinding.isAgentHookBinding,
-              let kind = resumeBinding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !kind.isEmpty,
+              let kind = Self.agentHookKind(resumeBinding),
               let checkpointID = resumeBinding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !checkpointID.isEmpty else {
             return nil
         }
         return (kind, checkpointID)
+    }
+
+    private static func agentHookKind(_ binding: SurfaceResumeBindingSnapshot) -> String? {
+        if let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kind.isEmpty {
+            return kind
+        }
+        // Legacy Codex hooks persisted before `kind` was added. Their command
+        // is the only durable discriminator; unknown kindless hooks remain
+        // unscoped rather than risking suppression of an unrelated command.
+        let command = binding.command.lowercased()
+        return command.contains("codex") ? "codex" : nil
+    }
+
+    static func isConcreteAgentRestoreInput(_ input: String?) -> Bool {
+        guard let input else { return false }
+        let normalized = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalized.isEmpty && !normalized.contains("restore --surface")
     }
 }
