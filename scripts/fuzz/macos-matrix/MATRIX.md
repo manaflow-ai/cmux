@@ -133,6 +133,10 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
 - `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
   0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
+- `render-motion-survival` (spike p03-rendering-016, rendering-DESIGN.md "Spike 016"): whether an additive
+  render-server spring on a pane's backing layer, and on a motion container around it, survives AppKit layout,
+  an ancestor resize, `wantsLayer`, a new backing layer, a window style change and full screen. FAIL when the
+  motion container loses its spring.
 
 ### cmux-unit and xctrace in the guest
 

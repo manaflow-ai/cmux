@@ -97,13 +97,24 @@ final class SpikeMotionContainerView: NSView {
     }
 }
 
-/// A pane's content: counts its layout passes, holds the leaves.
-final class SpikeContentView: NSView {
-    private(set) var layouts = 0
+/// The view that holds the panes, as `ScreenContentView` does: its `layout()` writes each pane's frame from the
+/// pane's rest, scaled to its bounds and moved by `nudge`. An ancestor resize, a window frame change and a layout
+/// pass then write a new frame to a springing view.
+final class SpikeScreenView: NSView {
+    private var rests: [(view: NSView, rest: CGRect)] = []
+    private let reference: CGSize
+
+    /// Points every pane's frame moves by: a layout that places the panes again somewhere else.
+    var nudge = CGVector.zero {
+        didSet { needsLayout = true }
+    }
 
     override init(frame frameRect: NSRect) {
+        reference = frameRect.size
         super.init(frame: frameRect)
         wantsLayer = true
+        autoresizingMask = [.width, .height]
+        autoresizesSubviews = false
     }
 
     @available(*, unavailable)
@@ -111,31 +122,65 @@ final class SpikeContentView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Sets the rest of `view` (in the coordinates of the screen's first size) and writes its frame now.
+    func place(_ view: NSView, rest: CGRect) {
+        if let index = rests.firstIndex(where: { $0.view === view }) {
+            rests[index].rest = rest
+        } else {
+            rests.append((view: view, rest: rest))
+        }
+        view.frame = placed(rest)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
-        layouts += 1
+        for entry in rests {
+            let frame = placed(entry.rest)
+            if entry.view.frame != frame { entry.view.frame = frame }
+        }
+    }
+
+    private func placed(_ rest: CGRect) -> CGRect {
+        let scaleX = bounds.width / max(1, reference.width), scaleY = bounds.height / max(1, reference.height)
+        return CGRect(x: rest.minX * scaleX + nudge.dx, y: rest.minY * scaleY + nudge.dy,
+                      width: rest.width * scaleX, height: rest.height * scaleY)
     }
 }
 
-/// One pane: a real `PaneHostView` with counted content, and for the container candidate the container around it.
+/// What a disturbing event did to the springing view, so that a case whose event did nothing cannot pass.
+nonisolated struct SpikeEventEffect: Sendable {
+    /// The springing view has another layer than before the event.
+    let layerReplaced: Bool
+    /// The model frame of the springing layer changed during the event.
+    let modelFrameWritten: Bool
+}
+
+/// One pane: a real `PaneHostView` with layer-backed content, and for the container candidate the container
+/// around it.
 final class SpikePane {
     let kind: SpikeLayer
     let host: PaneHostView
-    let content: SpikeContentView
+    let content: NSView
     let container: SpikeMotionContainerView?
+    private let screen: SpikeScreenView
     private var spring = SpikeSpring(omega: 2)
     private var begin: CFTimeInterval = 0
     private var positionDelta = CGPoint.zero
     private var sizeDelta = CGSize.zero
     private weak var springLayer: CALayer?
-    private var layoutsAtSpring = 0
     private let stripClip: Bool
 
     /// The view whose layer carries the springs.
     var animated: NSView { container ?? host }
 
-    init(_ kind: SpikeLayer, frame: CGRect, cornerRadius: CGFloat, stripClip: Bool, in screen: NSView) {
-        let content = SpikeContentView(frame: .zero)
+    init(_ kind: SpikeLayer, frame: CGRect, cornerRadius: CGFloat, stripClip: Bool, in screen: SpikeScreenView) {
+        let content = NSView(frame: .zero)
+        content.wantsLayer = true
         let host = PaneHostView(pane: PaneID("spike"), content: content, holdsContentInMotion: { false })
         let container = kind == .motionContainer ? SpikeMotionContainerView(frame: frame, cornerRadius: cornerRadius) : nil
         if let container {
@@ -143,10 +188,11 @@ final class SpikePane {
             host.autoresizingMask = [.width, .height]
             container.addSubview(host)
             screen.addSubview(container)
+            screen.place(container, rest: frame)
         } else {
             host.autoresizingMask = []
-            host.frame = frame
             screen.addSubview(host)
+            screen.place(host, rest: frame)
         }
         host.applyShape(padding: 0, cornerRadius: cornerRadius)
         self.kind = kind
@@ -154,6 +200,7 @@ final class SpikePane {
         self.content = content
         self.host = host
         self.container = container
+        self.screen = screen
         applyStripClip()
         host.layoutSubtreeIfNeeded()
     }
@@ -162,9 +209,6 @@ final class SpikePane {
     private func applyStripClip() {
         if stripClip { host.setStripClip(host.bounds.insetBy(dx: 0, dy: 4)) }
     }
-
-    /// Main's layout work since the last spring started: the host's clip layouts and the content's passes.
-    var layoutsSinceSpring: Int { host.clipLayouts + content.layouts - layoutsAtSpring }
 
     /// Whether AppKit gave the springing view another layer since the spring started.
     var layerReplaced: Bool { animated.layer !== springLayer }
@@ -175,7 +219,7 @@ final class SpikePane {
         let position = layer.position, size = layer.bounds.size
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        animated.frame = rest
+        screen.place(animated, rest: rest)
         applyStripClip()
         animated.layoutSubtreeIfNeeded()
         CATransaction.commit()
@@ -197,7 +241,6 @@ final class SpikePane {
         sizeDelta = size
         begin = CACurrentMediaTime()
         springLayer = layer
-        layoutsAtSpring = host.clipLayouts + content.layouts
         let local = layer.convertTime(begin, from: nil)
         add(spring.animation("position", from: NSValue(point: position), zero: NSValue(point: .zero), beginTime: local),
             key: "spike.position", to: layer)
@@ -238,10 +281,10 @@ final class SpikePane {
     }
 }
 
-/// A window with an unflipped screen view that holds the panes, and a Core Animation clock to wait on.
+/// A window with an unflipped screen view that holds and lays out the panes, and a Core Animation clock to wait on.
 final class SpikeRig {
     let window: NSWindow
-    let screen: NSView
+    let screen: SpikeScreenView
     private let clock = CALayer()
     private var clockTicks = 0
     private var remote: (context: NSObject, root: CALayer, id: UInt32)?
@@ -257,9 +300,7 @@ final class SpikeRig {
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
         window.contentView = root
-        screen = NSView(frame: root.bounds)
-        screen.wantsLayer = true
-        screen.autoresizingMask = []
+        screen = SpikeScreenView(frame: root.bounds)
         root.addSubview(screen)
         root.layer?.addSublayer(clock)
         clock.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -333,13 +374,18 @@ final class SpikeRig {
         return errors
     }
 
-    func disturb(_ event: SpikeEvent, pane: SpikePane) {
+    /// Applies `event` to the pane mid-spring and says what it did to the springing view.
+    func disturb(_ event: SpikeEvent, pane: SpikePane) -> SpikeEventEffect {
+        let layerBefore = pane.animated.layer
+        let frameBefore = layerBefore?.frame
         switch event {
         case .control:
             break
         case .appKitLayout:
             pane.content.frame = pane.content.frame.insetBy(dx: 2, dy: 2)
-            for view in [screen, pane.animated, pane.host, pane.content] { view.needsLayout = true }
+            screen.nudge = CGVector(dx: 2, dy: 2)
+            let views: [NSView] = [screen, pane.animated, pane.host, pane.content]
+            for view in views { view.needsLayout = true }
             window.contentView?.layoutSubtreeIfNeeded()
             let rest = pane.animated.frame
             NSAnimationContext.runAnimationGroup { context in
@@ -351,7 +397,9 @@ final class SpikeRig {
         case .ancestorSetFrame:
             screen.setFrameOrigin(NSPoint(x: screen.frame.minX + 30, y: screen.frame.minY + 20))
             screen.setFrameSize(NSSize(width: screen.frame.width + 80, height: screen.frame.height + 40))
+            window.contentView?.layoutSubtreeIfNeeded()
             window.setFrame(window.frame.insetBy(dx: -40, dy: -30), display: true)
+            window.contentView?.layoutSubtreeIfNeeded()
         case .wantsLayer:
             pane.animated.wantsLayer = false
             window.displayIfNeeded()
@@ -362,15 +410,21 @@ final class SpikeRig {
             window.displayIfNeeded()
             screen.wantsLayer = true
             window.displayIfNeeded()
+        case .layerReassigned:
+            pane.animated.layer = pane.animated.makeBackingLayer()
+            window.displayIfNeeded()
         case .windowStyleChange:
             window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
             if let visible = window.screen?.visibleFrame { window.setFrame(visible, display: true) }
+            window.contentView?.layoutSubtreeIfNeeded()
         }
+        let layerAfter = pane.animated.layer
+        return SpikeEventEffect(layerReplaced: layerAfter !== layerBefore, modelFrameWritten: layerAfter?.frame != frameBefore)
     }
 
-    /// Enters or leaves full screen; false when the window did not get there within 5 s.
-    func toggleFullScreen(entering: Bool) async -> Bool {
+    /// Enters or leaves full screen; false when the window did not get there by media time `deadline`.
+    func toggleFullScreen(entering: Bool, deadline: CFTimeInterval) async -> Bool {
         let name = entering ? NSWindow.didEnterFullScreenNotification : NSWindow.didExitFullScreenNotification
         let once = SpikeOnce()
         let observer = NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
@@ -378,7 +432,6 @@ final class SpikeRig {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         window.toggleFullScreen(nil)
-        let deadline = CACurrentMediaTime() + 5
         return await withCheckedContinuation { continuation in
             once.wait(continuation)
             Task { @MainActor in

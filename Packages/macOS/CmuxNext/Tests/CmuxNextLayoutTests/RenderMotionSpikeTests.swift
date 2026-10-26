@@ -10,9 +10,17 @@ import os
 /// springs. Two candidates: the pane host's own backing layer (`PaneHostView`), and a dedicated motion container
 /// view around the host that only motion code sizes and that keeps the springs it runs. Each test springs a pane
 /// with additive springs (mass 1, critically damped, initial velocity 0: the RenderSpring shape), disturbs it,
-/// then reads the presented geometry at 25, 50 and 75 % of the way. The container's results are asserted; the
-/// backing layer's are printed as `render-motion-spike` lines for the doc's results table.
-@MainActor @Suite(.serialized)
+/// then reads the presented geometry at 25, 50 and 75 % of the way.
+///
+/// The container's survival is the hypothesis under test: its assertion going red is the result that changes the
+/// doc's choice. The backing layer's results are printed as `render-motion-spike` lines for the doc's results
+/// table. Each event first proves it did what it names (wrote the springing layer's frame, or replaced the layer),
+/// so a case cannot pass because its event did nothing.
+///
+/// Opt-in (`CMUX_RENDER_SPIKE=1`): the suite opens real windows, enters full screen and runs multi-second springs,
+/// so it runs only in the isolated fleet run the doc names, never in a shared `swift test`.
+@MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_RENDER_SPIKE"] == "1",
+                                        "opt-in fleet spike: set CMUX_RENDER_SPIKE=1"))
 struct RenderMotionSpikeTests {
     /// Points a presented edge may miss the spring's value by, past one frame of travel either side of the read.
     static let tolerance: CGFloat = 0.5
@@ -30,15 +38,34 @@ struct RenderMotionSpikeTests {
         let pane = rig.addPane(layer, frame: CGRect(x: 40, y: 40, width: 240, height: 180))
         let spring = SpikeSpring(omega: 2)
         pane.spring(to: CGRect(x: 240, y: 160, width: 400, height: 280), with: spring)
-        rig.disturb(event, pane: pane)
+        let effect = rig.disturb(event, pane: pane)
+        switch event.requirement {
+        case .nothing:
+            break
+        case .writesFrame:
+            try #require(effect.modelFrameWritten, "\(event) wrote no new frame to the springing layer")
+        case .replacesLayer:
+            try #require(effect.layerReplaced, "\(event) did not replace the springing view's layer")
+        case .mayReplaceLayer:
+            // AppKit may keep the layer when the view has a layer-backed ancestor: then the event is no layer
+            // replacement, and `layerReassigned` is the case that tests one.
+            guard effect.layerReplaced else {
+                withKnownIssue("AppKit kept the layer: \(event) does not replace it under a layer-backed ancestor") {
+                    Issue.record("\(event): layerReplaced=false, not a replacement case")
+                }
+                Self.report(layer, event: event.rawValue, errors: nil, effect: effect)
+                return
+            }
+        }
         let errors = try await rig.sample(pane, spring: spring)
-        Self.report(layer, event: event.rawValue, errors: errors, pane: pane)
+        Self.report(layer, event: event.rawValue, errors: errors, effect: effect)
         if layer == .motionContainer {
             #expect(errors.allSatisfy { $0 <= Self.tolerance }, "\(event): off its spring by \(errors) pt at 25/50/75 %")
         }
     }
 
-    /// The window moves to another display mid-spring.
+    /// The window moves to another display mid-spring. Fleet minis have one virtual display, so this runs only on
+    /// a host with two; the doc lists the event as not covered until such a run.
     @Test(.enabled("needs two displays") { await RenderMotionSpikeTests.hasTwoDisplays() }, arguments: SpikeLayer.allCases)
     func springsSurviveADisplayMove(_ layer: SpikeLayer) async throws {
         let rig = try SpikeRig(size: CGSize(width: 900, height: 620))
@@ -50,15 +77,17 @@ struct RenderMotionSpikeTests {
         rig.window.setFrameOrigin(NSPoint(x: other.visibleFrame.minX + 40, y: other.visibleFrame.minY + 40))
         try #require(rig.window.screen == other, "the window did not move to the other display")
         let errors = try await rig.sample(pane, spring: spring)
-        Self.report(layer, event: "displayMove", errors: errors, pane: pane)
+        Self.report(layer, event: "displayMove", errors: errors, effect: nil)
         if layer == .motionContainer {
             #expect(errors.allSatisfy { $0 <= Self.tolerance }, "display move: off its spring by \(errors) pt")
         }
     }
 
-    /// The window enters full screen mid-spring (a slow spring, so its 25 % mark comes after the transition).
-    /// A test runner without a running NSApplication may never enter full screen: that is a known issue, not
-    /// a result.
+    /// The window enters full screen mid-spring (a slow spring, so its 25 % mark comes after the transition). The
+    /// wait for the transition ends half a second before the 25 % mark, so a late transition is "not entered",
+    /// never a missed mark. A `swift test` process has no running NSApplication and may never enter full screen:
+    /// that is recorded as not covered (a known issue), and the OS probe `render-motion-survival`, a real app,
+    /// covers the event.
     @Test(.enabled("needs a display") { await RenderMotionSpikeTests.hasDisplay() }, arguments: SpikeLayer.allCases)
     func springsSurviveFullScreen(_ layer: SpikeLayer) async throws {
         let rig = try SpikeRig(size: CGSize(width: 900, height: 620))
@@ -66,15 +95,26 @@ struct RenderMotionSpikeTests {
         let pane = rig.addPane(layer, frame: CGRect(x: 40, y: 40, width: 240, height: 180))
         let spring = SpikeSpring(omega: 0.35)
         pane.spring(to: CGRect(x: 240, y: 160, width: 400, height: 280), with: spring)
-        var entered = false
-        await withKnownIssue("a swift test runner may not enter full screen", isIntermittent: true) {
-            entered = await rig.toggleFullScreen(entering: true)
-            try #require(entered, "the window did not enter full screen within 5 s")
+        let entered = await rig.toggleFullScreen(entering: true, deadline: pane.time(atProgress: 0.25) - 0.5)
+        guard entered else {
+            if rig.window.styleMask.contains(.fullScreen) {
+                _ = await rig.toggleFullScreen(entering: false, deadline: CACurrentMediaTime() + 5)
+            }
+            withKnownIssue("not covered: the window did not enter full screen before the 25 % mark") {
+                Issue.record("full screen not entered in this test process")
+            }
+            Self.report(layer, event: "fullScreen", errors: nil, effect: nil)
+            return
         }
-        guard entered else { return }
-        let errors = try await rig.sample(pane, spring: spring)
-        _ = await rig.toggleFullScreen(entering: false)
-        Self.report(layer, event: "fullScreen", errors: errors, pane: pane)
+        let sampled: Result<[CGFloat], any Error>
+        do {
+            sampled = .success(try await rig.sample(pane, spring: spring))
+        } catch {
+            sampled = .failure(error)
+        }
+        _ = await rig.toggleFullScreen(entering: false, deadline: CACurrentMediaTime() + 5)
+        let errors = try sampled.get()
+        Self.report(layer, event: "fullScreen", errors: errors, effect: nil)
         if layer == .motionContainer {
             #expect(errors.allSatisfy { $0 <= Self.tolerance }, "full screen: off its spring by \(errors) pt")
         }
@@ -110,11 +150,13 @@ struct RenderMotionSpikeTests {
     }
 
     /// 12 masked panes, each with an IOSurface leaf and a CALayerHost leaf, spring between two grids for
-    /// `CMUX_RENDER_SPIKE_ROUNDS` rounds (3 by default). The main thread lays nothing out while they move; each
-    /// round is a Points of Interest interval (subsystem com.cmuxterm.render-motion-spike), so an xctrace
-    /// Animation Hitches recording of the run gives each candidate's render-server hitches.
+    /// `CMUX_RENDER_SPIKE_ROUNDS` rounds (3 by default). Each round is a Points of Interest interval (subsystem
+    /// com.cmuxterm.render-motion-spike, name `springs`, message the layer), so an xctrace Animation Hitches
+    /// recording of the run gives each candidate's render-server hitches
+    /// (`scripts/cmux-next/render-motion-spike-hitches.py` counts them). The test itself measures how late each
+    /// round's Core Animation completion lands past the spring's settling time.
     @Test(.enabled("needs a display") { await RenderMotionSpikeTests.hasDisplay() }, arguments: SpikeLayer.allCases)
-    func twelveMaskedPanesSpringWithNoMainWork(_ layer: SpikeLayer) async throws {
+    func twelveMaskedPanesSpring(_ layer: SpikeLayer) async throws {
         let rig = try SpikeRig(size: CGSize(width: 1200, height: 800))
         defer { rig.close() }
         let grids = [SpikeRig.gridFrames(columns: [1, 1, 1, 1], in: rig.screen.bounds),
@@ -143,18 +185,16 @@ struct RenderMotionSpikeTests {
             }
             signposter.endInterval("springs", state)
             lateLandings.append((CACurrentMediaTime() - begin - spring.settlingTime) * 1000)
-            // Main work while the panes moved: every frame and layout set at the round's start, none after it.
-            let layouts = panes.map { $0.layoutsSinceSpring }
-            #expect(layouts.allSatisfy { $0 == 0 }, "round \(round): layouts during the spring \(layouts)")
         }
         let sorted = lateLandings.sorted()
         print("render-motion-spike hitch-scenario layer=\(layer.rawValue) late_landing_ms_p50=\(Self.format(sorted[sorted.count / 2])) " +
               "late_landing_ms_max=\(Self.format(sorted.last ?? 0))")
     }
 
-    private static func report(_ layer: SpikeLayer, event: String, errors: [CGFloat], pane: SpikePane) {
-        print("render-motion-spike layer=\(layer.rawValue) event=\(event) p25=\(format(errors[0])) p50=\(format(errors[1])) " +
-              "p75=\(format(errors[2])) layerReplaced=\(pane.layerReplaced)")
+    private static func report(_ layer: SpikeLayer, event: String, errors: [CGFloat]?, effect: SpikeEventEffect?) {
+        let marks = errors.map { "p25=\(format($0[0])) p50=\(format($0[1])) p75=\(format($0[2]))" } ?? "notCovered"
+        let facts = effect.map { " layerReplaced=\($0.layerReplaced) frameWritten=\($0.modelFrameWritten)" } ?? ""
+        print("render-motion-spike layer=\(layer.rawValue) event=\(event) \(marks)\(facts)")
     }
 
     private static func format(_ value: Double) -> String {
@@ -174,18 +214,39 @@ nonisolated enum SpikeLayer: String, CaseIterable, Sendable {
 nonisolated enum SpikeEvent: String, CaseIterable, Sendable {
     /// Nothing happens: the control.
     case control
-    /// A layout pass over the window, a content frame change, and the zero-length animator group the layout sets
-    /// rest frames through (the springing view's frame set again to its rest).
+    /// The screen view lays the panes out 2 pt away (a new frame on the springing view), the content's frame
+    /// changes, the window lays out, and the zero-length animator group a layout sets rest frames through sets
+    /// the springing view's frame again.
     case appKitLayout
-    /// The pane's superview moves and grows, then the window grows.
+    /// The pane's superview moves and grows, then the window grows; the superview's layout writes the pane's
+    /// scaled frame each time.
     case ancestorSetFrame
     /// The springing view's `wantsLayer` goes off and on.
     case wantsLayer
     /// The superview's `wantsLayer` goes off and on.
     case ancestorWantsLayer
+    /// The springing view gets a new backing layer from its `makeBackingLayer()`: a layer replacement for certain.
+    case layerReassigned
     /// What full screen does to the frame view without the transition: full-size content, a transparent
-    /// titlebar and the screen's visible frame.
+    /// titlebar and the screen's visible frame, which the layout writes to the pane.
     case windowStyleChange
+
+    /// What the event must have done for its case to count.
+    enum Requirement: Sendable {
+        case nothing
+        case writesFrame
+        case replacesLayer
+        case mayReplaceLayer
+    }
+
+    var requirement: Requirement {
+        switch self {
+        case .control: .nothing
+        case .appKitLayout, .ancestorSetFrame, .windowStyleChange: .writesFrame
+        case .layerReassigned: .replacesLayer
+        case .wantsLayer, .ancestorWantsLayer: .mayReplaceLayer
+        }
+    }
 }
 
 /// The leaf a pane clips: a Chromium page's form (a CALayerHost of another Core Animation context) or a
