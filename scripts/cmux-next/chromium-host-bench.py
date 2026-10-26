@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Chromium in process vs Chromium in its own host app (prototype; plans/cmux-next/cef-helper-app-DESIGN.md).
 
-Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` on, and
-measures the same probe page twice:
+Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
+bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
+Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice:
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -217,7 +218,7 @@ margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
     "PNG", base64.b64encode(cursor_png()).decode())
 
 
-TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
+TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
 
 
