@@ -2,9 +2,10 @@
 """Fails when the cmux-next app references a daemon capability no same-tree daemon can serve.
 
 check-daemon-capabilities.sh starts the bundled cmux-tui and checks that it
-serves every capability in DaemonCapabilities.required and .optional
-(plans/cmux-next/daemon-capabilities.json). That list is written by hand, so a
-capability the app gates on through another constant (`Foo.capability`,
+serves every capability in DaemonCapability.required and .optional
+(plans/cmux-next/daemon-capabilities.json). That export is generated from the
+Swift lists (and the base autofix can rewrite it), so a capability the app gates
+on through another constant (`Foo.capability`,
 `"session-journal-v1"` in a `supports(...)` call) was never checked: when the
 daemon dropped or renamed it, the feature went dark with no red build. This
 check closes that gap from the source, with no build. check-daemon-capabilities.sh
@@ -19,14 +20,15 @@ capability references:
   refusal sites   `needsDaemonCapability(X)` (an action bound unavailable or
                   refused with "not available in this version" or "restart to
                   update")
-  the list        every `let name = "..."` in `struct DaemonCapabilities`
-X resolves when it is a string literal, `DaemonCapabilities.shared.NAME`,
-`caps.NAME`, `Self.NAME`, `Type.NAME` or a bare constant of the enclosing type;
-other expressions forward a value from elsewhere and are not references.
-Named gaps: values passed through variables, tuples or arrays
+  the list        every case of `enum DaemonCapability` (DaemonEndpoint.swift), read with
+                  check-daemon-capabilities-fresh.py's parser, which also gives the lists
+X resolves when it is a string literal, `DaemonCapability.NAME.rawValue` (or
+`DaemonCapability.NAME`), `Self.NAME`, `Type.NAME` or a bare constant of the
+enclosing type; other expressions forward a value from elsewhere and are not
+references. Named gaps: values passed through variables, tuples or arrays
 (`supports(docks)`), `capabilities.contains(...)`, and constants initialized
-from another constant are not followed; the DaemonCapabilities lists plus the
-identify probe still cover those that use a DaemonCapabilities member.
+from another constant are not followed; the DaemonCapability lists plus the
+identify probe still cover those that use a DaemonCapability case.
 
 It reads every Rust file of cmux-tui-core (the crate whose `identify`
 advertises the daemon's capabilities) and of the cmux-tui crates it depends on
@@ -36,18 +38,29 @@ server/capabilities.rs.
 
 Rules (each violation names the file and line):
   1. A capability the daemon source defines that the app references must be in
-     DaemonCapabilities.required or .optional, so check-daemon-capabilities.sh
+     DaemonCapability.required or .optional, so check-daemon-capabilities.sh
      proves the bundled binary serves it (and RefusalStrings says "restart to
      update" for an older daemon). CONDITIONAL lists the few the daemon serves
      only beside a sidecar binary.
   2. A capability the daemon source does not define may appear only at a
      refusal site (a feature not built yet, shown as "not available in this
-     version"), in DaemonCapabilities.unservedByBundledDaemon, or in PEERS (a
+     version"), in DaemonCapability.unservedByBundledDaemon, or in PEERS (a
      capability of another server, not cmux-tui). At a gate site it is the
      error class P10 forbids: the feature waits for a capability the bundled
      daemon never serves.
   3. An unservedByBundledDaemon entry the daemon source now defines moves to
      optional.
+  4. A capability is a case of DaemonCapability: a static of the catalog type (in
+     DaemonEndpoint.swift or an extension in any file) that is or may be a String
+     (stored or computed, typed String or untyped, or a func returning one) is in
+     no list, so the export, check-daemon-capabilities.sh and DaemonCompatibility
+     never see it, and the gate APIs take any String, so it compiles at a gate.
+     check-daemon-capabilities-fresh.py's catalog_strays finds them for both checks.
+     A stopgap with known gaps (a static in a type nested in an extension, a
+     `typealias` of String, a brace in a string literal of the catalog body, a
+     two-part name such as `DaemonCapability.More.orphan` at a gate): the fix is
+     typed gates (architecture-refactor-DESIGN.md slice B6), which deletes this
+     rule and catalog_strays.
 
 Usage: check-app-capability-references.py [--repo ROOT] [--list]
   --list prints every reference (capability, kind, file:line) and exits 0.
@@ -55,10 +68,18 @@ Usage: check-app-capability-references.py [--repo ROOT] [--list]
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+# The catalog parser shared with the export's freshness check (one way to read the lists).
+_FRESH = importlib.util.spec_from_file_location(
+    "check_daemon_capabilities_fresh", Path(__file__).resolve().parent / "check-daemon-capabilities-fresh.py")
+fresh = importlib.util.module_from_spec(_FRESH)
+_FRESH.loader.exec_module(fresh)
+CATALOG = "DaemonCapability"
 
 SWIFT_ROOT = "Packages/macOS/CmuxNext/Sources"
 RUST_ROOT = "cmux-tui/crates/cmux-tui-core/src"
@@ -234,16 +255,21 @@ def collect(repo: Path):
     endpoint = next((f for f in files if f.rel == ENDPOINT), None)
     if endpoint is None:
         sys.exit(f"check-app-capability-references: {ENDPOINT} is missing")
-    lists = endpoint_lists(endpoint, by_type)
+    cases, lists = fresh.swift_catalog(endpoint.text)
+    lists = {name: lists[name] for name in ("required", "optional", "unservedByBundledDaemon")}
 
     refs: list[Ref] = []
+    for name, value in cases.items():
+        by_type.setdefault((CATALOG, name), value)
+        found = re.search(r"\bcase\s+" + re.escape(name) + r"\b", endpoint.masked)
+        refs.append(Ref(value, LISTED, f"{ENDPOINT}:{endpoint.line(found.start()) if found else 1}"))
+    strays: list[str] = []
     for f in files:
+        if CATALOG in f.text:
+            strays += fresh.catalog_strays(f.text, f.rel)
         for pos, name, value, owner in f.constants:
-            where = f"{f.rel}:{f.line(pos)}"
-            if owner == "DaemonCapabilities":
-                refs.append(Ref(value, LISTED, where))
-            elif name == "capability" or name.endswith("Capability"):
-                refs.append(Ref(value, GATE, where))
+            if owner != CATALOG and (name == "capability" or name.endswith("Capability")):
+                refs.append(Ref(value, GATE, f"{f.rel}:{f.line(pos)}"))
         for pattern, kind in CALLS:
             # Every call pattern starts with its literal name: a file without
             # it has no match (a substring test is much cheaper than the regex).
@@ -255,46 +281,24 @@ def collect(repo: Path):
                 value = resolve(expr, f.type_at(expr_start), by_type)
                 if value is not None:
                     refs.append(Ref(value, kind, f"{f.rel}:{f.line(expr_start)}"))
-    return refs, lists, rust_capabilities(repo)
+    return refs, lists, rust_capabilities(repo), strays
 
 
 def resolve(expr: str, owner: str | None, by_type: dict[tuple[str, str], str]) -> str | None:
     if re.fullmatch(r'"[^"\\]*"', expr):
         return expr[1:-1]
-    match = re.fullmatch(r"(?:DaemonCapabilities\.shared|caps|capabilities)\.([A-Za-z_]\w*)", expr)
+    match = re.fullmatch(CATALOG + r"\.([A-Za-z_]\w*)(?:\.rawValue)?", expr)
     if match:
-        return by_type.get(("DaemonCapabilities", match.group(1)))
+        return by_type.get((CATALOG, match.group(1)))
+    match = re.fullmatch(r"Self\.([A-Za-z_]\w*)\.rawValue", expr)
+    if match and owner == CATALOG:
+        return by_type.get((CATALOG, match.group(1)))
     match = re.fullmatch(r"(?:Self|([A-Z]\w*))\.([A-Za-z_]\w*)", expr)
     if match:
         return by_type.get((match.group(1) or owner or "", match.group(2)))
     if re.fullmatch(r"[A-Za-z_]\w*", expr) and owner:
         return by_type.get((owner, expr))
     return None
-
-
-def endpoint_lists(endpoint: SwiftFile, by_type) -> dict[str, list[str]]:
-    lists = {}
-    for name in ("required", "optional", "unservedByBundledDaemon"):
-        match = re.search(r"\b(?:let|var)\s+" + name + r"\s*:\s*\[String\]\s*(?:=|\{)\s*\[(.*?)\]", endpoint.masked, re.S)
-        if not match:
-            sys.exit(f"check-app-capability-references: no `{name}: [String]` list in {ENDPOINT}")
-        values = []
-        for start, item in items(endpoint.text, match.start(1), match.end(1)):
-            value = resolve(item, "DaemonCapabilities", by_type)
-            if value is None:
-                sys.exit(f"check-app-capability-references: cannot resolve `{item}` in {name} "
-                         f"({ENDPOINT}:{endpoint.line(start)})")
-            values.append(value)
-        lists[name] = values
-    return lists
-
-
-def items(text: str, start: int, end: int):
-    pos = start
-    for part in text[start:end].split(","):
-        if part.strip():
-            yield pos + len(part) - len(part.lstrip()), part.strip()
-        pos += len(part) + 1
 
 
 def daemon_source_roots(repo: Path) -> list[Path]:
@@ -330,7 +334,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
-    refs, lists, daemon = collect(args.repo)
+    refs, lists, daemon, strays = collect(args.repo)
     if args.list:
         for ref in sorted(refs, key=lambda r: (r.capability, r.kind, r.where)):
             served = "daemon" if ref.capability in daemon else "-"
@@ -340,6 +344,10 @@ def main() -> int:
     checked = set(lists["required"]) | set(lists["optional"])
     unserved = set(lists["unservedByBundledDaemon"])
     problems: list[str] = []
+    for stray in strays:
+        problems.append(f"{stray}: a String static of the capability catalog is in no list, so no build checks "
+                        f"it; make it a `case` of {CATALOG} in {ENDPOINT} placed in an arm of `tier`, or give it "
+                        "a non-String type.")
     stubs: dict[str, list[str]] = {}
     for capability in sorted({r.capability for r in refs}):
         sites = [r for r in refs if r.capability == capability]
@@ -348,12 +356,12 @@ def main() -> int:
             if capability not in checked and capability not in CONDITIONAL:
                 problems.append(
                     f"{capability}: the app references it ({', '.join(r.where for r in sites[:3])}) and the daemon "
-                    f"defines it ({daemon[capability]}), but it is not in DaemonCapabilities.required or .optional, so "
+                    f"defines it ({daemon[capability]}), but it is not in DaemonCapability.required or .optional, so "
                     "no build proves the bundled daemon serves it. Add it to `optional` in " + ENDPOINT
-                    + " and regenerate plans/cmux-next/daemon-capabilities.json.")
+                    + " (a case in the `.optional` arm of `tier`) and regenerate plans/cmux-next/daemon-capabilities.json.")
             if capability in unserved:
                 problems.append(f"{capability}: the daemon defines it ({daemon[capability]}); move it from "
-                                "DaemonCapabilities.unservedByBundledDaemon to optional.")
+                                "DaemonCapability.unservedByBundledDaemon to optional.")
         elif capability in PEERS or capability in unserved:
             continue
         elif gates:

@@ -387,3 +387,26 @@ replaces this cache for cloud-synced hosts.
   --destination <host>` works. Fix belongs with slice E.
 - An agent cannot screenshot the app window (`window.screenshot` is person-only), so app-level
   remote-group checks need the fleet's UI harness, not an agent shell.
+
+## 19. Stable ids for a host (answer to a461, cloud groups slice 1)
+
+No new id is needed: every daemon already serves three stable ids. Use them as below.
+
+| Id | Form | Minted | Stable across | Served by | Use it for |
+| --- | --- | --- | --- | --- | --- |
+| machine id | `machine_<32 hex>` | once per state root, `load_or_create_machine_id` (`cmux-tui-core/src/workspace_registry.rs`), a locked file in the daemon's state root | daemon restarts, upgrades, reconnects, route changes (SSH ↔ tailnet ↔ relay), host renames | `machine.list` (`id`), `identify` with machine metadata (`machine_id`); Swift `DaemonIdentity.machineResourceID` | **the host in a cloud group record**: "this group lives on machine X" |
+| session resource id | `session_<32 hex>` | once per daemon session | as above | `identify` (`session_resource_id`), `workspace list` (`session_id`); Swift `DaemonIdentity.sessionResourceID` | one daemon session on that host (a host can run several sessions) |
+| registry id | UUID v4 | once per session database (`meta.registry_id`) | as above | `identify`, every tree delta and `workspace` reply (`registry_id`); Swift `DaemonIdentity.registryID`, `DaemonStore.registryID` | local placement only: sidebar section `sec_m_<registry_id>`, remote-localhost routing |
+
+Rules:
+
+1. A group record names `{machine_id, session_resource_id}`. Never a host name, an SSH alias, a
+   tailnet IP or a Cloud VM id: those change (a Cloud VM is re-provisioned, a Mac is renamed, a
+   route moves from SSH to tailnet). For a Cloud VM, the daemon's own `machine_id` is also the id,
+   and the Cloud VM id is only a route to it.
+2. All three ids change only when the daemon's state root is deleted. That is a new machine on
+   purpose: its workspaces are gone too. A record that names an unknown `machine_id` draws as
+   "Machine not found" with Forget, and is never matched to a new host by its name.
+3. Read `machine_id` from `machine.list` or `identify` with machine metadata on, after connect.
+   Older daemons without `machine-identity-v1` have no `machine_id`: a cloud group then refuses
+   to bind (`incompatible(version)` header, section 5) and does not fall back to `registry_id`.

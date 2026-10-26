@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 
 #include <cstring>
+#include <strings.h>
 
 #include <map>
 #include <string>
@@ -24,6 +25,8 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_parser.h"
+#include "include/cef_request_handler.h"
+#include "include/cef_resource_request_handler.h"
 #include "include/cef_task.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
@@ -93,6 +96,11 @@ struct Rp {
   int (*surface_close)(int) = nullptr;
   int (*surface_refresh)(int) = nullptr;  // API 21
   int (*set_active)(int, int) = nullptr;
+  // RP5 text input state.
+  int (*text_input_watch)(int,
+                          void (*)(void*, int, int, const int*, int,
+                                   const int*),
+                          void*) = nullptr;
 } g_rp;
 
 bool BindRp(const std::string& framework_binary) {
@@ -123,6 +131,7 @@ bool BindRp(const std::string& framework_binary) {
   BIND(surface_close, "cmux_rp_surface_close");
   BIND(surface_refresh, "cmux_rp_surface_refresh");
   BIND(set_active, "cmux_rp_set_active");
+  BIND(text_input_watch, "cmux_rp_text_input_watch");
 #undef BIND
   return g_rp.api_version && g_rp.api_version() >= 19 && g_rp.is_active &&
          g_rp.capture_start && g_rp.frame_release && g_rp.send_key;
@@ -212,15 +221,77 @@ CefRefPtr<CefListValue> MenuItems(CefRefPtr<CefMenuModel> model) {
   return list;
 }
 
+// The text input state of a tab, for the viewer (rb.text_input).
+void OnTextInput(void*,
+                 int browser_id,
+                 int input_type,
+                 const int* rects,
+                 int rect_count,
+                 const int* caret) {
+  if (g_cb.on_text_input) {
+    g_cb.on_text_input(g_cb.context, browser_id, input_type, rects, rect_count,
+                       caret);
+  }
+}
+
+// A file: URL: may it load? Anything else is not this check's.
+bool FileLoadAllowed(const CefString& url) {
+  const std::string text = url.ToString();
+  if (text.size() < 5 || strncasecmp(text.c_str(), "file:", 5) != 0) {
+    return true;
+  }
+  return !g_cb.on_file_load || g_cb.on_file_load(g_cb.context, text.c_str());
+}
+
+// Refuses file: loads the viewer's policy does not allow, for subresources
+// (frames, images, fetch) as well as navigations (IO thread).
+class FileLoadGuard : public CefResourceRequestHandler {
+ public:
+  ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>,
+                                   CefRefPtr<CefFrame>,
+                                   CefRefPtr<CefRequest> request,
+                                   CefRefPtr<CefCallback>) override {
+    return FileLoadAllowed(request->GetURL()) ? RV_CONTINUE : RV_CANCEL;
+  }
+
+ private:
+  IMPLEMENT_REFCOUNTING(FileLoadGuard);
+};
+
 class Client : public CefClient,
                public CefContextMenuHandler,
                public CefDisplayHandler,
                public CefJSDialogHandler,
                public CefKeyboardHandler,
                public CefLifeSpanHandler,
-               public CefLoadHandler {
+               public CefLoadHandler,
+               public CefRequestHandler {
  public:
-  explicit Client(int request) : request_(request) {}
+  explicit Client(int request)
+      : request_(request), file_guard_(new FileLoadGuard) {}
+
+  CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+
+  // A navigation (top level or a frame) to a file: URL the policy refuses
+  // never starts (UI thread).
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser>,
+                      CefRefPtr<CefFrame>,
+                      CefRefPtr<CefRequest> request,
+                      bool,
+                      bool) override {
+    return !FileLoadAllowed(request->GetURL());
+  }
+
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
+      CefRefPtr<CefBrowser>,
+      CefRefPtr<CefFrame>,
+      CefRefPtr<CefRequest>,
+      bool,
+      bool,
+      const CefString&,
+      bool&) override {
+    return file_guard_;
+  }
 
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
     return this;
@@ -393,6 +464,9 @@ class Client : public CefClient,
         Windows()[browser->GetIdentifier()] = window;
       }
     }
+    if (g_rp.text_input_watch) {
+      g_rp.text_input_watch(browser->GetIdentifier(), &OnTextInput, nullptr);
+    }
     if (g_cb.on_tab_created) {
       g_cb.on_tab_created(g_cb.context, request_, browser->GetIdentifier());
     }
@@ -412,6 +486,7 @@ class Client : public CefClient,
 
  private:
   const int request_;
+  CefRefPtr<FileLoadGuard> file_guard_;
   IMPLEMENT_REFCOUNTING(Client);
 };
 

@@ -73,7 +73,7 @@ public struct PaneSplitCommand: Sendable {
     /// afterwards).
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
         Self.optimisticSplitEnabled && swapTowards == nil
-            && daemon.supports(DaemonCapabilities.shared.splitClientKeys)
+            && daemon.supports(DaemonCapability.splitClientKeys.rawValue)
     }
 }
 
