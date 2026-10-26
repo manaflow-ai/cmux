@@ -12,17 +12,17 @@
     },
     {
       "path": "include/cmux/raw/generated/models.hpp",
-      "sha256": "9dcab592964d53e86e79e063e049d65deb00cad1b78559f1496457fa5d1e0e74",
-      "size": 316441
+      "sha256": "3c1a6a7264b1574c86e6ebc248b86410849313a82a9e996d73bbcc25b0ca33a7",
+      "size": 317234
     },
     {
       "path": "src/raw/generated/protocol.cpp",
-      "sha256": "31c94c8c996866239f0823421cefcca0a5d5450070c311f12b5d2f96a941047a",
-      "size": 2009031
+      "sha256": "d1c883df0e00377873f816301fdcf5de9c8c733a9fe43de1ecfa85dec0c1907b",
+      "size": 2015141
     }
   ],
   "format": 1,
-  "ir_sha256": "e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103",
+  "ir_sha256": "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333",
   "language": "cpp",
   "mux_protocol": 12,
   "schema_version": 2

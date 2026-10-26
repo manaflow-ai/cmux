@@ -460,7 +460,7 @@ fn the_remote_relay_denies_every_agent_session_verb() {
     let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
     for frame in every_verb(surface) {
         assert!(remote_relay::gate::check_frame(&frame.to_string()).is_err());
-        remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer);
+        remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer, Instant::now());
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_code(&reply, "remote_denied");
     }
