@@ -155,20 +155,15 @@ fn lines(path: &PathBuf) -> Vec<(NodeId, String)> {
 }
 
 /// The lines to repair, lowest level first, each with whether it was free
-/// (its text is its source verbatim): a model line that is a refusal, and a
-/// free line that holds one. A model line that only read a refused child
-/// is not one, and stays as it is.
+/// (its text is its source verbatim): any line with a line in it that is a
+/// refusal (a model may write a lead-in first). A model line that only
+/// read a refused child is not one, and stays as it is.
 fn targets(path: &PathBuf, store: &Db) -> Vec<(NodeId, String, bool)> {
     lines(path)
         .into_iter()
         .filter_map(|(n, t)| {
             let free = free_node_text(n, store).as_deref() == Some(t.as_str());
-            let target = if free {
-                holds_refusal(&t)
-            } else {
-                is_refusal(&t)
-            };
-            target.then_some((n, t, free))
+            holds_refusal(&t).then_some((n, t, free))
         })
         .collect()
 }
@@ -259,7 +254,7 @@ fn plan(args: &[String]) {
         done.sort_by_key(|d| d.0);
         for (n, old, new, outcome) in done {
             *outcomes.entry(outcome).or_default() += 1;
-            if outcome == "failed" || outcome == "still_refusal" {
+            if outcome == "failed" || outcome == "still_refusal" || new == old {
                 continue;
             }
             store.rewrite_node(n, &new).expect("write the copy");
