@@ -209,6 +209,8 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+#[cfg(any(debug_assertions, feature = "oracle"))]
+mod oracle;
 mod pinned_columns;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -536,6 +538,9 @@ pub struct Mux {
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
+    /// The refactor switch arms `oracle-state` reports, frozen at first read.
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -900,12 +905,6 @@ impl Mux {
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
-    }
-
-    /// Live event subscriptions (`oracle-state`).
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    pub(crate) fn live_event_subscriber_count(&self) -> usize {
-        self.subscribers.live_subscriber_count()
     }
 
     pub fn surface_count(&self) -> usize {

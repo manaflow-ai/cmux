@@ -7,9 +7,10 @@ Spec: plans/cmux-next/chrome-parity/p15-oracle.md, section 3A and task 021; the 
 
 The daemon facet is `session.snapshot` + `settings.snapshot` + the journal head of the snapshot's cut,
 with the `oracle-state` extras (switches, terminal attach counts, live object counts, panic log). A
-debug or `--features oracle` daemon answers `oracle-state` with the session snapshot and its journal head
-from the one snapshot builder (`public_session_snapshot_with_journal_head`), so `session` and
-`journalHead` are one cut. A release daemon, or a push-base daemon from before task 021, answers
+debug or `--features oracle` daemon answers `oracle-state` with the asking connection's `session.snapshot`
+result (`clients` included) and its journal head from the one snapshot builder
+(`public_session_snapshot_at_cut`), so `session`, `journalHead`, `terminalAttach` and `liveObjects` (all
+but `subscriptions`) are one cut. A release daemon, or a push-base daemon from before task 021, answers
 `oracle-state` as an unknown command; the facet is then the v0 facet: `session.snapshot` and
 `settings.snapshot` only, with no `journalHead` and no `oracle` (both optional in the schema).
 

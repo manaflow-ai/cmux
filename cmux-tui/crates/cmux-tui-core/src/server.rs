@@ -2679,6 +2679,8 @@ mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
+#[cfg(any(debug_assertions, feature = "oracle"))]
+pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,

@@ -709,9 +709,15 @@ object{
 
 `journal_head` is the session journal head read under the same registry and
 state lock as `session`: every journal record at or below it is in `session`,
-and no later one is. `session` is the `session.snapshot` result.
-`switches` maps each refactor switch to the arm the owner start parsed from
-`CMUX_TUI_SWITCHES`. `terminalAttach` counts the terminal catalog: `dead`
+and no later one is. `session` is the asking connection's `session.snapshot`
+result, `clients` included (the connections are read just after the cut).
+`terminalAttach` and `liveObjects`, except `subscriptions`, are counted from
+the same locked state as `session`; `subscriptions` is read just after it.
+`switches` maps each daemon refactor switch to the arm this daemon runs,
+`old` or `new`, frozen at the first read. The one switch so far is
+`terminal-holder` (`new` when `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
+`terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
 tab, `detached` ones are live with no placement. `liveObjects` counts runtime
 objects: `browsers`, `panes`, `screens`, `subscriptions` (live event

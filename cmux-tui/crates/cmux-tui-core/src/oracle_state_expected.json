@@ -45,7 +45,9 @@
       "workspaces"
     ]
   },
-  "switches": {},
+  "switches": {
+    "terminal-holder": "old"
+  },
   "terminalAttach": {
     "attached": 4,
     "dead": 0,

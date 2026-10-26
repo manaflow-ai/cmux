@@ -1,16 +1,19 @@
 //! `oracle-state` after a fixed op script equals the checked-in
-//! `oracle_state_expected.json`, and its session is the `session.snapshot`
-//! builder's own value at the same journal head.
+//! `oracle_state_expected.json`, and its counts come from the snapshot's cut.
+//! The `session` against the wire `session.snapshot` is in
+//! server/oracle_state_command_tests.rs.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::{oracle_state, runtime_counts};
+use super::{launch_switch_arms, oracle_state, runtime_counts};
 use crate::{Mux, SplitDir, SurfaceOptions};
 
 const SESSION: &str = "oracle-state-script";
+/// No control connection: `session.clients` is empty.
+const NO_CLIENT: u64 = 0;
 
 /// Two workspaces; the first split once, the second with a second tab.
 fn run_script(mux: &Arc<Mux>) {
@@ -44,36 +47,38 @@ fn comparable(reply: &Value, mux: &Mux) -> Value {
 #[test]
 fn oracle_state_after_a_fixed_script_equals_the_checked_in_json() {
     let mux = Mux::new_for_test(SESSION, SurfaceOptions::default());
+    mux.install_oracle_switches_for_test(BTreeMap::from([("terminal-holder", "old")]));
     run_script(&mux);
-    let reply = serde_json::to_value(oracle_state(&mux, BTreeMap::new()).unwrap()).unwrap();
+    let reply = serde_json::to_value(oracle_state(&mux, NO_CLIENT).unwrap()).unwrap();
     let expected: Value =
         serde_json::from_str(include_str!("oracle_state_expected.json")).expect("expected JSON");
     assert_eq!(comparable(&reply, &mux), expected, "{reply:#}");
 }
 
 #[test]
-fn oracle_state_session_is_the_session_snapshot_at_its_head() {
+fn the_runtime_counts_are_read_inside_the_snapshot_cut() {
     let mux = Mux::new_for_test("oracle-state-cut", SurfaceOptions::default());
     run_script(&mux);
-    let state = oracle_state(&mux, BTreeMap::new()).unwrap();
-    let (snapshot, head) =
-        crate::resource_api::public_session_snapshot_with_journal_head(&mux).unwrap();
-    assert_eq!(state.journal_head, head);
-    let strip = |mut value: Value| {
-        // `connected_seconds` ticks between the two reads.
-        for client in value["clients"].as_array_mut().into_iter().flatten() {
-            client.as_object_mut().unwrap().remove("connected_seconds");
-        }
-        value
-    };
-    assert_eq!(strip(state.session), strip(snapshot));
+    // The visitor runs while the projection holds the state lock, so no
+    // mutation can land between the session and the counts.
+    let (_, _, state_held) = crate::resource_api::public_session_snapshot_at_cut(&mux, |_| {
+        mux.state.try_lock().is_err()
+    })
+    .unwrap();
+    assert!(state_held, "the visitor ran outside the projection lock");
+
+    let state = oracle_state(&mux, NO_CLIENT).unwrap();
+    let session_len = |key: &str| state.session[key].as_array().map_or(0, Vec::len) as u64;
+    for kind in ["browsers", "panes", "screens", "terminals", "workspaces"] {
+        assert_eq!(state.live_objects[kind], session_len(kind), "{kind}: {:#}", state.session);
+    }
 }
 
 #[test]
 fn oracle_state_reports_switch_arms_and_sorted_keys() {
     let mux = Mux::new_for_test("oracle-state-switches", SurfaceOptions::default());
-    let switches = BTreeMap::from([("zeta", "new"), ("alpha", "old")]);
-    let reply = serde_json::to_string(&oracle_state(&mux, switches).unwrap()).unwrap();
+    mux.install_oracle_switches_for_test(BTreeMap::from([("zeta", "new"), ("alpha", "old")]));
+    let reply = serde_json::to_string(&oracle_state(&mux, NO_CLIENT).unwrap()).unwrap();
     let alpha = reply.find("\"alpha\"").unwrap();
     assert!(alpha < reply.find("\"zeta\"").unwrap(), "{reply}");
     let live = reply.find("\"liveObjects\":{").unwrap();
@@ -82,6 +87,14 @@ fn oracle_state_reports_switch_arms_and_sorted_keys() {
     let found: Vec<_> =
         keys.iter().map(|key| reply[live..].find(&format!("\"{key}\"")).unwrap()).collect();
     assert!(found.windows(2).all(|pair| pair[0] < pair[1]), "{reply}");
+}
+
+#[test]
+fn the_launch_arms_report_the_holder_model() {
+    let mux = Mux::new_for_test("oracle-state-launch", SurfaceOptions::default());
+    let holder = if crate::holder_runtime::enabled() { "new" } else { "old" };
+    assert_eq!(launch_switch_arms(), BTreeMap::from([("terminal-holder", holder)]));
+    assert_eq!(mux.oracle_switches(), &launch_switch_arms(), "the default is the launch value");
 }
 
 #[test]

@@ -3,10 +3,12 @@
 //!
 //! The daemon facet is the public `session.snapshot` and `settings.snapshot`
 //! plus the journal head of the snapshot's cut. This command returns that cut
-//! from the one snapshot builder, [`public_session_snapshot_with_journal_head`],
-//! and adds only what the public reads lack: the refactor switch arms,
-//! terminal attach counts, live runtime object counts and the owner's panic
-//! log. It is Blink's `InstanceCounters` read through `internals` in web tests
+//! from the `session.snapshot` builder (`resource_session_snapshot_at_cut`,
+//! which also fills the connection's `clients`) and adds only what the public
+//! reads lack: the refactor switch arms, terminal attach counts, live runtime
+//! object counts and the owner's panic log. The counts are read from the
+//! cut's own `State`, except `liveObjects.subscriptions` (event bus state,
+//! read just after the cut). It is Blink's `InstanceCounters` read through `internals` in web tests
 //! (third_party/blink/renderer/platform/instrumentation/instance_counters.h,
 //! third_party/blink/renderer/core/testing/internals.cc): counts of live
 //! objects, compiled only into test builds. Here that is debug builds and
@@ -20,9 +22,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::Mux;
 use crate::model::State;
-use crate::resource_api::public_session_snapshot_with_journal_head;
+use crate::{Mux, ResourceSelectors};
+
+/// Switch name to arm (`old` or `new`).
+pub(crate) type SwitchArms = BTreeMap<&'static str, &'static str>;
+
+/// The F6 holder refactor switch (p15-oracle task 232).
+const TERMINAL_HOLDER: &str = "terminal-holder";
+
+/// The arms this daemon runs. The one daemon switch so far is the F6 holder,
+/// which `holder_runtime` reads once from `CMUX_TUI_TERMINAL_HOST_MODEL`;
+/// task 020's `Switches` value from `CMUX_TUI_SWITCHES` replaces this source.
+pub(crate) fn launch_switch_arms() -> SwitchArms {
+    let holder = if crate::holder_runtime::enabled() { "new" } else { "old" };
+    BTreeMap::from([(TERMINAL_HOLDER, holder)])
+}
 
 /// The `oracle-state` reply.
 #[derive(Debug, Serialize)]
@@ -31,12 +46,13 @@ pub(crate) struct OracleState {
     pub(crate) journal_head: u64,
     /// The `session.snapshot` result at `journal_head`.
     pub(crate) session: Value,
-    /// Switch name to arm: the value the owner start parsed from
-    /// `CMUX_TUI_SWITCHES`.
-    pub(crate) switches: BTreeMap<&'static str, &'static str>,
+    /// The daemon's frozen switch arms ([`Mux::oracle_switches`]).
+    pub(crate) switches: SwitchArms,
+    /// From the cut's `State`.
     #[serde(rename = "terminalAttach")]
     pub(crate) terminal_attach: TerminalAttach,
-    /// Runtime object kind to live count.
+    /// Runtime object kind to live count; all but `subscriptions` from the
+    /// cut's `State`.
     #[serde(rename = "liveObjects")]
     pub(crate) live_objects: BTreeMap<&'static str, u64>,
     #[serde(rename = "panicLog")]
@@ -62,18 +78,19 @@ pub(crate) struct PanicLog {
     pub(crate) bytes: u64,
 }
 
-/// Build the reply. `switches` is the owner's frozen switch value, by name.
-pub(crate) fn oracle_state(
-    mux: &Mux,
-    switches: BTreeMap<&'static str, &'static str>,
-) -> anyhow::Result<OracleState> {
-    let (session, journal_head) = public_session_snapshot_with_journal_head(mux)?;
-    let (terminal_attach, mut live_objects) = mux.with_state(runtime_counts);
+/// Build the reply for control client `client`, whose `session.snapshot`
+/// this `session` equals.
+pub(crate) fn oracle_state(mux: &Mux, client: u64) -> anyhow::Result<OracleState> {
+    let current = Some("current".to_string());
+    let selectors =
+        ResourceSelectors { machine: current.clone(), session: current, ..Default::default() };
+    let (session, journal_head, (terminal_attach, mut live_objects)) =
+        crate::server::resource_session_snapshot_at_cut(mux, client, &selectors, runtime_counts)?;
     live_objects.insert("subscriptions", count(mux.live_event_subscriber_count()));
     Ok(OracleState {
         journal_head,
         session,
-        switches,
+        switches: mux.oracle_switches().clone(),
         terminal_attach,
         live_objects,
         panic_log: panic_log(&mux.session),

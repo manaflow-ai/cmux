@@ -69,3 +69,63 @@ fn other_lines_pass_and_the_command_enum_has_no_oracle_state() {
     assert!(out.try_pop().is_none());
     assert!(serde_json::from_value::<Command>(json!({"cmd": COMMAND})).is_err());
 }
+
+/// The next outbound message whose `id` is `id`.
+fn reply_with_id(out: &BoundedOutbound, id: &str) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(text) = out.try_pop() {
+            let message: Value = serde_json::from_str(&text).unwrap();
+            if message["id"] == id {
+                return message;
+            }
+            continue;
+        }
+        assert!(std::time::Instant::now() < deadline, "no reply {id}");
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn oracle_state_session_is_the_wire_session_snapshot_with_its_clients() {
+    let mux = Mux::new_for_test("oracle-state-wire-snapshot", SurfaceOptions::default());
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (client, out, writer) = connection(&mux, ClientTransport::Unix);
+    let scheduler = Arc::new(super::super::ConnectionSurfaceScheduler::new(
+        mux.surface_operation_admission.clone(),
+    ));
+    let send = |id: &str, message: Value| {
+        let message = message.to_string();
+        let open =
+            super::super::handle_connection_message(&mux, client, &message, &writer, &scheduler);
+        assert!(open, "{message}");
+        reply_with_id(&out, id)
+    };
+    let snapshot = send(
+        "snapshot",
+        json!({"protocol":"cmux.protocol/2","type":"request","id":"snapshot",
+               "operation":"session.snapshot",
+               "params":{"machine":"current","session":"current"}}),
+    );
+    let oracle = send("oracle", json!({"id":"oracle","cmd":COMMAND}));
+    // `connected_seconds` ticks between the two reads.
+    let strip = |mut session: Value| {
+        for client in session["clients"].as_array_mut().into_iter().flatten() {
+            client.as_object_mut().unwrap().remove("connected_seconds");
+        }
+        session
+    };
+    let wire = strip(snapshot["result"].clone());
+    assert_eq!(wire["clients"].as_array().map(Vec::len), Some(1), "{snapshot:#}");
+    assert_eq!(strip(oracle["data"]["session"].clone()), wire, "{oracle:#}");
+}
+
+#[test]
+fn oracle_state_reports_the_muxs_switch_arms() {
+    let mux = Mux::new_for_test("oracle-state-command-switches", SurfaceOptions::default());
+    let arms = std::collections::BTreeMap::from([("terminal-holder", "new")]);
+    mux.install_oracle_switches_for_test(arms);
+    let local = connection(&mux, ClientTransport::Unix);
+    let reply = reply_to(&mux, &local, json!({"id": 1, "cmd": COMMAND}));
+    assert_eq!(reply["data"]["switches"], json!({"terminal-holder": "new"}), "{reply}");
+}

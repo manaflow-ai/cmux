@@ -7,7 +7,6 @@
 //! clients never reach it (`remote_relay::handle_frame` takes their frames
 //! first), and only the trusted local connection gets a reply.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -60,9 +59,7 @@ fn answer(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     if !mux.control_clients.is_unix(client) {
         anyhow::bail!("oracle state requires a trusted local connection");
     }
-    // No refactor switch exists before p15-oracle task 020, which passes the
-    // owner's frozen `Switches` here.
-    let state = crate::oracle_state::oracle_state(mux, BTreeMap::new())?;
+    let state = crate::oracle_state::oracle_state(mux, client)?;
     Ok(serde_json::to_value(state)?)
 }
 
