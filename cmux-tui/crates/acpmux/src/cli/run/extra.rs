@@ -423,6 +423,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        // No daemon connection: the update must work while the daemon does not.
+        Command::Host(PeerCmd::SelfUpdate { channel }) => {
+            crate::cli::hosts::self_update(&channel, json_out).await
+        }
         Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
@@ -524,8 +528,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port } => {
-                    return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
+                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                    let auto = !no_auto_update;
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                        .await;
+                }
+                // Dispatched before the connect (above); kept here so the
+                // match stays total without a panic.
+                PeerCmd::SelfUpdate { channel } => {
+                    return crate::cli::hosts::self_update(&channel, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
