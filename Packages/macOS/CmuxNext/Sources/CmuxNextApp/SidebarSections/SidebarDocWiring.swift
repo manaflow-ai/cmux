@@ -40,6 +40,10 @@ enum SidebarDocWiring {
         docSections.placesNewRowsFirst = { [weak services] in
             (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
         }
+        // `beforeCurrent` / `afterCurrent` and New Workspace Above or Below: beside the workspace the create named.
+        docSections.unplacedAnchor = { [weak services] workspace in
+            services.flatMap { NewWorkspacePlacements.unplacedAnchor(of: workspace, machines: $0.machines) }
+        }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in

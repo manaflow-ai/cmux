@@ -33,6 +33,9 @@ pub(crate) struct WorkspaceCommitIntent {
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
+    /// The creating client's current workspace, captured at prepare: the apply
+    /// may run on the journal writer thread (`personal_order::with_client_current`).
+    client_current: Option<crate::state::personal_order::ClientCurrent>,
 }
 
 /// [`OwnedTransactionWrite`] with a `Debug` for the intent.
@@ -91,6 +94,7 @@ impl WorkspaceRegistry {
                 .transpose()?,
             session_id: self.session_id.clone(),
             extra: None,
+            client_current: crate::state::personal_order::client_current(),
         })
     }
 
@@ -295,11 +299,13 @@ impl WorkspaceCommitIntent {
             resource_changes.push(ResourceChange::SetActiveWorkspace {
                 workspace_id: active_workspace.cloned(),
             });
-            apply_resource_patch(
-                tx,
-                &ResourcePatch { changes: resource_changes },
-                sqlite_resource_revision,
-            )?;
+            crate::state::personal_order::with_client_current(self.client_current.clone(), || {
+                apply_resource_patch(
+                    tx,
+                    &ResourcePatch { changes: resource_changes },
+                    sqlite_resource_revision,
+                )
+            })?;
         }
         if project_resource {
             if let Some(active_workspace) = active_workspace {

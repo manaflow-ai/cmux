@@ -88,6 +88,17 @@ public final class SidebarDocSections {
     /// at the window's slot meanwhile). A live workspace the document does not place
     /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
     public var placesNewRowsFirst: @MainActor () -> Bool = { true }
+    /// Where a live workspace the document does not place yet lists when its creator named a neighbour
+    /// (`beforeCurrent` / `afterCurrent`, New Workspace Above or Below): right before or after that
+    /// workspace, where the daemon's create puts it, so its item's arrival moves nothing. Nil, or a
+    /// neighbour not listed: first or last (``placesNewRowsFirst``).
+    public var unplacedAnchor: @MainActor (WorkspaceModel) -> UnplacedAnchor? = { _ in nil }
+
+    /// A listed workspace a new one lists beside (``unplacedAnchor``).
+    public enum UnplacedAnchor: Equatable, Sendable {
+        case before(String)
+        case after(String)
+    }
 
     public init() {}
 
@@ -155,18 +166,42 @@ public final class SidebarDocSections {
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
-        if !unplaced.isEmpty {
+        // In creation order, so a new workspace beside another new one finds it listed.
+        let unanchored = unplaced.filter { workspace in
+            guard let anchor = unplacedAnchor(workspace) else { return true }
+            return !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections)
+        }
+        if !unanchored.isEmpty {
             if placesNewRowsFirst() {
                 // Newest first, as the daemon places them: the store lists a new workspace last, and its
                 // personal row comes with its item, so the unplaced ones have none to order them by yet.
-                Self.insertFirst(unplacedOrder(Array(unplaced.reversed())), into: &sections, machineSections: machineSections)
+                Self.insertFirst(unplacedOrder(Array(unanchored.reversed())), into: &sections, machineSections: machineSections)
             } else {
-                loose += unplacedOrder(unplaced)
+                loose += unplacedOrder(unanchored)
             }
         }
         flush()
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
+    }
+
+    /// Lists `workspace` right before or after the workspace `anchor` names, in that one's section (its
+    /// group, or its loose run), among the machine's own first `within` sections (not Pinned or a
+    /// custom section's group). False when they do not list that workspace.
+    public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection],
+                              within: Int) -> Bool {
+        let (id, after) = switch anchor {
+        case .before(let id): (id, false)
+        case .after(let id): (id, true)
+        }
+        for (index, section) in sections.enumerated().prefix(within) {
+            guard let at = section.workspaces.firstIndex(where: { $0.id == id }) else { continue }
+            var workspaces = section.workspaces
+            workspaces.insert(workspace, at: after ? at + 1 : at)
+            sections[index] = CmuxNextDaemon.SidebarSection(group: section.group, workspaces: workspaces)
+            return true
+        }
+        return false
     }
 
     /// Puts `rows` first among the machine's rows (the first `machineSections` of `sections`): after a

@@ -32,7 +32,7 @@ extension DaemonLanePolicy {
         "copy": ["mode", "surface"],
         "create-tab-group": ["color", "group", "name", "surfaces", "transaction"],
         "create-terminal": ["cols", "detached", "expected_generation", "expected_revision", "keep", "key", "mutation_id", "name", "origin", "rows", "terminal_id", "workspace"],
-        "create-workspace": ["expected_generation", "expected_revision", "key", "mutation_id", "name", "origin"],
+        "create-workspace": ["current", "expected_generation", "expected_revision", "key", "mutation_id", "name", "origin", "placement", "places_by_setting"],
         "create-workspace-group": ["collapsed", "color", "group", "index", "name"],
         "delete-saved-tab-group": ["saved"],
         "delete-workspace-group": ["group"],

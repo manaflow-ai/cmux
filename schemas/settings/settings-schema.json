@@ -6848,6 +6848,7 @@
     {
       "accepts" : [
         "top",
+        "beforeCurrent",
         "afterCurrent",
         "bottom"
       ],
@@ -6860,6 +6861,13 @@
             "text" : "Top"
           },
           "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.beforeCurrentWorkspace",
+            "text" : "Before Current Workspace"
+          },
+          "value" : "beforeCurrent"
         },
         {
           "title" : {
@@ -6900,6 +6908,9 @@
         "top",
         "bottom",
         "after",
+        "before",
+        "above",
+        "below",
         "sidebar",
         "placement"
       ],

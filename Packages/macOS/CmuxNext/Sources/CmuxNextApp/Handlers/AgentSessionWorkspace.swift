@@ -78,14 +78,14 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
-                                      then: join, windows: windows)
+        let rule = NewWorkspacePlacements.rule(for: nil, in: windows)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, then: join, windows: windows)
         return Task { @MainActor in
             do {
                 // Waits for the terminal on a loaded host (Leo, 2026-10-21: a 5 s start deadline
                 // left the workspace a bare shell, never attached): the start that lands late is
                 // the one the session's tab goes beside.
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
+                _ = try await WorkspaceCreation.create(key, name: name, placedBy: rule, on: connection, repair: repair) { workspace in
                     try await connection.createTerminalWaitingForStart(in: workspace, cwd: cwd)
                 }
                 // The workspace's first pane once the store mirrors it, found
