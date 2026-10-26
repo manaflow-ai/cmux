@@ -770,6 +770,7 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            let lane_parent = super::lane_parent(hub, conn, &params);
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
             // After the request checks above, so a request they refuse makes no worktree.
@@ -819,6 +820,11 @@ async fn dispatch_request(
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
+            if let Some(parent) = &lane_parent
+                && !adopting
+            {
+                hub.lane_link(parent, &s.id);
+            }
             // An adopted id may name a chat that already exists: never tied to this connection.
             if !adopting && super::ephemeral::requested(&params) {
                 super::ephemeral::own(hub, conn, &s).await;
