@@ -81,7 +81,11 @@ def _assert_runner_routing(matrix: list[dict]) -> None:
         ),
         (
             "fork",
-            _runner_context(event_name="pull_request", head_repository="contributor/cmux"),
+            _runner_context(
+                event_name="pull_request",
+                head_repository="contributor/cmux",
+                variables={"LINUX_RUNNER": "linux-32vcpu-override"},
+            ),
             {
                 "linux": "blacksmith-4vcpu-ubuntu-2404",
                 "macos": "blacksmith-6vcpu-macos-15",
