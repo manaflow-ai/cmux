@@ -44,13 +44,43 @@ pub const DISK_LOW_DEFAULT_BYTES: u64 = 1 << 30;
 
 /// Give `e` its kind, recovery and details when its cause is one this module knows. `near` is
 /// the folder the failing work wrote to (a session's folder), checked beside acpmux's home.
+/// Only an error that says the agent's process closed is `agent.exited` here: a short internal
+/// error is a dead agent only at the end of a turn (`annotate_as`, `hub/turns.rs`).
 pub fn annotate(e: &mut RpcError, near: Option<&Path>) {
-    let dead = dead_process(e);
-    annotate_as(e, near, dead);
+    annotate_as(e, near, false);
 }
 
-/// An error that says only that the agent's process went away: ACP's bare "agent process
-/// closed", a bare "Internal error", or another short -32603. The turn finalizer
+/// Type an error a peer answered with before this daemon's [`annotate`] sees it: a full disk
+/// there names that peer, never this machine's disk. A peer that typed it already keeps its kind.
+pub fn annotate_peer(e: &mut RpcError, peer: &str) {
+    if !is_disk_full(&e.message) {
+        return;
+    }
+    let data = match &mut e.data {
+        Some(Value::Object(data)) => data,
+        Some(_) => return,
+        None => {
+            e.data = Some(Value::Object(Map::new()));
+            let Some(Value::Object(data)) = &mut e.data else { return };
+            data
+        }
+    };
+    if data.contains_key("errorKind") {
+        return;
+    }
+    data.insert("errorKind".into(), json!(kind::DISK_FULL));
+    data.insert(
+        "recovery".into(),
+        json!(format!(
+            "The disk on {peer} is full. Free some space there (`acpmux daemon status` on {peer} \
+             shows it), then send again."
+        )),
+    );
+    data.insert("details".into(), json!({"peer": peer}));
+}
+
+/// At the end of a turn, an error that says only that the agent's process went away: ACP's bare
+/// "agent process closed", a bare "Internal error", or another short -32603. The turn finalizer
 /// (`hub/turns.rs`) adds the agent's last stderr line to these, and they are `agent.exited`.
 pub fn dead_process(e: &RpcError) -> bool {
     e.message == "agent process closed"

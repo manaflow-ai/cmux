@@ -634,15 +634,14 @@ impl Hub {
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.
         let dead = matches!(&result, Err(e) if crate::recovery::dead_process(e));
-        if let Err(e) = &mut result {
-            if dead {
-                let tail: Vec<String> =
-                    session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
-                    let agent = session.meta().harness;
-                    e.message = format!("{} ({agent}): {last}", e.message);
-                }
+        if let Err(e) = &mut result
+            && dead
+        {
+            let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
+            // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+                let agent = session.meta().harness;
+                e.message = format!("{} ({agent}): {last}", e.message);
             }
         }
         // A harness that reported a terminal error in-band (Codex
