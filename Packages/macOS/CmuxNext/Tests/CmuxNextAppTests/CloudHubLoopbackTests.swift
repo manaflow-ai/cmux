@@ -190,6 +190,25 @@ struct CloudHubLoopbackTests {
         #expect(RemoteLocalhostService.desktopMachine(url: url, tabIsLocal: false) == nil)
     }
 
+    /// A desktop address no store here can show (not one machine label, a trailing dot, or a tab
+    /// whose localhost is this Mac on purpose) opens blank. Chromium's guard refuses any
+    /// `*.cloud-desktop.localhost` page in the ordinary store, so giving it that store again would
+    /// reroute the page forever.
+    @Test func aDesktopAddressThatCannotRouteOpensBlankNotAReroute() throws {
+        let valid = try #require(RemoteLocalhostService.cloudDesktopURL(machine: "vm-b"))
+        let unroutable = ["http://a_b.cloud-desktop.localhost/", "http://x.y.cloud-desktop.localhost/",
+                          "http://vm-b.cloud-desktop.localhost./"].compactMap(URL.init(string:))
+        #expect(unroutable.count == 3)
+        for url in unroutable {
+            #expect(BrowserNavigationGuard.isCloudDesktop(url), "Chromium's guard counts \(url)")
+            #expect(RemoteLocalhostStorePlan.plan(route: .thisMac, url: url) == .blank, "\(url)")
+        }
+        #expect(RemoteLocalhostStorePlan.plan(route: .thisMacInstead("vm-a", .turnedOff), url: valid) == .blank)
+        #expect(RemoteLocalhostStorePlan.plan(route: .machine("vm-b"), url: valid) == .derived)
+        let other = try #require(URL(string: "https://example.com/"))
+        #expect(RemoteLocalhostStorePlan.plan(route: .thisMac, url: other) == .profile(.exceptCloudDesktop))
+    }
+
     /// Records what a desktop opener lets through.
     nonisolated final class RecordingOpener: LoopbackTunnelOpening, @unchecked Sendable {
         private let lock = NSLock()
