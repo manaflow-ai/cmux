@@ -5,13 +5,15 @@ Interactive terminal cadence probe for cmux notification lag.
 This is a terminal-side proxy, not a compositor frame counter. It measures how
 regularly this process can wake up and repaint a small TUI while other work,
 such as `cmux notify`, runs. Gaps over two 120 Hz intervals are the useful
-"likely missed frame interval" signal.
+"likely missed frame interval" signal. Percentiles come from
+scripts/perf-lab/perf_stats.py.
 """
 
 from __future__ import annotations
 
 import argparse
 import curses
+import importlib.util
 import os
 import shlex
 import shutil
@@ -22,7 +24,24 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Iterable
+from typing import Deque
+
+
+def _load_perf_stats():
+    """scripts/perf-lab/perf_stats.py by file path (python3 -I puts no script folder on sys.path)."""
+    if "perf_stats" in sys.modules:
+        return sys.modules["perf_stats"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-lab", "perf_stats.py")
+    spec = importlib.util.spec_from_file_location("perf_stats", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"frame-probe-tui: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["perf_stats"] = module
+    return module
+
+
+perf_stats = _load_perf_stats()
 
 
 DEFAULT_HZ = 120.0
@@ -101,21 +120,10 @@ class FrameStats:
             "estimated_missed_intervals": self.estimated_missed_intervals,
             "last_gap_ms": gaps[-1] if gaps else 0.0,
             "avg_gap_ms": statistics.fmean(gaps) if gaps else 0.0,
-            "p95_gap_ms": percentile(gaps, 95),
-            "p99_gap_ms": percentile(gaps, 99),
+            "p95_gap_ms": perf_stats.pct(gaps, 0.95) if gaps else 0.0,
+            "p99_gap_ms": perf_stats.pct(gaps, 0.99) if gaps else 0.0,
             "max_gap_ms": self.max_gap_ms,
         }
-
-
-def percentile(values: Iterable[float], pct: float) -> float:
-    ordered = sorted(values)
-    if not ordered:
-        return 0.0
-    index = (len(ordered) - 1) * pct / 100.0
-    lower = int(index)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = index - lower
-    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
 def cmux_bin_from_args(value: str | None) -> str:

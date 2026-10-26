@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import http.server
+import importlib.util
 import json
 import os
 import pathlib
@@ -47,6 +48,23 @@ import tempfile
 import threading
 import time
 from typing import Any
+
+
+def _load_perf_stats():
+    """scripts/perf-lab/perf_stats.py by file path (python3 -I puts no script folder on sys.path)."""
+    if "perf_stats" in sys.modules:
+        return sys.modules["perf_stats"]
+    path = pathlib.Path(__file__).resolve().parent.parent / "perf-lab" / "perf_stats.py"
+    spec = importlib.util.spec_from_file_location("perf_stats", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"browser-engine-bench: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["perf_stats"] = module
+    return module
+
+
+perf_stats = _load_perf_stats()
 
 CHROMIUM_FRAMEWORK = "Chromium Embedded Framework.framework"
 WEBKIT_PROCESS_MARKERS = ("com.apple.WebKit.WebContent", "com.apple.WebKit.Networking", "com.apple.WebKit.GPU")
@@ -188,7 +206,7 @@ def app_footprint_median(app_pid: int, samples: int = 5, interval_s: float = 0.4
         reads.append(int(info.ri_phys_footprint) if info else 0)
         if index < samples - 1:
             time.sleep(interval_s)
-    return int(statistics.median(reads))
+    return int(perf_stats.pct(reads, 0.5))
 
 
 def engine_snapshot(app_pid: int, app_path: str) -> dict[str, Any]:
@@ -323,23 +341,16 @@ def sanitize(raw: str, sep: str) -> str:
 
 
 def stats(values: list[float]) -> dict[str, float]:
+    """n, mean, p50, p95, p99 and max of the values (percentiles from perf_stats.pct)."""
     if not values:
         return {}
-    ordered = sorted(values)
-
-    def pct(p: float) -> float:
-        idx = (len(ordered) - 1) * p
-        lo = int(idx)
-        hi = min(lo + 1, len(ordered) - 1)
-        return ordered[lo] + (ordered[hi] - ordered[lo]) * (idx - lo)
-
     return {
         "n": len(values),
         "mean": round(statistics.mean(values), 3),
-        "p50": round(pct(0.5), 3),
-        "p95": round(pct(0.95), 3),
-        "p99": round(pct(0.99), 3),
-        "max": round(ordered[-1], 3),
+        "p50": round(perf_stats.pct(values, 0.5), 3),
+        "p95": round(perf_stats.pct(values, 0.95), 3),
+        "p99": round(perf_stats.pct(values, 0.99), 3),
+        "max": round(max(values), 3),
     }
 
 

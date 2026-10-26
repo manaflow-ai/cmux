@@ -1,15 +1,35 @@
 #!/usr/bin/env python3
-"""Measure cmux browser-frame throughput over the mux control socket."""
+"""Measure cmux browser-frame throughput over the mux control socket.
+
+Percentiles (median, p95, p99) come from scripts/perf-lab/perf_stats.py.
+"""
 
 import argparse
 import base64
+import importlib.util
 import json
 import os
 import socket
-import statistics
 import sys
 import tempfile
 import time
+
+
+def _load_perf_stats():
+    """scripts/perf-lab/perf_stats.py by file path (python3 -I puts no script folder on sys.path)."""
+    if "perf_stats" in sys.modules:
+        return sys.modules["perf_stats"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts", "perf-lab", "perf_stats.py")
+    spec = importlib.util.spec_from_file_location("perf_stats", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"measure-frames: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["perf_stats"] = module
+    return module
+
+
+perf_stats = _load_perf_stats()
 
 
 def default_socket() -> str:
@@ -55,14 +75,6 @@ def send_browser_attach_handshake(sock: socket.socket, surface: int) -> None:
         },
     )
     send_line(sock, {"id": 1, "cmd": "attach-surface", "surface": surface})
-
-
-def percentile(values: list[float], pct: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
-    return ordered[index]
 
 
 def frame_size(data: str) -> int:
@@ -244,15 +256,17 @@ def main() -> int:
         if sizes:
             print(
                 "frame_bytes: "
-                f"median={statistics.median(sizes):.0f} "
-                f"p95={percentile(sizes, 95):.0f} "
+                f"median={perf_stats.pct(sizes, 0.5):.0f} "
+                f"p95={perf_stats.pct(sizes, 0.95):.0f} "
+                f"p99={perf_stats.pct(sizes, 0.99):.0f} "
                 f"max={max(sizes):.0f}"
             )
         if gaps:
             print(
                 "inter_frame_gap_ms: "
-                f"median={statistics.median(gaps) * 1000:.1f} "
-                f"p95={percentile(gaps, 95) * 1000:.1f} "
+                f"median={perf_stats.pct(gaps, 0.5) * 1000:.1f} "
+                f"p95={perf_stats.pct(gaps, 0.95) * 1000:.1f} "
+                f"p99={perf_stats.pct(gaps, 0.99) * 1000:.1f} "
                 f"max={max(gaps) * 1000:.1f}"
             )
         if wheel_sent_at is not None:

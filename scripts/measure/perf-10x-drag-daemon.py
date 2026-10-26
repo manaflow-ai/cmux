@@ -4,20 +4,40 @@
 Starts one ephemeral headless cmux-tui, makes a workspace with a split and a
 second column, then sends N `set-split-ratio` and N `set-viewport-pane-width`
 requests one at a time (one in flight, like the app's coalescer) and prints the
-round-trip p50/p95/max and the sustained rate. A second connection subscribes
-to events, as the app does, so the daemon's per-change fan-out is in the cost.
+round-trip p50/p95/p99/max (scripts/perf-lab/perf_stats.py percentiles) and the
+sustained rate. A second connection subscribes to events, as the app does, so
+the daemon's per-change fan-out is in the cost.
 
 Usage: perf-10x-drag-daemon.py --bin PATH [--n 360]
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+
+
+def _load_perf_stats():
+    """scripts/perf-lab/perf_stats.py by file path (python3 -I puts no script folder on sys.path)."""
+    if "perf_stats" in sys.modules:
+        return sys.modules["perf_stats"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-lab", "perf_stats.py")
+    spec = importlib.util.spec_from_file_location("perf_stats", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"perf-10x-drag-daemon: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["perf_stats"] = module
+    return module
+
+
+perf_stats = _load_perf_stats()
 
 
 class Conn:
@@ -70,11 +90,6 @@ def layout(conn):
     panes, splits = [], []
     walk(tree.get("workspaces", []), panes, splits)
     return panes, splits
-
-
-def pct(values, p):
-    s = sorted(values)
-    return s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
 
 
 def drain(path, stop):
@@ -147,7 +162,8 @@ def main():
                 times.append(time.perf_counter() - t0)
             total = time.perf_counter() - start
             ms = lambda v: f"{v * 1000:.3f}"
-            print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
+            print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(perf_stats.pct(times, 0.5))}"
+                  f" rtt_p95_ms={ms(perf_stats.pct(times, 0.95))} rtt_p99_ms={ms(perf_stats.pct(times, 0.99))}"
                   f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
     finally:
         stop.set()
