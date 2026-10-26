@@ -38,6 +38,9 @@ public final class MotionClock {
     private var steppingRearmed = false
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
+    /// ``waitIdle()`` callers, by id, resumed where the last animator leaves the clock.
+    private var idleWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
+    private var lastIdleWaiterID: UInt64 = 0
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
@@ -62,6 +65,12 @@ public final class MotionClock {
     /// The clock of `view`'s window; window-less views share the app clock.
     public static func forView(_ view: NSView) -> MotionClock {
         view.window.map(forWindow) ?? app
+    }
+
+    /// The clocks that can step an animator now: those `windows` already have (none is created) and the app
+    /// clock window-less views share.
+    public static func existing(in windows: [NSWindow]) -> [MotionClock] {
+        windows.compactMap { objc_getAssociatedObject($0, &associationKey) as? MotionClock } + [app]
     }
 
     /// Steps `animator` every frame until it reports rest. `trace` names its
@@ -89,7 +98,10 @@ public final class MotionClock {
         guard let entry = entries.removeValue(forKey: id) else { return }
         order.removeAll { $0 == id }
         MotionTrace.end(entry.trace, id: id)
-        if entries.isEmpty { client.deactivate() }
+        if entries.isEmpty {
+            client.deactivate()
+            resumeIdleWaiters()
+        }
     }
 
     public func isRunning(_ animator: some MotionAnimating) -> Bool {
@@ -98,6 +110,39 @@ public final class MotionClock {
 
     /// Animators being stepped now (debug).
     public var running: [String] { order.compactMap { entries[$0]?.trace } }
+
+    /// True while no animator steps: none is on the clock, or its scheduler dropped the client (its window
+    /// closed), so the entries left behind never step again.
+    public var isIdle: Bool { entries.isEmpty || !client.isActive }
+
+    /// Returns true once no animator steps on this clock (at once when none does), or false when the task was
+    /// cancelled. A continuation resumed where the last animator leaves the clock (``stop(_:)``, the frame it
+    /// rests on): no frame client, observation or timer. The oracle's settle awaits it (`debug.oracle.settle`).
+    public func waitIdle() async -> Bool {
+        if isIdle { return true }
+        lastIdleWaiterID &+= 1
+        let id = lastIdleWaiterID
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                if Task.isCancelled { return continuation.resume(returning: false) }
+                if isIdle { return continuation.resume(returning: true) }
+                idleWaiters[id] = continuation
+            }
+        } onCancel: {
+            // task-owner: one hop to the clock's actor to resume this cancelled wait's continuation
+            Task { @MainActor in self.idleWaiters.removeValue(forKey: id)?.resume(returning: false) }
+        }
+    }
+
+    /// ``waitIdle()`` callers parked now (tests).
+    var idleWaiterCount: Int { idleWaiters.count }
+
+    private func resumeIdleWaiters() {
+        guard entries.isEmpty, !idleWaiters.isEmpty else { return }
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        for continuation in waiters.values { continuation.resume(returning: true) }
+    }
 
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
@@ -122,6 +167,7 @@ public final class MotionClock {
             }
         }
         order.removeAll { entries[$0] == nil }
+        resumeIdleWaiters()
         return !entries.isEmpty
     }
 }

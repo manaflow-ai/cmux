@@ -121,6 +121,14 @@ final class NotificationCenterService {
         AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
+        startDesktopAndStore(services)  // the feed handoff waits for Cloud's start (`startFeedHandoff`)
+    }
+
+    /// Starts the handoff of notifications to the person's feed (B3) and the permission bridge, once.
+    /// Cloud's start calls it (`AppServices.startCloudNow`), so launch builds neither the feed nor Cloud for it.
+    /// A notification that arrives before it is not lost: the driver's first active pass rebuilds the whole queue.
+    func startFeedHandoff(_ services: AppServices) {
+        guard feedDriver == nil else { return }
         let feed = services.feed
         let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
         let driver = makeFeedDriver(services, principal: principal)
@@ -136,6 +144,9 @@ final class NotificationCenterService {
             for await active in ObservationStream({ ObservationTrigger(driver.isActive) }) where active.value { driver.run() }
         })
         tasks.append(followPermissionBridge(services, principal: principal))
+    }
+
+    private func startDesktopAndStore(_ services: AppServices) {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }

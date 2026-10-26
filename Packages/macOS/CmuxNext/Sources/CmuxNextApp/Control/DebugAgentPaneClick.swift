@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextSettings
 import WebKit
 
@@ -43,7 +44,7 @@ enum DebugAgentPaneClick {
         if view.debugShowsChromium {
             let pressed = await view.debugPress(x: x, y: y)
             let page = (try? await view.callPageScript(report)) as? String
-            let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+            let pageObject = page.flatMap { (try? JSONSerialization.blockingJSONObject(with: Data($0.utf8))) as? [String: Any] }
             return .object([
                 "pane": .string(pane), "clicked": .bool(pressed), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
                 "x": .number(x), "y": .number(y), "delivered": .string("devtools"),
@@ -94,7 +95,7 @@ enum DebugAgentPaneClick {
         }
         let gestures = view.model.transport.gestures.debugState
         let page = (try? await view.callPageScript(report)) as? String
-        let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+        let pageObject = page.flatMap { (try? JSONSerialization.blockingJSONObject(with: Data($0.utf8))) as? [String: Any] }
         return .object([
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
             "window_x": .number(Double(point.x)), "window_y": .number(Double(point.y)), "delivered": .string(delivered),

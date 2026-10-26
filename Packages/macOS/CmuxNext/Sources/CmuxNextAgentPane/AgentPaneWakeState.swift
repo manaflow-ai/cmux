@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import WebKit
 
@@ -61,7 +62,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     init(page value: Any?) {
         guard let object = value as? [String: Any], JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object),
-              let state = try? JSONDecoder().decode(Self.self, from: data) else {
+              let state = try? JSONDecoder().blockingDecode(Self.self, from: data) else {
             self.init()
             return
         }

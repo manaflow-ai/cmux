@@ -58,6 +58,22 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// Order changes noted since creation (kept across ``rebuild(_:)``): with the digest, what
+    /// ``pendingTabListMark`` compares.
+    private var tabOrderChanges = 0
+
+    /// The tab list as it differs from its last publish (``takeTabListChange()``), or nil when it
+    /// does not: two marks differ when a change was made between them (the store records its cause).
+    var pendingTabListMark: TabListMark? {
+        guard tabOrderChanged || tabMembership != takenMembership else { return nil }
+        return TabListMark(membership: tabMembership, orderChanges: tabOrderChanges)
+    }
+
+    /// One state of the tab list (``pendingTabListMark``).
+    struct TabListMark: Equatable {
+        let membership: Int
+        let orderChanges: Int
+    }
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
@@ -107,16 +123,19 @@ import Foundation
 
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
-        let counted = indexedRecords
+        let counted = indexedRecords, orderChanges = tabOrderChanges
         self = StoreIndex(waiters: waiters)
-        indexedRecords = counted
+        (indexedRecords, tabOrderChanges) = (counted, orderChanges)
         waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
-        tabOrderChanged = true
+        noteTabOrderChanged()
     }
 
     /// The order of tabs in a pane, or of the workspaces, changed.
-    mutating func noteTabOrderChanged() { tabOrderChanged = true }
+    mutating func noteTabOrderChanged() {
+        tabOrderChanged = true
+        tabOrderChanges &+= 1
+    }
 
     /// Whether the tab list (tabs, their panes, their order) changed since
     /// the last call; resets it.

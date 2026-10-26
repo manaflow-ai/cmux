@@ -18,7 +18,7 @@ struct AgentPaneWebUIHostTests {
     @Test func thePageOpensThroughTheGivenHost() throws {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host, gestures: .testing()))
         let page = try #require(view.page)
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(page)])
         #expect(host.registry.pages(id: PageDescriptor.agent.id).contains { $0 === page })
@@ -31,11 +31,11 @@ struct AgentPaneWebUIHostTests {
     @Test func theHostsChromiumPicksTheEngine() throws {
         let file = try #require(AgentPageTestRoot.page)
         let chromium = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting())))
+                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
         let chromiumPage = try #require(chromium.page)
         #expect(chromiumPage.engineDecision == .chromium)
         let webKit = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                                webUI: .agentPaneTestHost()))
+                                                webUI: .agentPaneTestHost(), gestures: .testing()))
         let webKitPage = try #require(webKit.page)
         #expect(webKitPage.engineDecision != .chromium)
     }
@@ -46,9 +46,9 @@ struct AgentPaneWebUIHostTests {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
         // The shared root is registered first, so the other root below is not the agent page's.
-        let shown = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host))
+        let shown = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host, gestures: .testing()))
         let other = FileManager.default.temporaryDirectory.appending(path: "agent-page-other-\(UUID().uuidString)/index.html")
-        #expect(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(other), webUI: host) == nil)
+        #expect(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(other), webUI: host, gestures: .testing()) == nil)
         #expect(host.openPages.count == 1)
         shown.close()
     }

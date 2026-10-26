@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -26,7 +27,7 @@ extension DaemonHistoryClient {
     /// focus move reports a step, and the codec must not run between the move and its frame (a515).
     @concurrent static func place(_ location: HistoryTrailLocation) async throws -> JSONValue {
         if pthread_main_np() != 0 { await DebugPaneFocus.noteMainWork("trail_encodes") }
-        return try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(location))
+        return try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(location))
     }
 
     /// The daemon's trail, oldest first (at most its 200 entries): every step of its trail document,

@@ -1,4 +1,6 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextInput
 import CmuxNextPages
 
 extension WebUIHost {
@@ -7,4 +9,9 @@ extension WebUIHost {
     static func agentTabsTestHost() -> WebUIHost {
         WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()))
     }
+}
+
+extension AgentPaneGestureRouter {
+    /// A gesture router over a fresh input tap, for a test that never dispatches through one.
+    static func testing() -> AgentPaneGestureRouter { AgentPaneGestureRouter(input: InputEventTap()) }
 }

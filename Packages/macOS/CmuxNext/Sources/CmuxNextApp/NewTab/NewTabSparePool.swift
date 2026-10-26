@@ -79,6 +79,8 @@ final class NewTabSparePool {
     private let memoryPressure: MemoryPressureEvents
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     private var usedThisSession = false
+    /// Set by `start(holdingWarm: true)` until ``startWarming()``: no spare is made meanwhile.
+    private var warmHeld = false
     private var windowObservers: [any NSObjectProtocol] = []
     private(set) var openings: [Opening] = []
     /// Main-thread time of the last move of the parked spare to another window.
@@ -100,7 +102,6 @@ final class NewTabSparePool {
         fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
     }
 
-
     /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
     func prewarm() {
         if services.agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
@@ -108,8 +109,12 @@ final class NewTabSparePool {
 
     /// WebKit's setup on this host; a slow one gets no spare this run.
     let webKit = WebKitSetupGate()
-    /// At launch: follow the key main window; park in the first visible one.
-    func start() {
+    /// Follow the key main window; park in the first visible one. The launch posts this with
+    /// `holdingWarm` after the first frame, so Cmd-T and Cmd-N find the hooks and the target window,
+    /// and ``startWarming()`` at afterStartup, so the spare's first load never lands in the second
+    /// after the first frame (p08-startup-017).
+    func start(holdingWarm: Bool = false) {
+        warmHeld = holdingWarm
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
@@ -124,6 +129,12 @@ final class NewTabSparePool {
         if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
         }
+    }
+
+    /// Spares may be made from now on (the first one at once).
+    func startWarming() {
+        warmHeld = false
+        scheduleWarm()
     }
 
     private func mainWindow(_ window: NSWindow) -> NSWindow? {
@@ -296,7 +307,7 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        guard !warmHeld, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }
@@ -355,51 +366,4 @@ final class NewTabSparePool {
             if level != .normal { self?.dropAll() }
         }
     }
-}
-
-/// Where the spare waits: in the target window (WebKit renders only views in
-/// a window and not hidden), fully transparent, never hit by the mouse, and
-/// out of the accessibility tree. Adopting the spare reparents it into a pane.
-final class NewTabSpareParking: NSView {
-    /// The size of the pane content the spare will fill (nil: the window content's), far
-    /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
-    /// parked over the content, the spare's cards hovered and set the cursor under the tab in
-    /// front of it.
-    static func frame(in bounds: NSRect, size: NSSize?) -> NSRect {
-        NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: size ?? bounds.size)
-    }
-
-    /// Sizes the parking view and the spare in it to `size` and lays them out now.
-    func fit(to size: NSSize) {
-        guard let superview else { return }
-        frame = Self.frame(in: superview.bounds, size: size)
-        for view in subviews where view.frame != bounds { view.frame = bounds }
-        layoutSubtreeIfNeeded()
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        alphaValue = 0
-        setAccessibilityElement(false)
-        setAccessibilityHidden(true)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override var acceptsFirstResponder: Bool { false }
-    override func accessibilityChildren() -> [Any]? { [] }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    // `debug.webui`: the spare's page (on the page host) is hidden to the person while parked.
-    override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        PageWebView.noteCensusParked(true, in: subview)
-    }
-
-    override func willRemoveSubview(_ subview: NSView) {
-        super.willRemoveSubview(subview)
-        PageWebView.noteCensusParked(false, in: subview)
-    }
-    #endif
 }

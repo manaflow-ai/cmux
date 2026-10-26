@@ -222,7 +222,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         guard !state.loaded else { return }
         state.loaded = true
         guard let data = try? Data(contentsOf: url) else { return }
-        guard let document = try? Self.decoder.decode(Document.self, from: data) else {
+        guard let document = try? Self.decoder.blockingDecode(Document.self, from: data) else {
             Self.logger.error("agent pane prompt journal unreadable; starting empty")
             return
         }

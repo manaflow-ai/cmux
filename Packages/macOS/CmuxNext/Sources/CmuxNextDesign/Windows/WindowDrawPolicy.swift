@@ -127,10 +127,10 @@ public struct WindowDrawPolicy {
     /// `window`'s `parentWindow` chain, nearest first.
     private static func ancestors(of window: NSWindow) -> [ObjectIdentifier] {
         var chain: [ObjectIdentifier] = []
-        var parent = window.parentWindow
+        var parent = window.parent
         while let next = parent {
             chain.append(ObjectIdentifier(next))
-            parent = next.parentWindow
+            parent = next.parent
         }
         return chain
     }

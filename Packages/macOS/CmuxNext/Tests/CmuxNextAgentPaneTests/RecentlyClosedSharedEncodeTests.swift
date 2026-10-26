@@ -30,7 +30,7 @@ struct RecentlyClosedSharedEncodeTests {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
         let views = try (0..<pages).map { _ in
-            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host))
+            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host, gestures: .testing()))
         }
         defer { for view in views { view.close() } }
 

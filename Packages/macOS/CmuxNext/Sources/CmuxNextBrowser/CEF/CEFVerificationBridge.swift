@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -79,7 +80,7 @@ final class CEFVerificationBridge {
     /// The `identifier` of a `Page.addScriptToEvaluateOnNewDocument` result.
     private static func scriptIdentifier(_ result: String) -> String? {
         guard let data = result.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
         return object["identifier"] as? String
     }
 
@@ -88,7 +89,7 @@ final class CEFVerificationBridge {
     func handle(_ json: String) -> Bool {
         guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(VerificationPageScripts.channel)\""),
               let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == VerificationPageScripts.channel
         else { return false }

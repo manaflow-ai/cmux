@@ -160,6 +160,6 @@
     "workspace-registry-v1"
   ],
   "unservedByBundledDaemon" : [
-
+    "event-cause-v1"
   ]
 }

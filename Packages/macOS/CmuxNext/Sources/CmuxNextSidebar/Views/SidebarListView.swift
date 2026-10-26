@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import QuartzCore
 /// Scrollable document view that renders the sidebar tree.
@@ -202,7 +203,7 @@ final class SidebarListView: NSView {
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
             for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
-            if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+            for subscription in pointerEnds { subscription.cancel() }
         }
     }
     // MARK: - Window occlusion
@@ -211,8 +212,12 @@ final class SidebarListView: NSView {
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
+    /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
+    var inputTap: InputEventTap? {
+        didSet { if inputTap !== oldValue { subscribePointerEnds() } }
+    }
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
-    private var pointerMonitor: Any?
+    private var pointerEnds: [InputSubscription] = []
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -236,8 +241,7 @@ final class SidebarListView: NSView {
         focusObservers = window == nil ? [] : observeFocusLoss(of: window)
         // A press whose release never came here ends at the app's next press, or after a release that went to
         // another window (`pointerEventSeen`).
-        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
-        pointerMonitor = window == nil ? nil : observePointerEnds()
+        subscribePointerEnds()
         if window == nil {
             if let drag { abandonDrag(drag) }
             press = nil
@@ -249,6 +253,10 @@ final class SidebarListView: NSView {
         // The rows read the window when they moved in; the list's own reading starts them all from
         // the same state, not each from whatever its window said a moment earlier.
         if window != nil { windowOcclusionChanged() }
+    }
+    private func subscribePointerEnds() {
+        for subscription in pointerEnds { subscription.cancel() }
+        pointerEnds = window == nil ? [] : inputTap.map { observePointerEnds(on: $0) } ?? []
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)

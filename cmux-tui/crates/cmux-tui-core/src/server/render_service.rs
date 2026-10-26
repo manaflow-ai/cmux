@@ -10,7 +10,7 @@ use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
 use super::terminal_colors_json;
-use super::write_pending_sequence_json;
+use super::{write_output_flow_json, write_pending_sequence_json};
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::panic_free::JsonFields;
@@ -342,12 +342,14 @@ impl RenderService {
         let include_color_overrides = shape.color_overrides;
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         match frame {
-            AttachFrame::Output(output) => {
+            AttachFrame::Output(output) | AttachFrame::FlowOutput { output, .. } => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
                 write_base64_json_string(&mut writer, output)?;
-                writer.write_all(b"\"}")?;
+                writer.write_all(b"\"")?;
+                write_output_flow_json(&mut writer, frame.flow())?;
+                writer.write_all(b"}")?;
             }
-            AttachFrame::OutputWithColors { output, colors } => {
+            AttachFrame::OutputWithColors { output, colors, flow } => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
                 write_base64_json_string(&mut writer, output)?;
                 writer.write_all(b"\",\"colors\":")?;
@@ -356,6 +358,7 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
+                write_output_flow_json(&mut writer, *flow)?;
                 writer.write_all(b"}")?;
             }
             AttachFrame::Resized {

@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextDictation
 import Foundation
 import CmuxNextCompat
+import CmuxNextInput
 
 /// A dictation request from the page's mic button or keys.
 public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
@@ -39,8 +40,8 @@ final class DictationMicrophone {
 }
 
 /// One agent pane's dictation. The session is made on first use and lives
-/// with the pane; between sessions nothing runs (no engine, tap, level
-/// stream, monitor or observer). Each change goes to the page as
+/// with the pane; between sessions nothing runs (no engine, audio tap, level
+/// stream, input subscription or observer). Each change goes to the page as
 /// `cmuxAcpmuxBridge.dictation(update)`, which splices the text at the
 /// composer's cursor.
 ///
@@ -52,6 +53,8 @@ final class AgentPaneDictation {
     private var session: DictationSession?
     /// Delivers an update to the page (an event on the page host).
     private let send: (DictationUpdate) -> Void
+    /// The app's input tap: a hold-to-talk hears its release here.
+    private let input: InputEventTap
     /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
     /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
     private var recordsAudio = false
@@ -62,7 +65,9 @@ final class AgentPaneDictation {
     /// lasts longer than ``holdThreshold`` stops on release; a quick press
     /// leaves dictation running until the next press.
     private var held: (keyCode: UInt16, chord: NSEvent.ModifierFlags, pressedAt: TimeInterval)?
-    private var keyUpMonitor: Any?
+    /// Hears the held key's release (key-ups and modifier changes, in every window: the release goes
+    /// to whichever window is key), only while a hold is armed.
+    private var releaseWatch: InputSubscription?
     /// Ends the hold when the app loses focus: the release goes elsewhere.
     private var resignObserver: MainActorObservation?
     /// Stops the session when the Mac sleeps; observed only while a session runs.
@@ -74,10 +79,12 @@ final class AgentPaneDictation {
     static let holdThreshold: TimeInterval = 0.35
 
     init(
+        input: InputEventTap,
         send: @escaping (DictationUpdate) -> Void,
         microphone: DictationMicrophone = .shared,
         makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
     ) {
+        self.input = input
         self.send = send
         self.microphone = microphone
         self.makeSession = makeSession
@@ -123,9 +130,12 @@ final class AgentPaneDictation {
         guard starting, let press, !phase.isStartable else { return }
         endHold()
         held = (press.keyCode, Self.chord(press.modifierFlags), press.timestamp)
-        keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyUp, .flagsChanged]) { [weak self] event in
-            if event.type == .flagsChanged { self?.flagsChanged(event) } else { self?.keyUp(event) }
-            return event
+        releaseWatch = input.subscribe(class: [.key, .flags]) { [weak self] event in
+            switch event.type {
+            case .flagsChanged: self?.flagsChanged(event)
+            case .keyUp: self?.keyUp(event)
+            default: break
+            }
         }
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
             self?.endHold()
@@ -166,8 +176,8 @@ final class AgentPaneDictation {
 
     private func endHold() {
         held = nil
-        if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
-        keyUpMonitor = nil
+        releaseWatch?.cancel()
+        releaseWatch = nil
         resignObserver = nil
     }
 
@@ -181,7 +191,7 @@ final class AgentPaneDictation {
 
     /// Whether anything is still armed for a session (tests check nothing leaks).
     var holdsResources: Bool {
-        keyUpMonitor != nil || resignObserver != nil || sleepObserver != nil || session?.holdsResources == true
+        releaseWatch != nil || resignObserver != nil || sleepObserver != nil || session?.holdsResources == true
     }
 
     private func start() {

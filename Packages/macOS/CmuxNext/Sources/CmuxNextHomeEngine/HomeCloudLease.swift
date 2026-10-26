@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import os
@@ -226,7 +227,7 @@ public final class HomeCloudLease {
         var payload = segments[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
         guard let data = Data(base64Encoded: payload) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any]
     }
 
     /// A token without a readable `exp` is leased for five minutes, so the

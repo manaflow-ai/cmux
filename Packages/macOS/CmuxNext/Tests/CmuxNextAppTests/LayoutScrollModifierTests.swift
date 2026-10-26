@@ -47,7 +47,7 @@ struct LayoutScrollModifierTests {
         return model
     }
 
-    /// One scroll event at `point`, as a layout's monitor sees it. True: `root` took it.
+    /// One scroll event at `point`, as a layout's tap intercept sees it. True: `root` took it.
     @discardableResult
     static func scroll(_ root: LayoutRootView, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                        momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
@@ -80,7 +80,7 @@ struct LayoutScrollModifierTests {
     }
 
     /// One scroll event from `child` (a page or catcher window of `root`'s window) at the
-    /// layout-window point `point`, through the layout's monitor routing. True: the layout took it.
+    /// layout-window point `point`, through the layout's intercept routing. True: the layout took it.
     @discardableResult
     static func scroll(_ root: LayoutRootView, from child: NSWindow, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0,
                        phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none,
@@ -130,7 +130,7 @@ struct LayoutScrollModifierTests {
             return root.convert(CGPoint(x: top.midX, y: (top.maxY + middle.minY) / 2), to: nil)
         }
 
-        /// One scroll event at `point`, as the layout's monitor sees it. True: the layout took it.
+        /// One scroll event at `point`, as the layout's tap intercept sees it. True: the layout took it.
         @discardableResult
         func scroll(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                     momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -52,7 +53,7 @@ public final class DiffCollapsedFiles {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 4 * 1024 * 1024,
               // concurrency-allow: @concurrent, one capped read of a small local file
               let data = try? Data(contentsOf: url),
-              let entries = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+              let entries = try? JSONDecoder().blockingDecode([String].self, from: data) else { return [] }
         return Array(entries.suffix(DiffPrefKey.maximumCollapsedFiles))
     }
 

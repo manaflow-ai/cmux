@@ -41,25 +41,9 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 8760,
             "T2": 960
           },
           "stories": {
-            "T1": [
-              "chat-anim",
-              "home-idle",
-              "launch-cold",
-              "launch-cold-realistic",
-              "launch-warm-realistic",
-              "motion",
-              "new-surfaces-matrix",
-              "omnibar",
-              "pane-stress",
-              "perf-gate",
-              "sidebar",
-              "switch",
-              "tab-switch"
-            ],
             "T2": [
               "launch-after-reboot",
               "new-surfaces-stress"
@@ -68,7 +52,6 @@
         }
       ],
       "tiers": [
-        "T1",
         "T2"
       ]
     },

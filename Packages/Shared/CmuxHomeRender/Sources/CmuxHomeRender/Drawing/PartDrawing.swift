@@ -23,10 +23,10 @@ enum PartDrawing {
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool, palette: HomePalette) {
         let color = (outgoing ? palette.outgoingText : palette.incomingText).cgColor
         let attr = tl.attributed(font: Style.bodyFont, color: color)
-        let hard = outgoing ? Style.hardBreakAdvance : Style.lineHeight
-        for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
+        let offsets = tl.lineOffsets(hard: outgoing ? Style.hardBreakAdvance : Style.lineHeight)
+        for (line, offset) in zip(tl.lines, offsets) where line.range.length > 0 {
             let ct = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
-            TextDraw.draw(ct, x: body.minX + Style.bubblePadX, baseline: body.minY + Style.textBaseline + tl.lineOffset(i, hard: hard), ctx)
+            TextDraw.draw(ct, x: body.minX + Style.bubblePadX, baseline: body.minY + Style.textBaseline + offset, ctx)
         }
     }
 

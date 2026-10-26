@@ -80,7 +80,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
         guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(HomeSidebarLaunchSnapshot.self, from: data),
+              let snapshot = try? JSONDecoder().blockingDecode(HomeSidebarLaunchSnapshot.self, from: data),
               snapshot.version == HomeSidebarLaunchSnapshot.currentVersion, snapshot.account == account else { return nil }
         state.withLock { $0.written = snapshot }
         return snapshot

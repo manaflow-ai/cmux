@@ -1,3 +1,5 @@
+public import CmuxNextWakeups
+
 /// The view-change permission of the action run in progress
 /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
 ///
@@ -72,12 +74,36 @@ extension ActionRegistry {
         // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
         // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
-            if let invocationScope {
-                invocationScope(handed) { settle(action.run(handed), of: id, handed) }
-            } else {
-                settle(action.run(handed), of: id, handed)
+            run.origin.withCause(in: causes) {
+                if let invocationScope {
+                    invocationScope(handed) { settle(action.run(handed), of: id, handed) }
+                } else {
+                    settle(action.run(handed), of: id, handed)
+                }
             }
         }
         runObserver?(id, handed)
+    }
+}
+
+nonisolated extension ActionOrigin {
+    /// The scheduling cause of a run this origin started (plans/cmux-next/chrome-parity/p06-scheduler.md
+    /// section D: automation never competes with the person): a person in this app is
+    /// ``ObservationCause/person``; the CLI, MCP, a script, another client and a page are
+    /// ``ObservationCause/automation`` (a page call is the person's only once a native sheet
+    /// confirmed it, which raises its origin to `user`). Scheduling only: authorization reads the
+    /// origin itself.
+    public var observationCause: ObservationCause {
+        switch self {
+        case .user: .person
+        case .cli, .mcp, .script, .remote, .page: .automation
+        }
+    }
+
+    /// Runs `body` with ``observationCause`` as the current cause in `causes`; with none it only runs `body`.
+    @MainActor
+    func withCause(in causes: ObservationCauses?, _ body: () -> Void) {
+        guard let causes else { return body() }
+        causes.withCause(observationCause) { body() }
     }
 }

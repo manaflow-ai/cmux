@@ -177,7 +177,7 @@ extension MainPaneGutterSuites {
         @Test func theNewTabPageHasOneSurfaceEdge() throws {
             let file = try #require(AgentPageAppTestRoot.page)
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost()))
+            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -198,7 +198,7 @@ extension MainPaneGutterSuites {
         @Test func aWebviewPaneHasTheEdgesOfAnyOtherPane() throws {
             let file = try #require(AgentPageAppTestRoot.page)
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file), webUI: .agentTabsTestHost()))
+                                                    source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()

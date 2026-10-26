@@ -19,7 +19,7 @@ public nonisolated struct IconPack: Sendable, Decodable {
     }
 
     public init(data: Data) throws {
-        self = try JSONDecoder().decode(IconPack.self, from: data)
+        self = try JSONDecoder().blockingDecode(IconPack.self, from: data)
     }
 
     /// The pack shipped in this module's bundle, with the family overlay (``useOverlay(_:)``) laid

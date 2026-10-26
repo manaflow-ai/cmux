@@ -21,31 +21,25 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        // Who made it (the action run's origin, ActionRunScope.swift): each show, lift and settlement of it has that cause.
+        let cause = causes.current
         // A script batch's intent waits for its stage to commit (DaemonStore+Stage.swift).
         if let stage, stage.holds(intent, transaction: transaction, in: self) {
-            _ = intentLog.append(intent, transaction: transaction, held: true)
+            _ = intentLog.append(intent, transaction: transaction, held: true, cause: cause)
             return
         }
         if overlayLifted {
             // Applied with the rest when the lift ends.
-            _ = intentLog.append(intent, transaction: transaction)
+            _ = intentLog.append(intent, transaction: transaction, cause: cause)
             return
         }
         verifyMirrorUnchanged(before: "intent")
-        guard intentLog.append(intent, transaction: transaction) else { return }
-        if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+        guard intentLog.append(intent, transaction: transaction, cause: cause) else { return }
+        if !intentLog.setUndo(withCause(cause) { IntentOverlay.apply(intent, to: self) }, at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
         publishTabListChange()
         recordMirror()
         workspaceListMayHaveChanged()
-    }
-
-    /// The overlay moved a workspace or changed its group: one sidebar
-    /// flattening once the visible state is complete.
-    private func recomputeSidebarIfNeeded() {
-        guard sidebarNeedsRecompute else { return }
-        sidebarNeedsRecompute = false
-        recomputeSidebar()
     }
 
     /// The command for `transaction` replied: its effects are bounded by
@@ -100,7 +94,7 @@ extension DaemonStore {
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
         guard let removed = intentLog.remove(transaction) else { return }
-        intentSettlements.append((transaction, settlement))
+        intentSettlements.append((transaction, settlement, removed.cause))
         // A refused create held a guessed tab that was another create's: guess it again.
         if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
             ProvisionalTab.reguess(surface, in: self)
@@ -117,7 +111,7 @@ extension DaemonStore {
         liftOverlay()
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
-            intentSettlements.append((intent.transaction, .applied))
+            intentSettlements.append((intent.transaction, .applied, intent.cause))
         }
         releaseSettledProvisionalPanes()
         releaseSettledProvisionalWorkspaces()
@@ -132,7 +126,7 @@ extension DaemonStore {
         // Observers see the visible state with the other intents on it.
         let settled = intentSettlements
         intentSettlements.removeAll()
-        for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        for (transaction, settlement, cause) in settled { causes.with(cause) { onIntentSettled?(transaction, settlement) } }
         CancelledCreation.requestCloses(in: self)
         resumeIdleWaits()
         return result
@@ -208,18 +202,18 @@ extension DaemonStore {
         intentLog.connectionReplaced()
     }
 
-    /// Undoes every overlay apply, newest first.
+    /// Undoes every overlay apply, newest first, each with its intent's cause.
     private func liftOverlay() {
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[checked: index]?.undo { IntentOverlay.undo(undo, in: self) }
+            if let entry = intentLog.entries[checked: index], let undo = entry.undo { withCause(entry.cause) { IntentOverlay.undo(undo, in: self) } }
             if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 
-    /// Applies every pending intent in order, recording each inverse.
+    /// Applies every pending intent in order with its cause, recording each inverse.
     private func restoreOverlay() {
         for (index, entry) in intentLog.entries.enumerated() where !entry.held { // IntentOverlay never writes the log
-            if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
+            if !intentLog.setUndo(withCause(entry.cause) { IntentOverlay.restore(entry, to: self) }, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 }

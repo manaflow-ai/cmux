@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The chrome.bookmarks bridge (plans/cmux-next/bookmarks.md section 4; fork
@@ -58,7 +59,7 @@ public enum CEFBookmarkEvent: Equatable {
     case reordered(parent: String, children: [String])
 
     init?(json: String) {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let op = object["op"] as? String else { return nil }
         let id = object["id"] as? String
         switch op {
