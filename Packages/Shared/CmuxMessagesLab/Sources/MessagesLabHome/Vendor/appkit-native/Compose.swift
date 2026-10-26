@@ -266,6 +266,10 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// cmux: the compose bar replaced the text (no `didChangeText`): the spell check follows.
+    func textReplaced() {
+        if !DeferredSpellChecker.useAppKit { spell.textDidChange() }
+    }
     /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
     func setSpellCheckingEnabled(_ enabled: Bool) {
         if DeferredSpellChecker.useAppKit {
@@ -300,11 +304,8 @@ final class FieldTextView: NSTextView {
     }
     // Block observers on queue: .main (inline for AppKit's post on main), not selectors: a selector
     // into this main-actor view traps on a post off main (cmux-next's objc_observer rule).
-    private var keyObservers: [NSObjectProtocol] = []
-    deinit {
-        keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        storageObserver.map(NotificationCenter.default.removeObserver)
-    }
+    // cmux: MainQueueObservation, main-actor handlers; each removes itself when it goes.
+    private var keyObservers: [MainQueueObservation] = []
     /// The text storage's edits (its `didProcessEditing` posts), the container's width and the layout
     /// objects when `caretRect` last laid out the whole text.
     private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
@@ -337,7 +338,7 @@ final class FieldTextView: NSTextView {
         didSet { if !NSDictionary(dictionary: typingAttributes).isEqual(to: oldValue) { inputChanges &+= 1 } }
     }
     private var storageEdits = 0
-    private var storageObserver: NSObjectProtocol?
+    private var storageObserver: MainQueueObservation?  // cmux
     private var observedStorage: ObjectIdentifier?
     /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
     /// targets; NSTextView registers it with the text storage as the target, not itself. A field
@@ -354,12 +355,10 @@ final class FieldTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
-        let nc = NotificationCenter.default
-        keyObservers.forEach { nc.removeObserver($0) }
         keyObservers = []
         guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {  // cmux
+            MainQueueObservation($0, object: window) { [weak self] _ in self?.updateCaret() }
         }
     }
     override func setFrameSize(_ newSize: NSSize) {
@@ -411,11 +410,9 @@ final class FieldTextView: NSTextView {
         // call, 2 to 3 calls per key; arrow keys edit nothing).
         let storage = textStorage.map(ObjectIdentifier.init)
         if observedStorage != storage {
-            storageObserver.map(NotificationCenter.default.removeObserver)
+            storageObserver = nil  // cmux: the old storage's observer goes first
             storageObserver = textStorage.map {
-                NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: $0, queue: .main) { [weak self] _ in
-                    self?.storageEdits += 1
-                }
+                MainQueueObservation(NSTextStorage.didProcessEditingNotification, object: $0) { [weak self] _ in self?.storageEdits += 1 }
             }
             observedStorage = storage
             laidOut = nil
@@ -641,7 +638,7 @@ final class ComposeTextView {
     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
-    private var scrolled: NSObjectProtocol?
+    private var scrolled: MainQueueObservation?  // cmux
     init() {
         // TextKit 2, as UITextView on Catalyst.
         view = FieldTextView(usingTextLayoutManager: true)
@@ -662,7 +659,8 @@ final class ComposeTextView {
         clip.addSubview(scrollView)
         // The caret follows the text when the field scrolls (a trackpad scroll over the field).
         scrollView.contentView.postsBoundsChangedNotifications = true
-        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil) { [weak view] _ in
+        // cmux: on queue .main (inline for the clip's post on main; it was nil, the posting thread), main-actor handler.
+        scrolled = MainQueueObservation(NSView.boundsDidChangeNotification, object: scrollView.contentView) { [weak view] _ in
             view?.updateCaret(reset: false)
         }
         view.onEndLiveResize = { [weak self] in
@@ -672,7 +670,6 @@ final class ComposeTextView {
             DispatchQueue.main.async { self?.placeWaitingWidth() }
         }
     }
-    deinit { scrolled.map(NotificationCenter.default.removeObserver) }
 
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
@@ -1290,7 +1287,7 @@ final class ComposeView: UIView {
                 inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
                                                                   added: ComposeView.addedMark(d, before: chips)))
-                if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
+                tv.textReplaced()  // cmux: the spell check is the field's (main actor)
             }
         }
         let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field

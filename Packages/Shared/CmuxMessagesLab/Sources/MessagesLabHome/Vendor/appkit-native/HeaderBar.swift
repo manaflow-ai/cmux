@@ -290,7 +290,8 @@ private final class AvatarHolder: NSView {
         shadowView.setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { imageView.removeFromSuperview(); shadowView.removeFromSuperview(); lane.removeFromSuperview() }
+    // cmux: no deinit (it ran main-actor view calls off the actor): leaving the window takes the disc, its
+    // shadow and its lane out of the titlebar (viewDidMoveToWindow -> place()).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         place()

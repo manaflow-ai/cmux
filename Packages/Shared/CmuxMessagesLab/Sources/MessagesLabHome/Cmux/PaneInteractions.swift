@@ -7,24 +7,34 @@ import AppKit
 /// word under the cursor, and the context menu starts with the two tapback
 /// palette rows. Host.swift is not vendored (it is MessagesLab's window
 /// shell), so these are carried here with its values.
+@MainActor
 final class PressHold {
     /// Real Messages: the picker and the dim start 0.56-0.60 s after the press,
     /// about 0.09 s of that the capture path's latency.
     static let delay: TimeInterval = 0.5
     private var timer: Timer?
+    /// What the hold runs when it fires (`start`'s `fire`), until `cancel`.
+    private var action: (() -> Void)?
     private(set) var point: CGPoint?
     private(set) var fired = false
 
     func start(at p: CGPoint, _ fire: @escaping () -> Void) {
         cancel()
         point = p
+        action = fire
         let t = Timer(timeInterval: Self.delay, repeats: false) { [weak self] _ in
-            guard let self, self.point != nil else { return }
-            self.fired = true
-            fire()
+            guard let self else { return }
+            // main-proof: the timer is added to RunLoop.main below, so it fires on the main thread.
+            MainActor.assumeIsolated { self.timerFired() }
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+
+    private func timerFired() {
+        guard point != nil, let action else { return }
+        fired = true
+        action()
     }
 
     /// A drag of more than 3 pt is a selection, not a hold.
@@ -35,6 +45,7 @@ final class PressHold {
     func cancel() {
         timer?.invalidate()
         timer = nil
+        action = nil
         point = nil
         fired = false
     }
@@ -98,6 +109,7 @@ final class PickerDimView: NSView {
 /// The context menu's tapback rows (real Messages, macOS 27): two inline
 /// palettes at the top, the six tapbacks, then recent emoji and the emoji
 /// picker.
+@MainActor
 enum TapbackMenuRows {
     /// The second row's emoji: the user's five most recent (MessagesLab 02519e9, `RecentEmoji`).
     static var recentEmoji: [String] { Array(RecentEmoji.list.prefix(5)) }
@@ -131,6 +143,8 @@ enum TapbackMenuRows {
 /// shows the first five, the tapback picker strip the first two after its six
 /// tapbacks. Real Messages keeps one such list. An emoji reaction moves its
 /// emoji to the front. cmux: no `--recent-emoji` argument (a MessagesLab take's scene).
+/// Main actor: the menu, the picker strip and the projection's tapback read and write it there.
+@MainActor
 enum RecentEmoji {
     static let defaults = ["\u{1F602}", "\u{2764}\u{FE0F}", "\u{1F60D}", "\u{1F612}", "\u{1F44C}"]
     private(set) static var list: [String] = defaults
