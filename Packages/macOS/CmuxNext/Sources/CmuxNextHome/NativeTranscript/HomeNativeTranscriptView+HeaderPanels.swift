@@ -11,9 +11,11 @@ extension HomeNativeTranscriptView {
         // The bar never invalidates its ancestor: a new size re-places it in the header from here.
         if headerPanels.intrinsicContentSize != size { headerPanels.superview?.needsLayout = true }
         let shown = transcript.headerTrailingAccessory != nil, showing = !items.isEmpty
+        // The accessory's setter lays out the whole transcript host: assign it only when the bar comes or goes.
+        guard showing != shown else { return }
         transcript.headerTrailingAccessory = showing ? headerPanels : nil
         // With no header the rows' top follows the toggles: the first-run panel moves with it.
-        if showing != shown { needsLayout = true }
+        needsLayout = true
     }
 
     /// The panel toggles shown now (tests and `debug.home`).

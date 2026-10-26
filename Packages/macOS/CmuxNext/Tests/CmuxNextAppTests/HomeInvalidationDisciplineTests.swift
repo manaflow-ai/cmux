@@ -139,6 +139,8 @@ import Testing
         field.onGeometryChange = { told += 1 }
         field.refreshSuggestions()
         #expect(told == 1, "the first report")
+        field.frame.size.height = field.height(forWidth: 360) // the page places the field
+        page.requests = 0
         field.refreshSuggestions()
         #expect(told == 1, "the same list and height: nothing to place")
         field.text.stringValue = "a"
@@ -152,6 +154,61 @@ import Testing
         #expect(field.height(forWidth: 360) > oneLine)
         #expect(told > typed, "the tokens wrapped: the page places a taller field")
         #expect(page.requests == 0)
+    }
+
+    /// The page narrowed the field after its last report, so the tokens wrapped to a second line;
+    /// removing a token back to the height reported at the old width still tells the page: the
+    /// field compares its height with the frame the page gave it, not with an old report.
+    @Test func theToFieldTellsThePageAfterAWidthChange() {
+        let field = HomeNewMessageTests.field()
+        var told = 0
+        // Like the page: each report lays the field out at its height for its width.
+        field.onGeometryChange = { [unowned field] in
+            told += 1
+            field.frame.size.height = field.height(forWidth: field.bounds.width)
+        }
+        field.frame.size = NSSize(width: 1000, height: field.height(forWidth: 1000))
+        for contact in HomeNewMessageTests.contacts { field.choose(.contact(contact)) }
+        let oneLine = field.bounds.height
+        #expect(oneLine == field.height(forWidth: 1000), "the page placed the tokens on one line")
+        var narrow: CGFloat = 1000
+        while narrow > 120, field.height(forWidth: narrow) == oneLine { narrow -= 10 }
+        #expect(field.height(forWidth: narrow) > oneLine, "the tokens wrap at the narrow width")
+        // The page resizes the field in its own layout; the field reports nothing for that.
+        field.frame.size = NSSize(width: narrow, height: field.height(forWidth: narrow))
+        told = 0
+        while field.height(forWidth: narrow) > oneLine, !field.draft.tokens.isEmpty {
+            field.removeToken(at: field.draft.tokens.count - 1)
+        }
+        #expect(told >= 1, "the field got shorter: the page was told")
+        #expect(field.bounds.height == field.height(forWidth: narrow), "the page placed the field at its new height")
+    }
+
+    /// The host re-lists the toggles with only a state change: neither the transcript host nor its
+    /// pane header lays out (the accessory's setter invalidates the whole host).
+    @Test func aPanelToggleStateChangeLeavesTheTranscriptHostAlone() {
+        let home = HomeStore(source: MockHomeSource(options: .immediate))
+        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_invalidation"), me: ParticipantID("user_me"),
+                                            mainWork: linklessMainWork())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 700))
+        window.contentView = container
+        view.frame = container.bounds
+        container.addSubview(view)
+        view.setHeaderPanels([Self.memory(on: false), Self.sidebar])
+        container.layoutSubtreeIfNeeded()
+        let host = view.transcript.controller.host
+        #expect(!host.needsLayout && !host.paneHeader.needsLayout && !view.needsLayout)
+        view.setHeaderPanels([Self.memory(on: true), Self.sidebar])
+        #expect(view.headerPanels.buttons.map(\.isOn) == [true, false])
+        #expect(!host.needsLayout, "the same accessory: the transcript host keeps its layout")
+        #expect(!host.paneHeader.needsLayout, "the same accessory: the header keeps its layout")
+        #expect(!view.needsLayout)
+        view.setHeaderPanels([])
+        #expect(view.headerPanelItems.isEmpty)
+        #expect(host.needsLayout, "the toggles went: the rows' top moves")
     }
 
     private static func memory(on: Bool) -> HomeHeaderPanelItem {

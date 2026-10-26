@@ -38,8 +38,8 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     private(set) var chips: [HomeRecipientChip] = []
     /// The + button showed every contact (cleared by the next keystroke).
     private var browsing = false
-    /// What the page was last told it places (``onGeometryChange``).
-    private var reportedGeometry: Geometry?
+    /// The suggestions' height and visibility the page was last told about (``onGeometryChange``).
+    private var reportedList: ListGeometry?
     /// The token a click selected: Backspace removes it.
     private(set) var selectedToken: Int? {
         didSet { for (index, chip) in chips.enumerated() { chip.isSelected = index == selectedToken } }
@@ -182,18 +182,19 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         reportGeometry()
     }
 
-    /// The field's height at its width and the suggestions' height and visibility: what the page places.
-    private struct Geometry: Equatable {
+    /// The suggestions' height and visibility: what the page places under the field.
+    private struct ListGeometry: Equatable {
         var height: CGFloat
-        var list: CGFloat
-        var listShown: Bool
+        var shown: Bool
     }
 
     /// Tells the page when what it places changed (``onGeometryChange``), never per keystroke otherwise.
+    /// The field's height is checked against the frame the page gave it, so a width change since the
+    /// last report never hides a new height.
     private func reportGeometry() {
-        let now = Geometry(height: height(forWidth: bounds.width), list: suggestions.preferredHeight, listShown: !suggestions.isHidden)
-        guard now != reportedGeometry else { return }
-        reportedGeometry = now
+        let list = ListGeometry(height: suggestions.preferredHeight, shown: !suggestions.isHidden)
+        guard height(forWidth: bounds.width) != bounds.height || list != reportedList else { return }
+        reportedList = list
         onGeometryChange()
     }
 
