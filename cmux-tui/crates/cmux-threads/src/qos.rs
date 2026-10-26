@@ -104,7 +104,9 @@ impl ThreadQos {
     /// The base scheduler priority of the class on macOS (xnu
     /// osfmk/kern/thread_policy.c `thread_qos_policy_params.qos_pri`): what
     /// `THREAD_EXTENDED_INFO` `pth_priority` reads for a thread at the class
-    /// with relative priority 0, overrides included.
+    /// with relative priority 0, overrides included. UserInteractive is
+    /// BASEPRI_BACKGROUND (46); xnu `thread_recompute_priority` adds 1 (47)
+    /// only in the frontmost app (`thep_qos_ui_is_urgent`).
     #[cfg(target_vendor = "apple")]
     pub const fn macos_base_priority(self) -> i32 {
         match self {
@@ -112,12 +114,13 @@ impl ThreadQos {
             Self::Utility => 20,
             Self::Default => 31,
             Self::UserInitiated => 37,
-            Self::UserInteractive => 47,
+            Self::UserInteractive => 46,
         }
     }
 
     /// The highest class whose base priority is at most `priority`, `None`
-    /// below Background's.
+    /// below Background's. The frontmost app's UserInteractive priority (47)
+    /// is UserInteractive too.
     #[cfg(target_vendor = "apple")]
     pub fn from_macos_base_priority(priority: i32) -> Option<Self> {
         Self::ALL.into_iter().rev().find(|qos| qos.macos_base_priority() <= priority)
@@ -599,6 +602,30 @@ mod tests {
         }
         assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_UNSPECIFIED as u32), None);
         assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_MAINTENANCE), None);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn macos_base_priorities_round_trip_including_the_frontmost_boost() {
+        for qos in ThreadQos::ALL {
+            assert_eq!(ThreadQos::from_macos_base_priority(qos.macos_base_priority()), Some(qos));
+        }
+        assert_eq!(ThreadQos::UserInteractive.macos_base_priority(), 46);
+        assert_eq!(ThreadQos::from_macos_base_priority(47), Some(ThreadQos::UserInteractive));
+        assert_eq!(ThreadQos::from_macos_base_priority(45), Some(ThreadQos::UserInitiated));
+        assert_eq!(ThreadQos::from_macos_base_priority(3), None);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn macos_current_effective_reports_each_class_a_thread_runs_at() {
+        for qos in ThreadQos::ALL {
+            let read = crate::spawn("qos-effective-test", qos, current_effective)
+                .expect("spawn")
+                .join()
+                .expect("thread");
+            assert_eq!(read, LiveQos::Class(qos), "{qos}");
+        }
     }
 
     #[cfg(target_vendor = "apple")]
