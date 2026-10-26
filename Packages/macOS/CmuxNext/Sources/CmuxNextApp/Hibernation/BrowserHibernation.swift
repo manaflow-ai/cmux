@@ -86,6 +86,8 @@ final class BrowserHibernation {
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
     var onPressureChange: ((MemoryPressureLevel) -> Void)?
+    /// The level it acts on for each reported one (`AppServices.follow(_:in:)`: a memory coordinator's override).
+    var effectiveLevel: (MemoryPressureLevel) -> MemoryPressureLevel = { $0 }
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
     private(set) var hibernatedCount = 0
@@ -153,9 +155,7 @@ final class BrowserHibernation {
     /// on the main actor and `stop()` cancels the registration at once, so none lands after `stop()`.
     func start() {
         guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] pressure in
-            self?.pressureDidChange(pressure)
-        }
+        pressureObservation = memoryPressure.observe { [weak self] level in self.map { $0.pressureDidChange($0.effectiveLevel(level)) } }
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
 
