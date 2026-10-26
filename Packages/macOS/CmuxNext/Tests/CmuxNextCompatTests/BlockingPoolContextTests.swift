@@ -18,13 +18,13 @@ struct BlockingPoolContextTests {
         #expect(BlockingContext.allCases.map(\.rawValue) == ["main", "pool", "lane", "dedicated"])
     }
 
-    /// GCD root queues (and the cooperative pool's queues, which share the prefix) and cooperative queues are
-    /// pools; a named queue, the main queue and an empty label are not.
+    /// GCD root queues (and the cooperative pool's queues, which share the prefix) are pools; a named queue (one
+    /// that ends in `.cooperative` too), the main queue and an empty label are not.
     @Test(arguments: [
         ("com.apple.root.default-qos", true),
         ("com.apple.root.user-initiated-qos.overcommit", true),
         ("com.apple.root.user-initiated-qos.cooperative", true),
-        ("com.example.executor.cooperative", true),
+        ("com.example.executor.cooperative", false),
         ("com.cmuxterm.next.work.files.userBlocking", false),
         ("com.apple.main-thread", false),
         ("com.apple.root", false),
@@ -69,6 +69,29 @@ struct BlockingPoolContextTests {
             thread.start()
         }
         #expect(context == .dedicated)
+    }
+
+    /// The first check on a named thread marks it dedicated, so later checks are one thread-specific read and
+    /// never read the name again; a pool worker keeps that it has no name.
+    @Test func theFirstCheckKeepsTheThreadsNameInItsFlags() async {
+        let named = await withCheckedContinuation { (done: CheckedContinuation<[BlockingContext.Mark?], Never>) in
+            let thread = Thread {
+                pthread_setname_np("com.cmuxterm.tests.pool-context-cached")
+                let before = BlockingThreadFlags.load().mark
+                _ = BlockingContext.current()
+                done.resume(returning: [before, BlockingThreadFlags.load().mark])
+            }
+            thread.start()
+        }
+        #expect(named == [nil, .dedicated])
+
+        let worker = await onQueue(.global(qos: .utility)) { () -> (BlockingContext, Bool, BlockingContext.Mark?) in
+            let context = BlockingContext.current()
+            return (context, BlockingThreadFlags.load().isUnnamed, BlockingThreadFlags.load().mark)
+        }
+        #expect(worker.0 == .pool)
+        #expect(worker.1)
+        #expect(worker.2 == nil)
     }
 
     /// A mark wins over the label while its scope runs, and the inner scope wins until it returns.
@@ -159,6 +182,84 @@ struct BlockingPoolContextTests {
         #expect(BlockingDetector(table: table).sites.map(\.count) == [0, 0])
     }
 
+    // MARK: bounds (the pool has its own table and ring, and its own overflow)
+
+    /// 128 pool sites, then only counts: the 5 past the limit count in the pool's overflow, not the main
+    /// thread's. Batches stay under the ring's 64, so the ring never decides the result.
+    @Test func thePoolTableKeepsAtMostItsLimitAndCountsTheRest() async {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        let recorder = PoolRecorder()
+        BlockingDetector(table: table).install(sink: recorder)
+        let extra = 5
+        let lines = Array(0..<UInt(BlockingViolationTable.siteLimit + extra))
+        for batch in stride(from: 0, to: lines.count, by: 32) {
+            let batchLines = Array(lines[batch..<min(batch + 32, lines.count)])
+            await onQueue(.global(qos: .utility)) {
+                BlockingViolationTable.$scoped.withValue(table) {
+                    for line in batchLines { assertBlockingAllowed(.fileIO, fileID: #fileID, line: line) }
+                }
+            }
+            await table.flush()
+        }
+
+        let detector = BlockingDetector(table: table)
+        #expect(detector.sites.count == BlockingViolationTable.siteLimit)
+        #expect(detector.sites.allSatisfy { $0.context == .pool })
+        #expect(detector.overflow(in: .pool) == extra)
+        #expect(detector.overflow(in: .main) == 0)
+        #expect(detector.overflow == extra)
+        #expect(recorder.violations.count == BlockingViolationTable.siteLimit)
+    }
+
+    /// A new pool site that finds the pool ring full counts in the pool's overflow, and its next call, after the
+    /// drain caught up, records it.
+    @Test func aPoolSiteThatFindsTheRingFullIsRecordedOnItsNextCall() async {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record, startsDrain: false)
+        let ringFull = UInt(BlockingViolationTable.pendingLimit)
+        await onQueue(.global(qos: .utility)) {
+            BlockingViolationTable.$scoped.withValue(table) {
+                for line in 0..<ringFull { assertBlockingAllowed(.fileIO, fileID: #fileID, line: line) }
+                assertBlockingAllowed(.syncWait, fileID: #fileID, line: ringFull)  // the ring is full
+            }
+        }
+        #expect(table.overflow(in: .pool) == 1)
+        #expect(table.overflow(in: .main) == 0)
+        table.startDrain()
+        await table.flush()
+        await onQueue(.global(qos: .utility)) {
+            BlockingViolationTable.$scoped.withValue(table) {
+                assertBlockingAllowed(.syncWait, fileID: #fileID, line: ringFull)
+            }
+        }
+        await table.flush()
+
+        let sites = BlockingDetector(table: table).sites
+        #expect(sites.count == Int(ringFull) + 1)
+        #expect(sites.last?.kind == .syncWait)
+        #expect(sites.last?.context == .pool)
+    }
+
+    #if DEBUG
+    /// A pool violation keeps as many caller frames as a main one: both walk the stack in the frame that
+    /// records the site, with no closure or lock frame above it, so the frames of the shared caller sit at the
+    /// same depth in both (Debug, where nothing is inlined).
+    @MainActor @Test func aPoolViolationKeepsTheCallerFramesAMainOneKeeps() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        let recorder = PoolRecorder()
+        BlockingDetector(table: table).install(sink: recorder)
+        BlockingViolationTable.$scoped.withValue(table) {
+            for pool in [false, true] { recordFromOneCaller(pool: pool) }
+        }
+        await table.flush()
+
+        let main = try #require(recorder.violations.first { $0.context == .main }).frames
+        let pool = try #require(recorder.violations.first { $0.context == .pool }).frames
+        let shared = main.filter(pool.contains)
+        #expect(!shared.isEmpty)
+        #expect(shared.allSatisfy { main.firstIndex(of: $0) == pool.firstIndex(of: $0) })
+    }
+    #endif
+
     // MARK: where blocking is allowed (acceptance: 0 sites)
 
     @Test func aSeamOnALaneRecordsNothing() async {
@@ -243,6 +344,18 @@ private nonisolated func checkedRead() -> UInt {
     _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
     return line
 }
+
+#if DEBUG
+/// Records one site in the main context or, called with `pool`, in the pool context, from one caller frame.
+@inline(never)
+private nonisolated func recordFromOneCaller(pool: Bool) {
+    if pool {
+        BlockingViolationTable.poolBlocked(.fileIO, fileID: #fileID, line: 1)
+    } else {
+        BlockingViolationTable.mainThreadBlocked(.fileIO, fileID: #fileID, line: 1)
+    }
+}
+#endif
 
 /// One checked call at a single line, made from either thread.
 private nonisolated func sharedRead() -> Bool {

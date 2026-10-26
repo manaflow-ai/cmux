@@ -5,7 +5,8 @@ internal import CmuxNextSettings
 /// `debug.blocking`: the call sites that blocked the main thread or a shared pool thread since launch (the
 /// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the benches (Debug and
 /// bench builds). Each site has its context (`main` or `pool`), its call count and, for calls timed by
-/// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context.
+/// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context,
+/// with each context's `overflow` (calls not recorded as a site; the top-level `overflow` is their sum).
 /// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (trap modes are set
 /// only by `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` at launch). It reads the detector's own tables,
 /// so it runs off the main thread (socket threading policy) and answers while the main thread is busy.
@@ -30,6 +31,7 @@ public struct BlockingControl: Sendable {
             contexts[context.rawValue] = .object([
                 "sites": .number(Double(inContext.count)),
                 "count": .number(Double(inContext.reduce(0) { $0 + $1.count })),
+                "overflow": .number(Double(detector.overflow(in: context))),
             ])
         }
         let report: JSONValue = .object([

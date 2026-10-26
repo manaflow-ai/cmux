@@ -21,9 +21,10 @@ internal import os
 /// Threads. The main thread is the only writer of the main call-site index, the open allowance, the open timed
 /// call and the main pending ring: the main violation path takes no lock and calls nothing it does not own. It
 /// probes the index; for a new site it writes one ring slot, then records the site in the index, and signals a
-/// user-data dispatch source. Pool violations come from many threads at once: they probe the pool index and push
-/// to the pool ring under one short lock (the pool violation path only; a lane or a dedicated thread never takes
-/// it), and each thread keeps its own open timed call in its ``BlockingThreadFlags``. When a call ends it adds
+/// user-data dispatch source. Pool violations come from many threads at once: a repeat of a known pool site probes
+/// the pool index with no lock (``BlockingSharedSiteIndex``); only a new pool site takes one short lock, to take
+/// its id and push to the pool ring (a lane or a dedicated thread never takes it), and each thread keeps its own
+/// open timed call in its ``BlockingThreadFlags``. When a call ends it adds
 /// its wall time and 1 to the site's atomics, so a reset during a long call puts the whole call in the next
 /// window (Chrome's IOJankMonitoringWindow puts a call in the window it ends in). The drain queue
 /// (`com.cmuxterm.app.next.blocking-drain`, utility) empties both rings: it resolves the stack to image UUID +
@@ -41,10 +42,10 @@ final class BlockingViolationTable: Sendable {
     @usableFromInline static var active: BlockingViolationTable { scoped ?? shared }
 
     /// The most call sites one launch records per context (a bound, so a seam reached through unbounded paths
-    /// cannot grow memory; past it a site only counts in ``overflow``).
+    /// cannot grow memory; past it a site only counts in its context's ``overflow(in:)``).
     static let siteLimit = 128
-    /// The most new sites per context waiting for the drain. Past it a new site counts in ``overflow`` and is
-    /// not recorded yet, so its next call, after the drain caught up, records it.
+    /// The most new sites per context waiting for the drain. Past it a new site counts in its context's
+    /// ``overflow(in:)`` and is not recorded yet, so its next call, after the drain caught up, records it.
     static let pendingLimit = 64
 
     let mode: BlockingMode
@@ -61,12 +62,15 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private var timedCallOpen = false // crash-allow: main thread only (every caller checks pthread_main_np() first)
     private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
-    // concurrency-allow: taken on the pool violation path only (never by a lane, a dedicated thread or the main thread): one index probe and at most one ring push, no wait inside (lock carve-out).
-    private let poolIndex = Mutex(BlockingSiteIndex(capacity: BlockingViolationTable.siteLimit))
+    private let mainOverflow = UnsafeAtomic<Int>.create(0)
+    /// Probed by any pool thread with no lock; inserted only with ``poolInsert`` held.
+    private let poolIndex = BlockingSharedSiteIndex(capacity: BlockingViolationTable.siteLimit)
+    // concurrency-allow: taken only by a pool call at a site the lock-free probe did not find (a new site, at most siteLimit per launch): one probe, one index insert and one ring push, no wait or stack walk inside (lock carve-out).
+    private let poolInsert = Mutex(())
     private let poolCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
-    /// Pushed only with ``poolIndex`` held (one producer at a time), popped by the drain.
+    /// Pushed only with ``poolInsert`` held (one producer at a time), popped by the drain.
     private let poolRing: BlockingPendingRing
-    private let overflowCount = UnsafeAtomic<Int>.create(0)
+    private let poolOverflow = UnsafeAtomic<Int>.create(0)
 
     private let drainQueue = DispatchQueue(label: "com.cmuxterm.app.next.blocking-drain", qos: .utility)
     nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; recording threads only add data
@@ -119,7 +123,8 @@ final class BlockingViolationTable: Sendable {
     deinit {
         wake.cancel()
         wake.activate()  // a source that never ran must be activated to be released
-        overflowCount.destroy()
+        mainOverflow.destroy()
+        poolOverflow.destroy()
     }
 
     /// Lets a table made with `startsDrain: false` drain.
@@ -186,13 +191,13 @@ final class BlockingViolationTable: Sendable {
         let key = BlockingSiteKey(fileID: fileID, line: line)
         if let id = index.find(key) { return id }
         guard let id = index.nextID else {
-            overflowCount.wrappingIncrement(ordering: .relaxed)
+            mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
         var pending = BlockingPendingCall(kind: kind, site: id, fileID: fileID, line: line)
         pending.captureStack()
         guard ring.push(pending) else {
-            overflowCount.wrappingIncrement(ordering: .relaxed)
+            mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
         index.insert(key)
@@ -243,7 +248,9 @@ final class BlockingViolationTable: Sendable {
     }
 
     /// The pool twin of ``recordedSite(_:fileID:line:)``: the site id of a pool call, or nil when it is not
-    /// recorded (the pool table or ring was full).
+    /// recorded (the pool table or ring was full). A known site is one lock-free probe. A new site walks its stack
+    /// in this frame, as the main path does (so both keep the same caller frames), then takes ``poolInsert`` to
+    /// probe again (another thread may have just inserted it), take its id and push it to the ring.
     private func recordedPoolSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         #if DEBUG
         if poolMode == .trap {
@@ -252,17 +259,23 @@ final class BlockingViolationTable: Sendable {
         }
         #endif
         let key = BlockingSiteKey(fileID: fileID, line: line)
-        let recorded: (id: Int, isNew: Bool)? = poolIndex.withLock { index in
-            if let id = index.find(key) { return (id, false) }
-            guard let id = index.nextID else { return nil }
-            var pending = BlockingPendingCall(kind: kind, site: id, fileID: fileID, line: line)
-            pending.captureStack()
+        if let id = poolIndex.find(key) { return id }
+        guard !poolIndex.isFull else {
+            poolOverflow.wrappingIncrement(ordering: .relaxed)
+            return nil
+        }
+        var pending = BlockingPendingCall(kind: kind, site: -1, fileID: fileID, line: line)
+        pending.captureStack()
+        let recorded: (id: Int, isNew: Bool)? = poolInsert.withLock { _ in
+            if let id = poolIndex.find(key) { return (id, false) }
+            guard let id = poolIndex.nextID else { return nil }
+            pending.site = id
             guard poolRing.push(pending) else { return nil }
-            index.insert(key)
+            poolIndex.insert(key)
             return (id, true)
         }
         guard let recorded else {
-            overflowCount.wrappingIncrement(ordering: .relaxed)
+            poolOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
         if recorded.isNew { wake.add(data: 1) }
@@ -351,7 +364,18 @@ final class BlockingViolationTable: Sendable {
         }
     }
 
-    var overflow: Int { overflowCount.load(ordering: .relaxed) }
+    /// Blocking calls of every context not recorded as a site.
+    var overflow: Int { overflow(in: .main) + overflow(in: .pool) }
+
+    /// Blocking calls in `context` not recorded as a site: its table was full, or its ring held
+    /// ``pendingLimit`` new sites (0 for a context that may block).
+    func overflow(in context: BlockingContext) -> Int {
+        switch context {
+        case .main: mainOverflow.load(ordering: .relaxed)
+        case .pool: poolOverflow.load(ordering: .relaxed)
+        case .lane, .dedicated: 0
+        }
+    }
 
     func resetCounts() {
         mainCounters.reset()

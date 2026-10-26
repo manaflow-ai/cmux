@@ -60,6 +60,8 @@ struct BlockingControlTests {
         #expect(contexts["main"]?.objectValue?["count"]?.intValue == 1)
         #expect(contexts["pool"]?.objectValue?["sites"]?.intValue == 1)
         #expect(contexts["pool"]?.objectValue?["count"]?.intValue == 2)
+        #expect(contexts["main"]?.objectValue?["overflow"]?.intValue == 0)
+        #expect(contexts["pool"]?.objectValue?["overflow"]?.intValue == 0)
         #expect(report.objectValue?["pool_mode"]?.stringValue == "record")
     }
 

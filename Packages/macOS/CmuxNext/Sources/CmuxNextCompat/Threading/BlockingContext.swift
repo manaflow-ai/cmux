@@ -7,13 +7,16 @@ internal import Dispatch
 /// per-thread `ThreadRestrictions`, which disallow blocking on the UI thread and on every pool thread that
 /// runs a task without `MayBlock()` (base/task/thread_pool/task_tracker.cc, `RunTask`).
 ///
-/// The detector reads, in order: the main thread; else the thread's own mark (``run(as:_:)``, set by a
-/// `BackgroundWork` lane slot or a registered dedicated thread); else the label of the dispatch queue running
-/// the call. A GCD root queue (label prefix `com.apple.root.`, which the Swift cooperative pool's labels such as
-/// `com.apple.root.user-initiated-qos.cooperative` share) or a cooperative queue (suffix `.cooperative`) is
-/// ``pool``; any other queue, a named serial queue included, is ``dedicated``. A thread that runs no queue reads
-/// the default root queue's label, so it is ``pool`` unless it has a pthread name (every cmux `Thread` is named:
-/// threading-model.md, "Registered threads and queues"; pool workers are not).
+/// The detector reads, in order: the main thread; else the thread's own mark (``runAsLane(_:)`` around a
+/// `BackgroundWork` lane item, ``allowBlocking(_:_:)`` off the main thread, or a named thread's first check);
+/// else the label of the dispatch queue running the call. A GCD root queue (label prefix `com.apple.root.`) is
+/// ``pool``; the Swift cooperative pool's queues are root queues (`com.apple.root.user-initiated-qos.cooperative`,
+/// libdispatch queue.c `_dispatch_root_queues`), so the one prefix compare covers them. Any other queue, a named
+/// serial queue included, is ``dedicated``. A thread that runs no queue reads the default root queue's label, so
+/// it is ``pool`` unless it has a pthread name (every cmux `Thread` is named: threading-model.md, "Registered
+/// threads and queues"; pool workers are not). The first check on such a thread reads its name and keeps the
+/// answer in the thread's flags: a named thread is marked dedicated, so its later checks are one
+/// thread-specific read; an unnamed one never reads its name again.
 ///
 /// The labels are libdispatch's, not API (risk 6 of plans/cmux-next/chrome-parity/p02-threads.md; task 305
 /// checks them on macOS 14 and 15).
@@ -31,16 +34,17 @@ public enum BlockingContext: String, Sendable, CaseIterable {
     /// A named queue or a registered thread that owns its work: blocking allowed.
     case dedicated
 
-    /// What a thread declares itself for the length of a ``BlockingContext/run(as:_:)`` scope.
-    @usableFromInline package enum Mark: UInt, Sendable {
+    /// What a thread declares itself for the length of a ``BlockingContext/run(as:_:)`` scope. Internal to this
+    /// module: other modules mark only a lane (``runAsLane(_:)``); dedicated comes from ``allowBlocking(_:_:)``
+    /// (a reviewed reason) and from a named thread, never from a bare mark.
+    @usableFromInline enum Mark: UInt, Sendable {
         /// A `BackgroundWork` lane slot runs its item (`LaneScheduler`).
         case lane = 1
-        /// A registered dedicated thread runs its loop, or ``allowBlocking(_:_:)`` runs its body off the main
-        /// thread.
+        /// A named thread, or ``allowBlocking(_:_:)`` running its body off the main thread.
         case dedicated = 2
 
         /// The context the mark puts the thread in.
-        package var context: BlockingContext {
+        var context: BlockingContext {
             switch self {
             case .lane: .lane
             case .dedicated: .dedicated
@@ -48,23 +52,31 @@ public enum BlockingContext: String, Sendable, CaseIterable {
         }
     }
 
+    /// Runs `body`, one `BackgroundWork` lane item, with the calling thread marked ``lane`` (Chrome's `MayBlock()`
+    /// task, base/task/thread_pool/task_tracker.cc): its checked blocking calls are allowed. Only `LaneScheduler`
+    /// calls it, around each item on a lane slot. In Release it only runs `body`.
+    ///
+    /// ```swift
+    /// slot.async { BlockingContext.runAsLane { job.execute() } }
+    /// ```
+    ///
+    /// - Parameter body: The lane item.
+    /// - Returns: What `body` returns.
+    /// - Throws: What `body` throws.
+    package static func runAsLane<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
+        try run(as: .lane, body)
+    }
+
     /// Runs `body` with the calling thread marked `mark`: a checked blocking call in it is classified by the
     /// mark, not by its queue's label (an inner scope wins until it returns). Off the main thread only; the main
     /// thread is always ``main``. In Release it only runs `body`.
-    ///
-    /// Only `LaneScheduler` (around each lane item) and registered dedicated threads call it; a mark is not a
-    /// way to silence a pool violation (move the work onto `work.run` instead).
-    ///
-    /// ```swift
-    /// slot.async { BlockingContext.run(as: .lane) { job.execute() } }
-    /// ```
     ///
     /// - Parameters:
     ///   - mark: What the thread is while `body` runs.
     ///   - body: The work.
     /// - Returns: What `body` returns.
     /// - Throws: What `body` throws.
-    @usableFromInline package static func run<Result, Failure: Error>(
+    @usableFromInline static func run<Result, Failure: Error>(
         as mark: Mark, _ body: () throws(Failure) -> Result
     ) throws(Failure) -> Result {
         #if DEBUG || CMUX_BLOCKING_CHECKS
@@ -92,30 +104,28 @@ extension BlockingContext {
         offMainThread() == .pool
     }
 
-    /// The context of a thread that is not the main thread. A marked thread is one thread-specific read; an
-    /// unmarked one adds the label read and its compare. Only a pool label reads the thread name.
+    /// The context of a thread that is not the main thread. A marked thread (a lane, an allowance, a named
+    /// thread after its first check) is one thread-specific read; an unmarked one adds the label read and one
+    /// prefix compare. A root label on a thread not yet checked reads the thread name once.
     static func offMainThread() -> BlockingContext {
-        if let mark = BlockingThreadFlags.load().mark { return mark.context }
+        let flags = BlockingThreadFlags.load()
+        if let mark = flags.mark { return mark.context }
         guard isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
-        return isNamedThread() ? .dedicated : .pool
+        if flags.isUnnamed { return .pool }
+        guard isNamedThread() else {
+            BlockingThreadFlags.store(flags.withUnnamed())
+            return .pool
+        }
+        BlockingThreadFlags.store(flags.marked(.dedicated))
+        return .dedicated
     }
 
-    /// Whether a dispatch queue label names a shared pool: a GCD root queue (`com.apple.root.`, a prefix the
-    /// cooperative pool's labels share) or a Swift cooperative queue (`.cooperative`).
+    /// Whether a dispatch queue label names a shared pool: a GCD root queue, the cooperative pool's included
+    /// (`com.apple.root.`; `strncmp` stops at the label's end, so a shorter label is no match).
     static func isPoolLabel(_ label: UnsafePointer<CChar>) -> Bool {
         let root: StaticString = "com.apple.root."
-        let cooperative: StaticString = ".cooperative"
-        if hasPrefix(label, root) { return true }
-        let length = strlen(label)
-        guard length >= cooperative.utf8CodeUnitCount else { return false }
-        return memcmp(label + (length - cooperative.utf8CodeUnitCount), cooperative.utf8Start,
-                      cooperative.utf8CodeUnitCount) == 0
-    }
-
-    /// Whether `label` starts with `prefix` (`strncmp` stops at the label's end, so a shorter label is no match).
-    private static func hasPrefix(_ label: UnsafePointer<CChar>, _ prefix: StaticString) -> Bool {
-        prefix.utf8Start.withMemoryRebound(to: CChar.self, capacity: prefix.utf8CodeUnitCount) { bytes in
-            strncmp(label, bytes, prefix.utf8CodeUnitCount) == 0
+        return root.utf8Start.withMemoryRebound(to: CChar.self, capacity: root.utf8CodeUnitCount) { bytes in
+            strncmp(label, bytes, root.utf8CodeUnitCount) == 0
         }
     }
 
@@ -129,13 +139,14 @@ extension BlockingContext {
 }
 
 /// The calling thread's detector state in one thread-specific word: its ``BlockingContext/Mark`` (low two
-/// bits) and whether a timed pool call is open on it, so a call inside one counts without time, as on the
-/// main thread.
+/// bits), whether a timed pool call is open on it (so a call inside one counts without time, as on the main
+/// thread), and whether a check already found it has no pthread name.
 struct BlockingThreadFlags {
     var rawValue: UInt
 
     private static let markBits: UInt = 0b11
     private static let timedCallBit: UInt = 0b100
+    private static let unnamedBit: UInt = 0b1000
 
     /// The thread-specific key; nil when the process has no key left (no thread is marked then, and calls are
     /// classified by their queue label alone).
@@ -172,6 +183,13 @@ struct BlockingThreadFlags {
 
     func withTimedCallOpen() -> BlockingThreadFlags {
         BlockingThreadFlags(rawValue: rawValue | Self.timedCallBit)
+    }
+
+    /// A check found the thread has no pthread name (a pool worker): later checks skip the name read.
+    var isUnnamed: Bool { rawValue & Self.unnamedBit != 0 }
+
+    func withUnnamed() -> BlockingThreadFlags {
+        BlockingThreadFlags(rawValue: rawValue | Self.unnamedBit)
     }
 }
 #endif

@@ -80,11 +80,25 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Main-thread blocking calls not recorded as a site: the table was full (128 sites per launch), or 64
-    /// new sites were already waiting for the drain (such a site is recorded on a later call).
+    /// Blocking calls, on the main thread or the pool, not recorded as a site (the sum of
+    /// ``overflow(in:)`` over the contexts).
     public var overflow: Int {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.overflow
+        #else
+        0
+        #endif
+    }
+
+    /// Blocking calls in `context` not recorded as a site: its table was full (128 sites per context per
+    /// launch), or 64 of its new sites were already waiting for the drain (such a site is recorded on a later
+    /// call). Always 0 for ``BlockingContext/lane`` and ``BlockingContext/dedicated``, which may block.
+    ///
+    /// - Parameter context: The context to read.
+    /// - Returns: Its unrecorded calls since launch.
+    public func overflow(in context: BlockingContext) -> Int {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.overflow(in: context)
         #else
         0
         #endif

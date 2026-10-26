@@ -175,7 +175,7 @@ final class LaneScheduler: Sendable {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
                 // The slot is a MayBlock() thread (Chrome's task_tracker.cc): seams in the item are allowed.
-                BlockingContext.run(as: .lane) { start.job.execute() }
+                BlockingContext.runAsLane { start.job.execute() }
                 finish(start.job.id, slot: start.slot)
             }
         }
