@@ -128,8 +128,11 @@ declare global {
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
 
-/// The host's write of a composer setting: `pane.showContextUsage` or `pane.showDictation` with `show`.
-type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation", show: boolean) => void;
+/// The host's write of a composer setting with `show`.
+type ComposerHost = (
+  method: "pane.showContextUsage" | "pane.showDictation" | "pane.setScrollToBottomOnSend",
+  show: boolean,
+) => void;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
@@ -177,4 +180,12 @@ export function setAttachmentView(view: AttachmentView) {
 export function showComposerControl(key: "showContextUsage" | "showDictation", show: boolean) {
   setComposerSettings({ [key]: show });
   composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
+}
+
+/// Controls whether sending a prompt moves the transcript to its latest row, and asks the host to
+/// persist the choice. The page updates immediately so the context menu reflects the new state even
+/// while the native settings write is in flight.
+export function setScrollToBottomOnSend(show: boolean) {
+  setComposerSettings({ scrollToBottomOnSend: show });
+  composerHost?.("pane.setScrollToBottomOnSend", show);
 }

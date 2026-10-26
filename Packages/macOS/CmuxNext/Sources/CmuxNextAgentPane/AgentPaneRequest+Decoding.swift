@@ -120,9 +120,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage", "pane.showDictation":
+        case "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend":
             if let show = params?["show"] as? Bool {
-                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                let path: [String]
+                switch method {
+                case "pane.showDictation": path = AgentPaneComposerSetting.showDictationPath
+                case "pane.setScrollToBottomOnSend": path = AgentPaneComposerSetting.scrollToBottomOnSendPath
+                default: path = AgentPaneComposerSetting.showContextUsagePath
+                }
                 self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
