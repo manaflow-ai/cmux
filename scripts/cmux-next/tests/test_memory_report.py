@@ -19,7 +19,7 @@ import sys
 import tempfile
 import types
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "memory-report.py"
@@ -375,6 +375,149 @@ class OfflineMainTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class AtlasTests(unittest.TestCase):
+    """Task 039: the atlas verdict from GPU bytes at 1..K terminals before and after the glyph sheet."""
+
+    BASE = 30 * M  # the window's drawables: about the same at every count, since the panes tile it
+    SURFACE = 2 * M  # buffers each surface holds whatever its size
+
+    def series(self, atlas_per_surface, atlas_shared, counts=(1, 2, 3, 4)):
+        return [(k, self.BASE + k * (self.SURFACE + atlas_per_surface) + atlas_shared) for k in counts]
+
+    def test_per_surface_copies(self):
+        # Three frame copies per surface: 3 x 256 KiB at the start, 3 x 4 MiB grown.
+        summary = mr.atlas_summary(self.series(3 * M // 4, 0), self.series(12 * M, 0, counts=(4, 3, 2, 1)))
+        self.assertEqual(summary["verdict"], "per_surface")
+        self.assertEqual(summary["atlas_bytes_per_extra_terminal"], 12 * M - 3 * M // 4)
+        self.assertEqual(summary["atlas_growth_one_terminal_bytes"], 12 * M - 3 * M // 4)
+        self.assertEqual(summary["per_surface_share"], 1.0)
+        self.assertEqual(summary["terminals"], 4)
+
+    def test_one_shared_texture(self):
+        summary = mr.atlas_summary(self.series(0, M // 4), self.series(0, 4 * M))
+        self.assertEqual(summary["verdict"], "shared")
+        self.assertEqual(summary["atlas_bytes_per_extra_terminal"], 0)
+        self.assertEqual(summary["atlas_growth_one_terminal_bytes"], 4 * M - M // 4)
+
+    def test_noise_does_not_turn_shared_into_per_surface(self):
+        grown = [(k, b + (M // 2 if k % 2 else -M // 2)) for k, b in self.series(0, 4 * M)]
+        self.assertEqual(mr.atlas_summary(self.series(0, M // 4), grown)["verdict"], "shared")
+
+    def test_no_growth_is_unmeasured(self):
+        summary = mr.atlas_summary(self.series(0, M // 4), self.series(0, M // 4))
+        self.assertEqual(summary["verdict"], "unmeasured")
+        self.assertIn("did not grow", summary["why"])
+        self.assertEqual(summary["atlas_bytes_per_extra_terminal"], 0)
+
+    def test_one_count_is_unmeasured(self):
+        summary = mr.atlas_summary([(1, 10 * M)], [(1, 20 * M)])
+        self.assertEqual(summary["verdict"], "unmeasured")
+        self.assertIsNone(summary["atlas_bytes_per_extra_terminal"])
+
+    def test_glyph_pages(self):
+        pages = mr.glyph_pages()
+        lines = [line for page in pages for line in page.splitlines()]
+        glyphs = "".join(lines)
+        self.assertEqual(len(glyphs), mr.ATLAS_GLYPHS)
+        self.assertEqual(len(set(glyphs)), mr.ATLAS_GLYPHS)  # each glyph once: every one is a new atlas entry
+        self.assertTrue(all(len(line) <= mr.ATLAS_LINE_GLYPHS for line in lines))
+        self.assertTrue(all(len(page.splitlines()) <= mr.ATLAS_PAGE_LINES for page in pages))
+        self.assertTrue(all(0x4E00 <= ord(c) <= 0x9FFF for c in glyphs))  # CJK Unified Ideographs, two cells each
+
+    def test_gpu_bytes_sums_the_gpu_groups(self):
+        self.assertEqual(mr.gpu_bytes({"IOSurface": 3 * M, "IOAccelerator (graphics)": 2 * M,
+                                       "owned physical footprint (unmapped)": M, "Stack": 9 * M,
+                                       "MALLOC_SMALL": 5 * M}), 6 * M)
+
+
+class FakeAtlasBuilder:
+    """The Stress surface measure_atlas uses, over a fake app whose GPU bytes follow its pane count and
+    whether the glyph sheet reached every terminal."""
+
+    def __init__(self, per_surface_copy):
+        self.per_surface_copy = per_surface_copy
+        self.pane_ids, self.sent, self.actions, self.refusals = [], set(), [], []
+        self.window_sized = False
+        self.sheet = ""
+
+    def size_window(self):
+        self.window_sized = True
+
+    def new_workspace(self):
+        self.pane_ids = ["p0"]
+        return "w1"
+
+    def show(self, workspace):
+        pass
+
+    def workspace(self, workspace_id):
+        return {"id": workspace_id}
+
+    def panes(self, workspace):
+        return [{"id": p} for p in self.pane_ids]
+
+    def record_first(self, workspace, pane):
+        pass
+
+    def split(self, workspace, pane, verb):
+        assert pane in self.pane_ids
+        self.pane_ids.append(f"p{len(self.pane_ids)}")
+        return self.pane_ids[-1]
+
+    def tabs(self, workspace_id, pane_id):
+        return [{"id": f"t-{pane_id}", "kind": "terminal"}]
+
+    def send(self, tab_id, text):
+        self.sent.add(tab_id)
+        self.sheet = text
+
+    def action(self, name, args=None, target=None, focus=True, timeout=120, settle=0.0):
+        self.actions.append((name, target))
+        if name == "closePane":
+            self.pane_ids.remove(target.split(":", 1)[1])
+
+    def gpu(self, raw_stem):
+        atlas = 4 * M if len(self.sent) == 4 else M // 4
+        copies = len(self.pane_ids) * 3 * atlas if self.per_surface_copy else atlas
+        return 30 * M + len(self.pane_ids) * 2 * M + copies
+
+
+class MeasureAtlasTests(unittest.TestCase):
+    """measure_atlas over the fake builder: the steps, the sheet in every terminal, the verdict."""
+
+    def setUp(self):
+        self.saved_sleep = mr.time.sleep
+        mr.time.sleep = lambda seconds: None
+        self.stem = str(Path(tempfile.mkdtemp(), "report with space-atlas"))
+
+    def tearDown(self):
+        mr.time.sleep = self.saved_sleep
+
+    def test_per_surface_fake_reads_per_surface(self):
+        builder = FakeAtlasBuilder(True)
+        summary = mr.measure_atlas(builder, self.stem, 4, 0, builder.gpu)
+        self.assertTrue(builder.window_sized)
+        self.assertEqual(summary["verdict"], "per_surface")
+        self.assertEqual(summary["atlas_bytes_per_extra_terminal"], 3 * (4 * M - M // 4))
+        self.assertEqual([p["terminals"] for p in summary["start"]], [1, 2, 3, 4])
+        self.assertEqual([p["terminals"] for p in summary["grown"]], [4, 3, 2, 1])
+        self.assertEqual(builder.sent, {"t-p0", "t-p1", "t-p2", "t-p3"})  # every terminal drew the sheet
+        self.assertIn("'" + self.stem + "-glyphs'/page-*.txt", builder.sheet)  # quoted for the shell
+        pages = sorted(Path(self.stem + "-glyphs").glob("page-*.txt"))
+        self.assertEqual("".join(p.read_text() for p in pages).replace("\n", ""), "".join(mr.glyph_pages()).replace("\n", ""))
+        self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w1"))
+
+    def test_shared_fake_reads_shared(self):
+        builder = FakeAtlasBuilder(False)
+        summary = mr.measure_atlas(builder, self.stem, 4, 0, builder.gpu)
+        self.assertEqual(summary["verdict"], "shared")
+        self.assertEqual(summary["atlas_bytes_per_extra_terminal"], 0)
+
+    def test_missing_sample_raises(self):
+        with self.assertRaises(RuntimeError):
+            mr.measure_atlas(FakeAtlasBuilder(True), self.stem, 2, 0, lambda raw: None)
+
+
 class FakeDisplay:
     def __init__(self):
         self.terminated = False
@@ -478,6 +621,20 @@ class LaunchedRunTests(unittest.TestCase):
         self.assertEqual(self.displays[0][0], 60.0)
         self.run_main("--phases", "home,stress", "--vdisplay", "0")
         self.assertEqual(len(self.displays), 1)
+
+    def test_atlas_failure_is_reported_and_fails_the_run(self):
+        # FakeStress has no window steps: the atlas phase fails, says why, and home stays measured.
+        code, text, report, _ = self.run_main("--phases", "home,atlas")
+        self.assertEqual(code, 1)
+        self.assertIn("AttributeError", report["atlas"]["error"])
+        self.assertIn("ATLAS error: AttributeError", text)
+        self.assertEqual([p["label"] for p in report["phases"]], ["home"])
+        self.assertEqual(self.displays[0][0], 120.0)  # the atlas window needs the STRESS display too
+        self.assertTrue(self.displays[0][3].terminated)
+
+    def test_atlas_needs_two_terminals(self):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            mr.main(["--app", "/x/a.app", "--phases", "atlas", "--atlas-terminals", "1"])
 
     def test_launch_failure_writes_the_report(self):
         FakeApp.fail_launch = True

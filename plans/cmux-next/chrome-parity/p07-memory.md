@@ -995,6 +995,26 @@ All IDs below are `p07-memory-NNN`.
 - Change: IOAccelerator/IOSurface bytes per added visible terminal; fix per-surface atlas if found.
 - Acceptance: atlas_bytes_per_extra_terminal recorded in memory-DESIGN.md.
 - Test: fleet exclusive.
+- Measurement: `memory-report.py --phases home,atlas` (fleet: `scripts/measure/memory-report.sh
+  --arg=--phases=home,atlas`) prints `ATLAS ... atlas_bytes_per_extra_terminal=N verdict=...`. It
+  samples the GPU groups at 1..4 visible terminals tiling the STRESS window, then shows 2,000 CJK glyphs
+  in each (the grayscale atlas grows to 2048 x 2048 R8), then samples again while the panes close.
+  N is the change in GPU bytes per extra terminal that the atlas growth caused: 0 when shared.
+- Expected from the ghostty-next source at 723c4ab9 (no fleet number yet): per surface. The CPU atlas
+  is shared: one grayscale and one color atlas per font configuration, both starting at 512 x 512
+  (`src/font/SharedGridSet.zig`, `src/font/SharedGrid.zig:92`). But each surface's swap chain has
+  `swap_chain_count = 3` frames (`src/renderer/Metal.zig:40`), and each frame has its own grayscale
+  and color `MTLTexture` copied from that atlas (`FrameState` and `syncAtlasTexture` in
+  `src/renderer/generic.zig`). So every visible terminal holds 3 copies. After the atlas grows to 2048 x
+  2048 R8, the predicted value is 3 x (4 MiB - 256 KiB) = 11.25 MiB more per extra visible terminal.
+  Hidden surfaces free their swap chain (`setVisible(false)`, `generic.zig:1321`), so the cost applies
+  only to visible terminals. Chrome uses one glyph atlas in the GPU process for all renderers. Skia's
+  `GrDrawOpAtlas` (third_party/skia/src/gpu/ganesh/GrDrawOpAtlas.cpp) tracks the last use of each plot
+  with a token, so an upload never overwrites a region that a frame in flight still reads.
+- Record: copy the fleet `ATLAS` line (host, SHA, step ID) to memory-DESIGN.md section 7 when task 007
+  lands. The fork fix comes only after a fleet `verdict=per_surface`. It is a ghostty-next task: one
+  texture per atlas per device, shared by all surfaces, with `GrDrawOpAtlas`-style use tokens instead of
+  per-frame copies.
 
 ### 040 Cold-scrollback codec (gated by 112)
 - Files: cmux-tui/crates/ghostty-vt/src/cold_pages.rs, lib.rs, tests/cold_pages.rs.

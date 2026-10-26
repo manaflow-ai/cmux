@@ -36,12 +36,22 @@ it, written even when a phase fails; --*-file re-reads the run offline.
 A build without debug.memory (or an attach without --socket) still gets the table: every group
 without a fixed owner is then unexplained.
 
+The atlas phase (p07-memory task 039) asks whether the terminals share one glyph atlas texture. In a new
+workspace on the STRESS window it samples the GPU groups (IOAccelerator, IOSurface, owned unmapped memory)
+at 1..N visible terminals tiling the window, has every terminal show a sheet of 2,000 CJK glyphs (the
+atlas grows past 1024 x 1024 to 2048 x 2048 R8), and samples again while the panes close back to one.
+It prints `ATLAS ... atlas_bytes_per_extra_terminal=... verdict=shared|per_surface|unmeasured`: the
+change in GPU bytes per extra terminal that the atlas growth caused. Shared is 0; per surface is about
+the growth one terminal saw (each surface keeping its own texture copies).
+
 Usage:
-  memory-report.py --app BUNDLE [--phases home,stress] [--settle 30] [--heap] [--vdisplay HZ] [--out FILE.json]
+  memory-report.py --app BUNDLE [--phases home,atlas,stress] [--settle 30] [--heap] [--vdisplay HZ]
+      [--atlas-terminals 4] [--atlas-settle 5] [--out FILE.json]
       Launch a tagged DEV app (the STRESS launcher of perf-stress-session.py), measure Home idle,
-      then build STRESS in it and measure again. STRESS needs a 1920 x 1200 virtual main display
-      (perf-stress-session.py start_vdisplay): with the stress phase it starts one at 120 Hz before the
-      launch unless --vdisplay 0. Fleet only (scripts/measure/memory-report.sh).
+      then (atlas) the GPU bytes per extra visible terminal, then build STRESS in it and measure again.
+      STRESS and the atlas window need a 1920 x 1200 virtual main display (perf-stress-session.py
+      start_vdisplay): with either phase it starts one at 120 Hz before the launch unless --vdisplay 0.
+      Fleet only (scripts/measure/memory-report.sh).
   memory-report.py --pid PID [--socket PATH] [--heap] [--out FILE.json]
       A running app. `--heap` walks its heap (it stalls the process for seconds: never on a person's
       cmux).
@@ -49,8 +59,9 @@ Usage:
       [--debug-memory-file D.json] [--phys-footprint-bytes N] [--out FILE.json]
       Re-read saved outputs (any platform).
 
-Exit 0 when every phase measured; 1 when a phase had no category source, the app did not launch or
-STRESS did not build; 2 on bad arguments. Read-only and local: never wire it into CI or a hook (CLAUDE.md).
+Exit 0 when every phase measured; 1 when a phase had no category source, the app did not launch,
+STRESS did not build or the atlas phase failed or saw no atlas growth; 2 on bad arguments. Read-only
+and local: never wire it into CI or a hook (CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -60,6 +71,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -97,6 +109,22 @@ STORAGE_GROUPS = {
 STORAGES = ("heap", *STORAGE_GROUPS)
 # The terminal row of debug.memory reports the hidden non-volatile IOSurfaces, not the visible ones.
 TERMINAL_IOSURFACE_KEY = "hidden_nonvolatile_iosurface_bytes"
+
+# The atlas phase (task 039). GPU memory is in these groups (Metal textures and buffers, drawables).
+GPU_GROUPS = ("IOAccelerator", "IOSurface", "owned unmapped memory")
+ATLAS_TERMINALS = 4  # visible terminals the phase tiles the window into, one at a time
+ATLAS_SETTLE = 5.0  # seconds after each change before a GPU sample
+# The glyph sheet: CJK ideographs from U+4E00 (fallback font, grayscale atlas), each two cells wide. 2,000
+# glyphs at 2x need about 2.2 M atlas pixels, past a 1024 x 1024 atlas: it grows to 2048 x 2048 R8 (4 MiB).
+ATLAS_GLYPHS = 2000
+ATLAS_FIRST_CODEPOINT = 0x4E00
+ATLAS_LINE_GLYPHS = 20  # 40 columns
+ATLAS_PAGE_LINES = 10  # a page fits a quarter of the 1600 x 1000 pt STRESS window at the default font
+ATLAS_PAGE_SECONDS = 0.3  # each page stays on screen this long, several frames
+ATLAS_MIN_GROWTH_BYTES = 2 * 1048576  # less growth on one terminal: the atlas did not grow
+ATLAS_PER_SURFACE_SHARE = 0.5  # an extra terminal paying this share of the growth or more: per surface
+# One shared 2048 x 2048 R8 atlas (the expectation in p07-memory.md task 039).
+ATLAS_EXPECTED_BYTES = 2048 * 2048
 
 SIZE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)B?$", re.I)
 UNITS = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
@@ -518,6 +546,83 @@ def queue_files(root: str = ROOT) -> tuple[list[str], str | None]:
     return [line for line in out.stdout.splitlines() if line and not line.startswith("==") and " count: " not in line], None
 
 
+# The glyph atlas phase (task 039): what one more visible terminal costs in GPU memory, and whether
+# the glyph atlas texture is shared by every surface or copied into each.
+
+
+def gpu_bytes(categories: dict[str, int]) -> int:
+    """The bytes of footprint categories in the GPU groups (IOAccelerator, IOSurface, owned unmapped memory)."""
+    return sum(value for category, value in categories.items() if group_of(category) in GPU_GROUPS)
+
+
+def glyph_pages(count: int = ATLAS_GLYPHS) -> list[str]:
+    """`count` distinct CJK ideographs in pages that each fit a quarter of the STRESS window, so every
+    glyph is on screen in some frame (a glyph that scrolls away before a frame is never rasterized)."""
+    glyphs = [chr(ATLAS_FIRST_CODEPOINT + index) for index in range(count)]
+    per_page = ATLAS_LINE_GLYPHS * ATLAS_PAGE_LINES
+    pages = []
+    for start in range(0, count, per_page):
+        page = glyphs[start:start + per_page]
+        pages.append("".join("".join(page[i:i + ATLAS_LINE_GLYPHS]) + "\n" for i in range(0, len(page), ATLAS_LINE_GLYPHS)))
+    return pages
+
+
+def slope(points: list[tuple[int, int]]) -> float | None:
+    """Least-squares bytes per terminal over (terminals, bytes); None below two distinct counts."""
+    if len({k for k, _ in points}) < 2:
+        return None
+    mean_k = sum(k for k, _ in points) / len(points)
+    mean_b = sum(b for _, b in points) / len(points)
+    return sum((k - mean_k) * (b - mean_b) for k, b in points) / sum((k - mean_k) ** 2 for k, _ in points)
+
+
+def atlas_summary(start: list[tuple[int, int]], grown: list[tuple[int, int]]) -> dict:
+    """The atlas verdict from GPU bytes at 1..K visible terminals tiling one window, first with the
+    atlas at its start size (`start`), then after the glyph sheet grew it (`grown`).
+
+    Tiling keeps the panes' total area, so drawables, render targets and cell buffers add up to about
+    the same bytes at every count: the slope over the count is what each surface holds whatever its
+    size. The atlas growth moves that slope by the bytes each surface keeps of the grown atlas
+    (`atlas_bytes_per_extra_terminal`): 0 when one atlas texture serves every surface (Chrome's GPU
+    process keeps one glyph atlas for every renderer: Skia's GrDrawOpAtlas,
+    third_party/skia/src/gpu/ganesh/GrDrawOpAtlas.cpp), the growth one terminal saw
+    (`atlas_growth_one_terminal_bytes`) when every surface keeps its own copies."""
+    before, after = slope(start), slope(grown)
+    one_before = next((b for k, b in start if k == 1), None)
+    one_after = next((b for k, b in grown if k == 1), None)
+    summary = {"terminals": max((k for k, _ in start + grown), default=0),
+               "gpu_bytes_per_extra_terminal_start": None if before is None else round(before),
+               "gpu_bytes_per_extra_terminal_grown": None if after is None else round(after),
+               "atlas_bytes_per_extra_terminal": None, "atlas_growth_one_terminal_bytes": None,
+               "per_surface_share": None, "verdict": "unmeasured", "expected_shared_atlas_bytes": ATLAS_EXPECTED_BYTES,
+               "start": [{"terminals": k, "gpu_bytes": b} for k, b in start],
+               "grown": [{"terminals": k, "gpu_bytes": b} for k, b in grown]}
+    if before is None or after is None or one_before is None or one_after is None:
+        summary["why"] = "fewer than two terminal counts measured in each series, or no one-terminal step"
+        return summary
+    per_extra, growth = round(after - before), one_after - one_before
+    summary.update(atlas_bytes_per_extra_terminal=per_extra, atlas_growth_one_terminal_bytes=growth)
+    if growth < ATLAS_MIN_GROWTH_BYTES:
+        summary["why"] = f"the glyph sheet grew one terminal's GPU bytes by {mb(growth)} MB only: the atlas did not grow"
+        return summary
+    share = per_extra / growth
+    summary["per_surface_share"] = round(share, 2)
+    summary["verdict"] = "per_surface" if share >= ATLAS_PER_SURFACE_SHARE else "shared"
+    return summary
+
+
+def print_atlas(summary: dict):
+    print(f"ATLAS terminals={summary['terminals']} atlas_bytes_per_extra_terminal="
+          f"{'unknown' if summary['atlas_bytes_per_extra_terminal'] is None else summary['atlas_bytes_per_extra_terminal']} "
+          f"gpu_per_extra_start_mb={mb(summary['gpu_bytes_per_extra_terminal_start'])} "
+          f"gpu_per_extra_grown_mb={mb(summary['gpu_bytes_per_extra_terminal_grown'])} "
+          f"growth_one_terminal_mb={mb(summary['atlas_growth_one_terminal_bytes'])} "
+          f"share={summary['per_surface_share']} verdict={summary['verdict']} "
+          f"expected_shared_atlas_mb={mb(summary['expected_shared_atlas_bytes'])}"
+          + (f" why={summary['why']!r}" if summary.get("why") else ""))
+    sys.stdout.flush()
+
+
 # Output.
 
 
@@ -661,6 +766,74 @@ def measure(label: str, pid: int, socket_path: str | None, heap: bool, raw_stem:
     return phase, debug_memory, walk
 
 
+def gpu_sample(pid: int, raw_stem: str) -> int | None:
+    """The GPU groups' bytes of process `pid` now (`footprint -j`, its JSON beside `raw_stem`), or None."""
+    json_path = raw_stem + "-footprint.json"
+    _, error = run_tool(["footprint", "-j", json_path, str(pid)])
+    try:
+        with open(json_path) as handle:
+            categories, _ = footprint_categories(json.load(handle))
+    except (OSError, ValueError):
+        return None
+    if error and not categories:
+        return None
+    return gpu_bytes(categories)
+
+
+def measure_atlas(builder, stem: str, terminals: int, settle: float, sample) -> dict:
+    """The atlas phase: in a new workspace on the placed STRESS window, GPU bytes (`sample(raw_stem)`) at
+    1..`terminals` visible terminals tiling the window; then every terminal shows the glyph sheet, which
+    grows the shared CPU atlas; then GPU bytes again while the panes close back to one. `builder` is a
+    perf-stress-session Stress. Returns atlas_summary's dict."""
+    builder.size_window()
+    workspace = builder.new_workspace()
+    if not workspace:
+        raise RuntimeError("the atlas workspace did not appear")
+    builder.show(workspace)  # splits size evenly only in a shown workspace (Stress.build_measured)
+    panes = [builder.panes(builder.workspace(workspace))[0]["id"]]
+    builder.record_first(workspace, panes[0])
+
+    def take(series: list, label: str):
+        time.sleep(settle)  # test script: drawables and buffers settle after the change
+        value = sample(f"{stem}-{label}-{len(panes)}")
+        if value is None:
+            raise RuntimeError(f"no GPU sample at {len(panes)} terminals ({label})")
+        series.append((len(panes), value))
+
+    start: list[tuple[int, int]] = []
+    take(start, "start")
+    while len(panes) < terminals:
+        # Alternate the split direction so the panes tile the window in a grid.
+        made = builder.split(workspace, panes[(len(panes) - 1) // 2], "splitRight" if len(panes) % 2 else "splitDown")
+        if not made:
+            raise RuntimeError(f"split {len(panes) + 1} made no pane (refusals: {builder.refusals[-3:]})")
+        panes.append(made)
+        builder.action("equalizeSplits", target=f"pane:{panes[0]}")
+        take(start, "start")
+
+    folder = f"{stem}-glyphs"  # kept beside the report with the raw samples
+    os.makedirs(folder, exist_ok=True)
+    for index, page in enumerate(glyph_pages()):
+        write(os.path.join(folder, f"page-{index:03d}.txt"), page)
+    show = f"for f in {shlex.quote(folder)}/page-*.txt; do clear; cat \"$f\"; sleep {ATLAS_PAGE_SECONDS}; done\r"
+    for pane in panes:
+        terminal = next((t for t in builder.tabs(workspace, pane) if t.get("kind") == "terminal"), None)
+        if not terminal:
+            raise RuntimeError(f"pane {pane} has no terminal for the glyph sheet")
+        builder.send(terminal["id"], show)
+    pages = -(-ATLAS_GLYPHS // (ATLAS_LINE_GLYPHS * ATLAS_PAGE_LINES))
+    time.sleep(pages * ATLAS_PAGE_SECONDS + 2)  # test script: every page shown in every terminal
+
+    grown: list[tuple[int, int]] = []
+    take(grown, "grown")
+    while len(panes) > 1:
+        builder.action("closePane", target=f"pane:{panes.pop()}", focus=False)
+        builder.action("equalizeSplits", target=f"pane:{panes[0]}")
+        take(grown, "grown")
+    builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+    return atlas_summary(start, grown)
+
+
 def write(path: str, text: str):
     with open(path, "w") as handle:
         handle.write(text)
@@ -679,12 +852,17 @@ def main(argv: list[str] | None = None) -> int:
     where.add_argument("--pid", type=int, help="a running app's pid")
     where.add_argument("--footprint-file", help="offline: saved `footprint -j` JSON (or its text output)")
     parser.add_argument("--socket", help="with --pid: the app's control socket, for debug.memory")
-    parser.add_argument("--phases", default="home", help="with --app: home, stress, or home,stress (default home)")
+    parser.add_argument("--phases", default="home",
+                        help="with --app: a comma list of home, atlas and stress, run in that order as given (default home)")
     parser.add_argument("--settle", type=float, default=30, help="seconds idle before each measurement (default 30)")
     parser.add_argument("--heap", action="store_true", help="walk the heap for the MQ-CACHE order (stalls the app)")
     parser.add_argument("--vdisplay", type=float, default=None,
                         help=f"with --app: a 1920 x 1200 virtual main display at this refresh (Hz) before the launch "
-                             f"(default {VDISPLAY_HZ:g} with the stress phase, else none; 0 turns it off)")
+                             f"(default {VDISPLAY_HZ:g} with the atlas or stress phase, else none; 0 turns it off)")
+    parser.add_argument("--atlas-terminals", type=int, default=ATLAS_TERMINALS,
+                        help=f"the atlas phase: visible terminals at the end of the series (default {ATLAS_TERMINALS})")
+    parser.add_argument("--atlas-settle", type=float, default=ATLAS_SETTLE,
+                        help=f"the atlas phase: seconds after each change before a GPU sample (default {ATLAS_SETTLE:g})")
     parser.add_argument("--vdisplay-hold", type=float, default=1800,
                         help="the virtual display helper's own lifetime in seconds (default 1800): it ends by itself "
                              "when this script is killed and cannot clean up")
@@ -697,8 +875,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", help="the JSON report (default memory-report-<pid or label>.json)")
     args = parser.parse_args(argv)
     phases_asked = [p for p in args.phases.split(",") if p]
-    if any(p not in ("home", "stress") for p in phases_asked):
-        parser.error(f"--phases takes home and stress, got {args.phases!r}")
+    if any(p not in ("home", "atlas", "stress") for p in phases_asked):
+        parser.error(f"--phases takes home, atlas and stress, got {args.phases!r}")
+    if args.atlas_terminals < 2:
+        parser.error("--atlas-terminals needs at least 2 (the slope is over the terminal count)")
 
     report: dict = {"tool": "memory-report", "time": round(time.time()), "phases": []}
     samples: list[tuple[dict | None, dict | None]] = []  # (debug.memory reply, heap walk) per measured phase
@@ -754,6 +934,11 @@ def emit(args, report: dict, samples: list, out: str):
     """Prints every phase and the MQ-CACHE order, and writes the JSON."""
     if report.get("vdisplay_error"):
         print(f"memory-report: no virtual display: {report['vdisplay_error']}")
+    if "atlas" in report:
+        if report["atlas"].get("error"):
+            print(f"ATLAS error: {report['atlas']['error']}")
+        else:
+            print_atlas(report["atlas"])
     for phase in report["phases"]:
         if "skipped" in phase:
             print(f"MEMORY-REPORT phase={phase['label']} skipped: {phase['skipped']}")
@@ -796,7 +981,7 @@ def run_launched(args, phases: list[str], report: dict, samples: list, out: str)
     for number in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, cancel)
     try:
-        hz = args.vdisplay if args.vdisplay is not None else VDISPLAY_HZ if "stress" in phases else 0
+        hz = args.vdisplay if args.vdisplay is not None else VDISPLAY_HZ if {"atlas", "stress"} & set(phases) else 0
         if hz:
             try:
                 display = stress_module.start_vdisplay(hz, folder, args.vdisplay_hold)
@@ -813,6 +998,18 @@ def run_launched(args, phases: list[str], report: dict, samples: list, out: str)
             return True
         report["pid"] = app.process.pid
         for label in phases:
+            if label == "atlas":
+                atlas_builder = stress_module.Stress(app.rpc)
+                pid = app.process.pid
+                try:
+                    report["atlas"] = measure_atlas(atlas_builder, f"{stem}-atlas", args.atlas_terminals,
+                                                    args.atlas_settle, lambda raw: gpu_sample(pid, raw))
+                except Exception as error:  # a refused split, a missing display, a reply the steps did not expect
+                    report["atlas"] = {"error": f"{type(error).__name__}: {error}"[:600]}
+                finally:
+                    atlas_builder.close()
+                failed = failed or "error" in report["atlas"] or report["atlas"]["verdict"] == "unmeasured"
+                continue
             if label == "stress":
                 try:
                     builder = stress_module.Stress(app.rpc)
