@@ -18779,7 +18779,7 @@ impl Client {
     }
     /**Update a VM's name, labels or limits
 
-    Update a VM's name, labels or limits. Requires the vm:write scope. Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Update a VM's name, labels or limits. Requires the vm:write scope. Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409, and so is a concurrent change of its name or labels (read and retry). Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `PATCH` request to `/v1/vms/{vmId}`
 
@@ -19457,7 +19457,7 @@ impl Client {
     }
     /**Start a resumable file upload into a VM
 
-    Start a resumable file upload into a VM. Requires the vm:files scope. For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over the deployment's limit is 413; too many open uploads on the VM is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Start a resumable file upload into a VM. Requires the vm:files scope. For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over 16 GiB is 400; a size over a lower deployment limit is 413; too many open uploads on the VM is 409. Audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `POST` request to `/v1/vms/{vmId}/files/uploads`
 
@@ -19558,6 +19558,7 @@ impl Client {
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),
@@ -19689,7 +19690,7 @@ impl Client {
     }
     /**Finish a resumable upload
 
-    Finish a resumable upload. Requires the vm:files scope. Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. Audited as a file write. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Finish a resumable upload. Requires the vm:files scope. Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. A commit whose answer was lost (503) may still complete: a later 404 Upload not found then means it finished, so check the path. Audited (vm.files.upload.commit). Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `POST` request to `/v1/vms/{vmId}/files/uploads/{uploadId}/commit`
 
