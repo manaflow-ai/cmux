@@ -1282,6 +1282,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
