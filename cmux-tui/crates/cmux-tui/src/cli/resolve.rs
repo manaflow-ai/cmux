@@ -396,8 +396,8 @@ fn caller_scopes(
         .map_or(0, |index| index + 1);
     let mut updates = Vec::new();
     let mut on_caller_path = true;
-    for (index, scope) in CALLER_SCOPES.into_iter().enumerate() {
-        let Some(selector) = &selectors[index] else { continue };
+    for (index, (scope, selector)) in CALLER_SCOPES.into_iter().zip(&selectors).enumerate() {
+        let Some(selector) = selector else { continue };
         let own = path.get(scope).and_then(Value::as_str);
         let follows = selector == "current" && current && on_caller_path && index >= deepest_named;
         if selector == "caller" || follows {
