@@ -1,0 +1,351 @@
+{
+  "about": "The lines the macOS app sends for every request in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO (p05-ipc-032), recorded before their migration to the generated <Name>Request types. TerminalIORequestWireGoldenTests (CmuxNextDaemonTests) encodes each request and compares it with `requests` (as JSON: key order does not count); the daemon test server/cmd_terminal_io_wire_tests.rs parses every line through the server's own Request parse, and sends each `echo` line to a terminal whose PTY writes are recorded: the PTY gets `pty_hex`, the input's own bytes (text first, then bytes).",
+  "requests": [
+    {
+      "name": "send text",
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "text": "ls\r"
+      }
+    },
+    {
+      "name": "send with every field",
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "text": "yes",
+        "bytes": "YQ==",
+        "paste": true,
+        "expect_foreground": "/usr/local/bin/claude",
+        "flow": 18219251269639
+      }
+    },
+    {
+      "name": "send bytes by terminal",
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "terminal_id": "t1",
+        "bytes": "G1tB"
+      }
+    },
+    {
+      "name": "send-key",
+      "line": {
+        "id": 1,
+        "cmd": "send-key",
+        "surface": 7,
+        "keys": [
+          "ctrl+c",
+          "enter"
+        ]
+      }
+    },
+    {
+      "name": "attach-surface without a surface",
+      "line": {
+        "id": 1,
+        "cmd": "attach-surface",
+        "mode": "bytes"
+      }
+    },
+    {
+      "name": "attach-surface sized byte replay",
+      "line": {
+        "id": 1,
+        "cmd": "attach-surface",
+        "surface": 7,
+        "mode": "bytes",
+        "cols": 80,
+        "rows": 24
+      }
+    },
+    {
+      "name": "attach-surface with every field",
+      "line": {
+        "id": 1,
+        "cmd": "attach-surface",
+        "surface": 7,
+        "expected_generation": "gen-1",
+        "expected_terminal_id": "term_abc",
+        "mode": "bytes",
+        "cols": 80,
+        "rows": 24,
+        "snapshot": "ghostsnp",
+        "snapshot_version": 3,
+        "snapshot_local_history": true,
+        "snapshot_images": true
+      }
+    },
+    {
+      "name": "clear-history",
+      "line": {
+        "id": 1,
+        "cmd": "clear-history",
+        "surface": 7
+      }
+    },
+    {
+      "name": "clear-history with the Cmd-K fallback",
+      "line": {
+        "id": 1,
+        "cmd": "clear-history",
+        "surface": 7,
+        "fallback_key": {
+          "key": "k",
+          "mods": {
+            "shift": false,
+            "control": false,
+            "alt": false,
+            "super": true,
+            "caps_lock": false,
+            "num_lock": false
+          },
+          "consumed_mods": {
+            "shift": false,
+            "control": false,
+            "alt": false,
+            "super": false,
+            "caps_lock": false,
+            "num_lock": false
+          },
+          "utf8": "",
+          "unshifted_codepoint": "k",
+          "action": "press",
+          "macos_option_as_alt": true
+        }
+      }
+    },
+    {
+      "name": "terminal-clipboard-subscribe",
+      "line": {
+        "id": 1,
+        "cmd": "terminal-clipboard-subscribe",
+        "terminal_ids": [
+          "term_a",
+          "term_b"
+        ]
+      }
+    },
+    {
+      "name": "terminal-clipboard-reply granting",
+      "line": {
+        "id": 1,
+        "cmd": "terminal-clipboard-reply",
+        "request_id": "r-1",
+        "text": "clip"
+      }
+    },
+    {
+      "name": "terminal-clipboard-reply refusing",
+      "line": {
+        "id": 1,
+        "cmd": "terminal-clipboard-reply",
+        "request_id": "r-1"
+      }
+    },
+    {
+      "name": "release-attached-view-size",
+      "line": {
+        "id": 1,
+        "cmd": "release-attached-view-size",
+        "surface": 7,
+        "lease": "l-1"
+      }
+    },
+    {
+      "name": "set-size-counts off",
+      "line": {
+        "id": 1,
+        "cmd": "set-size-counts",
+        "surface": 7,
+        "lease": "l-1",
+        "counts": false
+      }
+    },
+    {
+      "name": "set-size-counts clearing",
+      "line": {
+        "id": 1,
+        "cmd": "set-size-counts",
+        "surface": 7,
+        "lease": "l-1"
+      }
+    },
+    {
+      "name": "detach-attached-view",
+      "line": {
+        "id": 1,
+        "cmd": "detach-attached-view",
+        "surface": 7,
+        "lease": "l-1"
+      }
+    },
+    {
+      "name": "set-client-sizing claim",
+      "line": {
+        "id": 1,
+        "cmd": "set-client-sizing",
+        "surface": 7,
+        "enabled": true,
+        "exclusive": true,
+        "client": 3
+      }
+    },
+    {
+      "name": "set-client-sizing release",
+      "line": {
+        "id": 1,
+        "cmd": "set-client-sizing",
+        "surface": 7,
+        "enabled": false
+      }
+    },
+    {
+      "name": "set-size-policy",
+      "line": {
+        "id": 1,
+        "cmd": "set-size-policy",
+        "surface": 7,
+        "policy": {
+          "mode": "smallest"
+        }
+      }
+    },
+    {
+      "name": "read-screen",
+      "line": {
+        "id": 1,
+        "cmd": "read-screen",
+        "surface": 7
+      }
+    },
+    {
+      "name": "read-scrollback",
+      "line": {
+        "id": 1,
+        "cmd": "read-scrollback",
+        "surface": 7,
+        "start": 10,
+        "count": 50
+      }
+    },
+    {
+      "name": "resize-surface",
+      "line": {
+        "id": 1,
+        "cmd": "resize-surface",
+        "surface": 7,
+        "cols": 80,
+        "rows": 24
+      }
+    },
+    {
+      "name": "resize-attached-view",
+      "line": {
+        "id": 1,
+        "cmd": "resize-attached-view",
+        "surface": 7,
+        "lease": "l-1",
+        "cols": 80,
+        "rows": 24
+      }
+    },
+    {
+      "name": "snapshot-request",
+      "line": {
+        "id": 1,
+        "cmd": "snapshot-request",
+        "surface": 7,
+        "reason": "digest_mismatch"
+      }
+    }
+  ],
+  "echo": [
+    {
+      "name": "every byte value",
+      "input": {
+        "bytes_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+      },
+      "pty_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+    },
+    {
+      "name": "control keys",
+      "input": {
+        "bytes_hex": "031b5b410d7f"
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "bytes": "AxtbQQ1/"
+      },
+      "pty_hex": "031b5b410d7f"
+    },
+    {
+      "name": "invalid UTF-8",
+      "input": {
+        "bytes_hex": "fffec328"
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "bytes": "//7DKA=="
+      },
+      "pty_hex": "fffec328"
+    },
+    {
+      "name": "UTF-8 text",
+      "input": {
+        "text": "héllo 🌍 世界\r"
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "text": "héllo 🌍 世界\r"
+      },
+      "pty_hex": "68c3a96c6c6f20f09f8c8d20e4b896e7958c0d"
+    },
+    {
+      "name": "text then bytes",
+      "input": {
+        "text": "ab",
+        "bytes_hex": "1b"
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "text": "ab",
+        "bytes": "Gw=="
+      },
+      "pty_hex": "61621b"
+    },
+    {
+      "name": "paste",
+      "input": {
+        "text": "echo one\techo two",
+        "paste": true
+      },
+      "line": {
+        "id": 1,
+        "cmd": "send",
+        "surface": 7,
+        "text": "echo one\techo two",
+        "paste": true
+      },
+      "pty_hex": "6563686f206f6e65096563686f2074776f"
+    }
+  ]
+}

@@ -563,3 +563,7 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
     };
     Ok(Rgb { r: hex(0)?, g: hex(2)?, b: hex(4)? })
 }
+
+#[cfg(all(test, unix))]
+#[path = "cmd_terminal_io_wire_tests.rs"]
+mod wire_tests;
