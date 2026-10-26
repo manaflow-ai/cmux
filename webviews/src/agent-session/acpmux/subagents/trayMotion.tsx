@@ -60,6 +60,13 @@ export function playTrayExit(card: HTMLElement): void {
     node.removeAttribute("tabindex");
     node.removeAttribute("aria-controls");
   }
+  // A card still entering leaves from where it is drawn, not from its end.
+  const drawn = card.ownerDocument.defaultView?.getComputedStyle(card);
+  if (card.hasAttribute(TRAY_ENTER_ATTR) && drawn) {
+    ghost.style.opacity = drawn.opacity;
+    if (drawn.translate && drawn.translate !== "none") ghost.style.translate = drawn.translate;
+    if (drawn.scale && drawn.scale !== "none") ghost.style.scale = drawn.scale;
+  }
   ghost.removeAttribute(TRAY_ENTER_ATTR);
   ghost.classList.add(TRAY_GHOST);
   ghost.setAttribute("aria-hidden", "true");
@@ -130,8 +137,9 @@ export function useTrayMotion(
         node.addEventListener("animationcancel", ended);
       }
       return () => {
-        settle();
+        // The copy is taken first, so a card leaving mid-entrance fades from where it is drawn.
         if (shown.current === chat) playTrayExit(node);
+        settle();
       };
     },
     [shown],

@@ -148,18 +148,20 @@ export const SubagentTray = memo(function SubagentTray({
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
-  // Motion, the host's switch) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at
+  // Motion, the host's switch, a hidden page) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at
   // once, a reconnect's catch-up) is simply there too, as the transcript's live rows are, so the
   // arrivals set stays a handful (each settles in one entrance) and settling one never copies the
-  // tray's size. Counting the new lines is one pass over keys this render already builds. A line that arrives on a hidden
-  // page is finished when the page shows (shared/pageReveal.ts), which settles it.
-  const seen = useRef<ReadonlySet<string> | null>(null);
+  // tray's size. Counting the new lines is one pass over keys this render already builds.   const seen = useRef<ReadonlySet<string> | null>(null);
   seen.current ??= new Set(keys);
   const known = seen.current;
   const fresh = keys.reduce((count, key) => count + (known.has(key) ? 0 : 1), 0);
   if (fresh > 0) seen.current = new Set(keys);
-  const moves = open && fresh <= ARRIVALS_PER_UPDATE && !isAgentMotionOff() && !foldMotion.reducedMotion();
+  // A hidden page starts no entrance (WebKit would play it on return, shared/pageReveal.ts).
+  const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+  const moves =
+    open && fresh <= ARRIVALS_PER_UPDATE && !pageHidden && !isAgentMotionOff() && !foldMotion.reducedMotion();
   const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
+  const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
@@ -183,26 +185,31 @@ export const SubagentTray = memo(function SubagentTray({
       .join(" · ") || t("summary.subagents");
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
-  // Ended or cancelled (motion turned off midway), a line's entrance is played: it never replays.
-  // React has no animationcancel prop, so both listen on the line's node, added and removed by its ref.
-  const arriving = (key: string) =>
-    arrivals.arrived.has(key)
-      ? {
-          "data-enter": "bottom" as const,
-          ref: (node: HTMLElement | null) => {
-            if (!node) return undefined;
-            const ended = (event: Event) => {
-              if (event.target === node) arrivals.played(key);
-            };
-            node.addEventListener("animationend", ended);
-            node.addEventListener("animationcancel", ended);
-            return () => {
-              node.removeEventListener("animationend", ended);
-              node.removeEventListener("animationcancel", ended);
-            };
-          },
-        }
-      : undefined;
+  // Ended, cancelled (motion turned off midway) or unmounted first (a fold, View all), a line's
+  // entrance is played: it never replays. React has no animationcancel prop, so both listen on the
+  // line's node through a ref kept per key (a new ref each render would detach mid-entrance).
+  const arriving = (key: string) => {
+    if (!arrivals.arrived.has(key)) return undefined;
+    let ref = arrivalRefs.current.get(key);
+    if (!ref) {
+      ref = (node: HTMLElement | null) => {
+        if (!node) return undefined;
+        const ended = (event: Event) => {
+          if (event.target === node) arrivals.played(key);
+        };
+        node.addEventListener("animationend", ended);
+        node.addEventListener("animationcancel", ended);
+        return () => {
+          node.removeEventListener("animationend", ended);
+          node.removeEventListener("animationcancel", ended);
+          arrivalRefs.current.delete(key);
+          arrivals.played(key);
+        };
+      };
+      arrivalRefs.current.set(key, ref);
+    }
+    return { "data-enter": "bottom" as const, ref };
+  };
   const cards = [
     ...items.map((item) => (
       <li key={itemKey(item)} {...arriving(itemKey(item))}>
