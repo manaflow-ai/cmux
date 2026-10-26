@@ -5,10 +5,13 @@ import Foundation
 /// Capturing it runs `$SHELL -l -i`, which takes 5-17 s on some setups, so
 /// nothing that connects the app waits for it:
 ///
-/// - `start()` (the launch's afterStartup post,
-///   `DaemonLauncher.postLoginEnvironmentCapture`) runs the capture at its
-///   caller's priority, so a launch with a remembered copy spawns no shell
-///   before startup completes.
+/// - `startIfNothingRemembered()` (the top of the launch,
+///   `DaemonLauncher.captureLoginEnvironment(after:)`) starts the capture at
+///   once (`.userInitiated`) only when no copy is remembered, warm daemon or
+///   cold.
+/// - `start()` (once startup completes) runs the capture at its caller's
+///   priority, so a launch with a remembered copy spawns no shell before
+///   startup completes.
 /// - `immediate()` (starting the daemon) never waits. It returns this
 ///   launch's capture when it has finished, else the copy remembered from
 ///   the last launch (`LoginEnvironmentStore`), else nil (the app's own
@@ -52,9 +55,20 @@ actor LoginEnvironmentCache {
         self.refreshTimeout = refreshTimeout
     }
 
-    /// Starts the capture now at the caller's priority (the afterStartup
-    /// post's `.utility`); a capture already started is kept.
+    /// Starts the capture now at the caller's priority (`.utility` once
+    /// startup completes); a capture already started is kept.
     func start() { _ = capturing(priority: nil) }
+
+    /// Starts the capture now at `.userInitiated` when no copy is remembered
+    /// (the first terminal would else wait for a capture from zero); with
+    /// one it waits for ``start()``.
+    func startIfNothingRemembered() {
+        guard known() == nil else { return }
+        _ = capturing(priority: .userInitiated)
+    }
+
+    /// Whether this launch's capture started.
+    var captureStarted: Bool { task != nil }
 
     /// The environment for a new terminal: this launch's capture or the
     /// remembered copy at once, else the capture (nil when it failed),
@@ -70,7 +84,7 @@ actor LoginEnvironmentCache {
     /// and then the capture starts at once for the terminals that follow.
     func immediate() -> [String: String]? {
         if let known = known() { return known }
-        _ = capturing(priority: .userInitiated)
+        startIfNothingRemembered()
         return nil
     }
 

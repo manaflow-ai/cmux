@@ -6,17 +6,24 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// The login shell's environment is captured after startup (p08-startup-034): with a remembered
-/// copy, neither starting the daemon nor a new terminal runs `$SHELL -l -i` before the launch's
-/// afterStartup post does; a cold daemon with nothing remembered still starts it at once.
+/// copy, neither starting the daemon nor a new terminal runs `$SHELL -l -i` before startup
+/// completes; with nothing remembered the capture starts at once, warm daemon or cold.
+///
+/// `captureStarted` is read on the cache's actor right after the call under test, so a capture
+/// task made by that call is always seen (the base's `immediate()` made one).
 @Suite(.timeLimit(.minutes(1)))
 struct LoginEnvironmentLaterTests {
-    @Test func aRememberedEnvironmentRunsNoShellUntilTheAfterStartupStart() async {
+    @Test func aRememberedEnvironmentStartsNoCaptureUntilStart() async {
         let shell = FakeLoginShell(path: "/captured/bin")
         let cache = LoginEnvironmentCache(store: .remembering(path: "/remembered/bin"), capture: shell.capture)
+        await cache.startIfNothingRemembered()
         #expect(await cache.immediate()?["PATH"] == "/remembered/bin")
         #expect(await cache.value()?["PATH"] == "/remembered/bin")
-        #expect(shell.runs == 0, "a shell ran before startup completed although an environment was remembered")
+        let early = await cache.captureStarted
+        #expect(!early, "a capture started before startup completed although an environment was remembered")
         await cache.start()
+        let started = await cache.captureStarted
+        #expect(started)
         await shell.waitForRun()
         #expect(shell.runs == 1)
     }
@@ -25,6 +32,8 @@ struct LoginEnvironmentLaterTests {
         let shell = FakeLoginShell(path: "/captured/bin")
         let cache = LoginEnvironmentCache(store: .remembering(path: nil), capture: shell.capture)
         #expect(await cache.immediate() == nil, "starting the daemon never waits for the login shell")
+        let started = await cache.captureStarted
+        #expect(started)
         await shell.waitForRun()
         #expect(await cache.value()?["PATH"] == "/captured/bin")
         await cache.start()
@@ -38,22 +47,42 @@ struct LoginEnvironmentLaterTests {
         #expect(shell.runs == 1)
     }
 
+    /// A warm daemon runs no `server ensure`, so no `immediate()` call starts the capture: the
+    /// launch's own start must, before startup completes.
     @MainActor
-    @Test func theCaptureIsAnAfterStartupPostOnTheSystemLaneAtBestEffort() async {
+    @Test func aWarmDaemonWithNothingRememberedStartsTheCaptureBeforeStartupCompletes() async {
         let s = StartupTestScheduler()
-        let (started, signal) = AsyncStream.makeStream(of: Void.self)
-        DaemonLauncher.postLoginEnvironmentCapture(on: s.startup) { signal.yield() }
+        let shell = FakeLoginShell(path: "/captured/bin")
+        let cache = LoginEnvironmentCache(store: .remembering(path: nil), capture: shell.capture)
         let restore = s.startup.hold("WindowManager.restore")
+        DaemonLauncher.captureLoginEnvironment(cache, after: s.startup)
         s.complete()
-        for _ in 0..<4 { s.fire() }
-        let held = s.startup.log.records
-        #expect(held.map(\.name.description) == ["LoginEnvironment.capture"])
-        #expect(held.allSatisfy { $0.priority == .afterStartup && $0.destination == .lane(.system, .bestEffort) && $0.violation == nil })
-        #expect(held.allSatisfy { $0.durationNanos == nil }, "the capture started before startup completed")
+        await shell.waitForRun()
+        #expect(s.startup.completion == nil, "the capture waited for startup to complete")
         restore.release(.visiblePaneLoadedIdle)
         s.hand.drain()
-        for await _ in started { break }
-        #expect(s.startup.completion?.heldTasks == 1)
+        #expect(await cache.value()?["PATH"] == "/captured/bin")
+    }
+
+    /// With a remembered copy the capture starts from the scheduler's completion, and not before.
+    @MainActor
+    @Test func aRememberedEnvironmentIsRefreshedOnceStartupCompletes() async {
+        let s = StartupTestScheduler()
+        let shell = FakeLoginShell(path: "/captured/bin")
+        let cache = LoginEnvironmentCache(store: .remembering(path: "/remembered/bin"), capture: shell.capture)
+        let restore = s.startup.hold("WindowManager.restore")
+        DaemonLauncher.captureLoginEnvironment(cache, after: s.startup)
+        s.complete()
+        for _ in 0..<4 { s.fire() }
+        // The launch's store check is the one call that may run here; it finds the remembered copy.
+        await cache.startIfNothingRemembered()
+        let early = await cache.captureStarted
+        #expect(!early, "a capture started before startup completed although an environment was remembered")
+        restore.release(.visiblePaneLoadedIdle)
+        s.hand.drain()
+        #expect(s.startup.completion != nil)
+        await shell.waitForRun()
+        #expect(shell.runs == 1)
     }
 }
 
@@ -79,7 +108,7 @@ private final class FakeLoginShell: Sendable {
         }
     }
 
-    /// Returns once the shell has run (at once when it already has).
+    /// Returns once the shell has run (at once when it already has). Call it once per test.
     func waitForRun() async {
         for await _ in ran { break }
     }

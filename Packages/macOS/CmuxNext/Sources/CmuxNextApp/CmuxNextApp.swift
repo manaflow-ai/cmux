@@ -100,7 +100,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
-        LaunchWarmup.postAfterStartup(on: order.startup) // login shell env and palette strings (p08-startup-034)
+        DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))

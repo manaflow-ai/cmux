@@ -1,26 +1,44 @@
 public import CmuxNextWakeups
 
 extension DaemonLauncher {
-    /// Posts this launch's login-environment capture (`$SHELL -l -i`, 1-17 s) as an afterStartup
-    /// task on the `.system` lane at ``WorkPriority/bestEffort`` (QoS `.utility`), so a launch with
-    /// a remembered environment spawns no shell before startup completes; the capture refreshes the
-    /// copy the next launch remembers. Chrome defers the same kind of work with
-    /// `AfterStartupTaskUtils::PostTask` (chrome/browser/after_startup_task_utils.cc). A cold daemon
-    /// with nothing remembered, or a new terminal before then, starts it at once at
-    /// `.userInitiated` (`LoginEnvironmentCache.immediate()` and `value()`).
+    /// Starts this launch's login-environment capture (`$SHELL -l -i`, 1-17 s) when it is needed:
+    ///
+    /// - at once, at `.userInitiated`, when no copy is remembered from an earlier launch. A warm
+    ///   daemon never runs `server ensure`, so without this the first terminal would wait for a
+    ///   capture from zero (``LoginEnvironmentCache/startIfNothingRemembered()``);
+    /// - else at `.utility` once `startup` completes, to refresh the copy the next launch
+    ///   remembers, so a launch with a remembered copy spawns no shell before startup completes.
+    ///
+    /// Chrome defers the same kind of work with `AfterStartupTaskUtils::PostTask`
+    /// (chrome/browser/after_startup_task_utils.cc). The capture is async (`ProcessRunner`), so it
+    /// starts from the scheduler's completion and runs as its own task, not as a lane post that
+    /// would only spawn it.
     ///
     /// ```swift
-    /// DaemonLauncher.postLoginEnvironmentCapture(on: order.startup)
+    /// DaemonLauncher.captureLoginEnvironment(after: order.startup)
     /// ```
-    public static func postLoginEnvironmentCapture(on startup: StartupScheduler) {
-        postLoginEnvironmentCapture(on: startup) {
-            // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
-            Task(priority: .utility) { await LoginEnvironmentCache.shared.start() }
-        }
+    @MainActor
+    public static func captureLoginEnvironment(after startup: StartupScheduler) {
+        captureLoginEnvironment(LoginEnvironmentCache.shared, after: startup)
     }
 
-    /// The post of ``postLoginEnvironmentCapture(on:)`` with the capture's start injected (tests).
-    static func postLoginEnvironmentCapture(on startup: StartupScheduler, start: @escaping @Sendable () -> Void) {
-        startup.post(.afterStartup, "LoginEnvironment.capture", on: .lane(.system, .bestEffort), start)
+    /// ``captureLoginEnvironment(after:)`` on `cache` (tests).
+    @MainActor
+    static func captureLoginEnvironment(_ cache: LoginEnvironmentCache, after startup: StartupScheduler) {
+        Self.startCaptureIfNothingRemembered(cache)
+        startup.whenComplete { _ in Self.refresh(cache) }
+    }
+
+    /// Off main (this function is nonisolated, so its task is too): one store read, and the capture
+    /// at `.userInitiated` only when nothing is remembered.
+    private static func startCaptureIfNothingRemembered(_ cache: LoginEnvironmentCache) {
+        // task-owner: one store read; a capture it starts ends with its own timeout.
+        Task(priority: .userInitiated) { await cache.startIfNothingRemembered() }
+    }
+
+    /// Off main: the refresh of the copy the next launch remembers, at `.utility`.
+    private static func refresh(_ cache: LoginEnvironmentCache) {
+        // task-owner: one-shot refresh of the process-lifetime login-env cache; ends with the capture's own timeout.
+        Task(priority: .utility) { await cache.start() }
     }
 }

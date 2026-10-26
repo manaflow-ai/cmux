@@ -233,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // panel and command page, so the first open costs what later opens cost (a launcher panel opens in
         // one frame); then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens
         // warm; then the system file picker made ahead, so the first click is not cold.
-        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames,
+        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames, prewarmPaletteStrings: { PaletteController.prewarmStrings() },
                                preparePalette: { [weak services] in _ = services?.palette.prepare(step: $0) },
                                prepareIconPicker: { [weak services] in services?.iconPicker.prepare() },
                                warmOpenPanel: { [weak services] in services?.openPanel.warmWhenIdle() }).post(on: order.startup)

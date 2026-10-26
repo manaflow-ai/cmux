@@ -1,17 +1,16 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextPalette
-import CmuxNextWakeups
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
 /// at the top of `main` so it overlaps AppKit's own start-up instead of
 /// running inside `applicationDidFinishLaunching` (about 150 ms from
 /// process start on a loaded machine; the catalog alone took 50-70 ms on
-/// the main thread). Work no first frame reads is posted after startup
-/// instead (``postAfterStartup(on:)``, p08-startup-034).
+/// the main thread). Work no first frame reads waits for the launch order
+/// instead (p08-startup-034): the login shell's environment
+/// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
+/// string tables (`LaunchFirstOpenWarmups`).
 ///
 /// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
 /// reaches it while this thread still builds it, the main thread waits for
@@ -33,19 +32,6 @@ enum LaunchWarmup {
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
-    }
-
-    /// The warm-ups no first frame reads, as afterStartup posts (Chrome's
-    /// `AfterStartupTaskUtils::PostTask`, chrome/browser/after_startup_task_utils.cc):
-    /// the login shell's environment (`$SHELL -l -i`, 1-17 s; a cold daemon
-    /// with nothing remembered still starts it at once) and the palette's
-    /// string tables, read before the palette's afterStartup prepare steps
-    /// posted after this. Call it in `main` once the launch order exists.
-    static func postAfterStartup(on startup: StartupScheduler) {
-        DaemonLauncher.postLoginEnvironmentCapture(on: startup)
-        startup.post(.afterStartup, "Palette.prewarmStrings", on: .lane(.files, .bestEffort)) {
-            PaletteController.prewarmStrings()
-        }
     }
 }
 
