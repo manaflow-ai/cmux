@@ -5,8 +5,9 @@ import Testing
 /// A hosted page's accessibility in its page view (p01-process-049): the first read of the page
 /// view's children sends the view's and window's tokens for the shown page, once; the host's token
 /// becomes a remote element child; a reply for an earlier page, window or context changes nothing;
-/// a refusal is kept until the page changes or Chromium builds its tree; the host's REPLY is read
-/// as the page token's length, then the out buffer.
+/// a refusal is kept until the page changes or Chromium builds its tree, even while a request is in
+/// flight; a reset while asking tells assistive clients to read again; the host's REPLY is read as
+/// the page token's length, then the out buffer.
 @MainActor
 @Suite struct ChromiumHostPageViewAccessibilityTests {
     /// The remote element a fake bridge makes: the token it came from.
@@ -15,10 +16,11 @@ import Testing
         init(token: [UInt8]) { self.token = token }
     }
 
-    /// The page view's token requests, and how to answer each.
+    /// The page view's token requests, how to answer each, and the layout changes it posted.
     final class Host {
         var requests: [ChromiumHostAccessibilityRequest] = []
         var answers: [([UInt8]?) -> Void] = []
+        var layoutChanges = 0
     }
 
     let center = NotificationCenter()
@@ -30,7 +32,8 @@ import Testing
         page.accessibilityBridge = ChromiumHostAccessibilityBridge(
             localToken: { $0 is NSWindow ? Array("window".utf8) : Array("view".utf8) },
             remoteElement: { token, _ in FakeRemote(token: token) },
-            hitTest: { element, _ in element })
+            hitTest: { element, _ in element },
+            layoutChanged: { _ in host.layoutChanges += 1 })
         page.accessibilityTokenSource = { request, answered in
             host.requests.append(request)
             host.answers.append(answered)
@@ -138,6 +141,53 @@ import Testing
         #expect(remote(of: page) != nil)
         page.retryRemoteAccessibility()
         #expect(remote(of: page) != nil, "a connected page keeps its element")
+    }
+
+    /// Chromium builds the tree while a request is in flight: the host ran that request without it,
+    /// so its refusal does not stand.
+    @Test func aRefusalOfARequestInFlightWhenTheTreeCameIsAskedAgain() {
+        let host = Host()
+        let (page, window) = makePage(host: host)
+        defer { window.close() }
+        page.showAccessibility(of: 7)
+        _ = page.accessibilityChildren()
+        #expect(page.remoteAccessibilityPhaseName == "asking")
+        page.retryRemoteAccessibility()
+        #expect(host.requests.count == 1, "the retry sends nothing while a request is in flight")
+        let posted = host.layoutChanges
+        host.answers[0](nil)
+        #expect(page.remoteAccessibilityPhaseName == "idle")
+        #expect(host.layoutChanges == posted + 1, "assistive clients read the children again")
+        _ = page.accessibilityChildren()
+        #expect(host.requests.count == 2)
+        host.answers[1](nil)
+        #expect(page.remoteAccessibilityPhaseName == "refused", "a refusal with the tree built stands")
+    }
+
+    /// A new context or a tab switch while a request is in flight drops its reply; the read that sent
+    /// it is told to read again, so the shown page is asked for.
+    @Test func aResetWhileAskingPostsALayoutChange() {
+        let host = Host()
+        let (page, window) = makePage(host: host)
+        defer { window.close() }
+        page.showAccessibility(of: 7)
+        _ = page.accessibilityChildren()
+        #expect(page.remoteAccessibilityPhaseName == "asking")
+        var posted = host.layoutChanges
+        _ = page.show(contextID: 5)
+        #expect(host.layoutChanges == posted + 1, "a new context while asking posts a layout change")
+        host.answers[0](Array("old".utf8))
+        #expect(page.remoteAccessibility.element == nil, "the reply was for the old context")
+        _ = page.accessibilityChildren()
+        #expect(host.requests.count == 2, "the next read asks again")
+
+        posted = host.layoutChanges
+        page.showAccessibility(of: 8)
+        #expect(host.layoutChanges == posted + 1, "a tab switch while asking posts a layout change")
+        _ = page.accessibilityChildren()
+        #expect(host.requests.last?.browser == 8)
+        host.answers[2](Array("eight".utf8))
+        #expect(remote(of: page)?.token == Array("eight".utf8))
     }
 
     @Test func aClosedWindowDropsTheElement() {

@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cmux_cef_shim.h"
@@ -50,6 +51,8 @@ struct Shim {
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
   bool create_at_once = true;  // create_window's AFTER_CREATED comes inside the call
+  // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
+  std::vector<std::pair<int, int>> created_in_call;
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -73,6 +76,9 @@ int cmux_shim_create_window(int request, void* parent_view, int, int, const char
   shim.calls.push_back("create " + std::to_string(request) + " " + url + (parent_view ? " view" : " noview"));
   ++shim.live;
   if (shim.create_at_once) Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
+  const std::vector<std::pair<int, int>> created = std::move(shim.created_in_call);
+  shim.created_in_call.clear();
+  for (const auto& [browser, created_request] : created) Emit(CMUX_SHIM_AFTER_CREATED, browser, created_request);
   return 1;
 }
 int TabSetFrozen(int browser_id, int frozen) {
@@ -729,6 +735,57 @@ void AccessibilityTokenBeforeCreation() {
         "the 17th held request is a bad message");
 }
 
+// Chromium can create a browser cmux minted inside another op's call. Its held page accessibility
+// request runs after that op's ack, as an op of its own: the op's mirrors and events still come
+// before its ack, and the held request's reply after it (task 049).
+void AccessibilityTokenCreatedInsideAnotherOp() {
+  Fixture f;
+  f.Start();
+  shim.create_at_once = false;
+  auto create = [&f](int32_t minted, int32_t request, uint64_t view, uint32_t token) {
+    Writer w;
+    w.I32(minted);
+    w.I32(request);
+    w.ViewToken(view);
+    w.I32(800);
+    w.I32(600);
+    w.Str("https://b/");
+    w.Str(nullptr);
+    f.host.OnMessages({Op(kOpCreateWindow, token, w)});
+  };
+  create(kMinted + 5, 43, 10, 20);
+  f.Sent();
+  Writer ax;
+  ax.I32(kMinted + 5);
+  ax.I32(4242);
+  ax.Bytes("view", 4);
+  ax.Bytes("win", 3);
+  ax.I32(64);
+  f.host.OnMessages({Op(kOpBrowserAccessibilityToken, 60, ax)});
+  Check(f.sent.empty(), "before the creation: no reply");
+
+  // The second create_window's call creates the first browser (3), then its own (5).
+  shim.created_in_call = {{3, 43}, {5, 44}};
+  shim.calls.clear();
+  create(kMinted + 6, 44, 11, 21);
+  Expect(shim.calls, {"create 44 https://b/ view", "nav_state 3", "nav_state 5", "ax 3 4242 view win"},
+         "the held request runs after the op's own events");
+  const std::vector<std::string> sent = f.Sent();
+  const auto at = [&sent](const std::string& line) { return std::find(sent.begin(), sent.end(), line); };
+  const auto first = at("event 2 " + std::to_string(kMinted + 5) + " 43");
+  const auto second = at("event 2 " + std::to_string(kMinted + 6) + " 44");
+  const auto ack = at("ack 21");
+  const auto reply = at("reply 60 10");
+  Check(first != sent.end() && second != sent.end() && ack != sent.end() && reply != sent.end() && first < ack &&
+            second < ack && ack < reply,
+        "both creations, then the op's ack, then the held reply: [" + Join(sent) + "]");
+  Check(ack == sent.end() || std::none_of(ack, sent.end(), [](const std::string& line) {
+          return line.rfind("mirror ", 0) == 0 || line.rfind("event ", 0) == 0;
+        }),
+        "no mirror or event of the op after its ack: [" + Join(sent) + "]");
+  Expect(f.delegate.calls, {"initialize /root"}, "no bad message");
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -752,6 +809,7 @@ int main() {
   PopupBoundsByWindow();
   AccessibilityToken();
   AccessibilityTokenBeforeCreation();
+  AccessibilityTokenCreatedInsideAnotherOp();
   WipeZeroes();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");

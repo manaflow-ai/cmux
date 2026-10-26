@@ -7,6 +7,8 @@ import Foundation
 /// The page view asks once per page it shows: a new shown tab, window or Core Animation context
 /// (``reset(browser:)``) starts over, and a refusal is kept until then, so an assistive client
 /// that reads the page view's children many times a second sends at most one request per page.
+/// Chromium building the page's tree (``retry()``) also starts over a refusal, and a refusal of a
+/// request already in flight when the tree came.
 /// A reply of an earlier page (``generation``) changes nothing, as a mojo reply to a closed
 /// receiver is dropped.
 struct ChromiumHostRemoteAccessibility {
@@ -28,6 +30,9 @@ struct ChromiumHostRemoteAccessibility {
     private(set) var generation: UInt64 = 0
     /// The remote element while ``Phase/connected``.
     private(set) var element: AnyObject?
+    /// Chromium built the page's tree while a request was in flight: the host ran it without the
+    /// tree, so a refusal of it starts over instead of standing.
+    private(set) var retryDue = false
 
     /// Starts a request for the shown page: its generation, or nil when none is due (no shown page,
     /// one in flight, refused, or connected).
@@ -42,21 +47,40 @@ struct ChromiumHostRemoteAccessibility {
     mutating func answered(_ element: AnyObject?, generation: UInt64) -> Bool {
         guard generation == self.generation, phase == .asking else { return false }
         self.element = element
-        phase = element == nil ? .refused : .connected
+        phase = element != nil ? .connected : (retryDue ? .idle : .refused)
+        retryDue = false
         return true
     }
 
+    /// Chromium built the shown page's tree: a refusal starts over (true: assistive clients must
+    /// read the children again, which sends the request), and a request in flight that the host
+    /// refuses starts over when the refusal comes.
+    mutating func retry() -> Bool {
+        switch phase {
+        case .refused:
+            phase = .idle
+            return true
+        case .asking:
+            retryDue = true
+            return false
+        case .idle, .connected:
+            return false
+        }
+    }
+
     /// The page view shows another page (`browser`), window or context: the element, a refusal
-    /// and any request in flight are of the old one. True when an element was shown, so
-    /// assistive clients must read the children again.
+    /// and any request in flight are of the old one. True when an element was shown or a request
+    /// was in flight (the read that sent it waits for a layout change), so assistive clients must
+    /// read the children again.
     @discardableResult
     mutating func reset(browser: Int32?) -> Bool {
-        let hadElement = element != nil
+        let readAgain = element != nil || phase == .asking
         generation &+= 1
         self.browser = browser
         element = nil
         phase = .idle
-        return hadElement
+        retryDue = false
+        return readAgain
     }
 }
 

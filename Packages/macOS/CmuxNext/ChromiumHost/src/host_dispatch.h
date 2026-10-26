@@ -34,7 +34,8 @@
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
-//                                              (task 049), as a text input watch is
+//                                              (task 049) and after the ack of the op whose
+//                                              call created it
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -261,6 +262,10 @@ class HostContext {
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;
   std::vector<control::Message> held_replies_;
+  // While Dispatch forwards held_events_: still the op's dispatch, so a browser one of them
+  // creates runs its held requests (RunHeldForCreation) only after the op's ack.
+  bool replaying_held_events_ = false;
+  std::vector<int32_t> created_during_replay_;
 
   // Client ids (minted by cmux, task 019) and Chromium's ids. An id with no
   // entry is the same on both sides.

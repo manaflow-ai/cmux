@@ -366,11 +366,17 @@ void HostContext::Dispatch(const control::Message& message) {
   if (ok && placed_browser) PlaceDevTools(Browser(placed_browser), placed_view);
   std::vector<HeldEvent> events;
   events.swap(held_events_);
+  replaying_held_events_ = true;
   for (const HeldEvent& e : events) ForwardEvent(e.kind, e.browser_id, e.request, e.a, e.b, e.s1.c_str(), e.s2.c_str());
+  replaying_held_events_ = false;
   std::vector<control::Message> replies;
   replies.swap(held_replies_);
   for (control::Message& reply : replies) Post(std::move(reply));
   if (!ok) Bad("a malformed op " + std::to_string(message.op));
+  // Browsers the op's events created run their held requests after the op's ack, each an op of its own.
+  std::vector<int32_t> created;
+  created.swap(created_during_replay_);
+  for (int32_t client : created) RunHeldForCreation(client);
 }
 
 void HostContext::Watch(uint16_t op, const std::vector<control::Field>& key) {
@@ -445,8 +451,11 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
-  // Never inside an op's dispatch (held_events_ above): each held request dispatches as an op of its own.
-  if (created) RunHeldForCreation(client);
+  if (created && replaying_held_events_) {
+    created_during_replay_.push_back(client);  // Dispatch runs them after its op's ack
+  } else if (created) {
+    RunHeldForCreation(client);
+  }
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
     delegate_.BrowserClosed();

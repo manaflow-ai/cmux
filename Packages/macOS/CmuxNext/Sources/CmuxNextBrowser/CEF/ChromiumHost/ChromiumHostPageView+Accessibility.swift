@@ -43,12 +43,10 @@ extension ChromiumHostPageView {
     }
 
     /// Chromium built the page's accessibility tree (an assistive client came, `CEFAccessibility`): a
-    /// page the host refused while it had none is asked again at the next read, which the layout
-    /// change prompts.
+    /// page the host refused while it had none, or refuses a request already in flight, is asked
+    /// again at the next read, which the layout change prompts.
     func retryRemoteAccessibility() {
-        guard remoteAccessibility.phase == .refused else { return }
-        resetRemoteAccessibility()
-        NSAccessibility.post(element: self, notification: .layoutChanged)
+        if remoteAccessibility.retry() { accessibilityBridge.layoutChanged(self) }
     }
 
     /// The page view shows `browser`'s page (a tab switch in its pane): the accessibility element
@@ -66,7 +64,7 @@ extension ChromiumHostPageView {
 
     private func resetRemoteAccessibility(browser: Int32?) {
         accessibilityWindowClose = nil
-        if remoteAccessibility.reset(browser: browser) { NSAccessibility.post(element: self, notification: .layoutChanged) }
+        if remoteAccessibility.reset(browser: browser) { accessibilityBridge.layoutChanged(self) }
     }
 
     /// Sends the tokens of this view and its window for the shown page, once per page.
@@ -83,12 +81,17 @@ extension ChromiumHostPageView {
     func remoteAccessibilityAnswered(_ token: [UInt8]?, generation: UInt64) {
         guard generation == remoteAccessibility.generation, remoteAccessibility.phase == .asking else { return }
         let element = token.flatMap { token in window.flatMap { accessibilityBridge.remoteElement(token, $0) } }
-        guard remoteAccessibility.answered(element, generation: generation), element != nil, let window else { return }
+        guard remoteAccessibility.answered(element, generation: generation) else { return }
+        guard element != nil, let window else {
+            // A refusal the tree's arrival made stale (``retryRemoteAccessibility()``): the next read asks again.
+            if remoteAccessibility.phase == .idle { accessibilityBridge.layoutChanged(self) }
+            return
+        }
         accessibilityWindowClose = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification,
                                                                      owner: "ChromiumHostPageView.accessibility") { [weak self] in
             self?.resetRemoteAccessibility()
         }
-        NSAccessibility.post(element: self, notification: .layoutChanged)
+        accessibilityBridge.layoutChanged(self)
     }
 
     /// `debug.cef`'s `page_accessibility`: idle, asking, refused or connected; nil in process.
@@ -103,8 +106,8 @@ extension ChromiumHostPageView {
     }
 }
 
-/// AppKit's remote accessibility calls (`NSAccessibilityRemoteUIElement`, CmuxNextRemoteLayer), so
-/// tests run the page view's exchange with no second process.
+/// AppKit's remote accessibility calls (`NSAccessibilityRemoteUIElement`, CmuxNextRemoteLayer) and
+/// its layout change post, so tests run the page view's exchange with no second process.
 struct ChromiumHostAccessibilityBridge {
     /// The token another process makes a remote element for `element` from; nil when AppKit gives none.
     var localToken: (Any) -> [UInt8]?
@@ -112,6 +115,8 @@ struct ChromiumHostAccessibilityBridge {
     var remoteElement: ([UInt8], NSWindow) -> AnyObject?
     /// The element of the remote tree under a screen point.
     var hitTest: (AnyObject, NSPoint) -> Any?
+    /// Tells assistive clients that `element`'s children changed, so they read them again.
+    var layoutChanged: (Any) -> Void
 
     /// AppKit's. The host's process is registered as one whose elements cmux presents, as a WKWebView
     /// registers its web process (`[NSAccessibilityRemoteUIElement registerRemoteUIProcessIdentifier:]`).
@@ -127,5 +132,6 @@ struct ChromiumHostAccessibilityBridge {
             element.topLevelUIElement = window
             return element
         },
-        hitTest: { element, point in (element as? NSAccessibilityRemoteUIElement)?.accessibilityHitTest(point) })
+        hitTest: { element, point in (element as? NSAccessibilityRemoteUIElement)?.accessibilityHitTest(point) },
+        layoutChanged: { element in NSAccessibility.post(element: element, notification: .layoutChanged) })
 }
