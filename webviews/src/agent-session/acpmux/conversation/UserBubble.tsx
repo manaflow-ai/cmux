@@ -14,13 +14,16 @@
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AcpmuxRow, PromptImage } from "../model";
+import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { useComposerSettings } from "../composerSettings";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
+import { InlinePromptContent } from "./InlinePromptContent";
+import { orderedInlineParts } from "./inlinePromptPresentation";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -38,6 +41,7 @@ export function UserBubble({
   pending?: (actions: ReactNode) => ReactNode;
 }) {
   const t = useT();
+  const { attachmentView } = useComposerSettings();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
@@ -72,6 +76,10 @@ export function UserBubble({
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
+  // A marked row owns its content order. Preserve local preview metadata (src/attachmentId) that
+  // the durable adapter intentionally omits while reconciling echoed records.
+  const inlineParts = useMemo(() => orderedInlineParts(row), [row]);
+  const showInline = attachmentView === "inline" && inlineParts !== undefined && inlineParts.some((part) => part.kind !== "text");
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -90,19 +98,23 @@ export function UserBubble({
   }
   return (
     <>
-      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {Boolean(files?.length) && (
+      {!showInline && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!showInline && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
         </div>
       )}
-      {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-          bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
+      {/* Marked prompts draw every part in ACP order. Unmarked/strip prompts keep the existing
+          text bubble and image band exactly as before. */}
+      {(showInline ? inlineParts!.length > 0 : text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          {showInline ? (
+            <InlinePromptContent rowId={row.id} parts={inlineParts!} show={show} />
+          ) : (
+            <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          )}
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
         </div>
@@ -189,8 +201,8 @@ export const SentImages = memo(function SentImages({
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
-      {images.map((image) => (
-        <SentImage key={image.id} image={image} />
+      {images.map((image, index) => (
+        <SentImage key={`${image.id}-${index}`} image={image} />
       ))}
     </div>
   );
@@ -220,7 +232,7 @@ const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const shown = useStableImage({ id: image.id, read: promptImage }, image);
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);

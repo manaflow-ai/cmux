@@ -164,8 +164,8 @@
    under it, so a transparent image still shows its content. */
 .cv-user__images img {
   display: block;
-  width: 120px;
-  height: 120px;
+  width: var(--cv-inline-tile);
+  height: var(--cv-inline-tile);
   object-fit: cover;
   border-radius: 12px;
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
@@ -4001,4 +4001,108 @@ article.acpmux-row:empty {
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
 .cv-waiting {
   color: var(--cv-text);
+}
+
+/* An explicitly ordered prompt's content. Images and video stay square so text can flow around
+   them without restoring the legacy strip's shape or moving repeated attachments together. */
+.cv-user__inline {
+  --cv-inline-tile: 120px;
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-inline-density="compact"] .cv-user__inline { --cv-inline-tile: 48px; }
+:root[data-inline-density="balanced"] .cv-user__inline { --cv-inline-tile: 64px; }
+:root[data-inline-density="spacious"] .cv-user__inline { --cv-inline-tile: 80px; }
+.cv-user__inline-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-user__inline-media {
+  position: relative;
+  display: inline-flex;
+  width: var(--cv-inline-tile);
+  height: var(--cv-inline-tile);
+  margin: 2px 4px;
+  vertical-align: middle;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.cv-user__inline-media-button {
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+}
+.cv-user__inline-image,
+.cv-user__inline-image-placeholder,
+.cv-user__inline-image-failed {
+  display: block;
+  width: var(--cv-inline-tile);
+  height: var(--cv-inline-tile);
+  object-fit: cover;
+}
+.cv-user__inline-image-placeholder {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.cv-user__inline-image-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+  text-align: center;
+}
+.cv-user__inline-file {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 280px);
+  margin: 2px 4px;
+  vertical-align: middle;
+}
+.cv-user__inline-pasted {
+  display: inline-block;
+  margin: 2px 4px;
+  vertical-align: middle;
+}
+.cv-user__inline-video {
+  isolation: isolate;
+}
+.cv-user__inline-video-play {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: white;
+  background: color-mix(in srgb, black 60%, transparent);
+}
+.cv-user__inline-video-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--agent-muted);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
+.cv-user__inline-video-length {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  z-index: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: white;
+  background: color-mix(in srgb, black 65%, transparent);
+  font-size: var(--text-caption);
+  line-height: 1.2;
 }

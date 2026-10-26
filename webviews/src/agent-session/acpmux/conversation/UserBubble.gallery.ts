@@ -95,6 +95,60 @@ const pastedPrompt = () => {
   );
 };
 
+const SWATCH_BEFORE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='100'%3E%3Crect width='160' height='100' fill='%233e3a4f'/%3E%3Ccircle cx='45' cy='50' r='30' fill='%23a98cff'/%3E%3C/svg%3E";
+const SWATCH_AFTER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='160'%3E%3Crect width='100' height='160' fill='%231b5e67'/%3E%3Ccircle cx='50' cy='80' r='30' fill='%237ce2d0'/%3E%3C/svg%3E";
+const inlinePrompt = () =>
+  claude(
+    chat([
+      user("Before the change After the change", 3, {
+        inlineParts: [
+          { kind: "text", text: "Before the change " },
+          { kind: "image", id: "gallery-before", blockIndex: 1, mimeType: "image/svg+xml", name: "before.png", src: SWATCH_BEFORE },
+          { kind: "text", text: " After the change " },
+          { kind: "image", id: "gallery-after", blockIndex: 3, mimeType: "image/svg+xml", name: "after.png", src: SWATCH_AFTER },
+        ],
+      }),
+      assistant("The two screenshots stay in the order you sent them.", 2.5),
+      summary(2.5, { status: "completed" }),
+    ]),
+  );
+const inlineVideo = () =>
+  claude(
+    chat([
+      user("The recording and its notes", 3, {
+        inlineParts: [
+          { kind: "text", text: "The recording " },
+          {
+            kind: "file",
+            name: "login-tests.mp4",
+            mimeType: "video/mp4",
+            uri: "/Users/you/src/atlas-web/out/login-tests.mp4",
+            video: { durationMs: 42_000, width: 160, height: 100, poster: SWATCH_BEFORE, frames: [] },
+          },
+          { kind: "text", text: " and the notes" },
+          { kind: "pasted", name: "run.log", text: "pass\npass" },
+        ],
+      }),
+      assistant("The poster remains square until the recording opens.", 2.5),
+      summary(2.5, { status: "completed" }),
+    ]),
+  );
+const inlineRepeated = () =>
+  claude(
+    chat([
+      user("Keep both copies", 3, {
+        inlineParts: [
+          { kind: "image", id: "gallery-same", blockIndex: 1, mimeType: "image/svg+xml", name: "same.png", src: SWATCH_BEFORE },
+          { kind: "text", text: " then the same image again " },
+          { kind: "image", id: "gallery-same", blockIndex: 3, mimeType: "image/svg+xml", name: "same.png", src: SWATCH_BEFORE },
+          { kind: "file", name: "same-original.png", uri: "/Users/you/src/atlas-web/shots/same-original.png", companionOf: 3 },
+        ],
+      }),
+      assistant("Repeated placements remain separate tiles; only the explicit companion is hidden.", 2.5),
+      summary(2.5, { status: "completed" }),
+    ]),
+  );
+
 /// A chat from 15 hours ago: its rows read "15 hours ago", their exact time above it on hover.
 const yesterday = () =>
   claude(
@@ -229,6 +283,21 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".cv-user__paste" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
       },
+    },
+    "inline-before-after": {
+      note: "Compact 48px tiles: before/after screenshots interleave with the sentence in send order; both square tiles remain visible.",
+      documentAttributes: { "inline-density": "compact" },
+      snapshot: inlinePrompt(),
+    },
+    "inline-video-and-paste": {
+      note: "Balanced 64px tiles: a local video's poster and a pasted chip keep their positions in one ordered bubble.",
+      documentAttributes: { "inline-density": "balanced" },
+      snapshot: inlineVideo(),
+    },
+    "inline-repeated-image": {
+      note: "Spacious 80px tiles: repeated identical images stay as two tiles; only an explicit companionOf file is omitted.",
+      documentAttributes: { "inline-density": "spacious" },
+      snapshot: inlineRepeated(),
     },
     "edit-tooltip": {
       note: "Play: hover the later prompt's pencil; the tooltip says Edit.",
