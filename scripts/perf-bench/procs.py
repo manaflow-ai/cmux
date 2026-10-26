@@ -27,6 +27,12 @@ and top's IDLEW of another user's process (`top_idlew`: WindowServer without roo
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
+`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): the task's
+base priority (`proc_pidinfo(PROC_PIDTASKINFO)` pti_priority) and the kernel's darwinbg bit and nice
+(`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit `taskinfo` prints, and pbi_nice). Neither read wakes the
+process. `ps -o pri` is not used: it prints the highest priority of the process's threads (adv_cmds ps, ki->curpri),
+which follows thread QoS and boosts, not the task's role.
+
 GPU time per process is the IORegistry's `accumulatedGPUTime` of each GPU user client (what Activity
 Monitor's GPU Time column reads): `gpu_ms_per_s`, None when the registry cannot be read.
 
@@ -42,7 +48,7 @@ process macOS counts the main pid responsible for (Safari's and cmux's
 WebKit XPC processes), and the Computer Use helper started with `--owner-pid <main pid>`.
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
-`coalition_from_words`, `coalition_rates`, `window_totals`) import and test on any OS.
+`coalition_from_words`, `coalition_rates`, `window_totals`, `priorities` with its reads passed) import and test on any OS.
 """
 from __future__ import annotations
 
@@ -314,6 +320,70 @@ def overhead(pid: int):
         return written, 0, 0, 0, 0
     return (written, info.threadnum, (info.messages_sent + info.messages_received) & 0xFFFFFFFF,
             (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
+
+
+class _BSDInfo(ctypes.Structure):
+    """`struct proc_bsdinfo` (sys/proc_info.h), read with PROC_PIDTBSDINFO: same user, no root."""
+    _fields_ = [("pbi_flags", ctypes.c_uint32), ("pbi_status", ctypes.c_uint32), ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32), ("pbi_ppid", ctypes.c_uint32), ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32), ("pbi_ruid", ctypes.c_uint32), ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32), ("pbi_svgid", ctypes.c_uint32), ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16), ("pbi_name", ctypes.c_char * 32), ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32), ("pbi_pjobc", ctypes.c_uint32), ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32), ("pbi_nice", ctypes.c_int32), ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64)]
+
+
+_PROC_PIDTBSDINFO = 3
+# sys/proc_info.h: the task runs darwin background now (PRIO_DARWIN_BG, a darwinbg role or a background QoS
+# ceiling: what `taskinfo` prints as darwinbg), and the part another process set on it.
+PROC_FLAG_DARWINBG = 0x8000
+PROC_FLAG_EXT_DARWINBG = 0x10000
+
+
+def bsd_state(pid: int):
+    """(darwinbg, nice) of `pid` now: whether the kernel runs it darwin background (pbi_flags) and its nice value
+    (pbi_nice); None when it cannot be read (gone, not macOS)."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _BSDInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG)), info.pbi_nice
+
+
+def task_priority(pid: int) -> int | None:
+    """The task's base priority (proc_pidinfo PROC_PIDTASKINFO pti_priority, bsd/kern/proc_info.c fill_taskprocinfo:
+    task->priority), the priority task_policy gives the task as a whole, not its busiest thread's; None when it
+    cannot be read."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return info.priority
+
+
+def priorities(pids, task_priority_of=task_priority, bsd_state_of=bsd_state) -> dict[int, dict]:
+    """{pid: {base, nice, darwinbg}} of `pids` now: the task's base priority (task_priority) and its darwinbg bit
+    and nice (bsd_state). A pid with neither read (gone) is left out; one unread value is None. Tests pass the
+    reads."""
+    found = {}
+    for pid in pids:
+        base = task_priority_of(pid)
+        bsd = bsd_state_of(pid)
+        if base is None and bsd is None:
+            continue
+        found[pid] = {"base": base, "darwinbg": bsd[0] if bsd else None, "nice": bsd[1] if bsd else None}
+    return found
 
 
 def _delta32(last: int, first: int) -> int:
