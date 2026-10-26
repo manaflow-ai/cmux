@@ -48,7 +48,8 @@ nonisolated final class ComputerUseHelperV2Child: Sendable {
 
 /// Starts the helper v2 executable (a fake in tests).
 nonisolated protocol ComputerUseHelperV2Spawning: Sendable {
-    func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child
+    /// Starts the helper off the caller's thread.
+    func spawn(executable: URL, environment: [String: String], logPath: String) async throws -> ComputerUseHelperV2Child
     /// SIGTERM to this exact pid, then reap it.
     func terminate(_ pid: pid_t)
 }
@@ -73,6 +74,9 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
 
     /// Resolved once from libsystem; tests inject their own.
     let disclaim: DisclaimFunction?
+    /// Spawns the helper off the main thread on the user-blocking launcher (Chrome's process launcher,
+    /// content/browser/child_process_launcher_helper.cc): Computer Use waits for it to start.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.computer-use-helper", priority: .userBlocking)
 
     init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim) {
         self.disclaim = disclaim
@@ -84,8 +88,18 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
         return unsafeBitCast(symbol, to: DisclaimFunction.self)
     }()
 
-    func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child {
+    func spawn(executable: URL, environment: [String: String], logPath: String) async throws -> ComputerUseHelperV2Child {
         guard let disclaim else { throw Failure.disclaimUnavailable }
+        let priority = launcher.priority
+        return try await launcher.run { () throws(Failure) -> ComputerUseHelperV2Child in
+            try Self.spawn(executable: executable, environment: environment, logPath: logPath, disclaim: disclaim,
+                           priority: priority)
+        }
+    }
+
+    /// ``spawn(executable:environment:logPath:)``'s work, on the launcher.
+    private static func spawn(executable: URL, environment: [String: String], logPath: String, disclaim: DisclaimFunction,
+                              priority: MayBlockPriority) throws(Failure) -> ComputerUseHelperV2Child {
         var toHelper: [Int32] = [-1, -1]
         var toHost: [Int32] = [-1, -1]
         guard pipe(&toHelper) == 0 else { throw Failure.spawn(errno) }
@@ -123,7 +137,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             envp.forEach { free($0) }
         }
         var pid: pid_t = 0
-        let status = posix_spawn(&pid, executable.path, &actions, &attributes, argv, envp)
+        let status = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, envp, priority: priority)
         guard status == 0 else {
             close(toHelper[1]); close(toHost[0])
             throw Failure.spawn(status)
@@ -156,7 +170,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             let thread = Thread {
                 var pending = Data()
                 var bytes = [UInt8](repeating: 0, count: 16 * 1024)
-                // wakeup-allow: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
+                // wakeup-allow: bounded: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
                 while true {
                     // concurrency-allow: dedicated reader Thread, never the main actor.
                     let count = read(descriptor, &bytes, bytes.count)

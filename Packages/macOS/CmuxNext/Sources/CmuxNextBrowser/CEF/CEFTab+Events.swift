@@ -9,7 +9,10 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
-        defer { CEFAgentURLGuard.check(self, after: event) }
+        defer {
+            CEFAgentURLGuard.check(self, after: event)
+            agentRelay.documentStateChanged()
+        }
         if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
             // A title that waited goes before this event, so the state sees them in order.
             titleTimer.cancel()
@@ -59,6 +62,8 @@ extension CEFTab {
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
+            // A document with no contentful paint (an empty body) shows as it is now.
+            firstContentFrame.contentShown()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
@@ -72,6 +77,7 @@ extension CEFTab {
             guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption { firstContentFrame.contentShown() } // the error page or the base shows now
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's
                 // omnibox shows it), even when Chromium sends no address
@@ -97,14 +103,11 @@ extension CEFTab {
             let faviconURL = URL(string: url)
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
-        case .progress(_, let value):
-            machine.apply(.progress(value))
-        case .fullscreen(_, let entering):
-            machine.apply(.contentFullscreenChanged(entering))
+        case .progress(_, let value): machine.apply(.progress(value))
+        case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
         case .findResult(_, let count, let active, let isFinal):
             findRequests.result(count: count, active: active, isFinal: isFinal)
-        case .closeRequested:
-            emit(.close)
+        case .closeRequested: emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
         case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
@@ -122,8 +125,7 @@ extension CEFTab {
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
-        case .devToolsMessage(_, let json):
-            agentRelay.deliver(json)
+        case .devToolsMessage(_, let json): agentRelay.deliver(json)
         default:
             break
         }

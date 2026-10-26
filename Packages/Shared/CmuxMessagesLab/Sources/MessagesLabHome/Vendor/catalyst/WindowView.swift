@@ -2271,11 +2271,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             y += spec.total
             // Drawn at this view's scale (weak: the canvas is this view's subview).
             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
-                Fixture.withRenderScale(self?.renderScale ?? 0) {
-                    Fixture.elevated = true
+                // cmux: elevated is this draw's own (p10-stability-040), not a process flag.
+                Fixture.withRenderScale(self?.renderScale ?? 0, elevated: true) {
                     // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
                     SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
-                    Fixture.elevated = false
                 }
             }
             v.layer.contentsScale = renderScale
@@ -2510,10 +2509,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let layout = ThreadHeaderDraw.layout(header, width: bounds.width)
         threadHeaderHits = layout.hits.map { ($0.0.offsetBy(dx: frame.minX, dy: frame.minY), $0.1) }
         let v = CanvasView(frame: frame) { [weak self] ctx, _ in
-            Fixture.withRenderScale(self?.renderScale ?? 0) {
-                Fixture.elevated = true
+            Fixture.withRenderScale(self?.renderScale ?? 0, elevated: true) { // cmux: the draw's own
                 ThreadHeaderDraw.draw(header, layout: layout, in: ctx)
-                Fixture.elevated = false
             }
         }
         v.layer.contentsScale = renderScale

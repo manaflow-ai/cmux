@@ -106,12 +106,14 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
+        // The chats' places and chips rest beside the launch snapshot (cx-6bgzj); with no snapshot file (tests) none are kept.
+        let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, warmup: services.agentPageWarmup,
-                                 mainWork: services.mainWork)
-        tabs.launchImages = services.launchImages
+                                 mainWork: services.mainWork, chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing)
+        (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
-        let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
+        tabs.createTabs = services.cache.createTabs
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).

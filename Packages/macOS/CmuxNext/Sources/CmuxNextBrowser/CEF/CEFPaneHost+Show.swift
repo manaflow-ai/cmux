@@ -38,10 +38,13 @@ extension CEFPaneHost {
     }
 }
 
-/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
-/// them up with the page's own clock. Debug level: nothing is written unless
-/// a `log stream --level debug` reads category "tab-switch".
+/// Tab switch timeline marks (cx-asb1), `activate` and `activated`: wall-clock
+/// ms, the clock of every other writer to category "tab-switch" (the control
+/// router's `request` and `run`, the pane's `show` and `shown`, the occlusion
+/// marks), so one log stream reads as one timeline. Debug level: nothing is
+/// written unless a `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 private func tabSwitchMark(_ name: String) {
+    // wall-clock: same timeline as the other tab-switch marks; the category moves to TraceClock in one change.
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read cmux's always-on signpost intervals and print p50/p95/max per name.
+"""Read cmux's always-on signpost intervals and print p50/p95/p99/max per name.
 
 The same names exist in Debug and Release builds (Packages/macOS/CmuxNext/Sources/
 CmuxNextSignposts/SignpostName.swift, plans/cmux-next/architecture-refactor-DESIGN.md
@@ -40,6 +40,11 @@ event went on to the pane):
   key.scroll_input_to_frame key.scroll_frame plus the begin's age_ms (the event's wait in the queue), for
                             events with an age: input to frame, the number Chrome reports for scrolls
 
+Percentiles come from scripts/perf-lab/perf_stats.py (summary: linear interpolation, the lab's one
+definition). With --app and --out, each signpost name's samples (its `*` row: every detail) are also written
+as one cmux-perf-result/v1 file through BenchApp.record (story --story, metric = the name, unit ms); the
+`.missed` and `.nested_loop` rows count runs kept out of a series, so they are not results.
+
 Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
 burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
 intervals only, so --category burst prints no rows).
@@ -57,6 +62,10 @@ Usage:
   perf-signposts.py --from FILE.ndjson [--json]     summarize a saved stream
   perf-signposts.py --save FILE.ndjson ...           also keep the raw stream (with its timebase)
   perf-signposts.py --allow-loss ...                 report instead of failing on lost messages
+  perf-signposts.py --pid PID --app APP --out DIR [--story NAME] [--session S] [--engine E] ...
+                                                     also write result-v1 per signpost name (APP: the
+                                                     running tagged bundle PID runs; a live stream only,
+                                                     never --from)
   perf-signposts.py --self-test                      check the parser on a built-in sample
 
 Without --seconds or a COMMAND it streams until Ctrl-C.
@@ -66,14 +75,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import signal
-import statistics
+import socket
 import subprocess
 import sys
 import threading
 import time
 from datetime import datetime
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)  # bench_launch (PERF_LAB, load_by_path, BenchApp) under `python3 -I` too
+import bench_launch  # noqa: E402
+from bench_launch import PERF_LAB, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 
 SUBSYSTEM = "com.cmuxterm.app.next"
 TIMESTAMP = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+)([+-]\d{4})$")
@@ -158,13 +176,12 @@ def parse(lines, timebase: tuple[int, int] | None) -> dict:
     return {"intervals": done, "lost": lost, "unpaired": len(open_intervals)}
 
 
-def percentile(values: list[float], fraction: float) -> float:
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round(fraction * (len(ordered) - 1))))
-    return ordered[index]
+# Row suffixes of runs kept out of a name's series: counted in the report, never a result.
+EXCLUDED_SUFFIXES = (".missed", ".nested_loop")
 
 
-def summarize(intervals: list[dict]) -> list[dict]:
+def groups_of(intervals: list[dict]) -> dict[tuple[str, str], list[float]]:
+    """{(name, detail): durations in ms}; the detail `*` holds every detail of the name."""
     groups: dict[tuple[str, str], list[float]] = {}
     for interval in intervals:
         # key.scroll_frame names who took the event at its end (target=layout|content), not at its begin.
@@ -177,19 +194,56 @@ def summarize(intervals: list[dict]) -> list[dict]:
         age = interval["fields"].get("input_age_ms")
         if name == "action.commit" and age and float(age) >= 0:
             groups.setdefault(("action.input_to_commit", detail), []).append(interval["ms"] + float(age))
+            groups.setdefault(("action.input_to_commit", "*"), []).append(interval["ms"] + float(age))
         scroll_age = interval["fields"].get("age_ms")
         if name == "key.scroll_frame" and scroll_age and float(scroll_age) >= 0:
             groups.setdefault(("key.scroll_input_to_frame", detail), []).append(interval["ms"] + float(scroll_age))
             groups.setdefault(("key.scroll_input_to_frame", "*"), []).append(interval["ms"] + float(scroll_age))
+    return groups
+
+
+def summarize(intervals: list[dict]) -> list[dict]:
+    """One row per (name, detail): the count and p50/p95/p99/max ms (perf_stats.summary)."""
     rows = []
-    for (name, detail), values in sorted(groups.items()):
+    for (name, detail), values in sorted(groups_of(intervals).items()):
+        stats = perf_stats.summary(values)
         rows.append({
-            "name": name, "detail": detail, "count": len(values),
-            "p50_ms": round(statistics.median(values), 3),
-            "p95_ms": round(percentile(values, 0.95), 3),
-            "max_ms": round(max(values), 3),
+            "name": name, "detail": detail, "count": stats["n"],
+            "p50_ms": round(stats["p50"], 3),
+            "p95_ms": round(stats["p95"], 3),
+            "p99_ms": round(stats["p99"], 3),
+            "max_ms": round(stats["max"], 3),
         })
     return rows
+
+
+def series(intervals: list[dict]) -> dict[str, list[float]]:
+    """{signpost name: every duration of it in ms} (its `*` row), without the excluded-run rows."""
+    return {name: values for (name, detail), values in sorted(groups_of(intervals).items())
+            if detail == "*" and not name.endswith(EXCLUDED_SUFFIXES)}
+
+
+def record(app, intervals: list[dict], story: str, engine: str = "none") -> dict[str, str]:
+    """Writes one result-v1 per signpost name through `app.record` (a BenchApp holding its launch's features
+    snapshot); returns {name: path or "not recorded: <reason>"}. A name it cannot record is reported, not raised."""
+    perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+    written = {}
+    for name, samples in series(intervals).items():
+        try:
+            written[name] = str(app.record(story, name, "ms", samples, better="lower", engine=engine))
+        except (bench_launch.RecordError, perf_result.ResultError) as error:
+            written[name] = f"not recorded: {error}"
+    return written
+
+
+def bench_app(path: str, out: str, session: str, pid: int):
+    """The running tagged app at `path` as a BenchApp that only records (no launch, no teardown), attached to the
+    socket that answers its features.list now (BenchApp.attach). Raises RecordError when `pid`, the process the
+    stream read, is not a process of that bundle: its build and features would label another process's samples."""
+    app = bench_launch.BenchApp(path, out=out, teardown=False, perf_session=session)
+    if pid not in app.running_pids():
+        raise bench_launch.RecordError(f"pid {pid} is not a process of {app.app}")
+    return app.attach()
 
 
 class Recording:
@@ -322,11 +376,161 @@ def self_test() -> int:
     assert abs(rows[("key.scroll_input_to_frame", "layout")]["p50_ms"] - 6.0) < 1e-6, rows
     assert rows[("key.scroll_input_to_frame", "layout")]["count"] == 1, rows
     assert abs(rows[("key.scroll_input_to_frame", "content")]["p50_ms"] - 2.0) < 1e-6, rows
+    check_percentiles()
+    check_results(parsed["intervals"])
+    check_cli()
     print("self-test ok")
     return 0
 
 
-def main() -> int:
+def check_percentiles() -> None:
+    """Rows carry p99 and use perf_stats' linear interpolation (the old private percentile rounded to the
+    nearest rank: p95 of 1..20 was 19, now 19.05)."""
+    rows = summarize([{"name": "action.commit", "category": "action", "ms": float(v), "at_s": 0.0,
+                       "fields": {"id": "tab.new"}} for v in range(1, 21)])
+    row = next(r for r in rows if r["detail"] == "tab.new")
+    assert (row["count"], row["p50_ms"], row["p95_ms"], row["p99_ms"], row["max_ms"]) == (20, 10.5, 19.05, 19.81, 20.0), row
+    assert all("p99_ms" in r for r in rows), rows
+
+
+class FakeRecorder:
+    """BenchApp.record's shape: builds and writes a real result-v1 (perf_result) with a fixed build and host."""
+
+    def __init__(self, out: str):
+        self.out = out
+        self.writer = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+        self.run = self.writer.Run(id="0" * 32, started_at="2026-10-26T00:00:00.000000Z")
+
+    def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+        w = self.writer
+        host = w.Host(fingerprint="a" * 64, host_class="m6-16gb-120hz", chip="Apple M6", macos="26.1",
+                      macos_build="25B78", display_hz=120.0)
+        result = w.Result(story=story, metric=metric, unit=unit, better=better, samples=list(samples),
+                          build=w.Build(sha="b" * 40, config="bench", measure_version=1), host=host,
+                          engine=engine, session="light", run=self.run, target_ref=target_ref)
+        return w.write_ndjson(self.out, [result])
+
+
+def check_results(intervals: list[dict]) -> None:
+    """record() writes one valid result-v1 per signpost name (the `*` samples, missed and nested-loop runs out)
+    and reports a name it cannot record instead of raising."""
+    import tempfile
+    names = series(intervals)
+    assert set(names) == {"action.commit", "action.gate", "action.input_to_commit", "action.perform",
+                          "key.scroll_frame", "key.scroll_input_to_frame"}, names
+    assert len(names["action.commit"]) == 2 and len(names["action.perform"]) == 1, names
+    with tempfile.TemporaryDirectory() as out:
+        written = record(FakeRecorder(out), intervals, "signposts")
+        assert set(written) == set(names) and not any(v.startswith("not recorded") for v in written.values()), written
+        results = {r.metric: r for r in load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py")).read_dir(out)}
+        assert set(results) == set(names), results
+        assert sorted(results["action.commit"].samples) == sorted(names["action.commit"]), results["action.commit"]
+        assert results["action.commit"].unit == "ms" and results["action.commit"].better == "lower"
+
+    class Refuses:
+        def record(self, *args, **kwargs):
+            raise bench_launch.RecordError("no features.list snapshot")
+
+    refused = record(Refuses(), intervals, "signposts")
+    assert all(v == "not recorded: no features.list snapshot" for v in refused.values()), refused
+
+
+def check_cli() -> None:
+    """The command line's recording path: --app pairs with --out and a live --pid stream only; run() puts one
+    result-v1 path per name in the JSON report and the text report; a stream that lost messages, or a pid that is
+    not a process of --app, writes nothing; bench_app attaches to whichever socket candidate answers."""
+    import contextlib
+    import io
+    import tempfile
+    for argv in (["--app", "cmux DEV x.app", "--pid", "1"], ["--out", "/tmp/x", "--pid", "1"],
+                 ["--app", "cmux DEV x.app", "--out", "/tmp/x", "--from", "saved.ndjson"], ["--json"]):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                parse_args(argv)
+            except SystemExit as error:
+                assert error.code == 2, (argv, error.code)
+            else:
+                raise AssertionError(f"parse_args accepted {argv}")
+    lossless = [line for line in SAMPLE.splitlines() if "lossEvent" not in line]
+    assert parse(lossless, None)["lost"] == 0
+    names = set(series(parse(lossless, None)["intervals"]))
+    with tempfile.TemporaryDirectory() as out:
+        args = parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1", "--json", "--allow-loss"])
+        made = []
+
+        def factory(given):
+            assert (given.app, given.out, given.pid) == ("cmux DEV x.app", out, 1), given
+            made.append(FakeRecorder(out))
+            return made[-1]
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            assert run(args, lossless, None, factory, printed) == 0
+        results = json.loads(printed.getvalue())["results"]
+        assert set(results) == names and all(os.path.isfile(path) for path in results.values()), results
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            run(parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1"]), lossless, None, factory, printed)
+        text = printed.getvalue().splitlines()
+        assert all(any(line.startswith(f"perf-signposts: result-v1 {name}: {out}") for line in text) for name in names), text
+
+    with tempfile.TemporaryDirectory() as out:
+        def never(_):
+            raise AssertionError("a lost stream must not reach the app")
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            status = run(parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1", "--json", "--allow-loss"]),
+                         SAMPLE.splitlines(), None, never, printed)
+        results = json.loads(printed.getvalue())["results"]
+        assert status == 0 and results and all(v == "not recorded: log stream lost messages 1 time(s)"
+                                               for v in results.values()), results
+        assert not os.listdir(out), os.listdir(out)
+    check_bench_app()
+
+
+def check_bench_app() -> None:
+    """bench_app refuses a pid that is not a process of the bundle, and attach() finds a socket that answers on a
+    later candidate (/tmp here, not the state folder)."""
+    import tempfile
+    tag = f"perf-signposts-selftest-{os.getpid()}"
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+        bundle = os.path.join(root, f"cmux DEV {tag}.app")
+        os.makedirs(bundle)
+        try:
+            bench_app(bundle, out, "light", os.getpid())
+        except bench_launch.RecordError as error:
+            assert str(error) == f"pid {os.getpid()} is not a process of {os.path.realpath(bundle)}", error
+        else:
+            raise AssertionError("bench_app accepted a pid outside the bundle")
+
+        path = f"/tmp/cmux-debug-{tag}.sock"
+        assert path in bench_launch.socket_candidates(tag)[1:], bench_launch.socket_candidates(tag)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        try:
+            server.listen(1)
+
+            def answer() -> None:
+                conn, _ = server.accept()
+                with conn:
+                    conn.makefile().readline()
+                    reply = {"ok": True, "result": {"features": [{"name": "a", "state": "on", "source": "default"}],
+                                                    "features_hash": "h", "safe_mode": False}}
+                    conn.sendall((json.dumps(reply) + "\n").encode())
+
+            threading.Thread(target=answer, daemon=True).start()
+            app = bench_launch.BenchApp(bundle, out=out, teardown=False).attach()
+            assert app.socket == path, app.socket
+            assert app.features == ({"a": {"state": "on", "source": "default"}}, "h", False), app.features
+        finally:
+            server.close()
+            os.unlink(path)
+
+
+def parse_args(argv: list[str] | None = None):
+    """The command line, checked (parser.error, exit 2, on a bad combination)."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pid", type=int)
     parser.add_argument("--from", dest="source")
@@ -337,34 +541,70 @@ def main() -> int:
     parser.add_argument("--allow-loss", action="store_true")
     parser.add_argument("--require-input-age", action="store_true",
                         help="exit 3 when user action.commit runs exist and none has input_age_ms >= 0")
+    parser.add_argument("--app", help="the running tagged bundle the stream reads: with --out, write result-v1")
+    parser.add_argument("--out", help="the folder result-v1 files go to (with --app)")
+    parser.add_argument("--story", default="signposts", help="result-v1 story (default signposts)")
+    parser.add_argument("--session", default="light", help="result-v1 session: light, stress or corpus:<id>")
+    parser.add_argument("--engine", default="none", choices=["chromium", "webkit", "none"],
+                        help="result-v1 engine (default none)")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command and args.command[0] == "--":
         args.command = args.command[1:]
     if args.self_test:
-        return self_test()
-    timebase = local_timebase()
-    if args.source:
-        with open(args.source) as handle:
-            lines = handle.read().splitlines()
-    elif args.pid:
-        lines = stream(args)  # the timebase header first (Recording.stop)
-    else:
+        return args
+    if bool(args.app) != bool(args.out):
+        parser.error("--app and --out go together")
+    if args.app and args.source:
+        # A saved stream carries no build or features: --app would label it with the bundle and process of now.
+        parser.error("--app records only a live stream (--pid), never a saved one (--from)")
+    if not args.source and not args.pid:
         parser.error("--pid or --from is required")
-    if args.save:
-        with open(args.save, "w") as handle:
-            handle.write("\n".join(lines) + "\n")
+    return args
+
+
+def live_app(args):
+    """The BenchApp a live stream's results go through: the bundle --app names, checked to run --pid."""
+    return bench_app(args.app, args.out, args.session, args.pid)
+
+
+def results_of(args, parsed: dict, app_factory) -> dict[str, str] | None:
+    """{name: result-v1 path or "not recorded: <reason>"} with --app, else None."""
+    if not args.app:
+        return None
+    names = series(parsed["intervals"])
+    if parsed["lost"]:
+        # A stream that lost messages is not a fair sample (even with --allow-loss): it goes to no series.
+        return {name: f"not recorded: log stream lost messages {parsed['lost']} time(s)" for name in names}
+    try:
+        app = app_factory(args)
+    except bench_launch.RecordError as error:
+        return {name: f"not recorded: {error}" for name in names}
+    return record(app, parsed["intervals"], args.story, args.engine)
+
+
+def run(args, lines: list[str], timebase, app_factory=live_app, out=None) -> int:
+    """Summarizes `lines` (and with --app writes result-v1 through `app_factory(args)`); prints the report to `out`
+    (stdout) and returns the exit status."""
+    out = out or sys.stdout
     parsed = parse(lines, timebase)
     rows = summarize(parsed["intervals"])
     status = 2 if parsed["lost"] and not args.allow_loss else 0
+    results = results_of(args, parsed, app_factory)
     if args.json:
-        print(json.dumps({"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}))
+        report = {"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}
+        if results is not None:
+            report["results"] = results
+        print(json.dumps(report), file=out)
     else:
-        print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}")
-        print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'max':>9}")
+        print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}", file=out)
+        print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}", file=out)
         for row in rows:
-            print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} {row['p95_ms']:9.3f} {row['max_ms']:9.3f}")
+            print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} "
+                  f"{row['p95_ms']:9.3f} {row['p99_ms']:9.3f} {row['max_ms']:9.3f}", file=out)
+        for name, where in (results or {}).items():
+            print(f"perf-signposts: result-v1 {name}: {where}", file=out)
     if missing_input_age(parsed["intervals"]):
         print("perf-signposts: WARNING: user action runs carry no input age (input_age_ms -1 on every one): "
               "input to commit is empty; the App's dispatchingInputEvent wiring or the scenario is wrong", file=sys.stderr)
@@ -374,6 +614,22 @@ def main() -> int:
         print(f"perf-signposts: log stream lost messages {parsed['lost']} time(s); the sample is not complete "
               "(rerun, or pass --allow-loss to keep it)", file=sys.stderr)
     return status
+
+
+def main() -> int:
+    args = parse_args()
+    if args.self_test:
+        return self_test()
+    timebase = local_timebase()
+    if args.source:
+        with open(args.source) as handle:
+            lines = handle.read().splitlines()
+    else:
+        lines = stream(args)  # the timebase header first (Recording.stop)
+    if args.save:
+        with open(args.save, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+    return run(args, lines, timebase)
 
 
 if __name__ == "__main__":

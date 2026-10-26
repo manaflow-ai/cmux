@@ -683,6 +683,10 @@ lists dictionary-valued fields whose bytes change on purpose. Test: SWIFT(CmuxNe
 Change: `DaemonWireEvent` with a case per event plus `unknown(name, raw)`; `decode(line:)` finds the name with a
 byte scan (full-parse fallback) then decodes once; `decode(eventID:payload:)` for TYPED_EVENT. Acceptance: a
 counting decoder over 20 fixture lines shows 1 decode per event. Test: SWIFT(CmuxNextWireGenTests).
+A TYPED_EVENT payload is the event's JSON object, `event` included; an id the table does not know is `unknown`,
+never an error. CmuxNextWireGenPlugin builds the fixture schema's `DaemonWireEvent` into CmuxNextIPCTests
+(`--event-output`), where the counted decode runs. Follow-up p05-ipc-195 (after 020) passes `--event-output` for
+CmuxNextIPC itself, once TypeEmitter's payload types build.
 
 **p05-ipc-023 method tables.** Files: cmux-tui/crates/cmux-ipc/build.rs, cmux-tui/crates/cmux-ipc/src/methods.rs,
 app:CmuxNextWireGen/TableEmitter.swift, app:CmuxNextIPC/MethodTable.swift. Change: per-family dense arrays

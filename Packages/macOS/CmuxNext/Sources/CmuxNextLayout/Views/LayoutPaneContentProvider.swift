@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -74,6 +75,9 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// Presses the root's intercept handled while render-server springs ran on its active screen
+    /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
+    var pressesMidRenderSpring = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -92,7 +96,10 @@ final class LayoutViewContext {
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
-    var dragFrameInput: PointerFrameCoalescers?
+    var dragFrameInput: FrameInputCoalescers?
+    /// A strip pan on the motion container shows at each display frame's time, resampled
+    /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
+    var resamplesStripPan = false
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.

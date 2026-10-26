@@ -1,9 +1,16 @@
 import AppKit
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// Tells a ``ThinScroller`` where the pointer is over its scroll view, so the knob shows and widens
 /// as the pointer nears the trailing edge, and when the user scrolls the view (AppKit's live scroll
 /// notification), so the knob shows then, as macOS overlay scrollers do. One tracking area on the
 /// scroll view, pointer events only: nothing runs on a key press.
+///
+/// With its window's frames (``HoverFrameInputHosting``, feature `pointerFrameHover`, read when the
+/// scroller joins the window) the moves report on the window's frame: the first of a frame interval in
+/// its own turn, the rest once at the frame, at the latest point (``PointerFrameHover``). An enter
+/// reports at once; an exit drops the waiting moves.
 @MainActor
 final class ThinScrollerProximity: NSResponder {
     private weak var scroller: ThinScroller?
@@ -11,11 +18,17 @@ final class ThinScrollerProximity: NSResponder {
     private var area: NSTrackingArea?
     private var liveScroll: (any NSObjectProtocol)?
     private let notificationCenter: NotificationCenter
+    /// The moves on the host window's coalescer.
+    let moves: PointerFrameHover
 
     init(scroller: ThinScroller, host: NSView, notificationCenter: NotificationCenter) {
         self.scroller = scroller
         self.host = host
         self.notificationCenter = notificationCenter
+        moves = PointerFrameHover(owner: "ThinScrollerProximity", view: host) { [weak scroller, weak host] point in
+            guard let host, let scroller, scroller.superview === host else { return }
+            scroller.pointerMoved(to: host.convert(point, from: nil))
+        }
         super.init()
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
                                   owner: self, userInfo: nil)
@@ -36,15 +49,30 @@ final class ThinScrollerProximity: NSResponder {
 
     /// Removes the tracking area (the scroller is leaving its scroll view).
     func detach() {
+        moves.cancel()
         if let area { host?.removeTrackingArea(area) }
         area = nil
         if let liveScroll { notificationCenter.removeObserver(liveScroll) }
         liveScroll = nil
     }
 
-    override func mouseEntered(with event: NSEvent) { report(event) }
-    override func mouseMoved(with event: NSEvent) { report(event) }
-    override func mouseExited(with event: NSEvent) { scroller?.pointerMoved(to: nil) }
+    override func mouseEntered(with event: NSEvent) {
+        moves.flush()
+        report(event)
+    }
+
+    /// The scroller joined `window` (or left every window): its moves wait on that window's frames.
+    func windowChanged(_ window: NSWindow?) {
+        moves.frames = (window as? HoverFrameInputHosting)?.hoverFrameInput
+    }
+
+    override func mouseMoved(with event: NSEvent) { moves.moved(event) }
+
+    override func mouseExited(with event: NSEvent) {
+        // Leaving the view settles the knob: the waiting moves would only widen it on the way out.
+        moves.cancel()
+        scroller?.pointerMoved(to: nil)
+    }
 
     private func report(_ event: NSEvent) {
         guard let host, let scroller, scroller.superview === host else { return }

@@ -165,14 +165,17 @@ public final class LayoutRootView: NSView {
     /// and the drop highlight follow through it.
     /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
     /// their own trace runtime.
+    /// `hiddenWork` is the app's count of work done while off screen (its passes while ``isOffScreen``); nil
+    /// where nobody reads it.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
                 input: InputEventTap? = nil, mainWork: MainWorkScheduler,
-                motionSignposter: Signposter = .motion) {
+                motionSignposter: Signposter = .motion, hiddenWork: HiddenLayoutWork? = nil) {
         self.model = model
         inputTap = input
+        self.hiddenWork = hiddenWork
         motionTrace = LayoutMotionTrace(signposter: motionSignposter)
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
@@ -552,6 +555,8 @@ public final class LayoutRootView: NSView {
     private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
+            // A resampled pan's event that waited for this frame shows now, unresampled.
+            for view in screenViews.values where !view.isHidden { view.presentFramePan(at: nil) }
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
@@ -564,8 +569,8 @@ public final class LayoutRootView: NSView {
         let policy = Motion.panes.policy
         var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
-            // Pan events that waited in the last frame show first, then the springs step.
-            if view.displayFrameBegan() { panning = true }
+            // Pan events that waited in the last frame show first (resampled at the frame's time), then the springs step.
+            if view.displayFrameBegan(at: driver.frameTime) { panning = true }
             if view.step(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
@@ -583,7 +588,7 @@ public final class LayoutRootView: NSView {
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan that moves the frames keeps the ticks until its finger lifts
-        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps them only resampled.
         return moving || panning
     }
 
@@ -592,8 +597,13 @@ public final class LayoutRootView: NSView {
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
-        // The landing frame synced while still in motion: the window hears the rest now (catchers).
-        if !moving { reportInteractiveRects() }
+        guard !moving else { return }
+        // The landing frame synced while still in motion: the window hears the rest now (catchers), and content
+        // that follows its pane's place in the window hears it once (`PanePlacementFollowing`).
+        reportInteractiveRects()
+        for screen in screenViews.values where !screen.isHidden {
+            for host in screen.displayedHosts { host.settlePlacement() }
+        }
     }
 
     /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
@@ -631,12 +641,17 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// Whether its workspace is off screen (parked on no screen), set by the workspace's controller: its passes
+    /// then count in ``HiddenLayoutWork/layoutPasses``.
+    public var isOffScreen = false
+    private let hiddenWork: HiddenLayoutWork?
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
+        if isOffScreen { hiddenWork?.noteLayoutPass() }
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {

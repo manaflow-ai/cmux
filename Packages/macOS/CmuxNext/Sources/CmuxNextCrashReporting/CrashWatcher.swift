@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -83,9 +84,13 @@ struct CrashWatcher: Sendable {
         case spawn(Int32)
     }
 
-    /// Spawns the watcher for `pid`. The returned write end is close-on-exec and never raises
-    /// SIGPIPE (a write after the watcher ended returns EPIPE). Blocking (`posix_spawn`): call it
-    /// off the main thread.
+    /// The watcher's priority: nobody waits on it until a crash, and its `sample` and SIGKILL then need no
+    /// more than utility. Best effort clamps it at utility, with what it runs (`sample`).
+    static let priority = MayBlockPriority.bestEffort
+
+    /// Spawns the watcher for `pid` at ``priority``. The returned write end is close-on-exec and never
+    /// raises SIGPIPE (a write after the watcher ended returns EPIPE). Blocking (`posix_spawn`):
+    /// ``install(sampleFile:)`` calls it on a ``ChildProcessLauncher``.
     func spawn(watching pid: pid_t) throws(SpawnError) -> Spawned {
         var ends: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else { throw .pipe(errno) }
@@ -130,7 +135,9 @@ struct CrashWatcher: Sendable {
         let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
         var child: pid_t = 0
         let status = withCStrings(arguments) { argv in
-            withCStrings(environment) { envp in posix_spawn(&child, "/bin/zsh", &actions, &attributes, argv, envp) }
+            withCStrings(environment) { envp in
+                blockingPosixSpawn(&child, "/bin/zsh", &actions, &attributes, argv, envp, priority: Self.priority)
+            }
         }
         guard status == 0 else {
             close(writeEnd)
@@ -145,7 +152,7 @@ struct CrashWatcher: Sendable {
     static func install(sampleFile: String) {
         let watcher = CrashWatcher(sampleFile: sampleFile)
         let app = getpid()
-        DispatchQueue.global(qos: .utility).async {
+        ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.crash-watcher", priority: priority).post {
             guard watcherDescriptor < 0, let spawned = try? watcher.spawn(watching: app) else { return }
             watcherDescriptor = spawned.writeEnd
         }
@@ -162,10 +169,10 @@ struct CrashWatcher: Sendable {
 }
 
 /// Runs `body` with `strings` as a NULL-terminated C string array (argv / envp).
-private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>?) -> R) -> R {
+private func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
     let pointers = strings.map { strdup($0) } + [nil]
     defer { pointers.forEach { free($0) } }
-    return pointers.withUnsafeBufferPointer { body($0.baseAddress) }
+    return body(pointers)
 }
 
 // Written once, off the main thread, before any crash path can read it in practice; a signal

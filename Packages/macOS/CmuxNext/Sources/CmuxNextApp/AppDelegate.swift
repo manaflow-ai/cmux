@@ -211,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
+            DebugTimings.markLaunch("first_window_presented")  // launch.first_window ends here (once per process)
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
@@ -233,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // panel and command page, so the first open costs what later opens cost (a launcher panel opens in
         // one frame); then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens
         // warm; then the system file picker made ahead, so the first click is not cold.
-        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames,
+        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames, prewarmPaletteStrings: { PaletteController.prewarmStrings() },
                                preparePalette: { [weak services] in _ = services?.palette.prepare(step: $0) },
                                prepareIconPicker: { [weak services] in services?.iconPicker.prepare() },
                                warmOpenPanel: { [weak services] in services?.openPanel.warmWhenIdle() }).post(on: order.startup)
@@ -270,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
-                                                   contextMenus: services.contextMenus)
+                                                   contextMenus: services.contextMenus, mainWork: services.mainWork)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)
@@ -324,9 +325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
+        let statusWrites = services.work.sequence("settings.managed-status")
         settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
-            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .lane(.files, .bestEffort), write)
+            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
         }
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })

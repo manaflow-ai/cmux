@@ -28,6 +28,8 @@ final class PaneHostView: NSView, RestingPlacement {
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
+    /// The window frame changed since the content last heard its place settle (``settlePlacement()``).
+    private var placementUnsettled = false
 
     /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
     var renderSpringsInFlight = 0
@@ -296,24 +298,38 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
     private var heldAnchor: PaneMotionAnchor?
 
-    /// Tells the content when the pane's frame in the window changed.
-    func noteWindowFrame() {
-        guard let reporter, window != nil else { return }
+    /// Tells the content when the pane's frame in the window changed, and, out of layout motion (`inMotion`
+    /// false) and the window's content-area motion, that its place is final (``settlePlacement()``). A content-area
+    /// motion's landing tells it (`NSView.notifyPaneMotionSettled`).
+    func noteWindowFrame(inMotion: Bool) {
+        guard window != nil else { return }
         let frame = convert(bounds, to: nil)
-        guard frame != lastWindowFrame else { return }
-        lastWindowFrame = frame
-        reporter.paneFrameInWindowDidChange()
+        if frame != lastWindowFrame {
+            lastWindowFrame = frame
+            placementUnsettled = true
+            reporter?.paneFrameInWindowDidChange()
+        }
+        if !inMotion, !isInPaneMotion { settlePlacement() }
     }
+
+    /// Tells the content (`PanePlacementFollowing`) once that the host's place in the window is final, when it
+    /// moved since the content last heard: the layout calls it when its motion ends (`LayoutRootView.setLayoutInMotion`).
+    func settlePlacement() {
+        guard placementUnsettled, window != nil else { return }
+        placementUnsettled = false
+        content.notifyPanePlacementSettled()
+    }
+
+    /// `RestingPlacement`: the render server shows this host's spring, its frame set at rest at the start.
+    var framePlacedAtRest: Bool { isOnRenderSpring || !isOnLayoutSpring }
 
     /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
     /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
     /// not take clicks meant for the view beside the area. Nil outside an area.
     var areaHitClip: CGRect?
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
-        return super.hitTest(point)
-    }
+    /// Presentation-layer reads of its hit tests (`PaneHostView+RenderSpring.swift`), cumulative: none at rest.
+    var presentedHitReads = 0
 
     /// Clips the host to `rect` (its own coordinates): the part of it inside its scroll area's
     /// window, and the strip's range it keeps while a zoom lifts the strip container; nil removes the

@@ -104,6 +104,28 @@ class PercentileTests(unittest.TestCase):
         self.assertEqual(len(header), len(cells))
 
 
+class MainSpanTests(unittest.TestCase):
+    """p08-startup 033: main() is a per-run span against its 10 ms budget, from the marks main() records in order."""
+
+    def test_the_span_is_per_run_and_counts_runs_over_the_budget(self):
+        runs = [{"main_start": 40.0 + i, "main.run": 40.0 + i + 4.0 + i} for i in range(10)]
+        line = bs.main_span_summary(runs)
+        self.assertIn("main_start -> main.run", line)
+        self.assertIn("max 13.0", line)
+        self.assertIn("n 10", line)
+        self.assertTrue(line.endswith("3 over 10 ms"), line)
+
+    def test_a_build_without_both_marks_prints_no_span(self):
+        self.assertIsNone(bs.main_span_summary([{"main_start": 3.0}]))
+        self.assertIsNone(bs.main_span_summary([{"main_start": 3.0, "main.run": "garbled"}]))
+
+    def test_main_step_rows_are_in_main_order_between_its_first_and_last_mark(self):
+        names = [mark for mark, _ in bs.MARKS]
+        steps = names[names.index("main_start"):names.index("main.run") + 1]
+        self.assertEqual(steps, ["main_start", "main.environment_frozen", "main.warmup_started", "main.app_environment",
+                                 "main.launch_reads", "main.prestart", "main.delegate", "main.nsapp", "main.run"])
+
+
 class MarkLineTests(unittest.TestCase):
     def test_times_values_and_names(self):
         self.assertEqual(bs.parse_mark_line(b"first_window_frame_committed 151.5"), ("first_window_frame_committed", 151.5))

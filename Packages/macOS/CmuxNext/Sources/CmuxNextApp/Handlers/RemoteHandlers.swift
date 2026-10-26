@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWakeups
 
 extension SSHService {
     /// The app's SSH machines (`AppServices.ssh`), made on first use (the `SSH.start` post, a remote
@@ -11,7 +12,8 @@ extension SSHService {
     /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
     /// The install offer and the current remote-hosts policy are set before any reader gets it.
     static func made(for services: AppServices) -> SSHService {
-        let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork)
+        let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork,
+                              work: services.work)
         services.madeSSH = made
         made.offerInstall = { [weak registry = services.registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).

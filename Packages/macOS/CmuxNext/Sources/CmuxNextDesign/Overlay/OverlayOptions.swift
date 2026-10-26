@@ -86,10 +86,6 @@ public final class OverlayHandle {
     let id: Int
     /// The clip of a `.pane` overlay (its pane minus the occluders).
     var clipView: OverlayClipView?
-    /// Clears the host's region cache when the content resizes on its own.
-    var frameObserver: (any NSObjectProtocol)?
-    /// The content's own `postsFrameChangedNotifications`, set back on dismiss.
-    var contentPostedFrameChanges = false
     public internal(set) var options: OverlayOptions
     let content: NSView
     /// What automation calls this overlay (a toast's id, a dialog's spec id), set by its presenter; nil for
@@ -121,6 +117,14 @@ public final class OverlayHandle {
     public func update(paneClip clip: NSRect) {
         guard case .pane = options.effectiveLayer else { return }
         options.layer = .pane(clip: clip)
+        host?.layout(self)
+    }
+
+    /// The content set its own frame size (a card sized to new rows): the host places it again and
+    /// takes or lets go of the mouse under a pointer that did not move. Chromium's bubble owner does the
+    /// same with `SizeToContents()` (ui/views/bubble/bubble_dialog_delegate.cc). A content sized by
+    /// Auto Layout needs no call: its holder's `layout()` reads it.
+    public func contentDidResize() {
         host?.layout(self)
     }
 

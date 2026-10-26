@@ -9,6 +9,8 @@ use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
 
+use cmux_threads::ThreadQos;
+
 use crate::child::Child;
 use crate::stdio::Stdio;
 
@@ -56,6 +58,8 @@ pub struct Command {
     /// [`Command::creation_flags`].
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
+    /// [`Command::qos_ceiling`].
+    pub(crate) qos_ceiling: Option<ThreadQos>,
 }
 
 impl Command {
@@ -89,6 +93,7 @@ impl Command {
             open_file_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
+            qos_ceiling: None,
         }
     }
 
@@ -309,6 +314,19 @@ impl Command {
         self
     }
 
+    /// The highest QoS class any thread of the child may run at, Utility or
+    /// Background ([`ThreadQos`] order): a helper (git, ss/netstat, hooks)
+    /// names `cmux_threads::HELPER_CHILD`, so it never competes with the
+    /// echo or request thread that started it. macOS:
+    /// `posix_spawnattr_set_qos_class_np`, which takes only those classes;
+    /// the spawning thread's class is not touched. Linux and Windows: no
+    /// effect; the child keeps its creator's nice value. A higher class
+    /// makes the spawn fail with `InvalidInput`.
+    pub fn qos_ceiling(&mut self, qos: ThreadQos) -> &mut Self {
+        self.qos_ceiling = Some(qos);
+        self
+    }
+
     /// Windows: the process creation flags (`DETACHED_PROCESS`,
     /// `CREATE_NEW_PROCESS_GROUP`, ...), as
     /// `std::os::windows::process::CommandExt::creation_flags`.
@@ -345,6 +363,12 @@ impl Command {
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
     pub fn spawn(&mut self) -> io::Result<Child> {
+        if self.qos_ceiling.is_some_and(|qos| qos > ThreadQos::Utility) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "qos_ceiling: a spawn ceiling is Utility or Background",
+            ));
+        }
         #[cfg(target_vendor = "apple")]
         {
             crate::spawn_apple::spawn(self)

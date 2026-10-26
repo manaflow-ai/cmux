@@ -5,17 +5,26 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 13330,
-            "T2": 18960
+            "T1": 19300,
+            "T2": 31440
           },
           "stories": {
             "T1": [
               "activation",
               "activation-stress",
+              "agent-engine",
+              "agent-engine-webkit",
+              "agent-stream",
+              "agent-stream-webkit",
+              "app-split",
               "blocking-hangs",
               "chat-anim",
+              "command-pan",
               "daemon-ops",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
+              "home-perf",
               "launch-cold",
               "launch-cold-realistic",
               "launch-warm-realistic",
@@ -28,16 +37,32 @@
               "new-tab-daemon",
               "new-tab-page",
               "omnibar",
+              "omnibar-click",
+              "omnibar-click-webkit",
               "open-panel",
+              "palette-open",
+              "palette-open-webkit",
               "pane-stress",
               "perf-gate",
               "sidebar",
+              "sidebar-doc",
+              "sidebar-drag",
+              "sidebar-mirror-rebuild",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
+              "sidebar-stress",
+              "split-latency",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
-              "tab-switch-stages"
+              "tab-switch-stages",
+              "terminal-resize",
+              "typing",
+              "typing-stress",
+              "window-live-resize"
             ],
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -54,8 +79,28 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
+              "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
+              "cli-storm",
+              "cli-storm-stress",
+              "column-resize-live",
+              "command-pan-stress",
+              "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "layout-loop-stress",
+              "new-surfaces-stress",
+              "pane-scale",
+              "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
+              "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
+              "terminal-resize-stress",
+              "typing-flood-stress"
             ]
           }
         }
@@ -70,10 +115,11 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 18960
+            "T2": 31440
           },
           "stories": {
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -90,8 +136,28 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "app-perf",
+              "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
+              "cli-storm",
+              "cli-storm-stress",
+              "column-resize-live",
+              "command-pan-stress",
+              "daemon-spawn",
+              "devtools-resize-live",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "layout-loop-stress",
+              "new-surfaces-stress",
+              "pane-scale",
+              "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
+              "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
+              "terminal-resize-stress",
+              "typing-flood-stress"
             ]
           }
         }
@@ -106,7 +172,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6660
+            "T1": 9610
           },
           "stories": {
             "T0": [
@@ -114,45 +180,70 @@
             ],
             "T1": [
               "activation-stress",
+              "agent-engine-webkit",
+              "app-split",
               "blocking-hangs",
+              "command-pan",
               "daemon-ops",
-              "launch-cold",
+              "home-perf",
               "launch-cold-realistic",
               "motion",
-              "new-browser-tab",
-              "new-tab-daemon",
-              "new-tab-page",
+              "new-browser-tab-webkit",
               "omnibar",
+              "omnibar-click",
+              "open-panel",
+              "palette-open-webkit",
               "pane-stress",
+              "sidebar-doc",
+              "sidebar-drag",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
+              "split-latency",
               "switch",
-              "tab-switch-stages"
+              "tab-switch",
+              "tab-switch-repeat",
+              "typing-stress"
             ]
           }
         },
         {
           "index": 1,
           "seconds": {
-            "T0": 120,
-            "T1": 6670
+            "T0": 150,
+            "T1": 9690
           },
           "stories": {
             "T0": [
-              "launch-warm"
+              "launch-warm",
+              "typing-terminal"
             ],
             "T1": [
               "activation",
+              "agent-engine",
+              "agent-stream",
+              "agent-stream-webkit",
               "chat-anim",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
+              "launch-cold",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
-              "new-browser-tab-webkit",
+              "new-browser-tab",
               "new-surfaces-matrix",
-              "open-panel",
+              "new-tab-daemon",
+              "new-tab-page",
+              "omnibar-click-webkit",
+              "palette-open",
               "perf-gate",
               "sidebar",
-              "tab-switch",
-              "tab-switch-repeat"
+              "sidebar-mirror-rebuild",
+              "sidebar-stress",
+              "tab-switch-stages",
+              "terminal-resize",
+              "typing",
+              "window-live-resize"
             ]
           }
         }

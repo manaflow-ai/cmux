@@ -10,11 +10,14 @@ public nonisolated struct ServerHelperTimedOut: Error, Equatable {
 /// loser (the ControlDeadline pattern): the first of {result, deadline}
 /// resumes the caller. On the deadline it runs `onTimeout` (kill the child,
 /// invalidate the connection) and throws `ServerHelperTimedOut`; the
-/// operation's late result is dropped.
+/// operation's late result is dropped. The deadline may fire up to
+/// `tolerance` late: callers pass `WakeLeeway`'s for their limit (the helper's
+/// runner, which links no CmuxNextWakeups, passes ``ProcessFixRunner/helperTolerance``).
 public struct ServerHelperDeadline {
     public nonisolated init() {}
     public nonisolated func run<T: Sendable>(
         limit: Duration,
+        tolerance: Duration,
         clock: any Clock<Duration>,
         operation: @escaping @Sendable () async throws -> T,
         onTimeout: @escaping @Sendable () -> Void
@@ -30,8 +33,9 @@ public struct ServerHelperDeadline {
                 }
             }
             let timer = Task {
-                // wakeup-allow: one-shot deadline of one helper request, cancelled when the request answers
-                do { try await clock.sleep(for: limit) } catch { return }
+                // wakeup-allow: deadline of one helper request: the timer side of its result-or-deadline race; not a
+                // DemandTimer, which the helper executable does not link
+                do { try await clock.sleep(for: limit, tolerance: tolerance) } catch { return }
                 if race.finish(.failure(ServerHelperTimedOut())) {
                     onTimeout()
                     work.cancel()
@@ -85,9 +89,26 @@ public struct ServerHelperDeadline {
 }
 
 /// One allowlisted child process, killable from the deadline.
+///
+/// The spawn runs on a dedicated utility thread, never the request's thread or Swift's cooperative pool
+/// (Chromium's launcher thread, content/browser/child_process_launcher_helper.cc), and the child runs at
+/// utility QoS too. Only that thread touches the `Process`; the deadline's ``kill()`` signals the pid the
+/// spawn recorded, and a kill that comes before the spawn finished makes the spawn kill the child at once.
 final nonisolated class FixChild: @unchecked Sendable {
+    /// Where the child is, as the spawn thread, the termination handler and the deadline see it.
+    private struct Life {
+        /// The child's pid from its spawn until its exit; 0 otherwise.
+        var pid: pid_t = 0
+        /// The deadline stopped this child.
+        var stopped = false
+        /// The child exited (its termination handler ran, which can be before the spawn thread records the pid).
+        var ended = false
+    }
+
     private let process = Process()
     private let pipe = Pipe()
+    // concurrency-allow: the spawn thread, the termination handler and the deadline's kill meet on this pid and flag; each holds it for a field read or write (lock carve-out).
+    private let life = Mutex(Life())
 
     init(_ executable: URL, _ arguments: [String]) {
         process.executableURL = executable
@@ -101,22 +122,36 @@ final nonisolated class FixChild: @unchecked Sendable {
     func start() async throws -> FixRunResult {
         let pipe = pipe
         return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { finished in
+            process.terminationHandler = { [self] finished in
+                finished.terminationHandler = nil  // breaks process -> handler -> self
+                life.withLock { $0.pid = 0; $0.ended = true }
                 // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
                 let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
                 continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
             }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
+            Process.runOnOwnThread(qos: .utility, name: "com.cmuxterm.server-helper.fix", { [self] in process },
+                                   launched: { [self] pid in spawned(pid) },
+                                   failed: { error in continuation.resume(throwing: error) })
         }
     }
 
-    /// Kills only this child (the process the helper started).
+    /// Kills only this child (the process the helper started): now when it runs, at its spawn when that has
+    /// not finished yet, never after its exit (the pid may belong to another process by then).
     func kill() {
-        guard process.isRunning else { return }
-        Darwin.kill(process.processIdentifier, SIGKILL)
+        let pid = life.withLock { life -> pid_t in
+            life.stopped = true
+            return life.ended ? 0 : life.pid
+        }
+        if pid > 0 { Darwin.kill(pid, SIGKILL) }
+    }
+
+    /// Records the spawned child's pid (on the spawn thread); kills it at once when the deadline already stopped it.
+    private func spawned(_ pid: pid_t) {
+        let stopped = life.withLock { life -> Bool in
+            guard !life.ended else { return false }
+            life.pid = pid
+            return life.stopped
+        }
+        if stopped { Darwin.kill(pid, SIGKILL) }
     }
 }

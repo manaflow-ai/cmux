@@ -212,6 +212,7 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            page.pointerFrames = services.remotePointerFrames
             return page
         }
         if VaultPageAddress.matches(url) {

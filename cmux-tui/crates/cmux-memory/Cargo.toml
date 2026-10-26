@@ -10,7 +10,11 @@ description = "Memory pressure and memory consumers for cmux's Rust processes (t
 [lints]
 workspace = true
 
-# A leaf crate: libc only, so acpmux (which depends on neither cmux-tui-core
-# nor cmux-tui-platform) can use it. No tokio.
+# A leaf crate: libc, and cmux-threads (std and libc only) for the Linux
+# source's thread, so acpmux (which depends on neither cmux-tui-core nor
+# cmux-tui-platform) can use it. No tokio.
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cmux-threads.workspace = true

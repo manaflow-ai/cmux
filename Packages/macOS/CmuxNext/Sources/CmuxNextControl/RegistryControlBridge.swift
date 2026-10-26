@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextSettings
+public import CmuxNextWakeups
 import Observation
 
 /// Connects the action registry to the control socket: publishes a catalog
@@ -16,10 +17,19 @@ import Observation
 /// as the sidebar document a new workspace changes, so they are observed
 /// apart: a change there re-reads only the reasons, and publishes only when
 /// one differs. Changes in one main-actor turn coalesce into one refresh.
+///
+/// The catalog serves the CLI, agents and MCP, so every refresh is an
+/// `automation` task on the app's scheduler (plans/cmux-next/chrome-parity/p04-input.md,
+/// section B): it runs after the person's pending input and needs no display link.
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
+    private let work: MainWorkScheduler
+    /// The board owner of the coalesced refresh.
+    private let refreshOwner: MainTaskOwner
     private var router: ControlRouter?
+    /// The context mask, followed while attached.
+    private var contextWatch: FrameObservation<UInt32>?
     /// The current observation chain (state-audit R1): each attach starts a
     /// new epoch and detach ends it. A chain armed under an older epoch fires
     /// once more at most and then stops, so detach then attach never leaves
@@ -42,8 +52,14 @@ public final class RegistryControlBridge: ControlActionExecutor {
     private(set) var reasonReads = 0
     private(set) var reasonFirings = 0
 
-    public init(registry: ActionRegistry) {
+    /// - Parameters:
+    ///   - registry: The actions the catalog lists.
+    ///   - work: The app's one main-thread scheduler (the default makes a private one, for tests
+    ///     and demos).
+    public init(registry: ActionRegistry, work: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.registry = registry
+        self.work = work
+        refreshOwner = work.board.owner("control.catalog")
     }
 
     /// Publishes the current catalog to `router` and keeps it current.
@@ -55,7 +71,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
             epoch += 1
             structureIsStale = true
             reasonsAreStale = true
-            observeContext(epoch: epoch)
+            contextWatch = FrameObservation(owner: "control.catalog.context", delivery: .automation, on: work) { [registry] in
+                registry.context.rawValue
+            } onChange: { [weak self] mask in
+                self?.router?.updateContextMask(mask)
+            }
         }
         refresh(publish: true)
     }
@@ -64,6 +84,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         router = nil
         isObserving = false
         epoch += 1
+        contextWatch?.cancel()
+        contextWatch = nil
     }
 
     /// Brings the cache up to date and publishes it when it changed (or
@@ -96,30 +118,38 @@ public final class RegistryControlBridge: ControlActionExecutor {
         router?.updateCatalog(current.catalog(contextMask: registry.context.rawValue))
     }
 
+    /// One coalesced refresh; it does nothing once detached (isObserving). Both observations mark
+    /// themselves stale in the change's own turn (on main, inline), so every mark of one change is
+    /// in before the one automation task runs: one scheduler stage, no hop between the mark and
+    /// the refresh. A change after the refresh ran schedules its own.
     private func scheduleRefresh() {
         guard !refreshIsScheduled else { return }
         refreshIsScheduled = true
-        // task-owner: one coalesced catalog refresh; does nothing once detached (isObserving)
-        Task { @MainActor [weak self] in self?.refresh() }
+        work.post(.automation, owner: refreshOwner) { [weak self] in self?.refresh() }
     }
 
     /// Builds the per-action info under observation: whatever the build
     /// reads from the registry marks the structure stale when it changes.
+    /// Not a FrameObservation: that re-reads on each change until it applies, and the build is the
+    /// costly read.
     private func buildObservingStructure() -> BuiltCatalog {
         structureArming += 1
         structureBuilds += 1
         let (epoch, arming) = (epoch, structureArming)
         return withObservationTracking {
             BuiltCatalog(registry: registry)
-        } onChange: { [weak self] in
-            // onChange runs before the new value is stored; refresh after.
-            // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
-            Task { @MainActor in
-                guard let self, self.isObserving, epoch == self.epoch, arming == self.structureArming else { return }
-                self.structureIsStale = true
-                self.scheduleRefresh()
-            }
+        } onChange: { @Sendable [weak self] in
+            // onChange runs before the new value is stored: mark now, refresh in the posted task.
+            // main-hop-allow: the registry changes on main, so this runs inline in the change's turn and only marks
+            MainDelivery().run { [weak self] in self?.structureChanged(epoch: epoch, arming: arming) }
         }
+    }
+
+    /// The structure observation fired; an arming that is not current is ignored (state-audit R1).
+    private func structureChanged(epoch: Int, arming: Int) {
+        guard isObserving, epoch == self.epoch, arming == structureArming else { return }
+        structureIsStale = true
+        scheduleRefresh()
     }
 
     /// Reads every action's unavailable reason under observation. Reasons
@@ -135,30 +165,18 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.descriptors
             _ = registry.actions
             return ids.map { registry.unavailableReason(for: $0) }
-        } onChange: { [weak self] in
-            // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
-            Task { @MainActor in
-                guard let self else { return }
-                self.reasonFirings += 1
-                guard self.isObserving, epoch == self.epoch, arming == self.reasonsArming else { return }
-                self.reasonsAreStale = true
-                self.scheduleRefresh()
-            }
+        } onChange: { @Sendable [weak self] in
+            // main-hop-allow: app state changes on main, so this runs inline in the change's turn and only marks
+            MainDelivery().run { [weak self] in self?.reasonsChanged(epoch: epoch, arming: arming) }
         }
     }
 
-    private func observeContext(epoch: Int) {
-        guard isObserving, epoch == self.epoch else { return }
-        withObservationTracking {
-            _ = registry.context
-        } onChange: { [weak self] in
-            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
-            Task { @MainActor in
-                guard let self, self.isObserving, epoch == self.epoch else { return }
-                self.router?.updateContextMask(self.registry.context.rawValue)
-                self.observeContext(epoch: epoch)
-            }
-        }
+    /// The reason observation fired; an arming that is not current is ignored (state-audit R1).
+    private func reasonsChanged(epoch: Int, arming: Int) {
+        reasonFirings += 1
+        guard isObserving, epoch == self.epoch, arming == reasonsArming else { return }
+        reasonsAreStale = true
+        scheduleRefresh()
     }
 
     // MARK: - Executor

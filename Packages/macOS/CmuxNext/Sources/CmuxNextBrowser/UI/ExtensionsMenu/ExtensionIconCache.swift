@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextIcons
 
+// memory: fixed: one entry per installed extension listed in the bubble (its icon path; an update
+// replaces the extension's folder), each redrawn to 2 x `side` square, 40 x 40 x 4 = 6.4 KB at the
+// standard 20 pt; it lives in the pane's Extensions bubble controller, made only once the bubble opens.
 /// Extension icons for the Extensions bubble, decoded once per file and kept at the size the
 /// bubble draws them. Chromium writes an extension's icons under a folder named for its version,
 /// so a path names one image for as long as the extension stays installed; an update brings a

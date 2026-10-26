@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextServerHelper
+import CmuxNextWakeups
 import Foundation
 import ServiceManagement
 
@@ -94,7 +95,8 @@ enum ServerHelperClient {
                              clock: any Clock<Duration> = ContinuousClock()) async throws -> String? {
         let connection = HelperConnection(label: label, requirement: requirement)
         defer { connection.invalidate() }
-        return try await ServerHelperDeadline().run(limit: replyLimit, clock: clock, operation: {
+        return try await ServerHelperDeadline().run(limit: replyLimit, tolerance: WakeLeeway.window(delay: replyLimit).tolerance,
+                                                    clock: clock, operation: {
             try await connection.send(fixID: fixID, revert: revert)
         }, onTimeout: {
             // Invalidation fires the proxy's error handler, which ends the call.

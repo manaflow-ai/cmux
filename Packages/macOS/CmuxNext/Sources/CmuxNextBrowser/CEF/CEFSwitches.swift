@@ -7,6 +7,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
+    /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
+    /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
+    var chromiumFeatures: [String] = []
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -40,6 +43,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
+
+    /// The fork's switch that keeps main-frame process reuse's DevTools check per renderer
+    /// (`CEFForkFeatures.rendererPathsForkAPI`, fork API 29): Chromium's
+    /// content/browser/renderer_host/render_frame_host_manager.cc asks
+    /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
 
     var arguments: [String] {
         var result: [String] = []
@@ -83,6 +92,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // The app's Chromium features, for example `cefTimerSlack` (default off): `kTimerSlackMac`
+        // (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each CFRunLoop and kqueue
+        // pump's delayed timer the task's leeway. It changes renderer, GPU and utility processes and the
+        // browser's non-UI threads only: the UI thread's MessagePumpExternal arms no base timer, and the
+        // app's deadline queue gets the leeway from the fork's absolute run times (p14-energy-046). Chrome
+        // turns it on by field trial; disable-field-trial-config leaves it off. The shim merges the list
+        // into CEF's, and Chromium passes it to every child process.
+        if !chromiumFeatures.isEmpty { result.append("enable-features=" + chromiumFeatures.joined(separator: ",")) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -145,9 +162,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
-    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
-    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -166,6 +180,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static func current(
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
+        chromiumFeatures: [String] = [],
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -191,6 +206,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
+            chromiumFeatures: chromiumFeatures,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

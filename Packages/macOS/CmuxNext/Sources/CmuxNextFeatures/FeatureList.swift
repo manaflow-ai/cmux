@@ -61,6 +61,14 @@ public nonisolated final class FeatureList: Sendable {
         zip(registry.features, resolutions).map { (feature: $0, resolution: $1) }
     }
 
+    /// The Chromium `base::Feature` names of the enabled features of process `chromium`, in registry
+    /// order: what CEF gets in `--enable-features`.
+    public var enabledChromiumFeatures: [String] {
+        zip(registry.features, resolutions).compactMap { feature, resolution in
+            feature.process == .chromium && resolution.isEnabled ? feature.chromiumFeature : nil
+        }
+    }
+
     private static func resolve(
         _ feature: Feature,
         channel: Feature.Channel,

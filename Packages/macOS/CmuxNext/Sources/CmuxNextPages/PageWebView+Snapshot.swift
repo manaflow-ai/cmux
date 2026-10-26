@@ -32,7 +32,7 @@ extension PageWebView {
     /// - Parameter encoder: Encodes a WebKit frame (a Chromium copy comes encoded).
     func keepHideSnapshot(encoder: PageSnapshotEncoder) {
         let size = snapshotPixelSize
-        guard size.width >= 1, size.height >= 1 else { return hideState.drop() }
+        guard size.width >= 1, size.height >= 1, !awaitsFirstShow else { return hideState.drop() }
         let capture = hideState.beginCapture()
         if let session = chromiumSession {
             session.page.copySurface(maxPixelSize: size) { [weak self] copy in

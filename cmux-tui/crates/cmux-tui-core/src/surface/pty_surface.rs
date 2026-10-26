@@ -19,7 +19,9 @@ impl PtySurface {
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: &[u8],
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
+        if mux.output_store.append(&terminal_id, &self.journal_generation, bytes) {
+            mux.wake_cold_scrollback();
+        }
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -354,7 +356,7 @@ impl PtySurface {
     /// terminal lock is held.
     pub(super) fn build_producer_frame(
         &self,
-        mut term: RankedGuard<'_, Box<Terminal>>,
+        mut term: RankedGuard<'_, terminal_runtime::TerminalSlot>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
         let built = self.build_frame_locked(&mut term, generation, true);

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextSignposts
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -36,6 +37,8 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
+    /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
+    var signposter = Signposter.cef
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -219,8 +222,10 @@ final class CEFHostView: NSView {
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
+    /// Each post is one `cef.geometry` instant.
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         Self.trackerStats.geometryPosts += 1
+        signposter.cefGeometryPost()
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
 

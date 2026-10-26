@@ -82,6 +82,18 @@ final class SidebarListView: NSView {
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
+    /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
+    var onHoverRow: ((SidebarRowKey?) -> Void)?
+    /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
+    /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
+        self?.updateHover(point)
+    }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`); nil: each move hovers at once.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
@@ -288,9 +300,14 @@ final class SidebarListView: NSView {
             owner: self
         ))
     }
-    override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
-    override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
+    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        hoverMoves.flush()
+        updateHover(event.locationInWindow)
+    }
     override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
@@ -329,6 +346,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        onHoverRow?(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered
