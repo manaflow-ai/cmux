@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextLaunch
+import CmuxNextPages
 
 extension LaunchImageHold {
     /// The app's one hold, shared by the panes that show launch images and the work that waits for them.
@@ -40,4 +42,71 @@ extension PaneContentView {
         onLaunchImageCleared = nil
         cleared?()
     }
+}
+
+extension VisiblePaneRefs {
+    /// The end of the launch restore (p08-startup task 013): the restore ref ends, and each visible pane
+    /// holds startup until its content shows. What a pane shows, a window's visibility and a terminal's
+    /// content are not observable: each reads the windows again (``noteChange()``).
+    func finishRestore(of manager: WindowManager) {
+        manager.services.cache.presentationChanges.subscribe("visible-pane-refs") { [weak self] in self?.noteChange() }
+        followWindows(manager.controllers.compactMap(\.window))
+        restoreFinished { [weak self, weak manager] in
+            guard let self, let manager else { return [] }
+            return windows(of: manager)
+        }
+    }
+
+    /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.
+    func windows(of manager: WindowManager) -> [Window] {
+        _ = (manager.services.paneMounts.generation, manager.services.cache.pageInstalls.revision)
+        return manager.controllers.compactMap { controller -> Window? in
+            let id = controller.state.id
+            guard manager.awaitingContent[id] != nil || Window.isOnScreen(controller.window) else { return nil }
+            return Window(id: id, content: content(of: controller))
+        }
+    }
+
+    /// The window's top page, else its shown workspace's panes on screen; nothing installed yet (the
+    /// connecting view, a parked or mounting workspace) is `.loading`.
+    private func content(of controller: WindowController) -> Window.Content {
+        if let route = controller.shownTopPage, let view = controller.topPages.views[route] {
+            // Classic Home is native: it shows whole at once.
+            let state = (view as? InternalPageView).map { self.state(of: $0) } ?? .loadedIdle
+            return .page(Pane(key: "window:\(controller.state.id):\(route)", state: state))
+        }
+        guard let content = controller.content, !content.isParked else { return .loading }
+        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) }
+        return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
+    }
+
+    /// A pane's content signal: a terminal's first content, a page's first load ended, an agent or page
+    /// tab's first paint (task 105 makes each loaded-idle). A placeholder, a notice and a conversation are
+    /// native views with nothing left to load: they show whole when selected.
+    func state(of pane: PaneController) -> PaneState {
+        guard pane.stripModel.selectedID != nil else { return .loadedIdle }
+        let loaded: Bool = switch pane.currentContent {
+        case nil: false
+        case .terminal(let entry)?: !pane.showsLiveTerminal || entry.session.hasContent
+        case .browser(let entry)?: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab || entry.tab.state.launchLoadEnded
+        case .agent(let view)?: view.model.hasPainted
+        case .page(let view)?: state(of: view) == .loadedIdle
+        case .placeholder?, .notice?, .conversation?: true
+        }
+        return loaded ? .loadedIdle : .loading
+    }
+
+    /// A page tab or a top page: loaded once its document painted (``PageWebView/hasPainted``), as its
+    /// pane's paint hold waits for; the paint reads the panes again. Native content shows whole at once.
+    func state(of page: InternalPageView) -> PaneState {
+        guard let web = page.content as? PageWebView, !web.hasPainted else { return .loadedIdle }
+        follow(web) { web.whenPainted($0) }
+        return .loading
+    }
+}
+
+extension BrowserTabState {
+    /// A shown page's launch content signal: a load ended in it (finished, stopped or failed), or its
+    /// process ended. A stand-in tab (deferred, hibernated) loads nothing and needs none.
+    var launchLoadEnded: Bool { hasEndedLoad || processExit != nil }
 }
