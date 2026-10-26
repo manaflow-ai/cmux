@@ -164,8 +164,10 @@ private struct CEFRemoteReplySink {
     static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
         guard let context else { return }
         let body = fields.map { Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
+        // The table, not its raw address, crosses into the main-actor closure: a main-actor class is Sendable.
+        let replies = Unmanaged<CEFHostReplies>.fromOpaque(context)
         MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)
-            _ = Unmanaged<CEFHostReplies>.fromOpaque(context).takeUnretainedValue().resolve(token, fields: body)
+            _ = replies.takeUnretainedValue().resolve(token, fields: body)
         }
     }
 }
