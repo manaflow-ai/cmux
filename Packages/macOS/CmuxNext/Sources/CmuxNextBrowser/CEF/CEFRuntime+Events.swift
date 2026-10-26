@@ -258,6 +258,7 @@ extension CEFRuntime {
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            pageWindowWidgetsBrowserClosed(browser)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
             // Never registered: drop a pending adoption of it.
@@ -324,6 +325,8 @@ extension CEFRuntime {
             popupWindowBoundsChanged(window: window)
         case .sidePanelChanged:
             for host in hosts.values where host.owns(window: window) { host.visibleTab?.sidePanel.scheduleRefresh() }
+        case .pageWindowWidget:
+            pageWindowWidgetReported(CEFPageWindowWidgetEvent(value: value), window: window, browser: browser)
         case .moved, .unknown:
             break
         }
