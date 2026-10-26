@@ -133,6 +133,8 @@ struct PersonalGroupLife {
                     if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
                 }
             }
+            // Ending until the home store holds the delete, so a reader (the close's Undo) never sees the group as kept meanwhile.
+            if deleted != nil, let connection = home.connection { _ = await home.appliedThroughReply(on: connection, after: "delete-personal-group") }
             end()
             if deleted == nil { failed() }
         }

@@ -97,7 +97,7 @@ enum WorkspaceGroupClose {
         let arrived: @MainActor @Sendable () -> Bool = { [weak services] in
             guard let services else { return true }
             // A group-only record (a selection's emptied group, WorkspaceSelectionClose) waits for the group's record while its
-            // delete is in flight or landed (a refused delete leaves the group, no longer ending: nothing to wait for).
+            // delete is in flight or landed (`endingGroups` until the store holds it; a refused one leaves the group: no wait).
             let found = matches(names: names, group: id, after: seen, services), personal = services.machines.local.store.personal
             let deleting = id.map(WorkspaceGroupID.init(rawValue:)).map { personal.group($0) == nil || personal.endingGroups.contains($0) } ?? false
             return found.missing.isEmpty && (!names.isEmpty || found.group != nil || !deleting)

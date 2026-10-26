@@ -18,8 +18,8 @@ enum WorkspaceSelectionClose {
         }
         let closing = members.map(\.0.id), undoWindow = WorkspaceBulkClose.survivor(closing: closing, AppActionContext(services: services))
         let incognito = members.contains { windows.isIncognito(workspace: $0.0.id) }, selected = WorkspaceCloseSelection()
-        // The groups this close empties: once their rows closed, each closes as Close Group does (an unpinned group goes; a pinned
-        // one stays, folded), instead of staying behind empty. Undo forms the group again first, so its workspaces rejoin it.
+        // The unpinned groups this close empties: once their rows closed, each goes as a group that lost its last live member does
+        // (`PersonalGroupLife.deleteIfEmpty`, cx-rcby) instead of staying behind empty. Undo forms it again first, so its workspaces rejoin it.
         let emptied = controller?.sidebar.model.groupsEmptied(byClosing: closing.map(CmuxNextSidebar.WorkspaceID.init)) ?? []
         var undoGroups: [String] = []
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
@@ -41,14 +41,13 @@ enum WorkspaceSelectionClose {
                 windows.show(workspaceID: shownAtPress, in: controller.state)
             },
             listed: { services.workspace(id: $0) != nil },
-            liveClosed: { ids in
-                // The rows left the sidebar at the press, and the group with them: write the group itself, unless a workspace this
-                // window does not list is still in it (the window's sidebar shows only its own members).
-                for group in emptied where group.workspaces.allSatisfy({ ids.contains($0.id.rawValue) }) {
-                    let id = SidebarDocStore.personalGroupID(item: group.id.rawValue), context = AppActionContext(services: services)
-                    guard context.workspaces(inPersonalGroup: WorkspaceGroupID(rawValue: id)).allSatisfy({ ids.contains($0.id) }), let bridge = controller?.sidebar,
-                          PersonalGroupPin(bridge: bridge).closeEmptied(group.id, pinned: group.isPinned) else { continue }
-                    undoGroups.append(id)
+            liveClosed: { _ in
+                // Read from the personal rows, not the sidebar the rows (and the group) left at the press: a member another window,
+                // machine or client still holds keeps the group, and the delete checks again once it is sent.
+                guard let bridge = controller?.sidebar else { return }
+                for id in emptied.filter({ !$0.isPinned }).map({ WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.id.rawValue)) }) where bridge.life.isEmptyUnpinned(id) {
+                    bridge.life.deleteIfEmpty(id, failed: { bridge.resync() })
+                    undoGroups.append(id.rawValue)
                 }
             }, machines: { services.machines.daemons },
             offerUndo: { names, undone in

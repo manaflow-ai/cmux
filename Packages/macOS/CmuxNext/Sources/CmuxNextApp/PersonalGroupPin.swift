@@ -37,34 +37,25 @@ struct PersonalGroupPin {
             send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
             return true
         case let .closeGroup(group):
-            if let pinned = bridge.model.group(group)?.isPinned { closeEmptied(group, pinned: pinned) }
+            guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }
+            // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
+            let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
+            if pinned {
+                send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }
+            } else {
+                send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) }
+            }
             return false
         default:
             return false
         }
     }
 
-    /// The write of a group whose workspaces all closed (Close Group, or a selection's close that emptied it after its rows
-    /// left the sidebar, `WorkspaceSelectionClose`): a pinned group stays, folded; an unpinned one goes (recorded, so
-    /// Reopen Closed and the close's Undo form it again). True when it sent the delete; until that lands the group is
-    /// ending (`PersonalStore.endingGroups`), so an Undo pressed meanwhile waits for its record.
-    @discardableResult func closeEmptied(_ group: GroupID, pinned: Bool) -> Bool {
-        guard isServed else { return false }
-        // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
-        let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
-        if pinned { send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }; return false }
-        let personal = home.store.personal, ending = WorkspaceGroupID(rawValue: id)
-        personal.endingGroups.insert(ending)
-        send("delete-personal-group", { try await $0.state.deleteWorkspaceGroup(id) }, ended: { personal.endingGroups.remove(ending) })
-        return true
-    }
-
     /// One home-daemon request; a failure re-syncs the sidebar.
-    private func send(_ label: String, _ body: @escaping DaemonCommandBody, ended: @escaping @MainActor () -> Void = {}) {
+    private func send(_ label: String, _ body: @escaping DaemonCommandBody) {
         let home = home, bridge = bridge
         Task {
-            let failed = await home.request(label, body) == nil; ended()
-            if failed { bridge.resync() }
+            if await home.request(label, body) == nil { bridge.resync() }
         }
     }
 }
