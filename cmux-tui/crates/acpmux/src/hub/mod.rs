@@ -50,6 +50,7 @@ mod hosts;
 mod lifecycle;
 mod log_load;
 pub(crate) mod model_availability;
+pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
@@ -383,13 +384,16 @@ pub struct Hub {
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
-    /// chat log: prompts wait for it, so a restored queue keeps its place.
+    /// chat log. A request for one chat waits for that chat's log only (`session_log`).
     pub(super) logs_ready: tokio::sync::watch::Sender<bool>,
     /// The chats whose agent host still ran and those left waiting for a permission when the
     /// last daemon stopped (`log_load.rs`).
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
+    /// False from a deferred start with running agent hosts until adoption ends: prompts to
+    /// those chats wait for it (`log_load.rs` `wait_adopted`).
+    pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
@@ -537,6 +541,7 @@ impl Hub {
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
             queues_resumed: AtomicBool::new(false),
+            adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
@@ -664,8 +669,15 @@ impl Hub {
         let hosted = Self::live_host_sessions();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
+        if deferred && !hosted.is_empty() {
+            self.adoption_ready.send_replace(false);
+        }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            log_load::LoadPlan { waiting: waiting.collect(), hosted: hosted.clone() };
+            log_load::LoadPlan {
+                waiting: waiting.collect(),
+                adopting: hosted.clone(),
+                hosted: hosted.clone(),
+            };
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:
@@ -704,7 +716,7 @@ impl Hub {
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
-    /// daemon start).
+    /// daemon start). A request for one chat waits for its own log instead (`session_log`).
     pub(crate) async fn wait_logs(&self) {
         let mut rx = self.logs_ready.subscribe();
         let _ = rx.wait_for(|ready| *ready).await;

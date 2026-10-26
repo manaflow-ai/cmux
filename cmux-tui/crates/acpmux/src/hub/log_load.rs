@@ -10,9 +10,9 @@
 //! (`session.json`) and the agent host records (`hosts/`, [`LoadPlan`]). A chat whose host still
 //! runs keeps its saved status until adoption reaches it (`load_from_store`), and its log is read
 //! first (`load_live_logs`), so adoption reattaches it in seconds. Every other chat's log is read
-//! by one background pass (`load_logs`, after adoption). Each log is read once
-//! (`load_session_log`, under the chat's `log_load` lock). Requests that read a chat's restored
-//! state (its queue, a prompt) still wait for the whole pass (`wait_logs`).
+//! by one background pass (`load_logs`, after adoption) or, sooner, by the first request that
+//! needs it (`session_log`). Each log is read once (`load_session_log`, under the chat's
+//! `log_load` lock).
 //!
 //! The background pass ends once it has read every chat's log (its stop condition); its worker
 //! threads are scoped to it (`on_every_core`). Nothing repeats it, and a chat created after the
@@ -25,6 +25,9 @@ use super::*;
 pub(crate) struct LoadPlan {
     /// Chats whose agent host still ran at the start: adopted, never marked lost.
     pub(super) hosted: std::collections::HashSet<String>,
+    /// `hosted` as the start read it, never changed: prompts to these chats wait until adoption
+    /// and its settling end (`wait_adopted`).
+    pub(super) adopting: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
 }
@@ -54,7 +57,8 @@ impl Hub {
 
     /// Reads every chat's log not read yet: each log's tail past its saved `lastSeq`, the turns
     /// a restart cut off, and the queued prompts. A daemon runs it after adoption, in the
-    /// background. The chats used last go first, closed ones after every open one.
+    /// background; a request for one chat reads that chat's log first (`session_log`). The
+    /// chats used last go first, closed ones after every open one.
     pub fn load_logs(self: &Arc<Self>) {
         let started = std::time::Instant::now();
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
@@ -65,6 +69,9 @@ impl Hub {
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
+        self.logs_ready.send_replace(true);
+        self.forget_pair_peers();
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -90,6 +97,35 @@ impl Hub {
             let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
             self.load_session_log(session);
         });
+    }
+
+    /// Wait until adoption has ended, when `session`'s agent host ran at the start (immediate
+    /// otherwise): a prompt that went first would take the turn ahead of the turn adoption
+    /// recovers (`hosts.rs`).
+    pub(crate) async fn wait_adopted(&self, session: &Session) {
+        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopting.contains(&session.id) {
+            let mut adopted = self.adoption_ready.subscribe();
+            let _ = adopted.wait_for(|ready| *ready).await;
+        }
+    }
+
+    /// Wait until `session`'s log is read, reading it now when the background pass has not
+    /// reached it (immediate outside a deferred start, and once every log is read or the load
+    /// failed).
+    pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
+        if self.session_log_loaded(session) {
+            return;
+        }
+        let (hub, s) = (self.clone(), session.clone());
+        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_session_log(&s)).await {
+            // It answers from the session list, as a failed load does (`LogsReady`).
+            tracing::error!(session = %session.id, "reading the chat log failed: {e}");
+        }
+    }
+
+    /// Whether `session`'s log is read, or every log is (or their load failed).
+    pub(crate) fn session_log_loaded(&self, session: &Session) -> bool {
+        session.log_loaded.load(Ordering::SeqCst) || self.logs_loaded()
     }
 
     /// Reads one chat's log, once: its tail, a permission wait or turn the restart cut off, its
@@ -157,10 +193,6 @@ impl Hub {
                 continue;
             }
             let gone = !Self::host_record_live(&id);
-            if gone {
-                // From now on its log is read as any other chat's.
-                self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.remove(&id);
-            }
             let hub = self.clone();
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {
@@ -171,6 +203,11 @@ impl Hub {
 
     fn settle_one(self: &Arc<Self>, session: &Arc<Session>, gone: bool) {
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+        if gone {
+            // From now on its log is read as any other chat's: under its load lock, so a read
+            // either came before (its cut turn is settled below) or comes after this.
+            self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.remove(&session.id);
+        }
         let waiting =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).waiting.contains(&session.id);
         let kept = matches!(
@@ -253,5 +290,14 @@ impl Drop for Loaded<'_> {
             tracing::error!("reading a chat log panicked; it answers from the session list");
         }
         self.done();
+    }
+}
+
+/// Ends adoption's hold on prompts to hosted chats (`session_log`) however adoption stops.
+pub(crate) struct AdoptionReady<'a>(pub(crate) &'a tokio::sync::watch::Sender<bool>);
+
+impl Drop for AdoptionReady<'_> {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
     }
 }
