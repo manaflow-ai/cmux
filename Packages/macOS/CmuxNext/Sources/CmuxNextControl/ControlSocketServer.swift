@@ -95,6 +95,8 @@ public final class ControlSocketServer: Sendable {
     struct ServerState {
         var listener: (any DispatchSourceRead)?
         var socketIdentity: (dev: dev_t, ino: ino_t)?
+        /// The path's owner lock (``lockOwner(_:)``), held while the listener is; -1: none.
+        var ownerLock: Int32 = -1
         var connections: [ControlConnectionID: ControlConnection] = [:]
         var nextConnection: UInt64 = 1
         /// Spacing of accept retries while descriptors are exhausted.
@@ -139,44 +141,55 @@ public final class ControlSocketServer: Sendable {
         guard !isRunning else { return }
         let path = configuration.path
         try Self.makeStateDirectory(for: path, protectExisting: configuration.protectStateDirectory)
-        try Self.reclaimStalePath(path)
-        let (source, identity) = try makeListener()
-        serve(source, identity: identity)
+        let lock = try Self.lockOwner(path)
+        do {
+            try Self.reclaimStalePath(path)
+            let (source, identity) = try makeListener()
+            if let link = configuration.compatibilityLink { Self.makeLink(link, to: path) }
+            serve(source, identity: identity, lock: lock)
+        } catch {
+            Self.releaseOwner(lock, of: path)
+            throw error
+        }
     }
 
-    /// Starts accepting on `listener`, bound earlier off the main thread
-    /// (``bindListener(path:protectStateDirectory:)``, p08-startup-019), so this call does no file
-    /// work. An access mode of `off` discards the listener and throws `disabled`, as ``start()`` does;
-    /// a running server discards it. A listener for another path is discarded and the server binds
-    /// its own (``start()``). A listener already discarded or taken throws `discarded`: its owner
-    /// decided it does not serve (quit), so the server never binds again in its place.
+    /// Starts accepting on `listener`, bound earlier on a lane
+    /// (``bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``, p08-startup-019), which
+    /// also made the compatibility link: this call publishes and resumes the accept source and starts
+    /// the path watches on `acceptQueue`, with no file work. An access mode of `off` discards the
+    /// listener and throws `disabled`, as ``start()`` does; a running server discards it. A listener
+    /// bound for another path, file mode or link is discarded and the server binds its own
+    /// (``start()``). A listener already discarded or taken throws `discarded`: its owner decided it
+    /// does not serve (quit), so the server never binds again in its place.
     public func start(adopting listener: ControlSocketListener) throws {
         guard configuration.accessMode != .off else {
             listener.discard()
             throw StartError.disabled
         }
         guard !isRunning else { return listener.discard() }
-        guard listener.path == configuration.path else {
+        guard listener.path == configuration.path, listener.mode == configuration.accessMode.filePermissions,
+              listener.compatibilityLink == configuration.compatibilityLink else {
             listener.discard()
             return try start()
         }
-        guard let descriptor = listener.take() else { throw StartError.discarded(listener.path) }
-        serve(acceptSource(descriptor), identity: listener.identity)
+        guard let taken = listener.take() else { throw StartError.discarded(listener.path) }
+        serve(acceptSource(taken.descriptor), identity: listener.identity, lock: taken.lock)
     }
 
     /// Publishes and resumes the listener's accept source, then watches the socket file (and the
-    /// compatibility link) so that a deleted one is put back.
-    private func serve(_ source: any DispatchSourceRead, identity: (dev: dev_t, ino: ino_t)?) {
+    /// compatibility link) so that a deleted one is put back. The watches open their files on
+    /// `acceptQueue` (``ControlSocketPathWatch/start()``).
+    private func serve(_ source: any DispatchSourceRead, identity: (dev: dev_t, ino: ino_t)?, lock: Int32) {
         let path = configuration.path
         state.withLock {
             $0.listener = source
             $0.socketIdentity = identity
+            $0.ownerLock = lock
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
         var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
-            Self.makeLink(link, to: path)
             // The link yields to another app's live socket at its path: no /tmp watch for it.
             watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue, yieldsToHeldPath: true) { Self.makeLink(link, to: path) })
         }
@@ -249,21 +262,24 @@ public final class ControlSocketServer: Sendable {
             watches.forEach { $0.stop() }
             watches = []
         }
-        let (listener, identity, connections) = state.withLock { state in
-            let result = (state.listener, state.socketIdentity, Array(state.connections.values))
+        let (listener, identity, connections, lock) = state.withLock { state in
+            let result = (state.listener, state.socketIdentity, Array(state.connections.values), state.ownerLock)
             // A suspended source never runs its cancel handler (the listener fd would leak).
             if state.acceptSuspended { state.listener?.resume() }
             state.acceptSuspended = false
             state.listener = nil
             state.socketIdentity = nil
+            state.ownerLock = -1
             state.connections = [:]
             return result
         }
-        guard listener != nil || !connections.isEmpty else { return }
+        guard listener != nil || !connections.isEmpty else { return Self.releaseOwner(lock, of: configuration.path) }
         listener?.cancel()
         connections.forEach { $0.close() }
         Self.unlinkIfOwn(configuration.path, identity)
         if let link = configuration.compatibilityLink { Self.unlinkLink(link, to: configuration.path) }
+        // Last: the path is free for another instance once its file is gone.
+        Self.releaseOwner(lock, of: configuration.path)
     }
 
     // MARK: - Accepting

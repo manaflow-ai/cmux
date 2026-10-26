@@ -1,7 +1,5 @@
 import AppKit
-import CmuxNextBrowser
 import CmuxNextControl
-import CmuxNextDesign
 import CmuxNextSettings
 
 // DEBUG builds: `debug.tunables` (the Debug Settings window and tunable store, DebugTunables) and
@@ -88,42 +86,3 @@ enum DebugMainMenu {
     }
 }
 #endif
-
-/// The App's debug method groups, one afterFirstFrame post of the control launch (p08-startup-019,
-/// `ControlLaunch`); most register only in DEV builds.
-extension AppControl {
-    func registerAppDebugMethods(_ services: AppServices) {
-        registerSettingsDebugMethods(services)
-        registerPageDebugMethods(services)
-        registerRemoteBrowserDebugMethods(services)
-        RemoteViewDebugMethods(services: services).register(on: service?.router)
-        services.registerMacScreenDebug(on: service?.router)
-        services.registerDeviceHubDebug(on: service?.router)
-        DebugNowPlaying.register(on: service?.router, services: services)
-        DebugDownloads.register(on: service?.router, services: services)
-        DebugCEFDevToolsLayout.register(on: service?.router, services: services)
-        #if DEBUG
-        // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
-        // Socket focus policy: `open` makes the page first responder only with focus: true.
-        let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared)
-        service?.router.register([
-            .mainActor("debug.chromium_host") { [weak services] call in
-                let controller = services?.windows.controllers.first
-                let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                 over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
-                return .value(JSONValue(foundation: fields) ?? .null)
-            },
-            .async("debug.chromium_host.measure") { call in
-                guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue)
-                else { return ["error": "no running Chromium host"] }
-                return .object(fields.mapValues(JSONValue.number))
-            }.withDeadline(.fixed(.seconds(60))),
-        ])
-        #endif
-        DebugBrowserExternal.register(on: service?.router, services: services)
-        DebugCloudMove.register(on: service?.router, services: services)
-        DebugTerminalLinks.register(on: service?.router, services: services)
-    }
-}
