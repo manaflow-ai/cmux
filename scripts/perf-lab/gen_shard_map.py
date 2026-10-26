@@ -152,8 +152,9 @@ def render(document: Mapping) -> str:
 
 
 def catalog_stories(root: Path) -> Sequence[object]:
+    """The measurable stories: one the lab cannot run yet (catalog.Story.not_measurable) holds no shard seconds."""
     catalog = _load_sibling("catalog")
-    return catalog.load_catalog(root).stories
+    return tuple(s for s in catalog.load_catalog(root).stories if s.measurable())
 
 
 # ---------- commands (lab.py protocol, task 005) ----------
