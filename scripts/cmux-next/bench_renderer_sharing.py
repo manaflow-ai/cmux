@@ -6,9 +6,12 @@ new tab takes.
 Chrome desktop shares one renderer between at most 2 main frames of the same site
 (kProcessPerSiteUpToMainFrameThreshold, threshold 2), and above its soft process limit
 (physical memory / 2 / 85 MB, at least 3) reuses a renderer of the same site; it never puts two
-sites in one renderer. In cmux the below-limit sharing is blocked while any tab has a DevTools
-agent (render_frame_host_manager.cc, WasEverAttachedToAnyFrame), so this bench prints what the
-build does: renderers, tabs per renderer, footprint (renderers, app, total) and the shared split.
+sites in one renderer. Chromium 154 turns the below-limit sharing off for the whole browser once
+any frame ever had a DevTools agent (render_frame_host_manager.cc, WasEverAttachedToAnyFrame);
+from fork API 29 the app passes cmux-process-reuse-per-renderer-devtools (CEFSwitches), so only a
+renderer with an agent is never shared. This bench prints what the build does: renderers, tabs
+per renderer, same-site main frames per renderer, footprint (renderers, app, total) and the
+shared split.
 
 The sites are siteN.test on one local server. Chromium never shares a renderer for localhost or
 an IP address (MainFrameProcessReuseAllowIPAndLocalhost is off), so the .test names are mapped
@@ -16,8 +19,20 @@ to 127.0.0.1 with --host-resolver-rules (CMUX_NEXT_BENCH_CEF_SWITCHES: Debug and
 development bundles only). Each page holds --heap-mb of touched memory, standing in for a site's
 heap. Hibernation and freezing are off for the run, so every tab stays loaded.
 
+--agent-cdp (scripts/measure/renderer-sharing.sh passes it) attaches an agent's CDP session to the
+first tab once it shows, as an agent that drives the tab does: a named cef session of the app's
+own browser host (`cmux-browser-host eval --session ... --engine cef`, `tabs.use(<tab>)`), kept
+open until the run ends. The run then fails (exit 1) when the app did not pass
+cmux-process-reuse-per-renderer-devtools (debug.cef windows.process_reuse_per_renderer_devtools),
+when a site with 2 or more of the bench's tabs (the agent's apart) has no renderer that holds 2 of
+them while the shared layout fits below the renderer limit, when a renderer holds more than 2 main
+frames of one site or the agent's renderer holds another tab below the limit, and at any count when
+a renderer holds two sites (plans/cmux-next/chrome-parity/p07-memory.md, task 046 and DC9). So a
+build where the agent's session turns sharing off for the whole browser (no switch, fork API < 29)
+fails: every tab in its own renderer is no sharing, not a pass.
+
 Phases (each prints PERF-RENDERERS lines):
-  open     tabs open one after another, round-robin over the sites, each in the foreground (one
+  open    tabs open one after another, round-robin over the sites, each in the foreground (one
            action.run with focus over the socket); new_tab_ms is from that call to the app reporting
            the page's title (the document is parsed; its heap script may still run)
   settled  --settle seconds after the last tab: renderers (all, and those that hold a tab: the
@@ -34,8 +49,8 @@ BenchApp.record (browser_engine_bench_report.py, `renderer_sharing.*`, story ren
 and the report as DIR/bench-renderer-sharing.json.
 
 Usage (a fleet GUI mini, never a laptop; a tagged DEV build, Debug or bench config):
-  bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30]
-      [--out FILE.json | --out DIR]
+  bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--agent-cdp]
+      [--renderer-limit N] [--out FILE.json | --out DIR]
 """
 from __future__ import annotations
 
@@ -47,6 +62,7 @@ import re
 import resource
 import signal
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -128,6 +144,171 @@ def chrome_soft_limit(memory_gb: float) -> int:
     return min(max(3, int(memory_gb * 1024 / 2 / 85)), max(3, platform))
 
 
+# Chrome's main-frame threshold for one renderer below the process limit
+# (content/public/common/content_features.cc kProcessPerSiteUpToMainFrameThreshold, threshold 2).
+SAME_SITE_MAIN_FRAME_THRESHOLD = 2
+# The fork API with cmux-process-reuse-per-renderer-devtools (CEFForkFeatures.rendererPathsForkAPI).
+RENDERER_PATHS_FORK_API = 29
+AGENT_SESSION = "rsharing-agent"
+
+
+def host_socket(rows, bundle: str) -> str | None:
+    """The agent socket of the bundle's browser host, from its `serve` command line: the daemon starts
+    `<bundle>/Contents/Resources/bin/cmux-browser-host serve ... --socket PATH` with `--socket` last
+    (cmux-tui-core browser_host.rs), so the path is the rest of the line, spaces included."""
+    for _pid, _ppid, cmd in rows:
+        relative = bm.in_bundle(cmd, bundle)
+        if not relative or not relative.startswith("/Contents/Resources/bin/cmux-browser-host serve"):
+            continue
+        found = re.search(r" --socket (.+)$", relative)
+        if found:
+            return found.group(1)
+    return None
+
+
+def agent_script(tab: str, url: str) -> str:
+    """REPL code that claims `tab` for the session (the app's relay then opens the tab's DevTools session,
+    AppDevToolsRelay.prepareRelay) and reads its title over CDP; `url` finds the tab when the host lists it
+    under another id. The first claim of a tab rebuilds its page for the agent, and neither the relay nor the
+    CDP attach waits for the document, so the title is read once `url` committed and loaded again."""
+    return "\n".join([
+        "const all = await tabs.list({ all: true });",
+        f"const hit = all.find((t) => t.id === {json.dumps(tab)}) || all.find((t) => t.url === {json.dumps(url)});",
+        f"if (!hit) throw new Error('no tab ' + {json.dumps(tab)});",
+        "const driven = await tabs.use(hit.id);",
+        f"await driven.waitForURL({json.dumps(url)}, {{ waitUntil: 'load' }});",
+        "console.log(JSON.stringify({ id: hit.id, title: await driven.title() }));",
+    ])
+
+
+def host_cli_env(socket: str, daemon_socket: str) -> dict:
+    """The environment of a daemon's terminal: the CLI starts no host of its own on a socket the daemon owns
+    (cmux-browser-host.rs daemon_owns needs both variables) and waits for the daemon's host instead."""
+    return dict(os.environ, CMUX_BROWSER_HOST_SOCKET=socket, CMUX_TUI_SOCKET=daemon_socket)
+
+
+def host_cli(bundle: str, socket: str, daemon_socket: str, *argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
+    """The bundled browser host CLI against the app's host (`socket`, owned by the app's daemon at `daemon_socket`)."""
+    cli = os.path.join(bundle, "Contents/Resources/bin/cmux-browser-host")
+    return subprocess.run([cli, *argv, "--socket", socket], capture_output=True, text=True, timeout=timeout,
+                          env=host_cli_env(socket, daemon_socket))
+
+
+def attach_agent(bundle: str, daemon_socket: str, tab: str, url: str, expected_title: str, seconds: float = 60) -> dict:
+    """Opens the agent's CDP session on `tab` and keeps it: {"socket", "session", "tab"} or {"error"}."""
+    deadline = time.monotonic() + seconds
+    socket = host_socket(bm.process_table(), bundle)
+    while socket is None and time.monotonic() < deadline:
+        time.sleep(0.5)  # test script: waiting for the daemon to start its browser host
+        socket = host_socket(bm.process_table(), bundle)
+    if socket is None:
+        return {"error": f"no browser host of {bundle} runs"}
+    out = host_cli(bundle, socket, daemon_socket, "eval", "--session", AGENT_SESSION, "--engine", "cef", agent_script(tab, url),
+                   timeout=max(5.0, deadline - time.monotonic()))
+    if out.returncode != 0 or expected_title not in out.stdout:
+        return {"error": (out.stderr or out.stdout).strip()[:400] or f"exit {out.returncode}", "socket": socket}
+    return {"socket": socket, "session": AGENT_SESSION, "tab": tab}
+
+
+def site_sharing(owners: dict, site_of: dict, agent_tab: str | None, limit: int, renderers: int,
+                 require_sharing: bool = False) -> dict:
+    """Per renderer, how many main frames of each site it holds, and which of Chrome's rules the build breaks:
+    a renderer never holds two sites (render_process_host_impl.cc IsSuitableHost, site isolation); below the
+    limit at most SAME_SITE_MAIN_FRAME_THRESHOLD main frames of one site share one; a renderer with a DevTools
+    agent takes no other main frame (the fork's per-renderer check). Tabs the bench did not open do not count.
+
+    `renderers` is every Chromium renderer of the run (extension, internal and spare ones too): Chrome's limit
+    check counts them all (RenderProcessHostImpl::IsProcessLimitReached), so the over-sharing rules apply only
+    below that count. With `require_sharing` (an agent's session is open) every site with 2 or more of the
+    bench's tabs, the agent's apart, needs a renderer that holds 2 of them whenever the shared layout fits below
+    the limit. That uses the layout's renderer count, not the observed one, which a build that never shares
+    inflates past the limit."""
+    per_renderer: dict = {}
+    for renderer, tabs in owners.items():
+        counts: dict = {}
+        for tab in tabs:
+            if tab in site_of:
+                counts[site_of[tab]] = counts.get(site_of[tab], 0) + 1
+        if counts:
+            per_renderer[renderer] = counts
+    below_limit = renderers < limit
+    max_same_site = max((max(counts.values()) for counts in per_renderer.values()), default=0)
+    mixed = sum(1 for counts in per_renderer.values() if len(counts) > 1)
+    agent_renderer = next((r for r, tabs in owners.items() if agent_tab and agent_tab in tabs), None)
+    agent_renderer_tabs = sum(per_renderer.get(agent_renderer, {}).values()) if agent_renderer is not None else None
+    # The tabs Chrome's sharing applies to: every bench tab with a renderer, the agent's apart.
+    tabs_per_site: dict = {}
+    for tab in {tab for tabs in owners.values() for tab in tabs if tab in site_of and tab != agent_tab}:
+        tabs_per_site[site_of[tab]] = tabs_per_site.get(site_of[tab], 0) + 1
+    shared_layout = (renderers - len(per_renderer) + (1 if agent_renderer is not None else 0)
+                     + sum(-(-n // SAME_SITE_MAIN_FRAME_THRESHOLD) for n in tabs_per_site.values()))
+    sharing_sites = {site for renderer, counts in per_renderer.items() if renderer != agent_renderer
+                     for site, n in counts.items() if n >= SAME_SITE_MAIN_FRAME_THRESHOLD}
+    multi_tab_sites = [site for site, n in tabs_per_site.items() if n >= SAME_SITE_MAIN_FRAME_THRESHOLD]
+    unshared = sorted(site for site in multi_tab_sites if site not in sharing_sites)
+    violations = []
+    if require_sharing and shared_layout < limit and unshared:
+        violations.append(f"{len(unshared)} of {len(multi_tab_sites)} sites with 2 or more tabs share no renderer with the "
+                          f"agent's session open (sharing needs {shared_layout} renderers, below the limit of {limit})")
+    if mixed:
+        violations.append(f"{mixed} renderers hold main frames of two sites")
+    if below_limit and max_same_site > SAME_SITE_MAIN_FRAME_THRESHOLD:
+        violations.append(f"a renderer holds {max_same_site} main frames of one site below the limit of {limit}")
+    if below_limit and agent_renderer_tabs is not None and agent_renderer_tabs > 1:
+        violations.append(f"the agent's renderer holds {agent_renderer_tabs} tabs")
+    return {
+        "tab_renderers": len(per_renderer),
+        "renderers": renderers,
+        "renderer_limit": limit,
+        "below_limit": below_limit,
+        "shared_layout_renderers": shared_layout,
+        "max_same_site_main_frames": max_same_site,
+        "shared_renderers": sum(1 for counts in per_renderer.values() if sum(counts.values()) > 1),
+        "mixed_site_renderers": mixed,
+        "unshared_sites": unshared,
+        "agent_renderer_tabs": agent_renderer_tabs,
+        "violations": violations,
+    }
+
+
+def fork_api(cef) -> int | None:
+    """The running fork's API, which `debug.cef` names under `windows.fork_api`."""
+    value = (cef.get("windows") or {}).get("fork_api") if isinstance(cef, dict) else None
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def reuse_switch(cef) -> bool | None:
+    """Whether Chromium started with cmux-process-reuse-per-renderer-devtools (`debug.cef`
+    `windows.process_reuse_per_renderer_devtools`); None when the build does not report it."""
+    value = (cef.get("windows") or {}).get("process_reuse_per_renderer_devtools") if isinstance(cef, dict) else None
+    return value if isinstance(value, bool) else None
+
+
+def switch_limit(switches) -> int | None:
+    """N from a renderer-process-limit=N switch the run passes the app (Chrome then uses N as its limit)."""
+    for switch in switches:
+        name, _, value = switch.partition("=")
+        if name.lstrip("-") == "renderer-process-limit" and value.isdigit() and int(value) > 0:
+            return int(value)
+    return None
+
+
+def renderer_limit(memory_report, chrome_limit: int, forced: int | None, switches=()) -> int:
+    """The renderer count the sharing rules are checked below: --renderer-limit, else a renderer-process-limit
+    switch the run passes, else the lower of Chrome's own limit and the app's budget
+    (SubsystemBudget.chromiumRendererLimit, the renderer-process-limit switch once the app passes it), so the
+    check holds whichever of the two the build runs with."""
+    if forced:
+        return forced
+    passed = switch_limit(switches)
+    if passed:
+        return passed
+    budget = ((memory_report.raw.get("budget") or {}) if memory_report else {}).get("chromium_renderer_limit")
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool) and budget > 0:
+        return min(chrome_limit, int(budget))
+    return chrome_limit
+
+
 def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -137,6 +318,9 @@ def parse(argv=None):
     parser.add_argument("--settle", type=float, default=30)
     parser.add_argument("--load-timeout", type=float, default=30, help="seconds a new tab may take to show its title")
     parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated (Debug builds only)")
+    parser.add_argument("--agent-cdp", action=argparse.BooleanOptionalAction, default=False,
+                        help="keep an agent's CDP session on the first tab (sharing with DevTools attached)")
+    parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count")
     parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
                                       "and bench-renderer-sharing.json")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -201,7 +385,8 @@ def main(argv=None):
     pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
     report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
-              "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": []}
+              "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": [], "agent": None}
+    agent = None
     status = 0
     try:
         app = bm.App(bundle, sock)
@@ -209,6 +394,10 @@ def main(argv=None):
         cef = bp.rpc(sock, "debug.cef") or {}
         if cef.get("unavailable") or cef.get("fallback"):
             raise SystemExit(f"bench-renderer-sharing: Chromium is not available: {json.dumps(cef)[:400]}")
+        report["fork_api"] = fork_api(cef)
+        report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
+        print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
+              f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
         missed = 0
         for index in range(args.tabs):
             site = index % args.sites
@@ -226,6 +415,12 @@ def main(argv=None):
                 report["opened"].append({"tab": tab, "site": site, "new_tab_ms": elapsed})
                 report["new_tab_ms"].append(elapsed)
                 missed = missed + 1 if elapsed is None else 0
+                if args.agent_cdp and index == 0 and elapsed is not None:
+                    agent = attach_agent(bundle, sock, tab, url, f"site {site} tab {index}")
+                    report["agent"] = agent
+                    if agent.get("error"):
+                        raise SystemExit(f"bench-renderer-sharing: the agent's CDP session did not open: {agent['error']}")
+                    print(f"PERF-RENDERERS-AGENT tab={tab} session={agent['session']}", flush=True)
             if (index == 0 and missed) or missed >= 3:
                 raise SystemExit(f"bench-renderer-sharing: tab {index} did not open or show its title within {args.load_timeout} s "
                                  "(is this a Debug or bench dev build, so the .test mapping applies?)")
@@ -240,6 +435,14 @@ def main(argv=None):
         times = [t for t in report["new_tab_ms"] if t is not None]
         kinds = sample["kinds"]
         shared = ((mapping.get("report") or {}).get("shared") or {}).get("processes") or []
+        site_of = {row["tab"]: row["site"] for row in report["opened"]}
+        checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
+        sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
+                             require_sharing=bool(agent))
+        if agent and report["process_reuse_per_renderer_devtools"] is not True:
+            sites["violations"].insert(0, "the app did not pass cmux-process-reuse-per-renderer-devtools "
+                                          f"(fork API {report['fork_api']}; it needs {RENDERER_PATHS_FORK_API} and the shim's "
+                                          "renderer paths): the agent's session turns same-site sharing off for every tab")
         result = {
             "renderers": len(renderers),
             "tab_renderers": sum(1 for n in sharing if n),
@@ -251,6 +454,7 @@ def main(argv=None):
             "shared_mb": round(sum(p.get("memory_bytes", 0) for p in shared) / 2**20, 1),
             "new_tab_ms": new_tab_summary(times),
             "kinds": {k: {"n": v["count"], "footprint_mb": v["footprint_mb"]} for k, v in kinds.items()},
+            "sites": sites,
         }
         report["settled"] = result
         report["sample"] = sample
@@ -263,6 +467,15 @@ def main(argv=None):
               f"new_tab_max_ms={result['new_tab_ms']['max']}", flush=True)
         for kind, entry in result["kinds"].items():
             print(f"PERF-RENDERERS-KIND kind={kind} n={entry['n']} footprint_mb={entry['footprint_mb']}")
+        print(f"PERF-RENDERERS-SITES agent_cdp={bool(agent)} renderer_limit={sites['renderer_limit']} "
+              f"renderers={sites['renderers']} below_limit={sites['below_limit']} "
+              f"shared_layout_renderers={sites['shared_layout_renderers']} "
+              f"max_same_site_main_frames={sites['max_same_site_main_frames']} shared_renderers={sites['shared_renderers']} "
+              f"unshared_sites={len(sites['unshared_sites'])} mixed_site_renderers={sites['mixed_site_renderers']} "
+              f"agent_renderer_tabs={sites['agent_renderer_tabs']}", flush=True)
+        for violation in sites["violations"]:
+            print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
+            status = 1
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1
@@ -272,6 +485,11 @@ def main(argv=None):
                 attempts, result["renderers"], result["tab_renderers"], sample, session=args.session))
     finally:
         # A cancelled step has seconds before SIGKILL: end the bundle's processes at once.
+        if agent and agent.get("socket") and not stopping["signal"]:
+            try:
+                host_cli(bundle, agent["socket"], sock, "close", "--session", AGENT_SESSION, timeout=20)
+            except Exception as error:  # noqa: BLE001  the app's quit below ends the session too
+                print(f"   agent close: {error}", file=sys.stderr)
         if stopping["signal"]:
             bm.end_bundle(bundle)
         bench.stop()  # quits the app (when it still runs) and ends its tag

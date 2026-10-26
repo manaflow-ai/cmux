@@ -25,7 +25,7 @@ final class AgentChatPullRequest {
     /// Asks again while the answer's checks run.
     @ObservationIgnored private let refresh = DemandTimer(owner: "header-pull-request-checks")
 
-    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+    init(reader: AgentChatPullRequestReader, freshness: Duration = .seconds(60)) {
         self.reader = reader
         self.freshness = freshness
     }

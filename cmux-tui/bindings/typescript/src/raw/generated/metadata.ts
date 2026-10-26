@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55. */
+/* cmux-tui mux protocol 12, IR 10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55" as const;
+export const SDK_IR_SHA256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3531,7 +3531,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -13581,6 +13581,122 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockClass": {
+    "additional_properties": false,
+    "constraints": [
+      "wait_p95_us is the 95th percentile of wait_us, a bucket upper bound like its other percentiles."
+    ],
+    "fields": {
+      "hold_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "wait_p95_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockClassSet": {
+    "additional_properties": false,
+    "constraints": [
+      "frontend is the verified app's own requests, automation is agents, scripts, the CLI and pages, program is work no request started (terminal output, hooks, the journal writer).",
+      "An automation caller that holds no ranked lock waits while a frontend caller waits; one is let through at least every 4 ms. automation_yields counts the automation acquisitions that waited so; automation_due_admissions counts those let through while frontends still waited."
+    ],
+    "fields": {
+      "automation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      },
+      "automation_due_admissions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "automation_yields": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "frontend": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      },
+      "program": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockClasses": {
+    "additional_properties": false,
+    "constraints": [
+      "One entry per lock that admits by class: the workspace registry lock, the registry connection lock (first acquisitions only) and the mux state lock."
+    ],
+    "fields": {
+      "registry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      },
+      "registry_connection": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
@@ -14222,6 +14338,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "request_path_io is present only when the request names it in include.",
       "slow_requests is present only when the request names it in include.",
       "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+      "lock_classes is present only when the request names it in include.",
       "ipc is present only when the request names it in include."
     ],
     "fields": {
@@ -14255,6 +14372,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsJournalWriter"
+        }
+      },
+      "lock_classes": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClasses"
         }
       },
       "registry_lock": {
