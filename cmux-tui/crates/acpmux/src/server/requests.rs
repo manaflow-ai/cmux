@@ -38,10 +38,11 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
     let resolved = hub.resolve(id).ok();
-    if conn.subscribe(id)
-        && let Some(s) = &resolved
-    {
-        hub.attach_count(s, 1, true);
+    match &resolved {
+        Some(s) => view::subscribe_local(hub, conn, s),
+        None => {
+            conn.subscribe(id);
+        }
     }
     if let Some(s) = resolved {
         conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
@@ -729,7 +730,7 @@ async fn dispatch_request(
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                    attach(hub, conn, id);
+                    view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
                 }
                 if let Some(obj) = result.as_object_mut() {
@@ -1462,7 +1463,12 @@ async fn dispatch_request(
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
-            view::attach(hub, conn, &s, SubOpts { event_stream, filter: filter.clone(), hidden });
+            view::attach(
+                hub,
+                conn,
+                &s,
+                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false },
+            );
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;

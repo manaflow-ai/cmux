@@ -198,9 +198,10 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
+                let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
+                super::view::subscribe_remote(hub, conn, &id, Some(opts));
             } else {
-                super::requests::attach(hub, conn, &id);
+                super::view::subscribe_remote(hub, conn, &id, None);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
@@ -276,7 +277,7 @@ async fn forward_inner(
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::requests::attach(hub, conn, new_id);
+            super::view::subscribe_remote(hub, conn, new_id, None);
             peer.mark_attached(new_id);
         }
         if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
