@@ -247,9 +247,10 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     }
 }
 
-/// Longest a wait holds its answer for a row whose failed turn's retry is being decided: it
-/// is settled within moments (`Hub::retry_row`), but a peer's row changes only with a record,
-/// and a decision for no retry records none.
+/// Longest a wait holds its answer for a row whose failed turn's retry is being decided. It is
+/// settled within moments (`Hub::retry_row`), and its settling is recorded either way
+/// (`auto_resume_scheduled`, `auto_resume_settled`), so a peer's row hears it too; this bounds
+/// only a row nothing refreshes (a record its peer link lost).
 const RETRY_DECIDING_MAX: Duration = Duration::from_secs(5);
 
 /// Whether the row `s` holds the wait's answer: no turn runs and its failed turn's retry is
