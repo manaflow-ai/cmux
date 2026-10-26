@@ -5,6 +5,7 @@ import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -32,6 +33,8 @@ final class AppBrowserHost {
     private var agentCursorSettingObservation: Task<Void, Never>?
     /// The agent cursor of `cmux browser <tab>` page commands.
     let pageInputCursor: AppPageInputCursor
+    /// A person's key downs and scroll events from the input tap, before dispatch (``start()``).
+    private var inputSubscription: InputSubscription?
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -150,10 +153,7 @@ final class AppBrowserHost {
         // AppServices.settings follows from its didSet; a controller set before the host is followed here.
         if let settings = services?.settings { follow(settings) }
         watchDaemonConnection()
-        let application = NSApp as? CmuxApplication
-        let earlier = application?.inputObserver
-        application?.inputObserver = { [weak self] event in
-            earlier?(event)
+        inputSubscription = services?.inputTap.subscribe([.key, .scroll]) { [weak self] event in
             if event.type == .keyDown || event.type == .scrollWheel { self?.noteInput(event) }
         }
     }

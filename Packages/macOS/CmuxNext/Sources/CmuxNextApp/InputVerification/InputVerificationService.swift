@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextInput
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
-/// the app-wide event tap into the journal, the invariant monitor and its
+/// the input tap's events into the journal, the invariant monitor and its
 /// triggers, the windows' focus journaling, and in no-activate mode the
 /// keyboard guard (`InputVerificationService+NoActivateGuard.swift`). One per
 /// app, owned by `AppServices.input`; observers live as long as the app.
@@ -15,10 +16,14 @@ final class InputVerificationService {
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
+    /// The journal's and the monitor's subscription to the input tap (before the key router).
+    private var journalSubscription: InputSubscription?
+    /// No-activate mode only: the keyboard guard's subscription to the person's key and mouse presses.
+    var keyboardGuardSubscription: InputSubscription?
     private weak var services: AppServices?
 
-    /// Configures the journal, installs the event tap and the monitor's
-    /// triggers, then the no-activate keyboard guard (it wraps the tap).
+    /// Configures the journal, subscribes it to the input tap, installs the
+    /// monitor's triggers, then the no-activate keyboard guard.
     func start(services: AppServices) {
         self.services = services
         let journal = InputJournal.shared
@@ -28,7 +33,8 @@ final class InputVerificationService {
         let monitor = InputInvariantMonitor(tag: tag)
         monitor.services = services
         self.monitor = monitor
-        (NSApp as? CmuxApplication)?.inputObserver = { event in
+        // The journal records keys, buttons, drags and scrolls; pointer moves carry no focus.
+        journalSubscription = services.inputTap.subscribe([.key, .flags, .button, .drag, .scroll]) { event in
             journal.record(event)
             switch event.type {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp: monitor.noteChange()
@@ -40,7 +46,7 @@ final class InputVerificationService {
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
         services.cache.presentationChanges.subscribe("input-monitor") { [weak monitor] in monitor?.noteChange() }
-        startNoActivateGuard()
+        startNoActivateGuard(tap: services.inputTap)
     }
 
     /// A cmux window moved or resized by any source (a drag, an
