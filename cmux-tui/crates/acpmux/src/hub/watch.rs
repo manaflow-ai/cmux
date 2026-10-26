@@ -96,7 +96,7 @@ fn changes(file: &Path) -> Option<(notify::RecommendedWatcher, tokio::sync::mpsc
     // One pending wake is enough: each wake reads everything new.
     let (tx, rx) = tokio::sync::mpsc::channel(1);
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if event.is_ok_and(|e| e.paths.iter().any(|p| p.file_name() == Some(name.as_os_str()))) {
+        if event.is_ok_and(|e| changes_file(&e, &name)) {
             let _ = tx.try_send(());
         }
     })
@@ -109,6 +109,11 @@ fn changes(file: &Path) -> Option<(notify::RecommendedWatcher, tokio::sync::mpsc
         return None;
     }
     Some((watcher, rx))
+}
+
+/// Whether folder event `event` may have changed the file named `name`.
+fn changes_file(event: &notify::Event, name: &std::ffi::OsStr) -> bool {
+    event.paths.iter().any(|p| p.file_name() == Some(name))
 }
 
 impl Hub {
@@ -330,6 +335,37 @@ impl Hub {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// The watch's own read opens the transcript, and Linux inotify reports that open
+    /// (`notify` watches `IN_OPEN`): an open or a read is no change, or each read wakes the
+    /// next one and an idle watch spins. A write, a new file, a rename or a delete is one.
+    #[test]
+    fn opening_or_reading_the_transcript_is_no_change() {
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, EventKind, ModifyKind, RemoveKind,
+        };
+        let file = Path::new("/projects/-w/chat.jsonl");
+        let event = |kind| notify::Event::new(kind).add_path(file.to_owned());
+        let name = file.file_name().unwrap();
+        for kind in [
+            EventKind::Access(AccessKind::Open(AccessMode::Any)),
+            EventKind::Access(AccessKind::Read),
+            EventKind::Access(AccessKind::Close(AccessMode::Read)),
+        ] {
+            assert!(!changes_file(&event(kind), name), "{kind:?} woke the watch");
+        }
+        for kind in [
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+            EventKind::Create(CreateKind::File),
+            EventKind::Remove(RemoveKind::File),
+        ] {
+            assert!(changes_file(&event(kind), name), "{kind:?} did not wake the watch");
+        }
+        let other = notify::Event::new(EventKind::Create(CreateKind::File))
+            .add_path(std::path::PathBuf::from("/projects/-w/other.jsonl"));
+        assert!(!changes_file(&other, name), "another file's change woke the watch");
+    }
 
     #[test]
     fn only_complete_lines_are_read_and_the_offset_follows_them() {
