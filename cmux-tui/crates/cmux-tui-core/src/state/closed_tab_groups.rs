@@ -100,6 +100,7 @@ impl Mux {
     /// live group `id`, which an earlier partial reopen formed. The block
     /// keeps the order of the strip, so the group keeps the order it closed
     /// in.
+    #[track_caller]
     pub(super) fn rejoin_closed_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
@@ -151,6 +152,7 @@ impl Mux {
     /// another live group took it (Reopen Saved Group since the close). The
     /// saved record stays as it is: it names every closed tab, not only the
     /// ones this reopen brought back.
+    #[track_caller]
     pub(super) fn relink_saved_tab_group(
         self: &Arc<Self>,
         actor: &Actor,

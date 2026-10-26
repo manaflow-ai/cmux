@@ -2,6 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import CmuxNextCompat
+import CmuxNextTrace
 
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {
@@ -31,6 +32,9 @@ final class LineTransport: Sendable {
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
+    /// How long the reader may take to handle one line (decode and route it) before the hang watcher
+    /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
+    static let lineHangDeadline: Duration = .milliseconds(100)
 
     enum Waiter {
         case reply(cmd: String, ReplySlot)
@@ -106,10 +110,13 @@ final class LineTransport: Sendable {
     /// Decodes this connection's lines on its reader thread, counting into ``recorder``; event
     /// handlers, which run there, decode with it too.
     let decoder: WireDecoder
+    /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
+    private let hangWatched: HangWatchedLane?
 
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
+    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
     init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?) throws(DaemonError) {
+         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil) throws(DaemonError) {
         self.path = path
         self.role = role
         let recorder = stats?.recorder()
@@ -127,6 +134,8 @@ final class LineTransport: Sendable {
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
         recorder?.connectionOpened(role, bridged: bridge != nil)
+        // After the last throw: a transport that never opened registers nothing (its deinit does not run).
+        hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -165,6 +174,7 @@ final class LineTransport: Sendable {
     }
 
     deinit {
+        hangWatched?.unregister()
         writer.close()
         closeDescriptor()
     }
@@ -360,7 +370,7 @@ final class LineTransport: Sendable {
             outputStream?.outputCopied(count)  // into the splitter's buffer
             lines.append(chunk.prefix(count)) { line in
                 outputStream?.outputCopied(line.count)  // out of it, as the line
-                route(line, decoder: decoder, onEvent: onEvent)
+                handle(line, decoder: decoder, onEvent: onEvent)
             }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
@@ -380,6 +390,13 @@ final class LineTransport: Sendable {
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
+
+    /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
+    /// the same way, base/threading/hang_watcher.cc).
+    private func handle(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
+        guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
+        hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
+    }
 
     private func route(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else {

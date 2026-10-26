@@ -1,24 +1,9 @@
-public import CmuxNextInputCore
+import CmuxNextInputCore
 
 /// The input latency part of a report (p04-input-010), copied by allow-list like the rest: labels
 /// only from the input enums' closed sets, bucket edges from ``InputLatencyBuckets``, counts and
 /// milliseconds clamped. A row whose labels or bucket shape do not match is left out.
 extension HangReportBuilder {
-    /// The input latency a report carries: the field ledger's counts since the last report and
-    /// the display they were measured on.
-    public struct InputLatencyInput: Sendable, Equatable {
-        /// The input latency ledger's snapshot of the period (`InputLatencyReporter.takeFieldReport()`).
-        public var snapshot: InputLatencySnapshot
-        /// The display the inputs were presented on.
-        public var display: HangReport.Display
-
-        /// Makes the value from its parts.
-        public init(snapshot: InputLatencySnapshot, display: HangReport.Display) {
-            self.snapshot = snapshot
-            self.display = display
-        }
-    }
-
     /// The highest refresh rate a report names; a larger value is sent as 0 (unknown).
     static let maxRefreshHz = 1_000
 
@@ -26,23 +11,17 @@ extension HangReportBuilder {
     static let inputTargets = Set(InputTarget.allCases.map { String(describing: $0) })
     static let inputEntrypoints = Set(InputEntrypoint.allCases.map { String(describing: $0) })
     static let presentationSources = Set(InputPresentationSource.allCases.map { String(describing: $0) })
-    /// Every label the input fields may hold, lowercased: a personal term inside one of them says
-    /// nothing the report does not already say (``ImageClassifier/isOwnWord(_:)``).
-    static let inputVocabulary = (inputKinds.union(inputTargets).union(inputEntrypoints).union(presentationSources)
-        .union(ScrollJankHistograms.Name.allCases.map(\.rawValue))).map { $0.lowercased() }.sorted()
+    static let scrollJankNames = Set(ScrollJankHistograms.Name.allCases.map(\.rawValue))
 
-    /// Sets the report's four input fields from `input`, or leaves them absent when it counted
-    /// nothing.
-    static func addInputLatency(_ input: InputLatencyInput, to report: inout HangReport) {
-        let rows = inputLatencyRows(input.snapshot.rows)
-        let jank = scrollJank(input.snapshot.scrollJank)
+    /// Sets the report's three input fields from `snapshot`, or leaves them absent when it
+    /// counted nothing.
+    static func addInputLatency(_ snapshot: InputLatencySnapshot, to report: inout HangReport) {
+        let rows = inputLatencyRows(snapshot.rows)
+        let jank = scrollJank(snapshot.scrollJank)
         guard !rows.isEmpty || !jank.isEmpty else { return }
         report.inputLatencyBucketEdgesMs = InputLatencyBuckets.edgesNanos.map { roundedMilliseconds(Double($0) / 1_000_000) }
         report.inputLatency = rows
         report.scrollJank = jank
-        report.display = HangReport.Display(
-            refreshHz: (0...maxRefreshHz).contains(input.display.refreshHz) ? input.display.refreshHz : 0,
-            vrr: input.display.vrr)
     }
 
     /// The rows with known labels and the ledger's bucket shape, merged by key, the most
@@ -53,8 +32,9 @@ extension HangReportBuilder {
             guard inputKinds.contains(row.kind), inputTargets.contains(row.target),
                   inputEntrypoints.contains(row.entrypoint), presentationSources.contains(row.presentationSource),
                   row.total.buckets.count == InputLatencyBuckets.bucketCount else { continue }
+            let display = safeDisplay(row.display)
             let key = RowKey(kind: row.kind, target: row.target, entrypoint: row.entrypoint,
-                             presentationSource: row.presentationSource)
+                             presentationSource: row.presentationSource, display: display)
             let maxMs = safeMilliseconds(row.total.maxMilliseconds)
             if var existing = merged[key] {
                 existing.buckets = zip(existing.buckets, row.total.buckets).map { $0 &+ $1 }
@@ -62,8 +42,8 @@ extension HangReportBuilder {
                 merged[key] = existing
             } else {
                 merged[key] = HangReport.InputLatencyRow(kind: row.kind, target: row.target, entrypoint: row.entrypoint,
-                                                         presentationSource: row.presentationSource, count: 0,
-                                                         buckets: row.total.buckets, maxMs: maxMs)
+                                                         presentationSource: row.presentationSource, display: display,
+                                                         count: 0, buckets: row.total.buckets, maxMs: maxMs)
             }
         }
         let counted = merged.values.compactMap { row -> HangReport.InputLatencyRow? in
@@ -73,10 +53,15 @@ extension HangReportBuilder {
         }
         let sorted = counted.sorted { lhs, rhs in
             if lhs.count != rhs.count { return lhs.count > rhs.count }
-            return (lhs.kind, lhs.target, lhs.entrypoint, lhs.presentationSource)
-                < (rhs.kind, rhs.target, rhs.entrypoint, rhs.presentationSource)
+            return (lhs.kind, lhs.target, lhs.entrypoint, lhs.presentationSource, lhs.display.refreshHz, lhs.display.vrr ? 1 : 0)
+                < (rhs.kind, rhs.target, rhs.entrypoint, rhs.presentationSource, rhs.display.refreshHz, rhs.display.vrr ? 1 : 0)
         }
         return Array(sorted.prefix(HangReport.maxInputLatencyRows))
+    }
+
+    /// The display label as sent: a refresh rate above ``maxRefreshHz`` or below 0 is unknown (0).
+    static func safeDisplay(_ display: InputDisplayClass) -> HangReport.Display {
+        HangReport.Display(refreshHz: (0...maxRefreshHz).contains(display.refreshHz) ? display.refreshHz : 0, vrr: display.vrr)
     }
 
     /// Chrome's histograms by their known names only, in Chrome's order; values clamped to
@@ -123,5 +108,6 @@ extension HangReportBuilder {
         let target: String
         let entrypoint: String
         let presentationSource: String
+        let display: HangReport.Display
     }
 }

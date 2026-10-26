@@ -548,8 +548,10 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 | 100 | Sidebar swipe and wheel paging through the tap | p04 / p03 | S | 011 | - |
 | 101 | Text input server stage | p04 | S | 005 | - |
 | 102 | Spike: strip and rows scroll with main stalled | PL-motion-core | L | p03-026, 072 | MQ-responsive-scroll |
+| 103 | Web (main): schema 3 accepts the input latency fields | PL-telemetry | S | 010, p09-064 | - |
+| 104 | Wire the input latency field report (default-off feature) | PL-telemetry | S | 010, 103, 003, p09-063 | - |
 
-Task count: 99 (design 001-075 minus 047, 049, 061; plus 076-102).
+Task count: 101 (design 001-075 minus 047, 049, 061; plus 076-104).
 
 ### Review disposition (fixer)
 
@@ -721,7 +723,8 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`, `plans/cmux-next/hang-reports-DESIGN.md`,
   `T/CmuxNextHangReportsTests/InputLatencyReportTests.swift`.
 - Change: input_latency_bucket_edges_ms, input_latency[] {kind, target, entrypoint, presentation_source, count,
-  buckets, max_ms}, scroll_jank (Chrome names), display {refresh_hz, vrr}. Numbers only. Tell PL-telemetry.
+  display {refresh_hz, vrr}, buckets, max_ms} (one row per display class), scroll_jank (Chrome names); schema 3
+  only (server 103, wiring 104). Numbers only. Tell PL-telemetry.
 - Acceptance: PrivacyLeakScanner passes; field names documented in hang-reports-DESIGN.md in the same diff; bucket
   sums equal count.
 - Test phase: UNIT(InputLatencyReportTests,PrivacyLeakScannerTests).
@@ -1764,3 +1767,29 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   override scrollWheel without super for their axis; the decision with numbers is in the design doc.
 - Test phase: UNIT(StripScrollHostTests,ColumnScrollReducerTests); GUI DC4 strip and rows --stall 50ms/100ms.
 - Size L. Depends: p03-026, 072.
+
+#### p04-input-103 Web (main): schema 3 accepts the input latency fields
+- Files: `web/services/hangReports/`, `web/tests/fixtures/hang-report-schema3-input-latency.json`,
+  `web/scripts/hang-reports-histograms.ts`.
+- Change: on p09-observability-064's schema-3 decoder, the optional `input_latency_bucket_edges_ms`,
+  `input_latency[]` (<= 64 rows, closed literal labels copied from the Swift enums, `display {refresh_hz, vrr}` per
+  row, `count` == sum of 14 `buckets`) and `scroll_jank` (the six `Event.ScrollJank.*` names, clamped values), all
+  three together or absent (hang-reports-DESIGN.md section 4, "Input latency"). Schema 2 keeps refusing them.
+- Acceptance: 204 with the fixture byte-identical to the Swift golden; 400 for an unknown label, a wrong bucket
+  sum, or the keys in schema 2; web lints; deployed on main before 104's flag turns on.
+- Test phase: bun test in web/; PR on main.
+- Size S. Depends: 010, p09-064.
+
+#### p04-input-104 Wire the input latency field report into hang reports
+- Files: `schemas/features/features.d/hangReportInputLatency.json`,
+  `S/CmuxNextApp/HangReports/HangReportsController.swift`, `S/CmuxNextApp/HangReports/InputLatencyFieldSource.swift`,
+  `T/CmuxNextAppTests/InputLatencyFieldSourceTests.swift`, `plans/cmux-next/hang-reports-DESIGN.md`.
+- Change: feature `hangReportInputLatency` (default off everywhere). When on and p09-063's server-version flag says
+  schema 3, the composition root builds `HangReportBuilder(wireSchema: .v3)` and passes
+  `Environment.inputLatency`: an adapter over the app's `InputLatencyReporter` (`setFieldReport`,
+  `fieldReportPreview`, `takeFieldReport`, `commitFieldReport`). The producer stamps each `InputLatencyBatch` with
+  the window display's `InputDisplayClass` (003's refresh and VRR label).
+- Acceptance: flag off: no field ledger and schema 2 on the wire; flag on: a NIGHTLY opt-in report holds
+  `input_latency` rows labelled by display (DC12); hang reports off stops the field ledger.
+- Test phase: UNIT(InputLatencyFieldSourceTests,HangReportServiceTests); DC12.
+- Size S. Depends: 010, 103, 003, p09-063.

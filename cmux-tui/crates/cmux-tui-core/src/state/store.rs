@@ -233,6 +233,7 @@ impl WorkspaceRegistry {
     /// Commit one state mutation. `apply` runs only when the idempotency key
     /// is new and the revision precondition holds; a replay returns the
     /// stored result without calling it.
+    #[track_caller]
     pub(crate) fn commit_state_mutation(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -303,6 +304,7 @@ impl WorkspaceRegistry {
     /// key, or its refusal of a key reused with other input or of a stale
     /// `expected_revision`; `None` when it would apply. For a mutation that
     /// acts outside the registry before its commit.
+    #[track_caller]
     pub(crate) fn state_mutation_replay(
         &self,
         mutation: &WorkspaceMutation,
@@ -330,6 +332,7 @@ impl WorkspaceRegistry {
     }
 
     /// Run a read against the registry connection.
+    #[track_caller]
     pub(crate) fn read_state<T>(
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
@@ -357,6 +360,7 @@ pub(crate) fn state_snapshot(connection: &Connection) -> anyhow::Result<Value> {
 }
 
 /// Write a workspace's shared identity (title, color, icon).
+#[track_caller]
 pub(crate) fn write_workspace_identity(
     transaction: &Transaction<'_>,
     workspace_key: &str,

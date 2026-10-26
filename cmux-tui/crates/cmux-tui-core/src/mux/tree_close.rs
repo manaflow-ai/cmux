@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn close_surface_for_resource_effect(
         &self,
         target: SurfaceId,
@@ -10,6 +11,7 @@ impl Mux {
         Ok(self.remove_surface_after_registry(target))
     }
 
+    #[track_caller]
     pub(super) fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
         let notifications = self.tree_decorations();
         let remove = || {
@@ -71,6 +73,7 @@ impl Mux {
     /// Close a pane or screen while holding the target workspace's lifecycle
     /// lock. Tabs are detached view items; terminal content remains in the
     /// catalog until an explicit terminal close.
+    #[track_caller]
     pub(super) fn close_tree_target(&self, target: TreeCloseTarget) -> anyhow::Result<bool> {
         let notifications = self.tree_decorations();
         let result = loop {
@@ -176,11 +179,13 @@ impl Mux {
         Ok(true)
     }
 
+    #[track_caller]
     pub(crate) fn close_pane_for_resource_effect(&self, target: PaneId) -> anyhow::Result<bool> {
         self.close_tree_target(TreeCloseTarget::Pane(target))
             .with_context(|| format!("close pane {target}"))
     }
 
+    #[track_caller]
     pub(crate) fn close_screen_for_resource_effect(
         &self,
         target: ScreenId,
@@ -190,6 +195,7 @@ impl Mux {
     }
 
     /// Close a workspace and every screen/pane/tab in it, as `actor`.
+    #[track_caller]
     pub fn close_workspace_as(&self, actor: &Actor, target: WorkspaceId) -> bool {
         self.close_workspace_at_revision_as(actor, target, None)
             .map(|revision| revision.is_some())
@@ -199,6 +205,7 @@ impl Mux {
     /// Atomically close one workspace if the caller's registry snapshot is
     /// still current. Returns the resulting revision when the workspace was
     /// present and closed.
+    #[track_caller]
     pub fn close_workspace_at_revision_as(
         &self,
         actor: &Actor,
@@ -210,6 +217,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub(crate) fn close_workspace_selector_at_revision(
         &self,
         actor: &Actor,
@@ -228,6 +236,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn close_workspace_at_revision_for_resource_effect(
         &self,
         actor: &Actor,
@@ -245,6 +254,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub fn close_workspace_with_mutation(
         &self,
         target: Option<WorkspaceId>,
@@ -266,6 +276,7 @@ impl Mux {
     /// `close-workspace`; with `if_empty` (`close-workspace-if-empty-v1`) it
     /// closes only a workspace that has no tab when the close commits
     /// (`workspace_not_empty` otherwise).
+    #[track_caller]
     pub fn close_workspace_with_mutation_guarded(
         &self,
         target: Option<WorkspaceId>,
@@ -294,6 +305,7 @@ impl Mux {
         result
     }
 
+    #[track_caller]
     pub fn close_provider_managed_workspace_as(
         &self,
         actor: &Actor,
@@ -312,6 +324,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub(crate) fn close_provider_managed_workspace_authorized(
         &self,
         actor: &Actor,
@@ -331,6 +344,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub(super) fn close_workspace_selector_with_authority(
         &self,
         actor: &Actor,
@@ -369,6 +383,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn close_workspace_with_mutation_inner(
         &self,
         target: Option<WorkspaceId>,
@@ -433,6 +448,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn close_workspace_with_mutation_locked(
         &self,
         target: Option<WorkspaceId>,

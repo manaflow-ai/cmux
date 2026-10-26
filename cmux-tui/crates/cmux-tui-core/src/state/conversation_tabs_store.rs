@@ -358,6 +358,7 @@ pub(crate) fn delete_closed_browser_rows(
 impl crate::workspace_registry::WorkspaceRegistry {
     /// Forget a frontend browser (and its conversation record) whose tab
     /// creation failed.
+    #[track_caller]
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
         crate::resource::BrowserPublicId::parse(browser_id.to_string())?;
         let db = self.connection.get();

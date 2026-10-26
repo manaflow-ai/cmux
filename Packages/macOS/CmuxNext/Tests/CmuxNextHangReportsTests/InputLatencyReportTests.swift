@@ -4,12 +4,14 @@ import Foundation
 import Testing
 
 /// Input latency in the opt-in report (p04-input-010): `input_latency[]` rows whose bucket counts
-/// add up to `count`, Chrome's scroll jank histograms under their names, the display's refresh
-/// rate and VRR label, numbers and enum case names only, and nothing when no input was counted.
+/// add up to `count`, labelled by display, Chrome's scroll jank histograms under their names,
+/// numbers and enum case names only, nothing when no input was counted, and nothing in schema 2.
 /// Run: `swift test --filter InputLatencyReportTests`.
 struct InputLatencyReportTests {
     private static let ms: UInt64 = 1_000_000
     private static let vsync: UInt64 = 16_666_667
+    static let proMotion = InputDisplayClass(refreshHz: 120, vrr: true)
+    static let external = InputDisplayClass(refreshHz: 60, vrr: false)
 
     private static func slot(_ kind: InputEventKind, target: InputTarget = .terminal, entrypoint: InputEntrypoint = .person,
                              source: InputPresentationSource = .estimatedVsync, updated: Bool = true,
@@ -22,8 +24,8 @@ struct InputLatencyReportTests {
     }
 
     /// 300 keys and clicks of known latencies, then one scroll with a janky frame and the start of
-    /// the next scroll, so Chrome's PerScroll histograms are emitted.
-    static func fieldSnapshot() -> InputLatencySnapshot {
+    /// the next scroll, so Chrome's PerScroll histograms are emitted; all on `display`.
+    static func fieldSnapshot(display: InputDisplayClass = proMotion) -> InputLatencySnapshot {
         var slots: [InputLatencySlot] = []
         for index in 0..<300 {
             let generated = 1_000 + UInt64(index) * 2
@@ -41,22 +43,17 @@ struct InputLatencyReportTests {
         begin.generated = 11_000 * ms
         slots.append(begin)
         var ledger = InputLatencyLedger()
-        ledger.fold(InputLatencyBatch(slots: slots, vsyncNanos: vsync))
+        ledger.fold(InputLatencyBatch(slots: slots, vsyncNanos: vsync, display: display))
         return ledger.snapshot
     }
 
-    static func fieldInput(display: HangReport.Display = HangReport.Display(refreshHz: 120, vrr: true))
-        -> HangReportBuilder.InputLatencyInput {
-        HangReportBuilder.InputLatencyInput(snapshot: fieldSnapshot(), display: display)
-    }
-
-    private static func report(_ input: HangReportBuilder.InputLatencyInput?) -> HangReport {
-        HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [],
-                                           inputLatency: input)
+    static func report(_ snapshot: InputLatencySnapshot?, wireSchema: HangReport.WireSchema = .v3) -> HangReport {
+        HangReportFixtures.builder(wireSchema: wireSchema).build(
+            context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [], inputLatency: snapshot)
     }
 
     @Test func eachRowsBucketsAddUpToItsCount() throws {
-        let report = Self.report(Self.fieldInput())
+        let report = Self.report(Self.fieldSnapshot())
         let rows = try #require(report.inputLatency)
         #expect(!rows.isEmpty)
         for row in rows {
@@ -74,7 +71,7 @@ struct InputLatencyReportTests {
     }
 
     @Test func scrollJankUsesChromesNamesAndCounts() throws {
-        let jank = try #require(Self.report(Self.fieldInput()).scrollJank)
+        let jank = try #require(Self.report(Self.fieldSnapshot()).scrollJank)
         #expect(jank.presentedFrames == 3)
         #expect(jank.delayedFrames == 1)
         #expect(jank.skippedFrames == 1, "a scroll's first frame has no frame before it")
@@ -88,14 +85,23 @@ struct InputLatencyReportTests {
         #expect(jank.histograms[1].samples == [.init(value: 2, count: 1)])
     }
 
-    @Test func theDisplayIsLabelledAndAnOutOfRangeRateIsUnknown() {
-        #expect(Self.report(Self.fieldInput()).display == HangReport.Display(refreshHz: 120, vrr: true))
-        let odd = Self.report(Self.fieldInput(display: HangReport.Display(refreshHz: 50_000, vrr: false)))
-        #expect(odd.display == HangReport.Display(refreshHz: 0, vrr: false))
+    @Test func rowsOnTwoDisplaysAreSeparateAndLabelled() throws {
+        // DC12 "VRR rows labelled": the same keys on a ProMotion panel and a 60 Hz external display.
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [Self.slot(.keyPress, generatedMs: 1_000, presentedMs: 1_005)],
+                                      vsyncNanos: 8_333_333, display: Self.proMotion))
+        ledger.fold(InputLatencyBatch(slots: [Self.slot(.keyPress, generatedMs: 2_000, presentedMs: 2_020),
+                                              Self.slot(.keyPress, generatedMs: 2_100, presentedMs: 2_120)],
+                                      vsyncNanos: Self.vsync, display: Self.external))
+        let rows = try #require(Self.report(ledger.snapshot).inputLatency)
+        #expect(rows.map(\.display) == [HangReport.Display(refreshHz: 60, vrr: false), HangReport.Display(refreshHz: 120, vrr: true)])
+        #expect(rows.map(\.count) == [2, 1])
+        let odd = InputDisplayClass(refreshHz: 50_000, vrr: false)
+        #expect(HangReportBuilder.safeDisplay(odd) == HangReport.Display(refreshHz: 0, vrr: false), "out of range is unknown")
     }
 
     @Test func theWireNamesAreSnakeCaseAndTheScanPasses() throws {
-        let body = try HangReport.encoder.encode(Self.report(Self.fieldInput()))
+        let body = try HangReport.encoder.encode(Self.report(Self.fieldSnapshot()))
         let text = String(decoding: body, as: UTF8.self)
         for key in ["\"input_latency_bucket_edges_ms\"", "\"input_latency\"", "\"presentation_source\"", "\"max_ms\"",
                     "\"scroll_jank\"", "\"presented_frames\"", "\"delayed_frames\"", "\"skipped_frames\"",
@@ -104,16 +110,22 @@ struct InputLatencyReportTests {
         }
         #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
         let decoded = try JSONDecoder().decode(HangReport.self, from: body)
-        #expect(decoded == Self.report(Self.fieldInput()), "the report round-trips")
+        #expect(decoded == Self.report(Self.fieldSnapshot()), "the report round-trips")
+    }
+
+    @Test func schemaTwoCarriesNoInputLatency() throws {
+        // The schema-2 server refuses unknown keys: a schema-2 build never writes them.
+        let report = Self.report(Self.fieldSnapshot(), wireSchema: .v2)
+        #expect(report.inputLatency == nil && report.scrollJank == nil && report.inputLatencyBucketEdgesMs == nil)
+        let text = String(decoding: try HangReport.encoder.encode(report), as: UTF8.self)
+        #expect(!text.contains("input_latency") && !text.contains("scroll_jank"))
     }
 
     @Test func noInputMeansNoInputKeysAndTheGoldenBytesStay() throws {
-        for input in [nil, HangReportBuilder.InputLatencyInput(snapshot: InputLatencyLedger().snapshot,
-                                                               display: HangReport.Display(refreshHz: 60, vrr: false))] {
-            let report = Self.report(input)
+        for snapshot in [nil, InputLatencyLedger().snapshot] {
+            let report = Self.report(snapshot)
             #expect(report.inputLatency == nil)
             #expect(report.scrollJank == nil)
-            #expect(report.display == nil)
             #expect(report.inputLatencyBucketEdgesMs == nil)
             let body = try HangReport.encoder.encode(report)
             let text = String(decoding: body, as: UTF8.self)
@@ -164,9 +176,7 @@ struct InputLatencyReportTests {
     }
 
     @Test func aReportWithOnlyInputLatencyHasFindings() {
-        var report = Self.report(nil)
-        #expect(report.hasNoFindings)
-        report = Self.report(Self.fieldInput())
-        #expect(!report.hasNoFindings)
+        #expect(Self.report(nil).hasNoFindings)
+        #expect(!Self.report(Self.fieldSnapshot()).hasNoFindings)
     }
 }

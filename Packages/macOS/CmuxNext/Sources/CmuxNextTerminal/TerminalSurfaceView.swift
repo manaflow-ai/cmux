@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import IOSurface
@@ -25,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
+    private let hangWatch: (any HangWatchScoping)?
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -116,10 +119,11 @@ public final class TerminalSurfaceView: NSView {
     // MARK: Lifecycle
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
-         echoStages: TerminalEchoStages) {
+         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
+        self.hangWatch = hangWatch
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode, echoStages: echoStages)
@@ -179,7 +183,8 @@ public final class TerminalSurfaceView: NSView {
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         let echoStage = echoStages.makeStage()
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage)
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
+                                  hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
             TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate)

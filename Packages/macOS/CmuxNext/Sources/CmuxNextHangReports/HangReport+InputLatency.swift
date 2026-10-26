@@ -12,7 +12,8 @@ extension HangReport {
     public static let maxMissedVsyncs = 50
 
     /// One `input_latency[]` row: how long inputs of one kind, target, entrypoint and
-    /// presentation source took from the oldest OS event to the presented frame.
+    /// presentation source took on one kind of display, from the oldest OS event to the presented
+    /// frame.
     public struct InputLatencyRow: Codable, Sendable, Equatable {
         /// An `InputEventKind` case name (`keyPress`, `scrollUpdate`, ...).
         public var kind: String
@@ -22,6 +23,8 @@ extension HangReport {
         public var entrypoint: String
         /// An `InputPresentationSource` case name (`estimatedVsync`, `metalPresented`, ...).
         public var presentationSource: String
+        /// The display the row's inputs were presented on.
+        public var display: Display
         /// Inputs counted: the sum of ``buckets``.
         public var count: UInt64
         /// One count per edge of ``HangReport/inputLatencyBucketEdgesMs``, then one over the last edge.
@@ -30,19 +33,20 @@ extension HangReport {
         public var maxMs: Double
 
         /// Makes the value from its parts.
-        public init(kind: String, target: String, entrypoint: String, presentationSource: String, count: UInt64,
-                    buckets: [UInt64], maxMs: Double) {
+        public init(kind: String, target: String, entrypoint: String, presentationSource: String, display: Display,
+                    count: UInt64, buckets: [UInt64], maxMs: Double) {
             self.kind = kind
             self.target = target
             self.entrypoint = entrypoint
             self.presentationSource = presentationSource
+            self.display = display
             self.count = count
             self.buckets = buckets
             self.maxMs = maxMs
         }
 
         private enum CodingKeys: String, CodingKey {
-            case kind, target, entrypoint, count, buckets
+            case kind, target, entrypoint, display, count, buckets
             case presentationSource = "presentation_source"
             case maxMs = "max_ms"
         }
@@ -106,8 +110,8 @@ extension HangReport {
         }
     }
 
-    /// `display`: the display the input latency was measured on.
-    public struct Display: Codable, Sendable, Equatable {
+    /// A row's `display`: the display its inputs were presented on.
+    public struct Display: Codable, Sendable, Hashable {
         /// The highest refresh rate it runs at, in whole hertz (0 when unknown).
         public var refreshHz: Int
         /// Whether its refresh rate varies (ProMotion, adaptive sync): estimated presentation

@@ -1,3 +1,4 @@
+import CmuxNextInputCore
 public import Foundation
 import os
 
@@ -31,16 +32,17 @@ public actor HangReportService {
         /// passes the managed `DisableTelemetry`, so a profile installed while cmux runs stops the
         /// next send and drops what was recorded).
         public var stillAllowed: @Sendable () -> Bool
-        /// Takes the input latency counted since the last report and the display it was measured
-        /// on (the app passes the input latency reporter's field report); nil when none.
-        public var inputLatency: @Sendable () async -> HangReportBuilder.InputLatencyInput?
+        /// The input latency field report (``HangReportInputLatencySource``); nil (the default)
+        /// until the app wires it (p04-input-104). Used only when the builder's wire schema
+        /// carries input latency.
+        public var inputLatency: (any HangReportInputLatencySource)?
 
         /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
                     makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
                     stillAllowed: @escaping @Sendable () -> Bool = { true },
-                    inputLatency: @escaping @Sendable () async -> HangReportBuilder.InputLatencyInput? = Environment.noInputLatency) {
+                    inputLatency: (any HangReportInputLatencySource)? = nil) {
             self.app = app
             self.os = os
             self.hardware = hardware
@@ -49,12 +51,6 @@ public actor HangReportService {
             self.makeReportID = makeReportID
             self.stillAllowed = stillAllowed
             self.inputLatency = inputLatency
-        }
-
-        /// No input latency: the default until the server accepts the input keys. Named so the
-        /// default is not an async closure literal (crash_ratchet, cx-bsue).
-        public nonisolated static func noInputLatency() async -> HangReportBuilder.InputLatencyInput? {
-            nil
         }
     }
 
@@ -107,14 +103,16 @@ public actor HangReportService {
     /// The readable copy of the last report sent.
     public nonisolated var lastReportURL: URL { store.lastReportURL }
 
-    /// Follows `diagnostics.hangReports`. Off drops what was recorded and queued and forgets the
-    /// install id; the last report's readable copy stays for View Hang Report.
+    /// Follows `diagnostics.hangReports`. Off drops what was recorded and queued (the input
+    /// latency field report too) and forgets the install id; the last report's readable copy
+    /// stays for View Hang Report.
     public func setEnabled(_ on: Bool) async {
         guard !settled || on != isEnabled else { return }
         settled = true
         isEnabled = on
         generation += 1
         collector.setEnabled(on)
+        await syncInputLatencyRecording()
         if on {
             if let saved = await store.takePending() { collector.merge(saved) }
         } else {
@@ -130,7 +128,7 @@ public actor HangReportService {
         guard isEnabled, await allowed() else { return }
         await flushOutbox()
         let last = await store.sendLog().lastSentAt ?? .distantPast
-        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, !collector.snapshot().isEmpty {
+        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, hasSendable(collector.snapshot()) {
             await sendReport()
         }
     }
@@ -157,8 +155,11 @@ public actor HangReportService {
     /// What View Hang Report opens: the last report sent, else a preview of what would be sent now.
     public func viewableReport() async -> URL? {
         if await store.hasLastReport() { return store.lastReportURL }
-        // While off, the preview names a throwaway id: viewing must not start an install id.
-        let report = await build(watchdog: collector.snapshot(), metricKit: waiting,
+        // While off, the preview names a throwaway id: viewing must not start an install id. The
+        // input latency is the field report's preview, so the preview holds the keys a send adds.
+        var inputLatency: InputLatencySnapshot?
+        if isEnabled, let source = inputLatencySource { inputLatency = await source.preview() }
+        let report = await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency,
                                  installId: isEnabled ? nil : UUID().uuidString.lowercased())
         guard let readable = try? HangReport.readableEncoder.encode(report),
               scanner.findings(in: readable).isEmpty else { return nil }
@@ -195,12 +196,14 @@ public actor HangReportService {
         let aggregate = collector.drain()
         let deliveries = waiting
         waiting = []
-        guard !aggregate.isEmpty || !deliveries.isEmpty else { return }
+        guard hasSendable(aggregate) || !deliveries.isEmpty else { return }
         log.day = today
         log.sentToday += 1
         log.lastSentAt = now
         await store.saveSendLog(log)
-        let inputLatency = await environment.inputLatency()
+        // Taken, not peeked: held by the source until the report is queued (commit below), so a
+        // report dropped by a check here gives its input counts to the next one.
+        let inputLatency = await inputLatencySource?.take()
         let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries, inputLatency: inputLatency))
         guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
               body.count <= HangReport.maxBodyBytes else { return }
@@ -212,6 +215,7 @@ public actor HangReportService {
         }
         guard generation == started else { return }
         await store.enqueue(body, reportId: report.reportId)
+        if inputLatency != nil, generation == started { await inputLatencySource?.commit() }
         // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
         if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
@@ -250,9 +254,15 @@ public actor HangReportService {
         return true
     }
 
+    /// Whether `aggregate` holds something this build's wire schema sends: launches alone take no
+    /// daily slot while the schema does not carry them.
+    private func hasSendable(_ aggregate: StallAggregate) -> Bool {
+        builder.wireSchema.carriesLaunches ? !aggregate.isEmpty : !aggregate.isEmptyWithoutLaunches
+    }
+
     /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
     private func isSendable(_ body: Data) -> Bool {
-        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == HangReport.schemaVersion,
+        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == builder.wireSchema.rawValue,
               report.app == HangReportBuilder.safeApp(environment.app) else { return false }
         return scanner.findings(in: body).isEmpty
     }
@@ -267,8 +277,26 @@ public actor HangReportService {
         return true
     }
 
+    /// ``Environment/inputLatency`` when the builder's wire schema carries input latency, else nil:
+    /// a build whose reports cannot hold it never records it.
+    private var inputLatencySource: (any HangReportInputLatencySource)? {
+        builder.wireSchema.carriesInputLatency ? environment.inputLatency : nil
+    }
+
+    /// Brings the source's recording to ``isEnabled``. Calls from overlapping ``setEnabled(_:)``
+    /// may finish out of order, so each one repeats until its last finished call matches the state.
+    private func syncInputLatencyRecording() async {
+        guard let source = inputLatencySource else { return }
+        var applied: Bool?
+        while applied != isEnabled {
+            let target = isEnabled
+            await source.setRecording(target)
+            applied = target
+        }
+    }
+
     private func build(watchdog: StallAggregate, metricKit: [MetricKitInput],
-                       inputLatency: HangReportBuilder.InputLatencyInput? = nil, installId: String? = nil) async -> HangReport {
+                       inputLatency: InputLatencySnapshot? = nil, installId: String? = nil) async -> HangReport {
         let now = environment.now()
         let context = HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
@@ -276,18 +304,35 @@ public actor HangReportService {
         return builder.build(context: context, watchdog: watchdog, metricKit: metricKit, inputLatency: inputLatency)
     }
 
-    /// `report` shrunk until it encodes under the body cap: the shortest hangs, then CPU
-    /// exceptions, then intervals, then the least frequent input latency rows go first.
+    /// `report` shrunk until it encodes under the body cap. The input latency is context and goes
+    /// first (the least frequent rows, then the scroll jank histograms, then the whole block), so
+    /// hangs keep the room they had without it; then the shortest hangs, CPU exceptions and
+    /// intervals.
     static func fitted(_ report: HangReport) -> HangReport {
         var report = report
         while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {
+            if trimInputLatency(&report) { continue }
             if !report.hangs.isEmpty { report.hangs.removeLast() } else if !report.cpuExceptions.isEmpty {
                 report.cpuExceptions.removeLast()
-            } else if !report.intervals.isEmpty { report.intervals.removeLast() } else if report.inputLatency?.isEmpty == false {
-                report.inputLatency?.removeLast()
-            } else { break }
+            } else if !report.intervals.isEmpty { report.intervals.removeLast() } else { break }
         }
         return report
+    }
+
+    /// Removes one piece of `report`'s input latency; false when it has none left.
+    static func trimInputLatency(_ report: inout HangReport) -> Bool {
+        if report.inputLatency?.isEmpty == false {
+            report.inputLatency?.removeLast()
+        } else if report.scrollJank?.histograms.isEmpty == false {
+            report.scrollJank?.histograms.removeLast()
+        } else if report.inputLatencyBucketEdgesMs != nil || report.inputLatency != nil || report.scrollJank != nil {
+            report.inputLatencyBucketEdgesMs = nil
+            report.inputLatency = nil
+            report.scrollJank = nil
+        } else {
+            return false
+        }
+        return true
     }
 
     /// The UTC day of `date` (`yyyy-MM-dd`).

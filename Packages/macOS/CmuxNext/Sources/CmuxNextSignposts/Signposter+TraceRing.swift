@@ -85,7 +85,8 @@ extension SignpostName {
     var opensThreadSlice: Bool {
         switch self {
         case .actionPerform, .stallMainTask, .motionFrame, .motionDragFrame, .keyOmnibarSuggest, .keyPaletteSearch,
-             .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen, .taskRun, .ghosttyRender:
+             .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen, .taskRun, .ghosttyRender,
+             .launchStartupTask:
             true
         default:
             false

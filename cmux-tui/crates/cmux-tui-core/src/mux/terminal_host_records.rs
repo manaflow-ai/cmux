@@ -104,7 +104,7 @@ pub(super) fn retry_terminal_host_record_cleanup(
 ) {
     let mut delay = Duration::from_millis(25);
     loop {
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
         if cleanup_terminal_host_record(&record, &record_path) {
             return;
         }

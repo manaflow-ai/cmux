@@ -48,6 +48,7 @@ impl WorkspaceRegistry {
     /// Store (`Some`) or clear (`None`, never close) the idle-close policy of a
     /// live terminal. Tombstoned or unknown terminals are rejected so a stale
     /// request cannot leave an orphan policy behind.
+    #[track_caller]
     pub fn set_terminal_idle_policy(
         &mut self,
         terminal_id: &str,
@@ -82,6 +83,7 @@ impl WorkspaceRegistry {
     }
 
     /// The stored policy of one terminal, if any.
+    #[track_caller]
     pub fn terminal_idle_policy(&self, terminal_id: &str) -> anyhow::Result<Option<u64>> {
         validate_terminal_identity("terminal id", terminal_id)?;
         let seconds = self
@@ -97,6 +99,7 @@ impl WorkspaceRegistry {
     }
 
     /// Every non-tombstoned terminal that carries an idle-close policy.
+    #[track_caller]
     pub fn live_terminal_idle_policies(&self) -> anyhow::Result<Vec<TerminalIdlePolicy>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -123,6 +126,7 @@ impl WorkspaceRegistry {
 
     /// Delete policies whose terminal is tombstoned or no longer registered.
     /// Returns the number of rows removed.
+    #[track_caller]
     pub fn prune_terminal_idle_policies(&mut self) -> anyhow::Result<usize> {
         Ok(self.connection.get().execute(
             "DELETE FROM terminal_idle_policies
