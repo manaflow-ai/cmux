@@ -379,6 +379,12 @@ impl Peer {
         })
     }
 
+    /// How the peer said at its last handshake that it serves this daemon: `peer`, `remote`
+    /// (as a Web client), or None from a peer too old to say.
+    pub fn served_as(&self) -> Option<String> {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
