@@ -827,10 +827,16 @@ class StoryCommandTests(unittest.TestCase):
                 self.assertEqual(story["command"][0], "scripts/cmux-next/bench-startup.py")
                 args = bs.parse_args(story["command"][1:] + BASE + ["--out", "/tmp/out"])
                 patterns = [m["name"] for m in story["metrics"]]
+                saved, root = bs.CORPUS, "launch"
+                self.addCleanup(setattr, bs, "CORPUS", saved)
+                if args.corpus:  # a corpus launch story (launch-restore-*): its series are under corpus.<id>
+                    bs.CORPUS = bs.corpus_module().load(args.corpus)
+                    root = bs.CORPUS.metric_root
+                    self.assertEqual(story["session"], bs.CORPUS.session)
                 for mode in args.mode:
                     self.assertEqual(bs.default_story(mode, args.profile, args.after_reboot), story["id"])
-                    written = [metric for metric, _, _ in bs.result_series(mode, [{}], args.profile)]
-                    written += [f"launch.{mode}.{mark}" for mark in bs.result_marks(args.profile)]
+                    written = [metric for metric, _, _ in bs.result_series(mode, [{}], args.profile, root)]
+                    written += [f"{root}.{mode}.{mark}" for mark in bs.result_marks(args.profile)]
                     for metric in written:
                         self.assertTrue(any(re.fullmatch(p, metric) for p in patterns), metric)
                     for pattern in patterns:
