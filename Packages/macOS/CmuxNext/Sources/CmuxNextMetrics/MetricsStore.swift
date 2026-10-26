@@ -147,6 +147,20 @@ public final class MetricsStore: Sendable {
         AtomicPointerSlot(block + 1).add(UInt64(max(sample, 0)), ordering: .relaxed)
     }
 
+    /// Adds a child process's samples of `id` (``Metrics/record(_:folding:)``, counted in `id`'s layout): relaxed adds
+    /// to the buckets, count and sum. False for a histogram with no block.
+    func add(_ id: HistogramID, count: UInt64, sum: UInt64, buckets: [MetricsDelta.Bucket]) -> Bool {
+        guard let slot = slots[id],
+              let words = UnsafeMutablePointer<UInt64>(bitPattern: UInt(activeAddress.load(ordering: .acquiring))) else { return false }
+        let block = words + slot.word
+        for bucket in buckets where bucket.index >= 0 && bucket.index <= slot.overflow {
+            AtomicPointerSlot(block + 2 + bucket.index).add(bucket.count, ordering: .relaxed)
+        }
+        AtomicPointerSlot(block).add(count, ordering: .relaxed)
+        AtomicPointerSlot(block + 1).add(sum, ordering: .relaxed)
+        return true
+    }
+
     // MARK: delta upload
 
     /// What was recorded since the last ``markLogged(_:)``: current minus logged, per histogram with samples.
