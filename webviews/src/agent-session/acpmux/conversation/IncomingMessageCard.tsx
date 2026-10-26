@@ -179,20 +179,20 @@ export function IncomingMessageLine({
   // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
   // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
   // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
+  const minimalCard = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
   // Out of it, the card stays drawn and only Details' row folds, under the line held the same way.
-  const collapse = useAnchoredCollapse({
-    open,
-    onOpenChange: show,
-    animates: () => minimal || played.current,
-    fadeIn: !minimal,
-  });
-  const { headerRef } = collapse;
+  // Each mode folds its own box, so switching modes mid-fold never hands one's motion to the other's.
+  const cardDetails = useAnchoredCollapse({ open, onOpenChange: show, animates: () => !minimal && played.current });
+  const collapse = minimal ? minimalCard : cardDetails;
+  const minimalHeader = minimalCard.headerRef;
+  const detailsHeader = cardDetails.headerRef;
   const toggleRef = useCallback(
     (node: HTMLButtonElement | null) => {
       toggleButton.current = node;
-      headerRef(node);
+      minimalHeader(node);
+      detailsHeader(node);
     },
-    [headerRef],
+    [minimalHeader, detailsHeader],
   );
   const folded = minimal && !open;
   const preview = useMemo(() => (minimal ? messagePreview(body) : ""), [minimal, body]);
