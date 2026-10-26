@@ -14,7 +14,8 @@ import notify
 /// and registers nothing on a desktop Mac; it takes the event on its UI thread, cmux takes it here.
 ///
 /// All work runs on ``System/post``'s queue except ``start(_:)`` and ``stop()``, which only swap the
-/// run under the state's lock; a run that ``stop()`` ended changes nothing when its queue work comes.
+/// run under the state's lock; a run that ``stop()`` ended changes nothing when its queue work or its
+/// main-actor delivery comes.
 nonisolated final class PowerSourceMonitor: Sendable {
     /// What the main actor hears about: a reading in the same ``Edge`` as the last one it got is
     /// not sent. On battery above the low-battery threshold a charge step is not an edge (80% to
@@ -51,6 +52,8 @@ nonisolated final class PowerSourceMonitor: Sendable {
         var cancel: @Sendable (_ token: Int32) -> Void
         /// Runs work on the monitor's queue.
         var post: @Sendable (_ work: @escaping @Sendable () -> Void) -> Void
+        /// Runs work on the main actor: inline on the main thread, else on the main queue's next turn.
+        var toMain: @Sendable (_ work: @escaping @MainActor @Sendable () -> Void) -> Void
 
         /// IOKit and notify(3) on the app's one power-source queue.
         static func live() -> System {
@@ -65,7 +68,8 @@ nonisolated final class PowerSourceMonitor: Sendable {
                               return status == UInt32(NOTIFY_STATUS_OK) ? token : nil
                           },
                           cancel: { token in _ = notify_cancel(token) },
-                          post: { work in queue.async(execute: work) })
+                          post: { work in queue.async(execute: work) },
+                          toMain: { work in MainDelivery().run(work) })
         }
     }
 
@@ -154,7 +158,10 @@ nonisolated final class PowerSourceMonitor: Sendable {
             system.cancel(token)
         }
         if let deliver = next.deliver {
-            MainDelivery().run { deliver(reading) }
+            system.toMain { [weak self] in
+                guard self?.isCurrent(run) == true else { return }
+                deliver(reading)
+            }
         }
     }
 

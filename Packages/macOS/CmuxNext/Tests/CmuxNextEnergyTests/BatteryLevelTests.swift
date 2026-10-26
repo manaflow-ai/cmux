@@ -8,9 +8,12 @@ import Testing
 @MainActor
 struct BatteryLevelTests {
     /// A Mac the monitor's system calls reach. The test's thread runs the queue's work inline, so every
-    /// call comes from the main thread and `MainDelivery` delivers before the call returns.
+    /// call comes from the main thread, and the main hop delivers before the call returns unless
+    /// ``holdsMain`` keeps it for ``drainMain()`` (a hop off the utility queue, still waiting for main).
     final class FakeMac {
         var hasPowerSource = true
+        var holdsMain = false
+        var heldMain: [@MainActor @Sendable () -> Void] = []
         var reading = PowerSourceReading()
         var reads = 0
         var handlers: [Int32: (name: String, handler: @Sendable () -> Void)] = [:]
@@ -23,7 +26,19 @@ struct BatteryLevelTests {
                                       read: { MainActor.assumeIsolated { self.read() } },
                                       register: { name, handler in MainActor.assumeIsolated { self.register(name, handler) } },
                                       cancel: { token in MainActor.assumeIsolated { self.cancel(token) } },
-                                      post: { work in work() })
+                                      post: { work in work() },
+                                      toMain: { work in MainActor.assumeIsolated { self.toMain(work) } })
+        }
+
+        /// Main's turn comes: the held hops run in order.
+        func drainMain() {
+            let held = heldMain
+            heldMain = []
+            held.forEach { $0() }
+        }
+
+        private func toMain(_ work: @escaping @MainActor @Sendable () -> Void) {
+            if holdsMain { heldMain.append(work) } else { work() }
         }
 
         /// The names registered now.
@@ -62,6 +77,10 @@ struct BatteryLevelTests {
 
     final class Deliveries {
         var readings: [PowerSourceReading] = []
+    }
+
+    final class Changes {
+        var count = 0
     }
 
     static func laptop(onBattery: Bool, percent: Int) -> FakeMac {
@@ -159,6 +178,40 @@ struct BatteryLevelTests {
         stale.forEach { $0() }
         #expect(deliveries.readings.count == 1)
         #expect(mac.reads == 1)
+    }
+
+    @Test func aReadingQueuedToMainBeforeStopSendsNothing() {
+        let mac = Self.laptop(onBattery: true, percent: 50)
+        mac.holdsMain = true
+        let (monitor, deliveries) = Self.started(mac)
+        mac.change(onBattery: false, percent: 50)
+        #expect(mac.heldMain.count == 2, "the first reading and the plug-in wait for main")
+        monitor.stop()
+        mac.drainMain()
+        #expect(deliveries.readings.isEmpty, "stop() ended the run before main's turn")
+        monitor.start { deliveries.readings.append($0) }
+        mac.change(onBattery: true, percent: 50)
+        monitor.stop()
+        monitor.start { deliveries.readings.append($0) }
+        mac.drainMain()
+        #expect(deliveries.readings == [PowerSourceReading(onBattery: true, hasBattery: true, batteryPercent: 50)],
+                "only the current run's reading reaches main")
+    }
+
+    @Test func aStoppedEnergyMonitorIgnoresAReadingQueuedBeforeStop() {
+        let mac = Self.laptop(onBattery: true, percent: 15)
+        mac.holdsMain = true
+        let monitor = EnergyMonitor(lowPowerMode: LowPowerMode(enabled: false), thermal: ThermalStateWatch(state: .nominal),
+                                    power: .monitored(by: PowerSourceMonitor(system: mac.system)))
+        let before = monitor.inputs
+        let changes = Changes()
+        let registration = monitor.observe { _ in changes.count += 1 }
+        monitor.start()
+        monitor.stop()
+        mac.drainMain()
+        #expect(monitor.inputs == before)
+        #expect(changes.count == 0, "no observer fires after stop()")
+        _ = registration
     }
 
     @Test func theMonitorFeedsTheEnergyInputs() {
