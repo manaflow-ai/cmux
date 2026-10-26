@@ -23,12 +23,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
+    /// The launch load-in, region by region; its last region revealing ends the startup phase's
+    /// `launching` (made here, the composition root, and passed by init).
+    private let launchReveal: LaunchReveal
     /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
     private let startupTrace: StartupTrace?
     /// The app's daemon wire counters, made in `main` (nil in a release build).
     private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
-    private let launchSettle = LaunchSettle()
+    private let launchSettle: LaunchSettle
+    /// The startup phase's settle references (first snapshot, restore, visible page).
+    private let startupReferences: StartupReferences
     /// Launch work that starts after the first window frame (perf-launch-memory).
     let firstFrame = FirstFrameGate()
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
@@ -50,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// person's pending-input check and task signposts. Built here, the composition root, and
     /// handed to the control socket and the services.
     private let mainWork: MainWorkScheduler
+    /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
+    var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
@@ -63,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, mainWork: MainWorkScheduler,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
          startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
@@ -72,6 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.startupTrace = startupTrace
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
+        // One display link per display, shared by the app, window and budgeted frame schedulers.
+        let displays = DisplayClock()
+        FrameScheduler.install(displays: displays)
+        // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
+        // work for the settle. The marks are queued first, so each shows before the held work it opens.
+        let startup = StartupPhase()
+        startup.whenReached(.revealed) { DebugTimings.markLaunch("launch.revealed") }
+        startup.whenReached(.settled) { DebugTimings.markLaunch("launch.settled") }
+        let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
+        launchReveal = reveal
+        launchSettle = LaunchSettle(reveal: reveal)
+        startupReferences = StartupReferences(startup: startup, reveal: reveal)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+                                         displays: displays, startup: startup)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
@@ -122,10 +143,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
+        let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // The settle references, one closure each, before the daemon starts and the windows restore
+        // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
+        // screen) reveals at once.
+        let startup = mainWork.startup
+        startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+        services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
+        let references = startupReferences
+        references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
+        services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
+        let windows = services.windows
+        windows.onRestored = { [weak references, weak windows] in
+            references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
+        }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog

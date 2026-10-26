@@ -30,6 +30,10 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     case systemCall = "system-call"
     /// A sleep (`usleep`, `Thread.sleep`): the thread waits on purpose.
     case sleep
+    /// Any blocking seam inside a job of a lane that must not block (BackgroundWork's `.cpu` lane,
+    /// ``BlockingContext/cpuLane``), off the main thread: that lane is sized to the cores, so a wait there holds a
+    /// core's slot idle. Run the job on `.files` or `.system` (Chrome's task without `MayBlock`).
+    case wrongLane = "wrong-lane"
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows

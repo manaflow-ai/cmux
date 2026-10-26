@@ -71,16 +71,11 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        // One display link per display, shared by the app, window and budgeted frame schedulers.
-        let displays = DisplayClock()
-        FrameScheduler.install(displays: displays)
-        // The one main-thread scheduler; every main run-loop turn is timed and split (MainTurnMeter).
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
-                                         displays: displays)
-        (app as? CmuxApplication)?.meterTurns(mainWork.budget.turns)
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, mainWork: mainWork,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace,
                                    launchReads: (work, launchImages, relaunchWake))
+        // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
+        (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
