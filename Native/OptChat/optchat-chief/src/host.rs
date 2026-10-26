@@ -1439,7 +1439,11 @@ fn start(
         // `control cloud PEER` sets a peer at run time with no env.
         .with_cloud_text(sub_text.clone())
         .with_cloud_vms(cloud_vms.clone())
-        .with_agent_keys(agent_keys.clone());
+        .with_agent_keys(agent_keys.clone())
+        // cloud_workspace: the app's own Cloud actions (#25596).
+        .with_cloud_workspaces(
+            crate::cloud_workspace::CloudWorkspaces::from_env(&|k: &str| env(k)).map(Arc::new),
+        );
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
