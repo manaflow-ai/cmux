@@ -1,12 +1,10 @@
 // The chat's pull requests above the composer (cx-ncc.81, Claude desktop's PR bars): each one a
-// `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
-// title and state, each a chip as wide as its text, its title cut off only when the composer's
-// column is full, with its dismiss button inside. The chat folder's pull request, which the header
-// chip follows live, shows its live state and title. A merged or closed pull request keeps no bar:
-// it lives in the right panel's Changes card instead. The newest two show and the rest wait behind
-// Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
-// hidden). Hovering a bar, or focusing it, opens the shared link card (chips/LinkHoverCard.tsx) with
-// the pull request's full title, state, author and checks.
+// `gh pr create` in the chat opened (sessionSummary.ts), newest first. The default is a quiet count
+// line that opens Session Info's Changes section; the individual bars remain available in the
+// gallery and as a fallback when Session Info is disabled. A merged or closed pull request keeps no
+// line: it lives in the Changes card instead. Dismissed bars stay hidden for this chat (the page's
+// storage, so a reload keeps them hidden). Hovering a bar, or focusing it, opens the shared link
+// card (chips/LinkHoverCard.tsx) with the pull request's full title, state, author and checks.
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -20,12 +18,20 @@ import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 
 const SHOWN = 2;
+export type PullRequestDockMode = "compact" | "none" | "collapsed" | "full";
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
 };
 
 const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
+
+/// Gallery-only variants set this document attribute. The real pane has no attribute and therefore
+/// uses the quiet count line by default.
+function configuredMode(): PullRequestDockMode {
+  const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  return value === "none" || value === "collapsed" || value === "full" ? value : "compact";
+}
 
 /// The pull request URLs dismissed in this chat; none when the page has no storage.
 function readDismissed(sessionId: string | undefined): string[] {
@@ -70,7 +76,15 @@ function ended(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): boo
 }
 
 /// Mount keyed by the chat: dismissals and Show more belong to one chat.
-export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[]; sessionId?: string }) {
+export function PullRequestDock({
+  rows,
+  sessionId,
+  onOpenChanges,
+}: {
+  rows: readonly AcpmuxRow[];
+  sessionId?: string;
+  onOpenChanges?: () => void;
+}) {
   const t = useT();
   const { pullRequest: live } = useHeaderState();
   // Every streamed chunk is a new rows array: parse again only when a tool call changed.
@@ -94,7 +108,23 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
   }, [refocus]);
   const prs = all.filter((pr) => !dismissed.includes(pr.url) && !ended(pr, live)).reverse();
   if (prs.length === 0) return null;
-  const visible = expanded ? prs : prs.slice(0, SHOWN);
+  const mode = configuredMode();
+  if (mode === "none") return null;
+  // Session Info is the source of truth for PR actions in the compact mode. If it is disabled (for
+  // example in Quick Chat), keep the existing bars so opening or dismissing a PR never becomes a
+  // dead end.
+  if (mode === "compact" && onOpenChanges) {
+    return (
+      <section className="acpmux-pr-dock" data-mode="compact" aria-label={t("prDock.label")}>
+        <button type="button" className="acpmux-pr-dock__count" aria-label={t("prDock.label")} onClick={onOpenChanges}>
+          <Icon name="git.pullrequest" size={13} />
+          <span>{t("prDock.count", { count: String(prs.length) })}</span>
+        </button>
+      </section>
+    );
+  }
+  const displayMode = mode === "compact" ? "full" : mode;
+  const visible = displayMode === "collapsed" || expanded ? prs : prs.slice(0, SHOWN);
   const dismiss = (url: string, index: number) => {
     const next = [...dismissed, url];
     setDismissed(next);
@@ -102,7 +132,7 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
     setRefocus(index);
   };
   return (
-    <section ref={dock} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
+    <section ref={dock} className="acpmux-pr-dock" data-mode={displayMode} aria-label={t("prDock.label")}>
       {visible.map((pr, index) => {
         const { state, title, labeled } = shown(pr, live);
         const badge = BADGES[state];
@@ -126,7 +156,7 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
           </div>
         );
       })}
-      {prs.length > SHOWN && (
+      {displayMode === "full" && prs.length > SHOWN && (
         <button
           type="button"
           className="acpmux-pr-dock__more"

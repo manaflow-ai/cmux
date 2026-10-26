@@ -108,3 +108,31 @@ test("a bar drops once the header reports its pull request merged; an open one s
   act(() => root.unmount());
   setHeaderState({ pullRequest: null });
 });
+
+test("the default dock is a compact count that opens Session Info changes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  dom.window.document.documentElement.dataset.prDock = "compact";
+  const rows = [
+    {
+      kind: "activity",
+      id: "a3",
+      version: 1,
+      items: [
+        tool("t6", 'gh pr create --title "Add retry"', "https://github.com/acme/uploader/pull/51"),
+        tool("t7", 'gh pr create --title "Document retry"', "https://github.com/acme/uploader/pull/52"),
+      ],
+    },
+  ];
+  let opened = 0;
+  const root = createRoot(container());
+  await act(async () =>
+    root.render(<PullRequestDock rows={rows as never} sessionId="s3" onOpenChanges={() => (opened += 1)} />),
+  );
+  expect(dom.window.document.querySelector(".acpmux-pr-dock")?.getAttribute("data-mode")).toBe("compact");
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toContain("2 PRs");
+  await act(async () => (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).click());
+  expect(opened).toBe(1);
+  act(() => root.unmount());
+  delete dom.window.document.documentElement.dataset.prDock;
+});
