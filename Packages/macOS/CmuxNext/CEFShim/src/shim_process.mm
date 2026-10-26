@@ -314,6 +314,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
+  CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -371,6 +372,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
   CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
+  CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
+  CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
 #undef CMUX_BIND
 }
 
@@ -543,6 +546,14 @@ int cmux_shim_live_browser_count(void) {
 
 int cmux_shim_window_count(void) {
   return fork_api().window_count ? fork_api().window_count() : -1;
+}
+
+int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
+  if (!fork_api().set_energy_saver || stopping()) {
+    return 0;
+  }
+  fork_api().set_energy_saver(enabled != 0, exempt_scheme);
+  return 1;
 }
 
 void cmux_shim_shutdown(void) {

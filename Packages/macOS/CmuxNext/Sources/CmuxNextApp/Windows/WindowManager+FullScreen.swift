@@ -51,7 +51,7 @@ private enum RestoredFullScreen {
             for await _ in entering { return }
         }
         let bound = DemandTimer(owner: "WindowManager.fullScreenStart")
-        bound.schedule(after: limit) { @MainActor in began.cancel() }
+        bound.scheduleOnMain(after: limit) { began.cancel() }
         await began.value
         bound.cancel()
     }

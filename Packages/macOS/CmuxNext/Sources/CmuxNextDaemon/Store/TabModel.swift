@@ -344,7 +344,7 @@ public final class TabModel: Identifiable {
         let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
         commandTimer = timer
         // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.
-        timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
+        timer.scheduleOnMain(after: delay) { [weak self] in self?.commandRecheck += 1 }
     }
 
     /// Point updates from surface events (no full snapshot).

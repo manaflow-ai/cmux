@@ -666,6 +666,7 @@ repositories.
 | 122 | Phone Access iroh endpoint only when usable | S | 102 | none |
 | 123 | debug.energy.simulate | S | 007, 022 | none |
 | 124 | Per-tab renderer attribution | M | 007 | fork |
+| 124a | Per-tab renderer attribution with the Chromium Host on | M | 124, p01-process-022 | none |
 | 125 | High-energy tab badge with Discard | M | 124 | none |
 | 126 | Visible ambient indicators step at <= 30 Hz | M | 060, 103 | Q3 |
 | 127 | Watchers driven by other apps pause or stretch | M | 102, 024 | none |
@@ -1309,6 +1310,14 @@ repositories.
   and released after false; a sink with input in the last 1 s is not throttled; a renderer's leeway is 32 ms in saver.
 - Test phase: fork CI build (136); idle-budget energy-saver: anim page rAF <= 31/s; D8 Chromium scroll at 120 Hz.
 - Size M. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-029` (11649d01, on 124's `cp/p14-energy-124`), with no API number (136
+  numbers it). Files follow the fork layout: `libcef/browser/cmux/cmux_energy_saver.{h,cc}`, the BUILD.gn entry, and
+  one call in `CefBrowserContentsDelegate::ObserveWebContents` that watches every CEF page. Throttling is per page
+  (`UpdateThrottlingFrameSinks` on the primary main frame; viz throttles the sinks embedded in it, so input in any
+  widget of a page releases the whole page). `cmux_battery_saver_embedder_owned.patch` gives Chrome's
+  `BatterySaverModeManager` no provider, so Chrome's battery saver never turns on and cmux's saver is the only writer of
+  the frame sink throttle, the wake-up leeway and the child process mode. Embedder test:
+  `scripts/test-cmux-embedder.sh energy-saver`, run with Chrome's battery saver pref set to always on.
 
 #### p14-energy-030 Shim and Swift binding for the saver fork API
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/shim_process.mm`,
@@ -1326,7 +1335,11 @@ repositories.
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift`,
   `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitEngine.swift`.
 - Change: replace LowPowerMode observation with EnergyPolicySource; in saver neighbor radius 0 and WebKit low render
-  rate. The freeze grace is not shortened (039 does Chrome's CPU rule).
+  rate. The freeze grace is not shortened (039 does Chrome's CPU rule). Until the `energySaver` feature is on by
+  default, the driver publishes macOS Low Power Mode as `EnergyPolicy.lowPowerFallback` while the feature is off,
+  and these consumers read `EnergyPolicy.pageSaver` (saver or fallback), so default builds keep Low Power Mode's
+  near-60 fps WebKit, neighbor radius 0 and short page lifecycle window (p14-energy-021). The resolver holds the
+  thermal reason until nominal or plug-in, so a Mac flapping between fair and serious makes one saver edge.
 - Acceptance: `rg -n 'LowPowerMode' Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit`
   returns 0; existing hibernation tests pass with a saver case.
 - Test phase: `swift test --filter "Hibernation|WebKitRenderRate"` on the fleet.
@@ -1455,6 +1468,16 @@ repositories.
   cmux side compiles against old and new API.
 - Test phase: fork CI build; `cmux-ci build cmux --ref SHA`; idle-budget tabs-static and energy-saver.
 - Size M. Depends: 029, 037, 046, 048, 107, 124, Q8 fork items. Queue fork.
+- 037 notes (manaflow-ai/cef `cp/p14-energy-037`, 361b930f5db4 and 70565d658a58): the fork part clamps
+  `MaxTimeSlice` to 2 ms and keeps `MessagePumpExternal::Run`'s loop over `DoWork` until the slice ends. That
+  loop is the batch. Chrome's `MessagePumpCFRunLoopBase::RunWork` runs one `DoWork`, and on the browser UI
+  thread that `DoWork` is an 8 ms batch (`kRunTasksByBatches`, on by default on Mac; `BrowserUIThreadScheduler`
+  sets `SetCanRunTasksByBatches(true)`). An exit after the first `DoWork` would keep that 8 ms batch, or with
+  batching off make one embedder pass per task. Open for 136: one `DoWork` can itself run an 8 ms batch, so the
+  2 ms bound does not hold yet. Bound the UI thread's batch under the external pump (a fork patch to the batch
+  duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
+  child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
+  (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
 
 #### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
 - Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
@@ -1555,6 +1578,32 @@ repositories.
   same run.
 - Test phase: fork CI (136); tabs-static role rows.
 - Size M. Depends: 106. Queue fork.
+- Status: open. The acceptance is not met yet: no tabs-static run has given role rows. The note below is an
+  unverified source reading, not evidence, and it does not close the task.
+- Unverified source finding (2026-10-26, Chromium 154.0.8037.58, manaflow-ai/cef `cmux/8037`): the source suggests that
+  no fork patch is needed. The task port is wired in content for every child, with no embedder seam:
+  `RenderProcessHostImpl::OnChannelConnected` calls `ChildProcessTaskPortProvider::OnChildProcessLaunched`, the helper
+  answers `GetTaskPort` with its own task (`content/child/child_thread_impl.cc`), and
+  `ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread` (`child_process_launcher_helper_mac.cc`) calls
+  `Process::SetPriority` with that provider (`CanSetPriority()` is true on Mac). cmux helpers run `CefExecuteProcess`
+  (`helper_main.mm`). CEF does not override `IsRendererProcessPriorityEnabled` and neither CEF nor `CEFSwitches` passes
+  `--disable-renderer-backgrounding`. `kUserVisibleProcessPriority` is off, so the Mac roles would be kBestEffort
+  (hidden) and kUserBlocking (shown). Visibility comes from the native view (Chrome style:
+  `ChromeBrowserHostImpl::WasHidden` is NOTIMPLEMENTED). `idle-wakeups.md` sec. 7 measured `document.visibilityState`
+  and wakeups of hidden tabs, not task roles or base priority, so it does not show that hidden renderers are
+  kBestEffort. Two known causes can leave a hidden renderer in the foreground: AMFI allow-everything on the host
+  (Chromium then logs "will not collect child process task ports"; check `nvram boot-args`), and a page that does not
+  report hidden (048).
+- What the bench now measures (idle-budget.py): in tabs-static only (`judge_shown_renderers`), the window's role read
+  judges hidden renderers best-effort and the renderers the census marks shown (Home, the shown tab) `not-background`.
+  After the window, the `reshow` step selects a hidden Chromium tab that was read best-effort (tab.focus), reads the
+  roles again until its renderer is `not-background` and the tab shown before is best-effort (10 s at most), and
+  prints `IDLE-BUDGET-OVER tabs-static cef-renderer role ... phase=reshow` for each renderer that does not change.
+- To close: one fleet run of `scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions
+  tabs-static,minimized`, attached here with `nvram boot-args` from the same host. It must show the hidden renderer
+  pids with observed `suppressed` or `darwinbg`, the shown ones with observed `default`, the `IDLE-BUDGET-RESHOW` record
+  with the reshown tab back at `default`, and no role over. If a hidden renderer stays in the foreground with neither
+  known cause, or the reshown one does not come back, this task gets the fork patch.
 
 #### p14-energy-108 Built-in uBlock Origin idle cost
 - Files: `scripts/cmux-next/bundle-ublock.sh`, `scripts/cmux-next/fetch-ublock.sh`,
@@ -1578,7 +1627,22 @@ repositories.
 - Acceptance: shim test with a fake fork returns the pid; two tabs sharing one renderer both show its usage and the
   record names both.
 - Test phase: fork CI (136); `swift test --filter "ProcessUsage|BusyWatchdog"`; debug.energy on tabs-static.
+- Scope: in process. With the Chromium Host on, the renderers are the host's children: the remote shim answers no
+  pid and no tab lists a renderer until 124a. The busy watchdog reads a tab snapshot the App publishes (a tab's
+  mount and load-phase changes), never the main actor.
 - Size M. Depends: 007. Queue fork.
+
+#### p14-energy-124a Per-tab renderer attribution with the Chromium Host on
+- Files: `plans/cmux-next/chromium-host-ops.json`, `Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim.mm`
+  (generated), `.../CmuxNextBrowser/CEF/CEFTab+Processes.swift`, `.../CmuxNextApp/Control/DebugWakeups.swift`.
+- Change: `cmux_shim_renderer_pid` becomes an async op the host answers with its shim's pid (the reply path of
+  p01-process-022, like `cmux_shim_renderer_client_ids`); `AppProcesses.sample` and `chromiumHelpers` list the
+  Chromium Host's children next to the app's, classified by `ChromiumHelperProcess`.
+- Acceptance: with the host on, two tabs on one renderer both show its usage in debug.energy `tabs` and a busy
+  renderer's record names both.
+- Test phase: `swift test --filter "ProcessUsage|BusyWatchdog|CEFTabRendererPID"`; debug.energy on tabs-static
+  with the host flag on.
+- Size M. Depends: 124, p01-process-022. Queue none.
 
 #### p14-energy-125 High-energy tab badge with Discard
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard+Energy.swift`,
@@ -2024,13 +2088,16 @@ repositories.
 
 #### p14-energy-117 acpmux freezes idle harnesses of hidden sessions
 - Files: `cmux-tui/crates/acpmux/src/hub/freeze.rs`, `cmux-tui/crates/acpmux/src/hub/idle.rs`,
-  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`.
+  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`,
+  `scripts/cmux-next/idle-budget.json`.
 - Change: op `_acpmux/visibility {session, visible}`. An attached-but-hidden session with no turn, no pending
   permission, no running background task or terminal tool for freezeAfterSeconds (300, 30 in saver) gets its harness
   process group SIGSTOPped; prompt, show, permission or inbound request does SIGCONT before anything is forwarded. In
   saver, pool.park and no new pool entries on battery. Status shows `frozen`. With PL-acpmux.
 - Acceptance: fake process controller + paused clock: hidden idle 300 s -> 1 stop; prompt -> cont before request bytes;
-  a running background task blocks the freeze; show thaws in the same turn.
+  a running background task blocks the freeze; show thaws in the same turn; idle-budget.json's agent-idle
+  `agent-harness.hidden_wakeups_max` goes from null (reported, IDLE-BUDGET-NOT-JUDGED since 103) to 0, so --gate
+  judges D14's hidden harness.
 - Test phase: `cargo test -p acpmux freeze`; agent-idle: hidden pane harness 0 wakeups.
 - Size M. Depends: 070, 103.
 

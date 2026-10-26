@@ -102,7 +102,7 @@ import Testing
 
         /// The translation `layer`'s model holds.
         static func translation(of layer: CALayer?) -> CGFloat {
-            CGFloat((layer?.value(forKeyPath: StripClipContainerView.translationKeyPath) as? NSNumber)?.doubleValue ?? .nan)
+            layer.flatMap { StripClipContainerView.translationKey.value(of: $0) } ?? .nan
         }
 
         func settle() { for _ in 0..<600 where root.advanceFrame(1.0 / 120) {} }
@@ -304,7 +304,7 @@ import Testing
         let released = screen.scroll.value
         w.scroll(at: point, phase: .ended)
         let camera = screen.scrollState.spring
-        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKeyPath, in: screen.stripContainer)
+        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKey.path, in: screen.stripContainer)
         if flings {
             #expect(screen.stripContainer.fling != nil, "the fling runs on the render server")
             #expect(camera.value == camera.target && camera.velocity == 0, "the reducer rests on the fling's target")
@@ -527,7 +527,7 @@ import Testing
         let companion = CALayer()
         container.companion = companion
         let spring = Motion.panes.renderSpring(.scroll)
-        try #require(spring.animates(StripClipContainerView.translationKeyPath, in: container), "movement is off on this host")
+        try #require(spring.animates(StripClipContainerView.translationKey.path, in: container), "movement is off on this host")
         let landed = Counter()
         var changes = 0
         container.onShowsMovedChange = { changes += 1 }

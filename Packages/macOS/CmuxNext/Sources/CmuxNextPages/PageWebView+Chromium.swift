@@ -48,8 +48,9 @@ extension PageWebView {
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
-    var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
+    /// The page zoom both engines show: `uiScale` times ``additionalZoom``, the view points per CSS
+    /// pixel (WebKit pages take no pinch or smart magnification, ``PageWKWebView``).
+    public var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
 
     // MARK: Engine-neutral document calls
 
@@ -61,22 +62,29 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
+    /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
     func setEngineVisible(_ visible: Bool) {
+        if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it.
+    /// Loads `url` (a document of this page) in whichever engine shows it; a page waiting to show after a
+    /// crash loads it as it shows (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
+        guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it.
+    /// Reloads the document in whichever engine shows it (after its show, for a page waiting after a crash).
     func reloadPage() {
+        guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
@@ -87,12 +95,11 @@ extension PageWebView {
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.chromiumStart)
-        #endif
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
+        let chatOpen = chatOpen
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = ChatOpenTrace.shared.isTraced(page: self)
         #endif
@@ -102,7 +109,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
@@ -111,9 +118,7 @@ extension PageWebView {
                 page.close()
                 return
             }
-            #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.browserCreated)
-            #endif
             await self.attachChromium(page, scripts: scripts, work: hosting.work)
         }
     }
@@ -138,9 +143,7 @@ extension PageWebView {
             session.end()
             return
         }
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.setupDone)
-        #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
@@ -159,13 +162,11 @@ extension PageWebView {
         addSubview(page.contentView)
         applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.navigationStart)
-        #endif
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
-        session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in
+        session.deadline.scheduleOnMain(after: wait) { [weak self, weak session] in
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
@@ -189,6 +190,7 @@ extension PageWebView {
         loaded = false
         traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
+        carryFreezeToWebKit()
     }
 
     /// Ends Chromium mode for good (the page closed).
@@ -198,6 +200,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        if case .chromium? = frozenEngine { frozenEngine = nil }
     }
 
     // MARK: Events

@@ -11,4 +11,11 @@ extension SidebarView {
             profileBar.hoverFrameInput = newValue
         }
     }
+
+    /// The list's hovered row changed (nil: off every row): the App prewarms the page it stands for
+    /// (`intentPrewarmHover`).
+    public var onHoverRow: ((SidebarRowKey?) -> Void)? {
+        get { list.onHoverRow }
+        set { list.onHoverRow = newValue }
+    }
 }

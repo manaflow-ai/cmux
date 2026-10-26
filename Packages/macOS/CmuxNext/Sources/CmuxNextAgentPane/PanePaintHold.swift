@@ -57,12 +57,13 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
+        (incoming as? AgentPaneView)?.chatOpen?.mark(.holdBegin)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: Self.limit) { [weak self] in
             self?.end(token)
         }
     }
@@ -104,6 +105,7 @@ public final class PanePaintHold {
         ended?()
         incoming?.alphaValue = 1
         CATransaction.commit()
+        (incoming as? AgentPaneView)?.chatOpen?.mark(.holdEnd)
         #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
         #endif

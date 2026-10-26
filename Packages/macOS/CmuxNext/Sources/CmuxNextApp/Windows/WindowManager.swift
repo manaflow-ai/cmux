@@ -87,8 +87,6 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
-    /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
-    private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -199,9 +197,6 @@ final class WindowManager {
         }
     }
 
-    /// Runs `work` once the launch's session restore finished (the saved windows back, the launch window adopted or closed).
-    func whenRestored(_ work: @escaping () -> Void) { if restoreWaiters == nil { work() } else { restoreWaiters?.append(work) } }
-
     private func restore() async {
         guard !restored else { return }
         restored = true
@@ -225,7 +220,7 @@ final class WindowManager {
         let restoredRegistry = WindowRegistry(records: document.windows)
         if !restoredRegistry.windows.isEmpty {
             previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
-                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
+                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000))) // wall-clock: compared with the daemon's closedAtMs, Unix ms
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -265,9 +260,6 @@ final class WindowManager {
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
         launchPaneRefs?.finishRestore(of: self)
         launchPaneRefs = nil
-        let waiting = restoreWaiters ?? []
-        restoreWaiters = nil
-        for work in waiting { work() }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
@@ -375,6 +367,7 @@ final class WindowManager {
             keepsOrder = restacks
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
             keepsOrder = kept
+            DebugTimings.markLaunch("window_display") // first on screen: Chrome's RecordBrowserWindowDisplay (BrowserView::Show)
         }
         onPresent?(controller)
         enterRestoredFullScreens()
@@ -419,6 +412,14 @@ final class WindowManager {
         isTerminating = true
         membershipObservation?.cancel()
         // Chromium stops later, as the last quit step (QuitCompletion).
+    }
+
+    /// Quit: each open window's sidebar change still waiting for its idle task reaches the snapshot
+    /// store (`SidebarSnapshotRecorder.flushNow`), before the store's flush.
+    func flushSidebarSnapshots() async {
+        for controller in controllers {
+            await controller.sidebar.flushSnapshot()
+        }
     }
 
     /// Copies each open window's frame and display into the registry.

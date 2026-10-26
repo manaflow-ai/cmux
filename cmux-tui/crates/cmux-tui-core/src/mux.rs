@@ -240,6 +240,7 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
+pub(crate) mod mux_work;
 pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
 mod notification_types;
 mod notifications;
@@ -621,6 +622,9 @@ pub struct Mux {
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     cell_pixel_retries: Mutex<CellPixelRetryQueue>,
+    /// `client.cell_pixels.set` and `set-cell-pixels` applies, in request
+    /// order, on the work lanes (cell_pixels.rs).
+    cell_pixel_sets: Arc<mux_work::Sequence>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     #[cfg(test)]
@@ -670,8 +674,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD of each tab directory, read off request threads.
+    git_heads: Arc<presentation::GitHeads>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -750,6 +754,8 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    /// The mux's weak reference for items on `work` (mux_work.rs).
+    mux_work: mux_work::MuxWork,
     terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
@@ -787,8 +793,8 @@ pub struct Mux {
     keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
-    /// This owner's memory registry: consumers register, sources vote.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by p07-memory-044 and 109"))]
+    /// This owner's memory registry: consumers register (the standby host and
+    /// the output store's scrollback budget), sources vote.
     pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]

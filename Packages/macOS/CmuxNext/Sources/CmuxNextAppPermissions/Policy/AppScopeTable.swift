@@ -33,12 +33,6 @@ public nonisolated struct AppScopeTable: Sendable, Hashable {
         never = Set(json["never"]?.arrayValue?.compactMap(\.stringValue) ?? [])
     }
 
-    /// The bundled table (empty when the resource is missing).
-    public static let bundled: AppScopeTable = {
-        guard let data = try? Data(contentsOf: AppPlatformResources.scopesFile) else { return AppScopeTable() }
-        return (try? AppScopeTable(data: data)) ?? AppScopeTable()
-    }()
-
     /// Why `op` with `params` is refused for an app holding `granted`, or
     /// nil when it may run. `net.fetch` needs a `net:` scope covering the
     /// URL's host; `integration.request` needs `integration:<provider>`

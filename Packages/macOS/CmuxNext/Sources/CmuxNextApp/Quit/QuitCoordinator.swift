@@ -184,6 +184,8 @@ final class QuitCoordinator {
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
+                // A sidebar change whose idle task has not run yet is saved too.
+                await services.windows.flushSidebarSnapshots()
                 await services.sidebarSnapshots.flush()
                 // Home's drafts, scroll places and unsent sends (its cache's last batch).
                 await services.home.flushCacheForQuit()

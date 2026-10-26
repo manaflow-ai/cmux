@@ -1,3 +1,4 @@
+internal import CmuxSafeConcurrency
 public import Foundation
 #if canImport(os)
 internal import os
@@ -670,22 +671,27 @@ public final class DiagnosticLog: Sendable {
     }
 }
 
-private final class TerminalTraceRateLimiter: @unchecked Sendable {
+/// Admits at most ``maximumPerMinute`` terminal trace events per minute. The
+/// window lives in a `Mutex`, so the limiter is plainly `Sendable`.
+final class TerminalTraceRateLimiter: Sendable {
+    private struct Window {
+        var start: UInt64 = 0
+        var admitted = 0
+    }
+
     // Carve-out: the synchronous terminal event tap must admit/drop before queuing diagnostic work.
-    private let lock = NSLock()
-    private var windowStart: UInt64 = 0
-    private var admitted = 0
-    private let maximumPerMinute = 120
+    private let window = Mutex(Window())
+    let maximumPerMinute = 120
 
     func admit(at now: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if windowStart == 0 || now < windowStart || now - windowStart >= 60 * 1_000_000_000 {
-            windowStart = now
-            admitted = 0
+        window.withLock { window in
+            if window.start == 0 || now < window.start || now - window.start >= 60 * 1_000_000_000 {
+                window.start = now
+                window.admitted = 0
+            }
+            guard window.admitted < maximumPerMinute else { return false }
+            window.admitted += 1
+            return true
         }
-        guard admitted < maximumPerMinute else { return false }
-        admitted += 1
-        return true
     }
 }

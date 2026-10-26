@@ -1,11 +1,12 @@
 #if !canImport(os)
-import Foundation
+internal import CmuxSafeConcurrency
 
 /// The `OSAllocatedUnfairLock` surface this package and its dependents use, for
-/// platforms without the `os` module.
-// lint:allow lock - stands in for os.OSAllocatedUnfairLock where it is unavailable.
-public final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-allow: `state` is read and written only inside withLock, under `mutex`
-    private let mutex = NSLock()
+/// platforms without the `os` module. It forwards to CmuxSafeConcurrency's
+/// `PlatformLock`, the lock under its portable `Mutex` (p10-stability-172).
+// lint:allow lock - stands in for os.OSAllocatedUnfairLock where it is unavailable; forwards to CmuxSafeConcurrency.PlatformLock.
+public final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-allow: `state` is read and written only inside withLock, under `lock`
+    private let lock = PlatformLock()
     private var state: State
 
     public init(initialState: State) {
@@ -17,9 +18,7 @@ public final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-
     }
 
     public func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
-        mutex.lock()
-        defer { mutex.unlock() }
-        return try body(&state)
+        try lock.withLock { () throws -> R in try body(&state) }
     }
 
     public func withLockUnchecked<R>(_ body: (inout State) throws -> R) rethrows -> R {

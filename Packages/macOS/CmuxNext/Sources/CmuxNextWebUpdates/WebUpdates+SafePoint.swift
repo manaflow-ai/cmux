@@ -101,7 +101,7 @@ extension WebUpdates {
             let answers = Answers(count: views.count, done)
             let deadline = DemandTimer(owner: "web-updates.page-answer")
             answers.deadline = deadline
-            deadline.schedule(after: WebSwapGate.answerWithin) { @MainActor in answers.finish() }
+            deadline.scheduleOnMain(after: WebSwapGate.answerWithin) { answers.finish() }
             for (index, view) in views.enumerated() {
                 if view.isLoading {
                     answers.set(index, "page.loading")

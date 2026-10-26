@@ -17,10 +17,11 @@ public nonisolated struct BrowserResizeTunables {
         help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
         default: true, code: "BrowserResizeTunables.pageBackdrop")
 
-    /// Off (the default): a Chromium page draws in its own child window over
-    /// the pane. On: the page's pixels live in the cmux window's layer tree
-    /// (fork API 26, `ChromiumHostPageView`); the page window stays as a
-    /// transparent input target. Applies to pages shown after the change.
+    /// Off (the default): the feature `cefLayerHosting` decides
+    /// (`CEFLayerHosting.hosting(override:fork:widget:)`). On: every page
+    /// window's pixels live in the cmux window's layer tree (fork API 26,
+    /// `ChromiumHostPageView`), DevTools and popups too; the page window stays
+    /// as a transparent input target. Applies to pages shown after the change.
     public static let layerHosting = Tunable<Bool>.toggle(
         "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",
         help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
