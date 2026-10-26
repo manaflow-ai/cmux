@@ -33,8 +33,8 @@
 //! signals ignored); there is no `pre_exec`, `uid` or `gid` ([`Command::new_session`]
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
-//! [`Command::inherit_fd`]. [`Command::exec`] replaces this process with the
-//! same descriptor plan (`POSIX_SPAWN_SETEXEC`).
+//! [`Command::inherit_fd`]. [`Command::exec`] replaces this process as `execve`
+//! does instead: inherited descriptors and ignored signals stay.
 
 mod child;
 mod command;

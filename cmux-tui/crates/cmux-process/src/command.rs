@@ -224,11 +224,14 @@ impl Command {
 
     /// Replace this process with the program, as
     /// `std::os::unix::process::CommandExt::exec`; returns only the error
-    /// that kept it from running. On macOS the new image gets descriptors
-    /// 0-2 and the [`Command::inherit_fd`] ones, and no other
-    /// (`posix_spawn` with `POSIX_SPAWN_SETEXEC` and
-    /// `POSIX_SPAWN_CLOEXEC_DEFAULT`), as Chrome's `LaunchProcess` closes
-    /// every descriptor not in `fds_to_remap` (base/process/launch_posix.cc).
+    /// that kept it from running. The same on every Unix: the new image
+    /// keeps every descriptor without close-on-exec (what a transparent
+    /// wrapper was given, such as a `<(...)` or `3<file` of the person's
+    /// shell) plus the [`Command::inherit_fd`] ones, and keeps ignored
+    /// signals ignored (`nohup`); only SIGPIPE goes back to its default. On
+    /// macOS this is `posix_spawn` with `POSIX_SPAWN_SETEXEC`, without the
+    /// `POSIX_SPAWN_CLOEXEC_DEFAULT` that [`Command::spawn`] uses for a new
+    /// child.
     #[cfg(unix)]
     pub fn exec(&mut self) -> io::Error {
         #[cfg(target_vendor = "apple")]

@@ -666,6 +666,9 @@ mod launch_classification {
 }
 
 #[cfg(test)]
+mod exec_tests;
+
+#[cfg(test)]
 mod tests {
     use std::os::unix::net::UnixListener;
     use std::process::Output;

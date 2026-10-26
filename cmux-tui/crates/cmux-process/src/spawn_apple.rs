@@ -1,7 +1,8 @@
 //! macOS: `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`. The child gets
 //! exactly descriptors 0-2 and the `inherit_fd` ones; every other descriptor
 //! of this process closes at the exec, whatever its close-on-exec flag says
-//! at that moment.
+//! at that moment. [`exec`] (`POSIX_SPAWN_SETEXEC`) keeps exec semantics
+//! instead: see [`Command::exec`].
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
@@ -33,9 +34,10 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     start(command, false)
 }
 
-/// Replace this process with `command` (`POSIX_SPAWN_SETEXEC`): the same
-/// descriptor plan as [`spawn`]. Returns only the error that kept it from
-/// running.
+/// Replace this process with `command` (`POSIX_SPAWN_SETEXEC`), as
+/// `execve` does: descriptors without close-on-exec and ignored signals stay,
+/// only SIGPIPE goes back to its default (std's `CommandExt::exec`). Returns
+/// only the error that kept it from running.
 pub(crate) fn exec(command: &mut Command) -> io::Error {
     match start(command, true) {
         Ok(_) => io::Error::other("posix_spawn returned after POSIX_SPAWN_SETEXEC"),
@@ -117,22 +119,31 @@ fn start(command: &mut Command, replace_this_process: bool) -> io::Result<Child>
 
     let mut setup = Setup::new()?;
     let mut flags = libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
-        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
-        | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short;
+    // A new child of the daemon gets only the descriptors it was given and
+    // default signals (Chrome's LaunchProcess, base/process/launch_posix.cc).
+    // A replacing image keeps what this process was given, as execve does.
+    flags |= if replace_this_process {
+        libc::POSIX_SPAWN_SETEXEC as libc::c_short
+    } else {
+        libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short
+    };
     if command.new_session {
         flags |= POSIX_SPAWN_SETSID;
-    }
-    if replace_this_process {
-        flags |= libc::POSIX_SPAWN_SETEXEC as libc::c_short;
     }
     let dev_null = c"/dev/null";
     // SAFETY: every call gets the initialized attr/actions and live strings.
     unsafe {
-        let mut all: libc::sigset_t = std::mem::zeroed();
+        let mut to_default: libc::sigset_t = std::mem::zeroed();
         let mut none: libc::sigset_t = std::mem::zeroed();
-        libc::sigfillset(&mut all);
+        if replace_this_process {
+            libc::sigemptyset(&mut to_default);
+            libc::sigaddset(&mut to_default, libc::SIGPIPE);
+        } else {
+            libc::sigfillset(&mut to_default);
+        }
         libc::sigemptyset(&mut none);
-        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &all))?;
+        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &to_default))?;
         check(libc::posix_spawnattr_setsigmask(&mut setup.attr, &none))?;
         if let Some(pgid) = command.process_group {
             flags |= libc::POSIX_SPAWN_SETPGROUP as libc::c_short;

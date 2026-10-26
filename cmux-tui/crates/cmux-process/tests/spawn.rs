@@ -243,19 +243,25 @@ mod daemon_spawn {
         assert_eq!(got, "through-five\n");
     }
 
-    /// `exec` replaces the process (a wrapper's launch of the real agent):
-    /// the new image runs with this process's stdout, keeps the descriptors
-    /// given with `inherit_fd` and, on macOS, gets no other. The exec runs in
-    /// a re-run of this test binary, which it replaces.
+    /// `exec` replaces the process as `execve` does, on every Unix (a
+    /// wrapper's launch of the real agent): the new image runs with this
+    /// process's stdout, gets the `inherit_fd` descriptors, keeps a
+    /// descriptor this process holds without close-on-exec (a `<(...)` or
+    /// `3<file` the person's shell gave the wrapper) and keeps an ignored
+    /// SIGHUP ignored (`nohup`). The exec runs in a re-run of this test
+    /// binary, which it replaces.
     #[test]
-    fn exec_replaces_the_process_and_passes_only_the_given_descriptors() {
+    fn exec_keeps_inherited_descriptors_and_ignored_signals() {
         const FIXTURE: &str = "CMUX_PROCESS_EXEC_FIXTURE";
         if std::env::var_os(FIXTURE).is_some() {
-            let (keep, leak) = inheritable_pipe();
-            let leak = leak.as_raw_fd();
+            let (keep, inherited) = inheritable_pipe();
+            let inherited = inherited.as_raw_fd();
+            // SAFETY: sets the disposition of this single-purpose fixture process.
+            assert_ne!(unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) }, libc::SIG_ERR);
             let script = format!(
                 "echo replaced; [ -e /dev/fd/5 ] && echo kept-five; \
-                 [ -e /dev/fd/{leak} ] && echo leaked-{leak}; exit 0"
+                 [ -e /dev/fd/{inherited} ] && echo kept-inherited; \
+                 kill -HUP $$; echo survived-hup; exit 0"
             );
             let error = Command::new("/bin/sh")
                 .args(["-c", &script])
@@ -267,7 +273,7 @@ mod daemon_spawn {
         let output = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "daemon_spawn::exec_replaces_the_process_and_passes_only_the_given_descriptors",
+                "daemon_spawn::exec_keeps_inherited_descriptors_and_ignored_signals",
                 "--nocapture",
                 "--test-threads=1",
             ])
@@ -278,11 +284,11 @@ mod daemon_spawn {
         assert!(output.status.success(), "{output:?}");
         assert!(stdout.contains("replaced"), "the program did not run: {stdout}");
         assert!(stdout.contains("kept-five"), "the given descriptor was lost: {stdout}");
-        #[cfg(target_vendor = "apple")]
         assert!(
-            !stdout.contains("leaked"),
-            "an inheritable descriptor reached the image: {stdout}"
+            stdout.contains("kept-inherited"),
+            "a descriptor without close-on-exec did not reach the image: {stdout}"
         );
+        assert!(stdout.contains("survived-hup"), "an ignored SIGHUP was reset: {stdout}");
     }
 
     #[test]
