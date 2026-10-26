@@ -61,16 +61,16 @@ on:
   # cmux-next dogfood, tagged and nightly builds bundle the daemon built from
   # their own cmux-tui source (scripts/cmux-next/pin-cmux-tui.sh --help): the
   # tree key is the git tree hash of the cmux-tui tree and the ghostty
-  # gitlink. Pushes to the cmux-next branches, and to cmux-tui-pin-* helper
-  # branches that publish an unmerged branch's tree, publish
+  # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
   # Every other branch of this repository publishes its pushed head too
-  # (cx-r2is), so a pull request's same-tree checks find their tree without a
+  # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref. Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push here. Pull request
-  # trees publish through the cmux-tui-pin-<merge sha> branch push that
-  # main's cmux-next-pr-merge-tree.yml makes. A push trigger cannot filter paths per branch, so
+  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
+  # here. Pull requests do not publish synthetic merge trees: path routing
+  # skips a cold own tree with a named reason until a trusted feat-cmux-next
+  # publication exists. A push trigger cannot filter paths per branch, so
   # tree-preflight is the filter: a branch push whose tree key is already
   # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
@@ -90,8 +90,8 @@ on:
         type: string
 
 concurrency:
-  # One group per feat-cmux-next push (cx-73f2), per other pushed branch (main,
-  # each cmux-tui-pin-*), and per commit for a manual dispatch.
+  # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
+  # per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
   # publish of immutable objects stops mid-upload.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read

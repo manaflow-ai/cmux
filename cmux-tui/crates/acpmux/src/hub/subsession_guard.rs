@@ -361,11 +361,12 @@ impl Hub {
         session: &Arc<Session>,
         spawn: &super::spawn::Spawn,
         checked: Option<&CheckedFolder>,
+        stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let Some(checked) = checked else { return self.ensure_child(session, spawn).await };
+        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
-        let pinned = self.ensure_child(session, spawn);
+        let pinned = self.ensure_child(session, spawn, stops);
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
@@ -416,7 +417,7 @@ impl Hub {
         // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
         // starts as a cross-family child would, at the person's start level, which is not full access.
         let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
-            && !super::start_mode::full_access_allowed();
+            && !self.full_access_allowed();
         let inherit = same_family && !capped;
         // Another family (or a capped parent): the parent's level on the child's modes
         // (`start_mode.rs`, "Inherit"), which `hold_subsession` then holds to the parent.

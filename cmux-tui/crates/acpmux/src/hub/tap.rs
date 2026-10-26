@@ -223,7 +223,7 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
-                subagent = tree.annotate(params);
+                subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -242,6 +242,11 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
+            // An update that starts or ends a subagent may change the work that runs past the
+            // chat's turn (`work_below.rs`).
+            let subagent_events = d == "in"
+                && !kind.ends_with(".replay")
+                && value.pointer("/params/_meta/acpmux/subagents").is_some();
             // A shell's output file stays in the registry, off the record.
             let output = if d == "in" && kind == "background_task_update" {
                 super::processes::take_output_file(&mut value)
@@ -251,6 +256,9 @@ impl Hub {
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
+            }
+            if subagent_events {
+                tap_hub.refresh_work_below(&tap_session);
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {

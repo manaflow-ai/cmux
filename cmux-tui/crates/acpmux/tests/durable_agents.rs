@@ -8,10 +8,21 @@
 mod daemon_env;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/restart_reattach.rs"]
+mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
+// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_REATTACH_LIVE",
+    "ACPMUX_REATTACH_IDLE",
+    "ACPMUX_REATTACH_CLOSED",
+    "ACPMUX_REATTACH_RECORDS",
+    "ACPMUX_REATTACH_SCAN_DELAY_MS",
+    "ACPMUX_REATTACH_BUDGET_MS",
+    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -1944,8 +1955,9 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
-/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
-/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+/// holds; a large log store takes longer to read. Without the flag info still waits for the
+/// chat's log (#22916), which it reads itself instead of waiting for every other chat's
+/// (`hub/log_load.rs`). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
 #[tokio::test]
 async fn info_answers_while_the_chat_logs_load() {
     const HOLD: Duration = Duration::from_secs(6);
@@ -1967,6 +1979,61 @@ async fn info_answers_while_the_chat_logs_load() {
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
-    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
-    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+    assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
+}
+
+/// Review 31 of #23322: a switch into full access that MDM's off overtook stops the agent within a
+/// bound, also when its host never takes the terminate (its link stopped reading; the debug seam
+/// `ACPMUX_TEST_STALL_HOST_TERMINATE`). The host is then ended by its nonce, and the switch answers.
+#[tokio::test]
+async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate() {
+    const KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
+    let mut daemon =
+        Daemon::with_env("stallterm", "ask", &[("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")]);
+    daemon.sigterm();
+    daemon.key = Some(KEY.to_owned());
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_PLAN_MODE": "1",
+                      "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    // The person: only they set a mode that does not ask (`hub/person.rs`).
+    let mut rpc = daemon.rpc().await;
+    let init = rpc.call("initialize", json!({"protocolVersion": 1})).await;
+    let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap_or_else(|| panic!("{init}")),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let proven = rpc.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(proven["person"], true, "{proven}");
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "build"})).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    // The switch passes both checks, then waits 1.5 s on the harness; the push lands then.
+    let switch = tokio::spawn(async move {
+        rpc.reply("session/set_mode", json!({"sessionId": session, "modeId": "full-access"})).await
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let r = tokio::time::timeout(Duration::from_secs(20), switch)
+        .await
+        .expect("the stop waited on a host that never takes the terminate")
+        .unwrap();
+    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the full-access agent ran on after its host ignored the terminate"
+    );
 }
