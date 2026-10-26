@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextTerminal
 import Foundation
 
@@ -55,6 +56,9 @@ struct AppEnvironment: Sendable {
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).
     var incognitoLeftovers: LaunchRead<IncognitoWorkspaceLedger.Leftovers>?
+    /// The browser pages' pictures from the last quit (`BrowserLaunchPictures`), read on a launch lane from `main`.
+    /// Only the real app process makes it; without it no picture is read or written (tests that build `AppServices`).
+    var browserLaunchPictures: BrowserLaunchPictures?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?

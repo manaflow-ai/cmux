@@ -10,19 +10,32 @@ extension PaneContentView {
     /// paints: an agent page is transparent until then, so the pane never
     /// shows empty at launch. While it shows in the window, `hold` holds startup open.
     func showLaunchImage(_ image: NSImage, hold: LaunchImageHold) {
-        // Before the old image goes, so a replaced image never ends the hold for a turn.
-        let share = hold.began()
-        clearLaunchImage()
         let view = NSView(frame: contentHost.bounds)
         view.wantsLayer = true
-        view.autoresizingMask = [.width, .height]
         view.layer?.contentsGravity = .topLeft
         view.layer?.contentsScale = image.recommendedLayerContentsScale(window?.backingScaleFactor ?? 2)
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
-        contentHost.addSubview(view, positioned: .below, relativeTo: nil)
+        putUpLaunchImage(view, positioned: .below, hold: hold)
+        DebugTimings.markLaunch("agent_pane.launch_image_shown")
+    }
+
+    /// Draws a browser page's picture from the last quit (`BrowserLaunchPictures`) over the content, until its
+    /// page shows its first content: a browser's toolbar and theme color would cover it from under. It takes no
+    /// click (`BrowserLaunchPictureView`). While it shows in the window, `hold` holds startup open.
+    func showLaunchPicture(_ view: BrowserLaunchPictureView, hold: LaunchImageHold) {
+        view.frame = contentHost.bounds
+        putUpLaunchImage(view, positioned: .above, hold: hold)
+    }
+
+    /// Puts `view` up as the pane's launch image, replacing the last one, until its limit.
+    private func putUpLaunchImage(_ view: NSView, positioned place: NSWindow.OrderingMode, hold: LaunchImageHold) {
+        // Before the old image goes, so a replaced image never ends the hold for a turn.
+        let share = hold.began()
+        clearLaunchImage()
+        view.autoresizingMask = [.width, .height]
+        contentHost.addSubview(view, positioned: place, relativeTo: nil)
         launchImageView = view
         launchImageShare = share
-        DebugTimings.markLaunch("agent_pane.launch_image_shown")
         launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
     }
 
