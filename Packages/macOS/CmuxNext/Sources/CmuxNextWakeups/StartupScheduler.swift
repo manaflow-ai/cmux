@@ -101,6 +101,10 @@ public final class StartupScheduler {
     private let idleOwner: MainTaskOwner
     private let mainWork: MainWorkScheduler
     private var firstFrameDone = false
+    /// Set by the first ``firstFrameCommitted()``; a missed frame (``firstFrameMissed(_:)``) never sets it.
+    private var frameCommitted = false
+    /// ``whenFirstFrameCommitted(_:)`` callers, called once at the committed frame.
+    private var frameObservers: [@MainActor () -> Void] = []
     private var isQuitting = false
     private var completionPosted = false
     /// Set when the launch phase settled by its failsafe: completion is due whatever is still held.
@@ -242,6 +246,20 @@ public final class StartupScheduler {
         releaseAfterFirstFrame()
         firstFrame?.release(.firstFrameCommitted)
         firstFrame = nil
+        guard !frameCommitted else { return }
+        frameCommitted = true
+        let waiting = frameObservers
+        frameObservers = []
+        for observer in waiting { observer() }
+    }
+
+    /// Calls `body` when the first window's first frame is committed (``firstFrameCommitted()``): now when it
+    /// was, never for ``firstFrameMissed(_:)`` and never after ``beginQuit()``. For work that measures the frame
+    /// itself, where the afterFirstFrame release at a missed deadline would measure before the frame.
+    public func whenFirstFrameCommitted(_ body: @escaping @MainActor () -> Void) {
+        if frameCommitted { return body() }
+        guard !isQuitting else { return }
+        frameObservers.append(body)
     }
 
     /// No first frame came by the caller's deadline: releases the held afterFirstFrame tasks, so that
@@ -271,6 +289,7 @@ public final class StartupScheduler {
         idleClient.deactivate()
         observers = []
         firstObservers = []
+        frameObservers = []
         resumeFirstFrameWaiters()
     }
 

@@ -45,6 +45,10 @@ pub(in crate::server) struct ClientRecord {
     pub(in crate::server) connection_class: Arc<ConnectionClassCell>,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
+    /// What this connection's `subscribe` received and rendered (tests).
+    #[cfg(test)]
+    pub(in crate::server) subscribe_probe:
+        std::sync::Arc<crate::server::cmd_subscribe::SubscribeProbe>,
 }
 
 impl super::ClientRegistryState {
