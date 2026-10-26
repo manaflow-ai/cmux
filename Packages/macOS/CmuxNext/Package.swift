@@ -1917,114 +1917,114 @@ let package = Package(
 // (scripts/cmux-next/linux/linux-tier.py writes it from dump-package) and only the packages they use.
 import Foundation
 
-/// linux-tier.json, read once by the manifest.
-struct LinuxTier: Decodable {
-    struct FFI: Decodable {
-        let replaces: String
-        let target: String
-        let library: String
-        let libraryDirectory: String
-    }
-
-    struct Generated: Decodable {
-        let targets: [String]
-        let testTargets: [String]
-        let products: [String]
-        let pathDependencies: [String]
-        let remoteDependencies: [String]
-        let linuxDependencies: [String: [String]]
-    }
-
-    let ffi: FFI
-    let generated: Generated
-
-    static let zlibTarget = "CZlib"
-    static let cryptoPackage = "swift-crypto"
-
-    init(packageDirectory: String) {
-        let path = packageDirectory + "/linux-tier.json"
-        do {
-            self = try JSONDecoder().decode(LinuxTier.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-        } catch {
-            fatalError("\(path): \(error); run scripts/cmux-next/linux/linux-tier.py")
-        }
-    }
-
-    /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
-    func identity(_ location: String) -> String {
-        let last = location.split(separator: "/").last.map(String.init) ?? location
-        return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
-    }
-
-    /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
-    func linuxTargets(packageDirectory: String) -> [Target] {
-        var targets: [Target] = []
-        if generated.targets.contains(ffi.target) {
-            targets.append(Target.target(
-                name: ffi.target,
-                path: "Sources/" + ffi.target,
-                publicHeadersPath: ".",
-                linkerSettings: [
-                    .unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory]),
-                    .linkedLibrary(ffi.library),
-                ]
-            ))
-        }
-        if generated.targets.contains(Self.zlibTarget) {
-            targets.append(Target.systemLibrary(name: Self.zlibTarget, path: "Sources/" + Self.zlibTarget))
-        }
-        return targets
-    }
-
-    /// A dependency as the Linux mode keeps it: the FFI target in place of the xcframework, nil for a
-    /// target outside the tier or a product of a package the tier does not use.
-    func linuxDependency(_ dependency: Target.Dependency, kept: Set<String>, packages: Set<String>) -> Target.Dependency? {
-        switch dependency {
-        case .targetItem(let name, let condition), .byNameItem(let name, let condition):
-            if name == ffi.replaces {
-                return kept.contains(ffi.target) ? .target(name: ffi.target, condition: condition) : nil
-            }
-            return kept.contains(name) ? dependency : nil
-        case .productItem(_, let package, _, _):
-            return packages.contains(identity(package ?? "")) ? dependency : nil
-        @unknown default:
-            return dependency
-        }
-    }
-
-    /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
-    func standIns(of target: String) -> [Target.Dependency] {
-        (generated.linuxDependencies[target] ?? []).map { name in
-            name == Self.zlibTarget ? .target(name: name) : .product(name: name, package: Self.cryptoPackage)
-        }
-    }
-
-    func apply(to package: Package, crypto: Package.Dependency, packageDirectory: String) {
-        let kept = Set(generated.targets + generated.testTargets)
-        let packages = Set(generated.pathDependencies.map(identity) + generated.remoteDependencies)
-        var targets = package.targets.filter { kept.contains($0.name) }
-        for target in targets {
-            target.dependencies = target.dependencies.compactMap {
-                linuxDependency($0, kept: kept, packages: packages)
-            } + standIns(of: target.name)
-        }
-        targets += linuxTargets(packageDirectory: packageDirectory)
-        package.targets = targets
-        package.products = package.products.filter { generated.products.contains($0.name) }
-        package.dependencies = package.dependencies.filter { dependency in
-            switch dependency.kind {
-            case .fileSystem(_, let path): packages.contains(identity(path))
-            case .sourceControl(_, let location, _): packages.contains(identity(location))
-            default: false
-            }
-        }
-        if generated.remoteDependencies.contains(Self.cryptoPackage) {
-            package.dependencies.append(crypto)
-        }
-    }
-}
-
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    /// linux-tier.json, read once by the manifest.
+    struct LinuxTier: Decodable {
+        struct FFI: Decodable {
+            let replaces: String
+            let target: String
+            let library: String
+            let libraryDirectory: String
+        }
+
+        struct Generated: Decodable {
+            let targets: [String]
+            let testTargets: [String]
+            let products: [String]
+            let pathDependencies: [String]
+            let remoteDependencies: [String]
+            let linuxDependencies: [String: [String]]
+        }
+
+        let ffi: FFI
+        let generated: Generated
+
+        var zlibTarget: String { "CZlib" }
+        var cryptoPackage: String { "swift-crypto" }
+
+        init(packageDirectory: String) {
+            let path = packageDirectory + "/linux-tier.json"
+            do {
+                self = try JSONDecoder().decode(LinuxTier.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            } catch {
+                fatalError("\(path): \(error); run scripts/cmux-next/linux/linux-tier.py")
+            }
+        }
+
+        /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
+        func identity(_ location: String) -> String {
+            let last = location.split(separator: "/").last.map(String.init) ?? location
+            return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
+        }
+
+        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
+        func linuxTargets(packageDirectory: String) -> [Target] {
+            var targets: [Target] = []
+            if generated.targets.contains(ffi.target) {
+                targets.append(Target.target(
+                    name: ffi.target,
+                    path: "Sources/" + ffi.target,
+                    publicHeadersPath: ".",
+                    linkerSettings: [
+                        .unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory]),
+                        .linkedLibrary(ffi.library),
+                    ]
+                ))
+            }
+            if generated.targets.contains(zlibTarget) {
+                targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
+            }
+            return targets
+        }
+
+        /// A dependency as the Linux mode keeps it: the FFI target in place of the xcframework, nil for a
+        /// target outside the tier or a product of a package the tier does not use.
+        func linuxDependency(_ dependency: Target.Dependency, kept: Set<String>, packages: Set<String>) -> Target.Dependency? {
+            switch dependency {
+            case .targetItem(let name, let condition), .byNameItem(let name, let condition):
+                if name == ffi.replaces {
+                    return kept.contains(ffi.target) ? .target(name: ffi.target, condition: condition) : nil
+                }
+                return kept.contains(name) ? dependency : nil
+            case .productItem(_, let package, _, _):
+                return packages.contains(identity(package ?? "")) ? dependency : nil
+            @unknown default:
+                return dependency
+            }
+        }
+
+        /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
+        func standIns(of target: String) -> [Target.Dependency] {
+            (generated.linuxDependencies[target] ?? []).map { name in
+                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
+            }
+        }
+
+        func apply(to package: Package, crypto: Package.Dependency, packageDirectory: String) {
+            let kept = Set(generated.targets + generated.testTargets)
+            let packages = Set(generated.pathDependencies.map(identity) + generated.remoteDependencies)
+            var targets = package.targets.filter { kept.contains($0.name) }
+            for target in targets {
+                target.dependencies = target.dependencies.compactMap {
+                    linuxDependency($0, kept: kept, packages: packages)
+                } + standIns(of: target.name)
+            }
+            targets += linuxTargets(packageDirectory: packageDirectory)
+            package.targets = targets
+            package.products = package.products.filter { generated.products.contains($0.name) }
+            package.dependencies = package.dependencies.filter { dependency in
+                switch dependency.kind {
+                case .fileSystem(_, let path): packages.contains(identity(path))
+                case .sourceControl(_, let location, _): packages.contains(identity(location))
+                default: false
+                }
+            }
+            if generated.remoteDependencies.contains(cryptoPackage) {
+                package.dependencies.append(crypto)
+            }
+        }
+    }
+
     LinuxTier(packageDirectory: Context.packageDirectory).apply(
         to: package,
         crypto: .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
