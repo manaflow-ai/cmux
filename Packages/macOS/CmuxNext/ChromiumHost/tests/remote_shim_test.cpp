@@ -499,30 +499,19 @@ int main() {
   CHECK(seen.ended == -1);
   ::close(third.fd);
 
-  // View tokens: NULL is 0; a view keeps its token.
+  // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
+  // travels as is (never a pointer the client reads); NULL is 0.
   {
-    cmux_remote::TlvWriter none;
-    none.View(nullptr);
-    CHECK(none.fields().size() == 1 && none.fields()[0].integer == 0);
-  }
-#if defined(__APPLE__)
-  // The token lives on the view, not in a table by address: once the view's associations go,
-  // which freeing it does, the same address gets a new token.
-  {
-    id view = class_createInstance(objc_lookUpClass("NSObject"), 0);
     cmux_remote::TlvWriter w;
-    w.View(view);
-    w.View(view);
-    objc_removeAssociatedObjects(view);
-    w.View(view);
+    w.View(nullptr);
+    w.View(reinterpret_cast<void*>(uintptr_t{7}));
+    w.View(reinterpret_cast<void*>(uintptr_t{7}));
     CHECK(w.fields().size() == 3);
     if (w.fields().size() == 3) {
-      CHECK(w.fields()[0].integer != 0 && w.fields()[0].integer == w.fields()[1].integer);
-      CHECK(w.fields()[2].integer != 0 && w.fields()[2].integer != w.fields()[0].integer);
+      CHECK(w.fields()[0].integer == 0);
+      CHECK(w.fields()[1].integer == 7 && w.fields()[2].integer == 7);
     }
-    object_dispose(view);
   }
-#endif
 
   if (failures == 0) std::printf("remote shim: ok\n");
   return failures == 0 ? 0 : 1;

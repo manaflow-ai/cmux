@@ -1,7 +1,6 @@
 // libcmux_cef_shim_remote.dylib (remote_shim_runtime.h): the runtime the generated exports call,
-// and the local exports that need no function pointer. Plain C++ (on Apple with the Objective-C
-// runtime's C API, for view tokens) so that scripts/cmux-next/tests/remote-shim-abi.test.sh
-// builds it on any machine; built for cmux by scripts/cmux-next/build-chromium-host.sh.
+// and the local exports that need no function pointer. Plain C++ so that
+// scripts/cmux-next/tests/remote-shim-abi.test.sh builds it on any machine; built for cmux by scripts/cmux-next/build-chromium-host.sh.
 //
 // Wire (chromium_host_control.h frames, fields as chromium_host_tlv.h):
 //   cmux -> host  HELLO first; then generated op ids 1..kOpCount with the export's arguments.
@@ -35,9 +34,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
-#if defined(__APPLE__)
-#include <objc/runtime.h>
-#else
+#if !defined(__APPLE__)
 #include <sys/syscall.h>
 #endif
 
@@ -60,10 +57,6 @@ bool OnMainThread() {
   return syscall(SYS_gettid) == getpid();
 #endif
 }
-
-#if defined(__APPLE__)
-const char kViewTokenKey = 0;  // its address keys the view token association
-#endif
 
 #define CMUX_REMOTE_ASSERT_MAIN() assert(OnMainThread() && "the remote shim is main-thread only")
 
@@ -160,7 +153,6 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
   switch (op) {
     case kOpBrowserSetBackgroundColor:
     case kOpTabSetTransparentBackground:
-    case kOpBrowserSetLayerHosting:
     case kOpBrowserSetResizeSync:
     case kOpBrowserSetDetachedHosting:
     case kOpSetZoomLevel:
@@ -339,28 +331,6 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     const auto it = policies_.find(op);
     return it == policies_.end() ? nullptr : it->second;
-  }
-
-  uint64_t ViewToken(void* view) {
-    CMUX_REMOTE_ASSERT_MAIN();
-    if (view == nullptr) return 0;
-#if defined(__APPLE__)
-    // The token is an associated value of the view, so it goes when the view is freed and a
-    // later view at the same address gets its own. OBJC_ASSOCIATION_ASSIGN stores the integer
-    // as is: the runtime never retains, releases or messages it.
-    static_assert(sizeof(uintptr_t) == sizeof(uint64_t));
-    const id object = reinterpret_cast<id>(view);
-    const uint64_t token = reinterpret_cast<uintptr_t>(objc_getAssociatedObject(object, &kViewTokenKey));
-    if (token != 0) return token;
-    objc_setAssociatedObject(object, &kViewTokenKey, reinterpret_cast<id>(static_cast<uintptr_t>(next_view_token_)),
-                             OBJC_ASSOCIATION_ASSIGN);
-    return next_view_token_++;
-#else
-    // Off Apple there is no NSView: this build only serves the portable test.
-    const auto [it, added] = view_tokens_.try_emplace(view, next_view_token_);
-    if (added) ++next_view_token_;
-    return it->second;
-#endif
   }
 
   void* in_ring() const { return in_ring_; }
@@ -618,10 +588,6 @@ class Runtime {
   std::unordered_set<uint32_t> awaiting_;
   std::unordered_set<std::string> host_exports_;
   std::unordered_map<uint16_t, void*> policies_;
-#if !defined(__APPLE__)
-  std::unordered_map<void*, uint64_t> view_tokens_;
-#endif
-  uint64_t next_view_token_ = 1;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
   uint32_t last_reply_token_ = 0;
@@ -638,8 +604,8 @@ Runtime& R() {
 
 }  // namespace
 
-void TlvWriter::View(void* ns_view) {
-  ViewToken(R().ViewToken(ns_view));
+void TlvWriter::View(void* view_token) {
+  ViewToken(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(view_token)));
 }
 
 bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {

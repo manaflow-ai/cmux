@@ -24,7 +24,7 @@ extension CEFRuntime {
     /// ``contentSetting(_:url:kind:)`` for a synchronous turn: `then` runs with
     /// the value in this turn in process, when the host's REPLY comes in host mode.
     func contentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind, then: @escaping (CEFContentSetting?) -> Void) {
-        whenAnswered(sendContentSetting(browser, url: url, kind: kind)) { then(Self.contentSetting($0)) }
+        whenAnswered(sendContentSetting(browser, url: url, kind: kind), label: "content setting") { then(Self.contentSetting($0)) }
     }
 
     private func sendContentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind) -> CEFShimAnswer<Int32> {
@@ -73,7 +73,7 @@ extension CEFRuntime {
     /// ``sslStatus(_:)`` for a synchronous turn (a load event): `then` runs in
     /// this turn in process, when the host's REPLY comes in host mode.
     func sslStatus(_ browser: Int32, then: @escaping (CEFSSLStatus?) -> Void) {
-        whenAnswered(sendSSLStatus(browser)) { json in then(json.flatMap { $0 }.flatMap(CEFSSLStatus.parse)) }
+        whenAnswered(sendSSLStatus(browser), label: "SSL status") { json in then(json.flatMap { $0 }.flatMap(CEFSSLStatus.parse)) }
     }
 
     private func sendSSLStatus(_ browser: Int32) -> CEFShimAnswer<String?> {

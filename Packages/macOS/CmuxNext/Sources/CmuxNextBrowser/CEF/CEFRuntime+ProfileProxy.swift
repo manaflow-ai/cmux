@@ -99,12 +99,12 @@ extension CEFRuntime {
             check.waiters.removeAll()
             for waiter in waiters { waiter(check.gate == .open) }
         }
-        whenAnswered(stored) { answer in
+        whenAnswered(stored, label: "profile proxy") { answer in
             storedAnswer = answer
             answered()
         }
         if let state {
-            whenAnswered(state) { answer in
+            whenAnswered(state, label: "profile proxy state") { answer in
                 stateAnswer = answer
                 answered()
             }

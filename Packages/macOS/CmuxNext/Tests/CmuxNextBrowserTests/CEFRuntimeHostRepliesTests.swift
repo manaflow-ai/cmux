@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -54,7 +55,7 @@ import Testing
         #expect(token == RepliesSpy.lastToken)
         let answer = Task { try await runtime.answer(sent, label: "content setting") }
         await Self.untilExpected(route.replies, count: 1)
-        route.deliver(token, fields: Self.int32(CEFContentSetting.allow.rawValue))
+        route.replies.resolve(token, fields: Self.int32(CEFContentSetting.allow.rawValue))
 
         #expect(try await answer.value == CEFContentSetting.allow.rawValue)
         #expect(route.replies.count == 0)
@@ -67,7 +68,7 @@ import Testing
 
         let asked = Task { await runtime.contentSetting(1, url: "https://a.test", kind: .camera) }
         await Self.untilExpected(route.replies, count: 1)
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.ask.rawValue))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.ask.rawValue))
 
         #expect(await asked.value == .ask)
     }
@@ -81,18 +82,35 @@ import Testing
 
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
         #expect(seen.isEmpty, "the callback ran before the host answered")
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.block.rawValue))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.block.rawValue))
         #expect(seen == [.block])
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.allow.rawValue))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.allow.rawValue))
         #expect(seen == [.block], "a callback ran twice")
 
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(1) + Self.int32(2))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(1) + Self.int32(2))
         #expect(seen == [.block, nil], "a reply of the wrong shape is no answer")
 
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
         route.hostGone()
         #expect(seen == [.block, nil, nil], "the host's exit left a callback waiting")
+    }
+
+    /// A synchronous caller whose REPLY never comes gets no answer at the deadline, not never.
+    @Test func hostModeACallbackWithNoReplyGetsNoAnswerAtTheDeadline() async throws {
+        RepliesSpy.reset()
+        let clock = ManualClock()
+        let runtime = try Self.runtime(host: true, clock: clock)
+        var seen: [CEFContentSetting?] = []
+
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        try await clock.waitForSleeper()
+        #expect(seen.isEmpty)
+        clock.advance(by: CEFRuntime.siteReplyTimeout)
+        for _ in 0..<1_000 where seen.isEmpty { await Task.yield() }
+
+        #expect(seen == [nil])
+        #expect(runtime.hostReplies?.replies.count == 0)
     }
 
     @Test func inProcessACallbackRunsInTheCall() throws {
@@ -129,7 +147,7 @@ import Testing
         let visit = Task { try await runtime.cookies(1) }
         await Self.untilExpected(route.replies, count: 1)
         #expect(RepliesSpy.visits == 1)
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(0))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(0))
 
         await #expect(throws: BrowserTabError.closed) { try await visit.value }
     }
@@ -145,7 +163,7 @@ import Testing
         let id = try #require(runtime.siteReplyBrowsers.keys.first)
         // The CMUX_SHIM_REPLY event under the site reply id, as CEFRuntime+Events handles it.
         runtime.earlySiteReplies[id] = CEFSiteReply(value: 3, json: "")
-        route.deliver(RepliesSpy.lastToken, fields: Self.int32(1))
+        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(1))
 
         #expect(try await visit.value == 3)
     }
@@ -164,9 +182,9 @@ import Testing
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
         #expect(RepliesSpy.proxyServers.count == 1, "a second page sent the proxy again")
 
-        route.deliver(RepliesSpy.tokens[0], fields: Self.int32(1))
+        route.replies.resolve(RepliesSpy.tokens[0], fields: Self.int32(1))
         #expect(verdicts.isEmpty, "the page opened before the proxy's state came")
-        route.deliver(RepliesSpy.tokens[1], fields: Self.int32(0))
+        route.replies.resolve(RepliesSpy.tokens[1], fields: Self.int32(0))
 
         #expect(verdicts == [true])
         #expect(runtime.applyProfileProxy(profile) == .open)
@@ -181,32 +199,32 @@ import Testing
         var verdicts: [Bool] = []
 
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
-        route.deliver(RepliesSpy.tokens[0], fields: Self.int32(0))
-        route.deliver(RepliesSpy.tokens[1], fields: Self.int32(0))
+        route.replies.resolve(RepliesSpy.tokens[0], fields: Self.int32(0))
+        route.replies.resolve(RepliesSpy.tokens[1], fields: Self.int32(0))
 
         #expect(verdicts == [false])
         #expect(runtime.profileProxyChecks[profile] == nil)
         #expect(runtime.unappliedProfileProxies.contains(profile))
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
         #expect(RepliesSpy.proxyServers.count == 2, "the next page did not hand the proxy over again")
-        route.deliver(RepliesSpy.tokens[2], fields: Self.int32(1))
-        route.deliver(RepliesSpy.tokens[3], fields: Self.int32(0))
+        route.replies.resolve(RepliesSpy.tokens[2], fields: Self.int32(1))
+        route.replies.resolve(RepliesSpy.tokens[3], fields: Self.int32(0))
         #expect(verdicts == [false, true])
     }
 
     @Test func aRemoteShimWithoutTheTokenEntryPointHasNoRoute() {
         #expect(throws: CEFShimLibrary.LoadError.missingSymbol("cmux_remote_shim_last_reply_token")) {
-            try CEFHostReplyRoute(symbol: { $0 == "cmux_remote_shim_last_reply_token" ? nil : RepliesSpy.symbol($0) })
+            try CEFHostReplyRoute(symbol: { $0 == "cmux_remote_shim_last_reply_token" ? nil : RepliesSpy.symbol($0) }, replies: CEFHostReplies())
         }
     }
 
     // MARK: Helpers
 
-    private static func runtime(host: Bool) throws -> CEFRuntime {
+    private static func runtime(host: Bool, clock: any Clock<Duration> = ContinuousClock()) throws -> CEFRuntime {
         let storage = CEFProfileStorage(root: FileManager.default.temporaryDirectory
             .appending(path: "cef-host-replies-\(UUID().uuidString)", directoryHint: .isDirectory))
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RepliesSpy.symbol), storage: storage)
-        if host { runtime.hostReplies = try CEFHostReplyRoute(symbol: RepliesSpy.symbol) }
+        if host { runtime.hostReplies = try CEFHostReplyRoute(symbol: RepliesSpy.symbol, replies: CEFHostReplies(clock: clock)) }
         return runtime
     }
 

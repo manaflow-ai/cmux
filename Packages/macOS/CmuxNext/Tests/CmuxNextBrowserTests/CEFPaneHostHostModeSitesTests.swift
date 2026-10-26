@@ -1,15 +1,17 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// Task 023 of plans/cmux-next/chrome-parity/p01-process.md: the pane host's shim sites take the
-/// form host mode needs, in both backends. The page's parent view is the pane's
-/// `ChromiumHostPageView` in host mode (the in-process `CEFHostView` otherwise), the fork's layer
-/// hosting of a page window runs only in process, a remote machine's proxy waits for the host's
-/// REPLY before the window is asked for (fail closed), and no caller reads the result of a
-/// one-way move or attach.
-@MainActor @Suite(.serialized) struct CEFPaneHostHostModeSitesTests {
+/// form host mode needs, in both backends. The page's parent is the token of the pane's
+/// `ChromiumHostPageView` in host mode (the in-process `CEFHostView` otherwise), the page view shows
+/// the context id of the host's REPLY, the fork's layer hosting of a page window over the host view
+/// runs only in process, a remote machine's proxy waits for the host's REPLY before the window is
+/// asked for (fail closed, with a deadline), and a refused move or attach closes its tab. REPLYs are
+/// resolved in the host start's reply table, the one the remote shim's reply callback resolves.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFPaneHostHostModeSitesTests {
     // MARK: Page parent
 
     @Test func inProcessTheWindowsParentIsTheHostView() throws {
@@ -23,7 +25,7 @@ import Testing
         #expect(host.hostedPageView == nil, "no page view in process: the fork's page window shows the page")
     }
 
-    @Test func hostModeTheWindowsParentIsThePanesPageView() throws {
+    @Test func hostModeTheWindowsParentIsThePanesPageViewToken() throws {
         let (runtime, root) = try Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
@@ -31,14 +33,21 @@ import Testing
         host.ensureCreated(tab)
 
         let page = try #require(host.hostedPageView)
-        #expect(PaneSpy.windowParents == [Self.pointer(page)])
+        #expect(page.wireToken != 0)
+        #expect(PaneSpy.windowParents == [Self.token(page)], "a view pointer reached the remote shim")
         #expect(page.superview === host.hostView)
         #expect(host.hostView.subviews.first === page, "under the find bar, prompt bar and every other subview")
-        #expect(page.inputTarget == .view, "the page view is the page's input target")
+        #expect(page.inputTarget == .pageWindow, "no input route to the host yet: the host view keeps the input")
+        #expect(page.hitTest(NSPoint(x: 1, y: 1)) == nil)
         #expect(page.frame == host.hostView.bounds)
 
         // A later window of the same pane names the same page view (one token on the wire).
-        #expect(host.pageParent() == Self.pointer(page))
+        #expect(host.pageParent() == Self.token(page))
+        // Another pane's page view has a token of its own.
+        let (other, otherTab) = Self.pane(runtime)
+        other.ensureCreated(otherTab)
+        let otherPage = try #require(other.hostedPageView)
+        #expect(otherPage.wireToken != 0 && otherPage.wireToken != page.wireToken)
     }
 
     /// Host mode: the window's page shows in the pane's page view, so the fork's layer hosting of a
@@ -58,8 +67,43 @@ import Testing
         #expect(host.hostView.layerHosting.isForkBacked == !hostMode)
         if hostMode {
             #expect(host.hostView.layerHosting.forkCalls == 0)
-            #expect(PaneSpy.layerHostingCalls == 0)
         }
+    }
+
+    /// Host mode: the pane's window asks the host for its page context once, and the page view
+    /// shows the id of the host's REPLY.
+    @Test func hostModeThePageViewShowsTheContextOfTheHostsReply() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let route = try #require(runtime.hostReplies)
+        let (host, _) = try Self.livePane(runtime)
+        let page = try #require(host.hostedPageView)
+
+        #expect(PaneSpy.layerHosting.map(\.browser) == [Self.firstBrowser])
+        #expect(PaneSpy.layerHosting.map(\.enabled) == [1])
+        #expect(page.contextID == 0, "a context showed before the host answered")
+        route.replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(Int32(bitPattern: 0x8000_0042)))
+
+        #expect(page.contextID == 0x8000_0042)
+        #expect(route.replies.count == 0)
+    }
+
+    /// A refused context (0) shows none; a REPLY for a window the pane no longer has shows nothing.
+    @Test func hostModeARefusedOrStaleContextShowsNothing() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let route = try #require(runtime.hostReplies)
+        let (host, _) = try Self.livePane(runtime)
+        let page = try #require(host.hostedPageView)
+
+        route.replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(0))
+        #expect(page.contextID == 0)
+
+        let (closing, closingTab) = try Self.livePane(runtime, browser: Self.firstBrowser + 10)
+        let closingPage = try #require(closing.hostedPageView)
+        closing.removed(closingTab)
+        route.replies.resolve(PaneSpy.layerHostingTokens[1], fields: Self.int32(77))
+        #expect(closingPage.contextID == 0, "a closed pane's page view showed a context")
     }
 
     @Test func aClosedPanesPageViewShowsNoContext() throws {
@@ -133,7 +177,7 @@ import Testing
         #expect(runtime.pendingWindows.isEmpty, "the window was asked for before the host stored the proxy")
         #expect(!Self.showsFailure(tab))
 
-        route.deliver(PaneSpy.tokens[0], fields: Self.int32(1))
+        route.replies.resolve(PaneSpy.tokens[0], fields: Self.int32(1))
 
         #expect(runtime.pendingWindows.count == 1)
         #expect(PaneSpy.windowParents.count == 1)
@@ -148,10 +192,28 @@ import Testing
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         host.ensureCreated(tab)
 
-        route.deliver(PaneSpy.tokens[0], fields: Self.int32(-1))
+        route.replies.resolve(PaneSpy.tokens[0], fields: Self.int32(-1))
 
         #expect(runtime.pendingWindows.isEmpty)
         #expect(Self.showsFailure(tab))
+    }
+
+    /// A host that never answers fails the tab at the reply deadline, not never.
+    @Test func hostModeAMachineProxyWithNoReplyFailsAtTheDeadline() async throws {
+        let clock = ManualClock()
+        let (runtime, root) = try Self.runtime(hostMode: true, clock: clock)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
+        host.ensureCreated(tab)
+        try await clock.waitForSleeper()
+        #expect(!Self.showsFailure(tab))
+
+        clock.advance(by: CEFRuntime.siteReplyTimeout)
+        for _ in 0..<1_000 where !Self.showsFailure(tab) { await Task.yield() }
+
+        #expect(Self.showsFailure(tab))
+        #expect(runtime.pendingWindows.isEmpty)
+        #expect(host.machineProxyWaits.isEmpty)
     }
 
     @Test func hostModeAMachineProxyFailsClosedWhenTheHostGoes() throws {
@@ -168,18 +230,13 @@ import Testing
         #expect(host.machineProxyWaits.isEmpty)
     }
 
-    // MARK: One-way moves and attaches
+    // MARK: Moves and attaches
 
-    /// The move's result is not read: in host mode it only says the op was sent.
-    @Test func aPopupMovesInWithoutReadingTheMoveResult() throws {
+    @Test func aPopupMovesIntoItsOwnWindow() throws {
         let (runtime, root) = try Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _) = try Self.livePane(runtime)
-        let popup = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        popup.awaitsWindowMove = true
-        host.add(popup)
-        runtime.register(popup, browser: Self.firstBrowser + 1)
-        PaneSpy.moveResult = 0
+        let popup = Self.waitingPopup(in: host, runtime)
 
         host.movePopupsIn()
 
@@ -189,16 +246,28 @@ import Testing
         #expect(!popup.isClosed)
     }
 
+    /// A move the fork refuses leaves the popup in its opener's window: it closes rather than take
+    /// over the opener's pane.
+    @Test func aPopupWhoseMoveTheForkRefusesCloses() throws {
+        let (runtime, root) = try Self.runtime(hostMode: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _) = try Self.livePane(runtime)
+        let popup = Self.waitingPopup(in: host, runtime)
+        PaneSpy.moveResult = 0
+
+        host.movePopupsIn()
+
+        #expect(PaneSpy.moves.map(\.browser) == [Self.firstBrowser + 1])
+        #expect(popup.isClosed)
+    }
+
     /// A fork without `cmux_tab_move_to_window` (API < 3): the popup closes rather than take over its
     /// opener's pane, and no move is sent.
     @Test func aPopupOnAForkThatCannotMoveCloses() throws {
         let (runtime, root) = try Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _) = try Self.livePane(runtime)
-        let popup = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        popup.awaitsWindowMove = true
-        host.add(popup)
-        runtime.register(popup, browser: Self.firstBrowser + 1)
+        let popup = Self.waitingPopup(in: host, runtime)
         PaneSpy.forkAPI = 2
 
         host.movePopupsIn()
@@ -208,25 +277,33 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func aPopupWindowAttachesOverThePageParentWithoutReadingTheResult(hostMode: Bool) throws {
+    func aPopupWindowAttachesOverThePageParent(hostMode: Bool) throws {
         let (runtime, root) = try Self.runtime(hostMode: hostMode)
         defer { try? FileManager.default.removeItem(at: root) }
-        let (host, tab) = Self.pane(runtime)
-        host.popupWindow = 7
-        runtime.register(tab, browser: Self.firstBrowser)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
-        let content = try #require(window.contentView)
-        PaneSpy.attachResult = 0
+        let (host, tab, content) = try Self.popupPane(runtime)
 
         host.present(tab, in: content)
 
         let page = host.hostedPageView
         #expect((page != nil) == hostMode, "a page view only in host mode")
-        let parent: NSView = page ?? host.hostView
         #expect(PaneSpy.attaches.map(\.window) == [7])
-        #expect(PaneSpy.attaches.map(\.parent) == [Self.pointer(parent)])
-        #expect(host.isLive, "the attach is one-way: its window is the popup host's")
+        #expect(PaneSpy.attaches.map(\.parent) == [page.flatMap(Self.token) ?? Self.pointer(host.hostView)])
+        #expect(host.isLive)
         #expect(!tab.isClosed)
+    }
+
+    /// An attach the fork refuses closes the tab, so no hidden window stays behind.
+    @Test func aPopupWindowThatDoesNotAttachClosesItsTab() throws {
+        let (runtime, root) = try Self.runtime(hostMode: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, tab, content) = try Self.popupPane(runtime)
+        PaneSpy.attachResult = 0
+
+        host.present(tab, in: content)
+
+        #expect(PaneSpy.attaches.map(\.window) == [7])
+        #expect(!host.isLive)
+        #expect(tab.isClosed)
     }
 
     // MARK: Fixtures
@@ -238,21 +315,28 @@ import Testing
         Unmanaged.passUnretained(view).toOpaque()
     }
 
+    /// What the shim's parent view argument carries for a host-mode page view: its token.
+    private static func token(_ page: ChromiumHostPageView) -> UnsafeMutableRawPointer? {
+        UnsafeMutableRawPointer(bitPattern: UInt(page.wireToken))
+    }
+
     private static func showsFailure(_ tab: CEFTab) -> Bool {
         if case .failed = tab.state.phase { return true }
         return false
     }
 
     /// A runtime that outlives the test (a pane's scheduled work reads it through an unowned
-    /// reference); in host mode with a host that maps minted ids and a reply route.
-    private static func runtime(hostMode: Bool) throws -> (CEFRuntime, URL) {
+    /// reference); in host mode with a host that maps minted ids and a reply route over the host
+    /// start's table, whose deadlines run on `clock`.
+    private static func runtime(hostMode: Bool, clock: any Clock<Duration> = ContinuousClock()) throws -> (CEFRuntime, URL) {
         PaneSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-pane-sites-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(PaneSpy.symbol), storage: CEFProfileStorage(root: root))
         if hostMode {
-            runtime.hostStart = CEFHostStart(supervisor: NoHost())
-            runtime.hostStart?.mapsClientIDs = true
-            runtime.hostReplies = try CEFHostReplyRoute(symbol: PaneSpy.symbol)
+            let hostStart = CEFHostStart(supervisor: NoHost(), clock: clock)
+            hostStart.mapsClientIDs = true
+            runtime.hostStart = hostStart
+            runtime.hostReplies = try CEFHostReplyRoute(symbol: PaneSpy.symbol, replies: hostStart.replies)
         }
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
@@ -271,15 +355,33 @@ import Testing
         return (host, tab)
     }
 
-    /// A pane whose window is live, its first tab the window's browser.
-    private static func livePane(_ runtime: CEFRuntime) throws -> (CEFPaneHost, CEFTab) {
+    /// A pane whose window is live, its first tab the window's browser, `browser`.
+    private static func livePane(_ runtime: CEFRuntime, browser: Int32 = firstBrowser) throws -> (CEFPaneHost, CEFTab) {
         let (host, tab) = pane(runtime)
         host.ensureCreated(tab)
-        let request = try #require(runtime.pendingWindows.keys.first)
-        runtime.handle(.afterCreated(browser: firstBrowser, request: request, window: 1))
+        let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
+        runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
         #expect(host.isLive)
-        #expect(tab.browserID == firstBrowser)
+        #expect(tab.browserID == browser)
         return (host, tab)
+    }
+
+    /// A popup still in its opener's window, waiting to move into `host`'s.
+    private static func waitingPopup(in host: CEFPaneHost, _ runtime: CEFRuntime) -> CEFTab {
+        let popup = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        popup.awaitsWindowMove = true
+        host.add(popup)
+        runtime.register(popup, browser: firstBrowser + 1)
+        return popup
+    }
+
+    /// A popup host whose popup window waits to attach, and the content view its tab shows in.
+    private static func popupPane(_ runtime: CEFRuntime) throws -> (CEFPaneHost, CEFTab, NSView) {
+        let (host, tab) = pane(runtime)
+        host.popupWindow = 7
+        runtime.register(tab, browser: firstBrowser)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        return (host, tab, try #require(window.contentView))
     }
 
     /// An EncodeFields body with one int32 field (chromium_host_tlv.h: type 1, tag 0, length 4).
@@ -296,10 +398,10 @@ import Testing
 }
 
 /// Stand-in shim functions. `create_window` and `popup_window_attach` record their parent view,
-/// `set_context_proxy` its port, `tab_move_to_window` its browsers; `context_proxy_state` makes the
-/// next reply token current, as the remote shim does for an async op (in process nobody reads it),
-/// and answers `proxyState`; `fork_api_version` reports `forkAPI`; `browser_set_layer_hosting`
-/// counts its calls; every other function does nothing and returns 0.
+/// `set_context_proxy` its port, `tab_move_to_window` its browsers; `context_proxy_state` and
+/// `browser_set_layer_hosting` make the next reply token current, as the remote shim does for an
+/// async op (in process nobody reads it), and answer `proxyState` and 0; `fork_api_version` reports
+/// `forkAPI`; every other function does nothing and returns 0.
 private nonisolated enum PaneSpy {
     nonisolated(unsafe) static var windowParents: [UnsafeMutableRawPointer?] = []
     nonisolated(unsafe) static var attaches: [(window: Int32, parent: UnsafeMutableRawPointer?)] = []
@@ -309,7 +411,8 @@ private nonisolated enum PaneSpy {
     nonisolated(unsafe) static var moves: [(browser: Int32, window: Int32)] = []
     nonisolated(unsafe) static var moveResult: Int32 = 1
     nonisolated(unsafe) static var forkAPI: Int32 = 27
-    nonisolated(unsafe) static var layerHostingCalls = 0
+    nonisolated(unsafe) static var layerHosting: [(browser: Int32, enabled: Int32)] = []
+    nonisolated(unsafe) static var layerHostingTokens: [UInt32] = []
     nonisolated(unsafe) static var lastToken: UInt32 = 0
     nonisolated(unsafe) static var tokens: [UInt32] = []
 
@@ -322,7 +425,8 @@ private nonisolated enum PaneSpy {
         moves = []
         moveResult = 1
         forkAPI = 27
-        layerHostingCalls = 0
+        layerHosting = []
+        layerHostingTokens = []
         lastToken = 0
         tokens = []
     }
@@ -351,8 +455,10 @@ private nonisolated enum PaneSpy {
             PaneSpy.moves.append((browser, window))
             return PaneSpy.moveResult
         }
-        let layerHosting: @convention(c) (Int32, Int32) -> UInt32 = { _, _ in
-            PaneSpy.layerHostingCalls += 1
+        let layerHosting: @convention(c) (Int32, Int32) -> UInt32 = { browser, enabled in
+            PaneSpy.layerHosting.append((browser, enabled))
+            PaneSpy.lastToken = 300 + UInt32(PaneSpy.layerHostingTokens.count)
+            PaneSpy.layerHostingTokens.append(PaneSpy.lastToken)
             return 0
         }
         let forkAPIVersion: @convention(c) () -> Int32 = { PaneSpy.forkAPI }

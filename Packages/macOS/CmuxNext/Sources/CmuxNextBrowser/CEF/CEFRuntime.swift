@@ -112,6 +112,8 @@ final class CEFRuntime {
     var nextSiteReply: Int32 = 1
     /// Host mode: where async exports answer (``sendAsync(_:)``); nil in process, where each call does.
     var hostReplies: CEFHostReplyRoute?
+    /// Host mode: the last page view token minted (``mintPageViewToken()``).
+    var lastPageViewToken: UInt64 = 0
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
     var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?

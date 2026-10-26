@@ -280,6 +280,49 @@ import Testing
         #expect(third == 30)
         #expect(replies.count == 0)
     }
+
+    /// A callback runs once, in the turn the REPLY resolves its token, and its deadline ends there.
+    @Test func aCallbackRunsInTheReplysTurnAndEndsItsDeadline() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
+        var seen: [Result<[UInt8], CEFHostReplyError>] = []
+        replies.onReply(9, label: "page context", timeout: .seconds(5)) { seen.append($0) }
+        try await clock.waitForSleeper()
+        #expect(replies.count == 1)
+
+        #expect(replies.resolve(9, fields: Self.int32(90)))
+        #expect(seen == [.success(Self.int32(90))])
+        #expect(!replies.resolve(9, fields: Self.int32(91)), "a callback ran twice")
+        #expect(clock.sleeperCount == 0, "the reply left its deadline asleep")
+        #expect(replies.count == 0)
+    }
+
+    /// A callback whose REPLY never comes runs at its deadline on the injected clock, not before.
+    @Test func aCallbackWithNoReplyRunsAtItsDeadline() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
+        var seen: [Result<[UInt8], CEFHostReplyError>] = []
+        replies.onReply(10, label: "machine proxy state", timeout: .seconds(5)) { seen.append($0) }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(5) - .nanoseconds(1))
+        await Self.afterQueuedWork()
+        #expect(seen.isEmpty)
+        clock.advance(by: .nanoseconds(1))
+        for _ in 0..<1_000 where seen.isEmpty { await Task.yield() }
+        #expect(seen == [.failure(.timedOut("machine proxy state", .seconds(5)))])
+        #expect(replies.count == 0)
+        #expect(!replies.resolve(10, fields: Self.int32(1)))  // late: the callback ran
+    }
+
+    @Test func theHostsExitRunsEveryCallback() async throws {
+        let replies = CEFHostReplies(clock: ManualClock())
+        var seen: [Result<[UInt8], CEFHostReplyError>] = []
+        replies.onReply(11, label: "a", timeout: .seconds(5)) { seen.append($0) }
+        replies.onReply(12, label: "b", timeout: .seconds(5)) { seen.append($0) }
+        replies.failAll(.hostGone)
+        #expect(seen == [.failure(.hostGone), .failure(.hostGone)])
+        #expect(replies.count == 0)
+    }
 }
 
 /// A two-value reply (a result and an out-parameter) for the typed-closure form.

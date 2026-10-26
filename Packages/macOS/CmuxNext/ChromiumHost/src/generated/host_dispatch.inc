@@ -169,7 +169,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 51;
 inline constexpr char kShimAbiID[] = "a8b0edcfcdd8578fce1a3b1c1d224b98d7dc1384772fbb9c09ac03a7f7a525c2";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "e02c7409d83d62710727b8a89a51f24c1d503e1415cc4c1b135bbfbeb94a098f";
+inline constexpr char kWireID[] = "15a768069909e291b4ad5723c0ed6d2addd035332aea7d3cbab6d1f0e02cd291";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -266,8 +266,9 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_enabled = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_browser_set_layer_hosting(ctx.Browser(arg_browser_id), arg_enabled);
-      (void)call_result;
-      ctx.Ack(wire_token);
+      TlvWriter reply_w;
+      reply_w.U32(call_result);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpBrowserSetResizeSync: {

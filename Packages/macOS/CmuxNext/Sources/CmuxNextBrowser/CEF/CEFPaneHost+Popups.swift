@@ -99,25 +99,20 @@ extension CEFPaneHost {
     /// Moves every popup waiting in its opener's window into this host's
     /// live window, shows the visible one, closes the placeholder, and lets
     /// the openers show their own pages again. A popup that cannot move
-    /// (fork without `cmux_tab_move_to_window`) closes rather than take over
-    /// its opener's pane.
-    ///
-    /// The move is one-way, as a mojo message without a reply: the fork's
-    /// API version is the one precondition cmux can know, and in host mode
-    /// the call returns once sent. A browser that closed meanwhile reports
-    /// its own close, which takes its tab.
+    /// (fork without `cmux_tab_move_to_window`, or a move the fork refused)
+    /// closes rather than take over its opener's pane. In host mode the move
+    /// is a post: its result says it was sent, and TAB_EVENT 2 confirms it.
     func movePopupsIn() {
         guard case .live = window, let shim = runtime.shim, let anchor = anchorBrowser else { return }
         let canMove = runtime.forkAPIVersion >= Self.tabMoveForkAPI
         var openers: [CEFPaneHost] = []
         for tab in tabs where tab.awaitsWindowMove {
             guard let browser = tab.browserID else { continue }
-            guard canMove else {
+            guard canMove, shim.tabMoveToWindow(browser, anchor, -1) == 1 else {
                 runtime.logger.error("CEF popup \(browser) could not move into its own window; closing it")
                 tab.close()
                 continue
             }
-            _ = shim.tabMoveToWindow(browser, anchor, -1)
             tab.awaitsWindowMove = false
             if let opener = tab.popupOpenerHost { openers.append(opener) }
         }

@@ -48,7 +48,7 @@ extension CEFPaneHost {
     func createAfterMachineProxy(_ tab: CEFTab, _ state: CEFShimAnswer<Int32>) {
         let id = ObjectIdentifier(tab)
         guard machineProxyWaits.insert(id).inserted else { return }
-        runtime.whenAnswered(state) { [weak self, weak tab] answer in
+        runtime.whenAnswered(state, label: "machine proxy state") { [weak self, weak tab] answer in
             // Out of the REPLY's delivery, as `createAfterProfileProxy` runs.
             self?.endOfTurn { [weak self, weak tab] in
                 self?.machineProxyWaits.remove(id)

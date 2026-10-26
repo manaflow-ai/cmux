@@ -171,7 +171,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 51;
 inline constexpr char kShimAbiID[] = "a8b0edcfcdd8578fce1a3b1c1d224b98d7dc1384772fbb9c09ac03a7f7a525c2";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "e02c7409d83d62710727b8a89a51f24c1d503e1415cc4c1b135bbfbeb94a098f";
+inline constexpr char kWireID[] = "15a768069909e291b4ad5723c0ed6d2addd035332aea7d3cbab6d1f0e02cd291";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -263,8 +263,9 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int arg_browse
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   op_w.I32(arg_enabled);
-  (void)Post(kOpBrowserSetLayerHosting, 0, op_w);
-  return 1u;
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpBrowserSetLayerHosting, op_token, op_w);
+  return op_sent ? 1u : 0u;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int arg_browser_id, int arg_timeout_ms) {

@@ -60,6 +60,35 @@ import Testing
         #expect(host.replies.count == 0)
     }
 
+    /// The runtime's reply route is the attach's one table: a REPLY through the remote shim's reply
+    /// callback answers both an async caller (`answer`) and a synchronous one (`whenAnswered`).
+    @Test func theRuntimesRouteAnswersFromTheShimsReplyCallback() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        let host = try #require(runtime.hostStart)
+        let route = try #require(runtime.hostReplies)
+        #expect(route.replies === host.replies, "the route awaits a table the shim never resolves")
+        let sink = try #require(RemoteSpy.replySink)
+        let reply = try #require(sink.reply)
+
+        RemoteSpy.lastToken = 51
+        var seen: [CEFContentSetting?] = []
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        #expect(seen.isEmpty)
+        CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue).withUnsafeBytes { reply(sink.context, 51, $0.baseAddress, $0.count) }
+        #expect(seen == [.block])
+
+        RemoteSpy.lastToken = 52
+        let asked = Task { await runtime.contentSetting(1, url: nil, kind: .camera) }
+        for _ in 0..<1_000 where host.replies.count == 0 { await Task.yield() }
+        CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue).withUnsafeBytes { reply(sink.context, 52, $0.baseAddress, $0.count) }
+        #expect(await asked.value == .allow)
+        #expect(host.replies.count == 0)
+    }
+
     /// A host that takes the wire and hangs before its hello fails the start at the deadline, and
     /// the shim gives the wire back; a hello after that changes nothing.
     @Test func aHostThatNeverSaysHelloFailsAtTheDeadlineAndDetaches() async throws {

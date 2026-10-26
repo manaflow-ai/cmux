@@ -110,22 +110,54 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
 /// shim's reply callback at attach. That callback runs on the main thread
 /// (remote_shim_runtime.h `cmux_remote_reply_fn`) and only copies the bytes in;
 /// the typed decode runs off main in the awaiting call. ``expect(_:)`` keeps a reply that arrives
-/// before the caller awaits; a token nobody expects or awaits is dropped, so fire-and-forget async
-/// calls hold nothing.
+/// before the caller awaits; a callback registered with ``onReply(_:label:timeout:_:)`` runs in the
+/// turn that delivers the reply. A token nobody expects, awaits or calls back for is dropped, so
+/// fire-and-forget async calls hold nothing.
 @MainActor
 final class CEFHostReplies {
+    /// A caller in a synchronous turn: runs once, with the reply, `hostGone` or its deadline.
+    private struct Callback {
+        let body: (Result<[UInt8], CEFHostReplyError>) -> Void
+        let deadline: Task<Void, Never>
+
+        func finish(_ outcome: Result<[UInt8], CEFHostReplyError>) {
+            deadline.cancel()
+            body(outcome)
+        }
+    }
+
     private let waiters: CEFReplyWaiters<UInt32, [UInt8]>
+    private let clock: any Clock<Duration>
     /// Sent, not awaited yet: a reply to one of these is kept in `early`.
     private var expected: Set<UInt32> = []
     /// Answered or failed before anyone awaited.
     private var early: [UInt32: Result<[UInt8], CEFHostReplyError>] = [:]
+    /// Callbacks by token (``onReply(_:label:timeout:_:)``).
+    private var callbacks: [UInt32: Callback] = [:]
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
         waiters = CEFReplyWaiters(clock: clock, superseded: { CEFHostReplyError.superseded })
     }
 
-    /// Tokens expected, answered and not taken, or awaited.
-    var count: Int { waiters.count + expected.count + early.count }
+    /// Tokens expected, answered and not taken, awaited, or called back for.
+    var count: Int { waiters.count + expected.count + early.count + callbacks.count }
+
+    /// Runs `body` once with the reply to `token`, in the turn that delivers it; with
+    /// ``CEFHostReplyError/timedOut(_:_:)`` when none came within `timeout` on the clock, or with
+    /// `hostGone` (``failAll(_:)``). Register it in the turn that sent the op. Like a mojo reply
+    /// callback, which a disconnect runs with its default (interface_endpoint_client.cc).
+    func onReply(_ token: UInt32, label: String, timeout: Duration,
+                 _ body: @escaping (Result<[UInt8], CEFHostReplyError>) -> Void) {
+        guard token != 0 else { return body(.failure(.cancelled)) }
+        let clock = clock
+        let deadline = Task { [weak self] in
+            // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
+            do { try await clock.sleep(for: timeout) } catch { return }
+            self?.callbacks.removeValue(forKey: token)?.body(.failure(.timedOut(label, timeout)))
+        }
+        callbacks.updateValue(Callback(body: body, deadline: deadline), forKey: token)?.finish(.failure(.superseded))
+    }
 
     /// Calls suspended on a reply now.
     var awaiting: Int { waiters.count }
@@ -172,6 +204,9 @@ final class CEFHostReplies {
 
     /// Fails every token not answered yet (the host exited: ``CEFHostReplyError/hostGone``, task 091).
     func failAll(_ error: CEFHostReplyError) {
+        let waiting = callbacks
+        callbacks.removeAll()
+        for callback in waiting.values { callback.finish(.failure(error)) }
         waiters.failAll(where: { _ in true }, with: error)
         for token in expected { early[token] = .failure(error) }
         expected.removeAll()
@@ -190,6 +225,10 @@ final class CEFHostReplies {
     }
 
     private func settle(_ token: UInt32, _ outcome: Result<[UInt8], CEFHostReplyError>) -> Bool {
+        if let callback = callbacks.removeValue(forKey: token) {
+            callback.finish(outcome)
+            return true
+        }
         if waiters.resolve(token, with: outcome.mapError { $0 }) { return true }
         guard expected.remove(token) != nil else { return false }
         early[token] = outcome

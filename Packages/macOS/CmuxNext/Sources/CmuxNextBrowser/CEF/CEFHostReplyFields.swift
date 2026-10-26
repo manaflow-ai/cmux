@@ -142,6 +142,13 @@ nonisolated extension Int32: CEFHostReplyValue {
     }
 }
 
+/// An `unsigned int` result (a CAContextID).
+nonisolated extension UInt32: CEFHostReplyValue {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
+        self = try fields.uint32()
+    }
+}
+
 nonisolated extension Int64: CEFHostReplyValue {
     init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
         self = try fields.int64()

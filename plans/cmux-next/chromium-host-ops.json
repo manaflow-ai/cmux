@@ -9,7 +9,7 @@
     "async": "Sent with a token; the answer is reply_event, resumed by token (task 018). The remote returns at once (1 once sent, NULL for a string result) and cmux_remote_shim_last_reply_token(), read right after the call, is the token of its wire:REPLY: the result, then the out-parameters. CEFHostStart.expectReply() reads it in the call's turn and expects it in CEFHostStart.replies (CEFHostReplies, CEFS/CEFReplyWaiters.swift, one per runtime), which awaits it with an injected-clock deadline. The remote shim's reply callback (cmux_remote_shim_set_reply, main thread) only copies the bytes in; the typed decode (CEFHostReplyFields) runs off main in the awaiting call. Every pending token resolves with .hostGone when the host exits (task 091). Like a mojo method with a reply callback; never a [Sync] call.",
     "mint": "The client mints the id (browser ids from 1 << 20, DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019, HOST/src/host_client_ids.h). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. A browser the host's shim refuses comes as CMUX_SHIM_CREATE_FAILED. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry. Tabs Chromium opens itself (popups, target=_blank, chrome.tabs.create, DevTools browsers) keep Chromium's id, the same number on both sides, until task 031 reports the id cmux minted for a window request.",
     "policy": "A synchronous callback becomes a policy pushed to the host plus events; the host decides inside Chromium without asking cmux (tasks 030-033).",
-    "view": "NSView* or page-window plumbing: ChromiumHostPageView owns it in host mode; only geometry and ids cross the wire (tasks 040, 052, 053, 066).",
+    "view": "NSView* or page-window plumbing: ChromiumHostPageView owns it in host mode, where cmux passes the page view's token for an NSView* argument (CEFRuntime.mintPageViewToken) and the client sends it as is; only geometry and ids cross the wire (tasks 040, 052, 053, 066).",
     "local": "Function-pointer args or client-only work: hand-written client code (task 014b), no generated marshaller.",
     "preinit": "Queued in the client until the host attaches and applied in call order before CefInitialize (task 013); a call after initialize is sent as a post. Like calls on a mojo Remote before its pipe is bound (mojo/public/cpp/bindings/remote.h). A non-void preinit returns at once the client's own check (1 when queued, 0 for an argument the header refuses, such as a reserved scheme id or an empty path); the host's verdict is reply_event wire:REPLY, sent when it applies the op and handled off main by token. --check-return-use covers preinit as it covers post, so a Swift caller that reads the result is a host_mode_rewrites entry."
   },
@@ -28,7 +28,7 @@
     "channel": "Optional: input for ops sent on the input ring instead of the control channel (default control).",
     "optional_exports": "Top level: cmux_shim_* symbols CEFShimLibrary binds with r.optional (the fork API 29 renderer paths) that cmux_cef_shim.h does not declare. 3696a48e40a landed the app side before the shim, and the shim in CEFShim/src does not define them yet, so a declaration would promise symbols that nm cannot find in the real shim. Same fields as exports. Task 011 checks header exports plus these against CEFShimLibrary's r(...) and r.optional(...) names; the remote dylib (task 014) exports both. The commit that adds them to the shim moves the declarations into the header and these entries into exports.",
     "optional_events": "Top level: event kinds CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet (fork API 29); same fields as events and the same move into the header as optional_exports.",
-    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async or mint call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite)."
+    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why; a finished pending_tab site becomes kept), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async or mint call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite)."
   },
   "pseudo_events": {
     "attach": "The host's hello after the control channel connects, before any op is applied. It carries every mirror key whose only refresh event is attach, and the optional_exports the host's shim defines."
@@ -246,7 +246,7 @@
     },
     {
       "name": "cmux_shim_browser_set_layer_hosting",
-      "class": "view",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -259,13 +259,14 @@
       ],
       "returns": "unsigned int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFLayerHosting.swift"
+        "CmuxNextBrowser/CEF/CEFLayerHosting.swift",
+        "CmuxNextBrowser/CEF/CEFPaneHost+PageParent.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
-      "reply_event": null,
-      "reason": "Every host page is layer hosted: ChromiumHostPageView shows the CAContextID the host pushes (task 040); the in-process caller (CEFLayerHosting) is in-process only."
+      "reply_event": "wire:REPLY",
+      "reason": "The page window's CAContextID is known only in the host: cmux asks for it once the pane's window exists, and the host turns on the fork's layer hosting of the page window behind the page view's token and answers with the id, which the pane's ChromiumHostPageView shows (CEFPaneHost.showHostedContext, task 023). The in-process caller (CEFLayerHosting) reads it in the call."
     },
     {
       "name": "cmux_shim_browser_set_resize_sync",
@@ -1986,7 +1987,10 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFOrphanTabs.swift",
+        "CmuxNextBrowser/CEF/CEFPaneHost+Popups.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1994,7 +1998,7 @@
         "tab.window_id[browser_id]"
       ],
       "reply_event": null,
-      "reason": "The mirrored window id applies optimistically; TAB_EVENT 2 confirms it. The side panel state is pending until then, because the panel belongs to the new window. No caller reads the result (task 023): the fork API (3) is the precondition cmux checks, and a browser that closed meanwhile reports its close."
+      "reason": "The mirrored window id applies optimistically; TAB_EVENT 2 confirms it. The side panel state is pending until then, because the panel belongs to the new window. The callers close the popup when the result is not 1: in process the fork's answer, in host mode the post's stand-in (sent)."
     },
     {
       "name": "cmux_shim_unresponsive_reply",
@@ -2159,12 +2163,14 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFPaneHost+PopupWindows.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "NSView* arg. An extension popup window becomes a hosted context in a ChromiumHostPageView (task 066); the window id is Chromium's, reported by TAB_EVENT 10. The parent is CEFPaneHost.pageParent() (the pane's page view in host mode, task 023) and no caller reads the result: popup windows exist only on a fork that attaches them, and a window that closed meanwhile closes its tab (BEFORE_CLOSE)."
+      "reason": "NSView* arg in process; in host mode the popup host's page view token (CEFPaneHost.pageParent, task 023). An extension popup window becomes a hosted context in a ChromiumHostPageView (task 066); the window id is Chromium's, reported by TAB_EVENT 10. The caller closes the tab when the result is not 1: in process the fork's answer, in host mode the post's stand-in (sent)."
     },
     {
       "name": "cmux_shim_side_panel_state",
@@ -4135,8 +4141,8 @@
       "exports": [
         "cmux_shim_tab_duplicate"
       ],
-      "needs": "pending_tab",
-      "change": "Register a pending CEFTab for the minted id before returning it, as addToWindow does with tabBeingAdded and register(tab, browser:), so AFTER_CREATED(copy) completes that tab instead of orphans.adopt and the caller gets the copy at once.",
+      "needs": "kept",
+      "change": "Done by task 019: duplicate registers a pending CEFTab for the minted id before it returns it, as addToWindow does with tabBeingAdded and register(tab, browser:), so AFTER_CREATED(copy) completes that tab instead of orphans.adopt and the caller gets the copy at once.",
       "task": "p01-process-019"
     },
     {
@@ -4311,7 +4317,7 @@
         "cmux_shim_create_placeholder_window"
       ],
       "needs": "kept",
-      "change": "The mint form as written: the caller gives the request token, a 1 means sent, and AFTER_CREATED(request) or CREATE_FAILED(minted, request) answers (task 019). parent_view is pageParent(): in host mode the pane's ChromiumHostPageView, which crosses the wire as its view token and shows the context the host gives for it; in process CEFHostView, which the fork's tracker follows (task 023).",
+      "change": "The mint form as written: the caller gives the request token, a 1 means sent, and AFTER_CREATED(request) or CREATE_FAILED(minted, request) answers (task 019). parent_view is pageParent(): in host mode the token cmux minted for the pane's ChromiumHostPageView, never a view pointer; in process CEFHostView, which the fork's tracker follows (task 023).",
       "task": "p01-process-023"
     },
     {
@@ -4329,7 +4335,34 @@
         "cmux_shim_popup_window_attach"
       ],
       "needs": "kept",
-      "change": "parent_view is pageParent() (the popup host's page view in host mode) and the result is not read. The window shows as a hosted widget with task 066.",
+      "change": "parent_view is pageParent() (the popup host's page view token in host mode). A result other than 1 closes the tab: the fork's refusal in process; in host mode the post's stand-in says sent. The window shows as a hosted widget with task 066.",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost+Popups.swift: CEFPaneHost.movePopupsIn()",
+      "exports": [
+        "cmux_shim_tab_move_to_window"
+      ],
+      "needs": "kept",
+      "change": "A result other than 1 closes the popup rather than let it take over its opener's pane: the fork's refusal in process; in host mode the post's stand-in says sent and TAB_EVENT 2 confirms the move (task 023).",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFOrphanTabs.swift: CEFOrphanTabs.moveIntoShownPaneNow(browser:disposition:preferred:)",
+      "exports": [
+        "cmux_shim_tab_move_to_window"
+      ],
+      "needs": "kept",
+      "change": "A result other than 1 closes the browser, which would stay in a window cmux does not host: the fork's refusal in process; in host mode the post's stand-in says sent (task 023).",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost+PageParent.swift: CEFPaneHost.showHostedContext(of:)",
+      "exports": [
+        "cmux_shim_browser_set_layer_hosting"
+      ],
+      "needs": "reply",
+      "change": "Host mode only: the token form (sendAsync, whenAnswered with a deadline). The REPLY's context id for the pane's page window shows in the pane's ChromiumHostPageView; a reply for a window the pane no longer has shows nothing (task 023).",
       "task": "p01-process-023"
     },
     {

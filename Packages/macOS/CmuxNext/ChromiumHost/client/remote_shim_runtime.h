@@ -110,10 +110,10 @@ using TlvReader = cmux_host::control::TlvReader;
 
 class TlvWriter : public cmux_host::control::TlvWriter {
  public:
-  // An NSView* travels as its page view token (ChromiumHostPageView, task 040): the client
-  // numbers each view the first time it crosses and keeps the number on the view, so it dies
-  // with the view and is never another view's; NULL is 0.
-  void View(void* ns_view);
+  // A parent view argument (NSView* in the in-process ABI): in host mode cmux passes the token it
+  // minted for the page view (ChromiumHostPageView, CEFRuntime.mintPageViewToken: never 0, never
+  // reused), not a view pointer, and it travels as is; NULL is 0.
+  void View(void* view_token);
 };
 
 // Control channel; queued before the first attach (never dropped: past the channel's quota the
