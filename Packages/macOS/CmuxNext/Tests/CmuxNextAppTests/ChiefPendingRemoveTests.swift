@@ -153,6 +153,26 @@ struct ChiefPendingRemoveTests {
         #expect(Self.offersLabel(bridge, SidebarLayoutDocument.chiefItemID), "the settled Chief's menu leaves its label edit out")
     }
 
+    /// The daemon answered a remove of the confirmed Chief and an add again (label shown), then a reload older than
+    /// both: the mirror replays them, so the Chief stays the new add's, pending until its echo.
+    @Test func aReloadOlderThanAnsweredChangesKeepsThemPending() async throws {
+        let remote = AnsweringRemote(document: Self.document(chief: Self.hiddenLabelChief))
+        let (services, store, end) = try await Self.pending(remote: remote)
+        defer { end() }
+        let bridge = try Self.bridge(services)
+        try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
+        try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
+                                     "to": ["section": "sec_top"]]], title: "Add", undoable: false)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.answered == 2 }
+        try #require(remote.answered == 2, "the daemon did not answer both changes")
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.gets > 1 }
+        await RapidWorkspaceCreateTests.wait(within: .milliseconds(300)) { !store.isPending(SidebarLayoutDocument.chiefItemID) }
+        #expect(store.isPending(SidebarLayoutDocument.chiefItemID), "the reload settled an add it does not hold")
+        #expect(Self.drawn(store).first { $0.ref == .builtIn(.chief) }?.showsLabel == true, "the Chief draws the removed Chief's hidden label")
+        #expect(!Self.offersLabel(bridge, SidebarLayoutDocument.chiefItemID), "the menu offers a label edit before the add's echo")
+    }
+
     static func expectNoLabelEdit(_ store: SidebarDocStore, _ chief: LayoutItem) throws {
         let layout = try #require(store.projection(live: [])?.layout)
         #expect(throws: SidebarDocStore.LayoutOpGap.self, "an edit of the pending Chief was planned (sent before its add's echo)") {
@@ -201,10 +221,13 @@ struct ChiefPendingRemoveTests {
     /// A daemon that answers every change (with an inverse) and echoes none; its document is the test's.
     @MainActor final class AnsweringRemote: SidebarDocRemote {
         var document: Data
-        var answered = 0
+        var answered = 0, gets = 0
         init(document: Data) { self.document = document }
         var isAvailable: Bool { true }
-        func get() async throws -> Data { document }
+        func get() async throws -> Data {
+            gets += 1
+            return document
+        }
         func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { answer() }
         func pin(_ items: [String], key: String) async throws -> SidebarDocReply { answer() }
         func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { answer() }
