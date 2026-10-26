@@ -92,13 +92,16 @@ nonisolated enum AcpmuxStrayDaemon {
     /// would end it. It is not disabled: `acpmux host setup`
     /// and `update` bootstrap that same agent, and launchd refuses to bootstrap a disabled one. A
     /// later login may start it again; the app takes it over again then. True when it booted one out.
-    static func bootOutLaunchdJob(runningPID: Int32) async -> Bool {
+    /// `stillRunning`, when given: whether that very process still runs, checked right before the
+    /// bootout, so a pid the daemon freed and another process took is never booted out in its name.
+    static func bootOutLaunchdJob(runningPID: Int32, stillRunning: (@Sendable () -> Bool)? = nil) async -> Bool {
         let pids: Set<Int32> = [runningPID]
         let domain = "gui/\(getuid())"
         for label in labels(runningAnyOf: pids, fromDomainPrint: await launchctl(["print", domain]).output) {
             // The job's own record must name the same process: the list is a snapshot.
             guard let named = pid(fromLaunchctlPrint: await launchctl(["print", "\(domain)/\(label)"]).output),
                   pids.contains(named) else { continue }
+            if let stillRunning, !stillRunning() { return false }
             logger.info("acpmux \(runningPID) runs under launchd \(label, privacy: .public); booting it out")
             return await launchctl(["bootout", "\(domain)/\(label)"]).status == 0
         }
@@ -106,19 +109,9 @@ nonisolated enum AcpmuxStrayDaemon {
     }
 
     private static func launchctl(_ arguments: [String]) async -> (status: Int32, output: String) {
-        await Task.detached { () -> (status: Int32, output: String) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return (-1, "") }
-            // concurrency-allow: a detached task off the main thread; launchctl prints a little and exits
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            // concurrency-allow: same detached task; the process has closed its output
-            process.waitUntilExit()
-            return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-        }.value
+        // Awaited without a thread: a launchctl wait never holds a cooperative-pool thread.
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/bin/launchctl"), arguments))
+        else { return (-1, "") }
+        return (outcome.status, outcome.text)
     }
 }

@@ -151,7 +151,12 @@ export function ProjectChooser({
         aria-controls={open ? menuId : undefined}
         {...press}
       >
-        {!inline && icon}
+        {!inline &&
+          (current ? (
+            <ProjectBadge project={{ cwd: current, label, ...(currentPeer ? { peer: currentPeer } : {}) }} />
+          ) : (
+            icon
+          ))}
         <span>{label}</span>
         <ChevronIcon />
       </button>

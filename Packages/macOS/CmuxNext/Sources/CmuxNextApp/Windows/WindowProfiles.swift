@@ -34,7 +34,8 @@ enum WindowProfiles {
     }
 
     static func visible(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        guard let membership = membership(machines) else { return members } // no rooms: every member shows
+        // No rooms, or none pinning or following anything while `default` shows: every member shows, none is read.
+        guard let membership = membership(machines), profile != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return members }
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
     }
 
@@ -65,7 +66,8 @@ enum WindowProfiles {
 
     /// Workspaces of `daemon` in `room`, in daemon order.
     static func workspaces(of daemon: DaemonService, in room: ProfileID, machines: MachineRegistry) -> [WorkspaceModel] {
-        let membership = membership(machines)
+        // No rooms, or none pinning or following anything while `default` shows: no workspace's session or key is read.
+        guard let membership = membership(machines), room != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return daemon.store.workspaces }
         return daemon.store.workspaces.filter { shows($0.id, profile: room, machines: machines, membership: membership) }
     }
 }

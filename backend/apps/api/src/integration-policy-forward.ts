@@ -10,7 +10,7 @@ import { integrationSlice } from "./domains/team-policy.ts"
  */
 export interface PolicyFields {
   readonly allowed_providers?: ReadonlyArray<string> | null
-  readonly github?: { readonly scope?: string; readonly require_org_admin?: boolean; readonly repo_allowlist?: ReadonlyArray<string> | null }
+  readonly github?: { readonly scope?: string; readonly require_org_admin?: boolean; readonly repo_allowlist?: ReadonlyArray<string> | null; readonly allow_workflows?: boolean }
 }
 
 type Change = { key: string; value: { value: unknown; mode: "enforced" } }
@@ -25,6 +25,7 @@ export const integrationChanges = (f: PolicyFields): Array<Change> => {
   if (g?.require_org_admin !== undefined) out.push(set("github.requireOrgAdmin", g.require_org_admin))
   // [] in the old shape denies every repository ("none"); null means no limit (an empty list).
   if (g?.repo_allowlist !== undefined) out.push(set("github.repoAllowList", g.repo_allowlist === null ? [] : g.repo_allowlist.length === 0 ? "none" : [...g.repo_allowlist]))
+  if (g?.allow_workflows !== undefined) out.push(set("github.allowWorkflows", g.allow_workflows))
   return out
 }
 
