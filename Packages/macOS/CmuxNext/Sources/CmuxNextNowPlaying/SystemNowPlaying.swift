@@ -11,34 +11,34 @@ public import Observation
 
 /// The Now Playing card's source for other apps (Spotify, Music, a browser):
 /// what macOS Now Playing reports, through ``SystemNowPlayingAdapter``, while
-/// `run(_:)` says a surface needs it (the card or the New Tab player shows it).
+/// `run(_:)` says a surface shows it (the card or the New Tab player).
 /// cmux's own entries (its player and browser tabs, which have their own
 /// sources) are left out. The artwork is drawn into a small PNG once per
 /// image; the controls go back to the app that plays.
 ///
-/// The adapter (a `perl` process) starts on the first need, never at launch,
-/// and stops ``idleStop`` after the last need ends, so a surface that comes
-/// back within that time shows what plays at once and spawns nothing. This is
-/// Chromium's idle timeout for a service process it starts on demand
-/// (`mojo::Remote::reset_on_idle_timeout`, used by
-/// services/data_decoder/public/cpp/data_decoder.cc): the process ends only
-/// after it went unused for a while, never on each release.
+/// The adapter (a `perl` process) starts on the first need, never at launch.
+/// A setting that turns Now Playing off stops it at once. A surface that only
+/// stops showing it (``NowPlayingNeed/idle``) stops it ``idleStop`` later, so a
+/// surface that comes back within that time shows what plays at once and
+/// spawns nothing. This is Chromium's idle timeout for a service process it
+/// starts on demand (`mojo::Remote::reset_on_idle_timeout`, used by
+/// services/data_decoder/public/cpp/data_decoder.cc).
 @Observable
 public final class SystemNowPlaying: NowPlayingSource {
     private var feed = SystemNowPlayingFeed()
     /// The shown report's artwork as the adapter sent it, and as a small PNG.
     private var artwork: (base64: String, data: Data?)?
-    /// Whether a surface needs Now Playing now; observed, so a need that comes back shows the report
-    /// the still-running stream kept.
-    private(set) var needed = false
+    /// What the surfaces need now; observed, so a surface that shows Now Playing again shows the
+    /// report the still-running stream kept.
+    private(set) var need: NowPlayingNeed = .off
     @ObservationIgnored private let adapter: (any SystemNowPlayingAdapter)?
     @ObservationIgnored private let ignored: Set<String>
     @ObservationIgnored private let labels: SidebarNowPlaying.Labels
-    /// Whether the adapter streams: from the first need until ``idleStop`` after the last.
+    /// Whether this source started the adapter and did not stop it since: from the first shown need
+    /// until a setting turns Now Playing off, or ``idleStop`` after the last surface stopped showing it.
     @ObservationIgnored private(set) var streaming = false
-    /// The one-shot deadline that stops the adapter once no surface has needed it for ``idleStop``; nil
-    /// stops it as soon as the last need ends.
-    @ObservationIgnored private let idle: MainDeadline?
+    /// The one-shot deadline that stops the adapter once no surface has shown Now Playing for ``idleStop``.
+    @ObservationIgnored private let idle: MainDeadline
     nonisolated static let idleStop: Duration = .seconds(60)
     nonisolated static let artworkSide = 320
     /// Decodes the shown artwork off the main actor.
@@ -46,43 +46,47 @@ public final class SystemNowPlaying: NowPlayingSource {
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
-    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, idle: MainDeadline?) {
+    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, idle: MainDeadline) {
         self.init(adapter: adapter, ignoring: ignored,
                   labels: SidebarNowPlaying.Labels(play: BrowserMediaStrings.play, pause: BrowserMediaStrings.pause,
                                                    previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next),
                   idle: idle)
     }
 
-    /// - Parameter idle: the deadline that stops the adapter ``idleStop`` after the last need (nobody
-    ///   sees that stop: its class is `background`); nil stops it when the last need ends.
+    /// - Parameter idle: the deadline that stops the adapter ``idleStop`` after the last surface stopped
+    ///   showing Now Playing (nobody sees that stop: give it the `background` class).
     public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels,
-                idle: MainDeadline?) {
+                idle: MainDeadline) {
         self.adapter = adapter
         self.ignored = ignored
         self.labels = labels
         self.idle = idle
     }
 
-    /// Reads Now Playing while `on` (a surface shows it, `followNowPlaying`): the first need starts the
-    /// adapter. Off hides what plays at once and stops the adapter ``idleStop`` later, unless a need
-    /// comes back first.
-    public func run(_ on: Bool) {
-        guard on != needed, let adapter else { return }
-        needed = on
-        guard on else {
-            guard let idle else { return stopIdle() }
-            idle.schedule(after: Self.idleStop) { [weak self] in self?.stopIdle() }
-            return
+    /// Reads Now Playing for `need` (`followNowPlaying`). Shown starts the adapter, and starts it
+    /// again when it gave up or waits to restart. Idle hides what plays at once and stops the
+    /// adapter ``idleStop`` later, unless a surface shows Now Playing again first. Off stops it now.
+    public func run(_ need: NowPlayingNeed) {
+        guard need != self.need, let adapter else { return }
+        self.need = need
+        switch need {
+        case .shown:
+            idle.cancel()
+            guard !streaming || !adapter.isStreaming else { return }
+            streaming = true
+            adapter.start { [weak self] update in self?.receive(update) }
+        case .idle:
+            guard streaming else { return }
+            idle.schedule(after: Self.idleStop) { [weak self] in self?.stopUnlessShown() }
+        case .off:
+            idle.cancel()
+            stopUnlessShown()
         }
-        idle?.cancel()
-        guard !streaming else { return }
-        streaming = true
-        adapter.start { [weak self] update in self?.receive(update) }
     }
 
-    /// The idle deadline: stops the adapter and forgets what played, unless a surface needs it again.
-    private func stopIdle() {
-        guard !needed, streaming, let adapter else { return }
+    /// Stops the adapter and forgets what played, unless a surface shows Now Playing again.
+    private func stopUnlessShown() {
+        guard need != .shown, streaming, let adapter else { return }
         streaming = false
         adapter.stop()
         artworkTask?.cancel()
@@ -91,15 +95,15 @@ public final class SystemNowPlaying: NowPlayingSource {
     }
 
     /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries, stopped
-    /// ``idleStop`` after the last need by a deadline on `deadlines` (the app's one placer).
-    public static func bundled(deadlines: MainDeadlineScheduler?) -> SystemNowPlaying {
+    /// ``idleStop`` after the last surface by a deadline on `deadlines` (the app's one placer).
+    public static func bundled(deadlines: MainDeadlineScheduler) -> SystemNowPlaying {
         SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
-                         idle: deadlines.map { MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: $0) })
+                         idle: MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: deadlines))
     }
 
-    /// What another app plays, nil while nothing does, cmux itself plays or no surface needs it.
+    /// What another app plays, nil while nothing does, cmux itself plays or no surface shows it.
     public var report: SystemNowPlayingReport? {
-        guard needed, let report = feed.report, !report.isFrom(ignored) else { return nil }
+        guard need == .shown, let report = feed.report, !report.isFrom(ignored) else { return nil }
         return report
     }
 

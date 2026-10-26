@@ -115,7 +115,7 @@ extension SidebarBridge {
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
-        case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
+        case .nowPlaying(let command): services.nowPlayingSources.perform(command)
         case .toggleWorkspaceAudio(let id):
             // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)

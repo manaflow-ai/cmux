@@ -29,6 +29,9 @@ public protocol SystemNowPlayingAdapter: AnyObject {
     /// Starts streaming; each data line, decoded off the main actor, goes to `onUpdate` on it.
     func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void)
     func stop()
+    /// Whether a stream runs or is being spawned: false before ``start(onUpdate:)``, after ``stop()``,
+    /// while a restart waits and once the stream gave up (it kept exiting at once).
+    var isStreaming: Bool { get }
     func send(_ command: SystemNowPlayingCommand)
 }
 
@@ -95,8 +98,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         self.launcher = launcher
     }
 
-    /// Whether a stream process runs or is being spawned; false while a restart waits.
-    var isStreaming: Bool { process != nil }
+    public var isStreaming: Bool { process != nil }
 
     /// The adapter cmux bundles: the script in Resources/MediaRemoteAdapter and
     /// the framework in Frameworks; nil when either is missing (a build without it).
@@ -115,6 +117,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     public func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) {
         self.onUpdate = onUpdate
         quickExits = 0
+        restart.cancel()
         launch()
     }
 
