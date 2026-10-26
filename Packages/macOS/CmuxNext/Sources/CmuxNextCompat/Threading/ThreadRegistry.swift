@@ -1,15 +1,13 @@
 public import Dispatch
-#if DEBUG || CMUX_BENCH_HOOKS
-internal import os
-#endif
 
 extension DispatchQueue {
     /// Makes a queue like `DispatchQueue(label:qos:attributes:autoreleaseFrequency:target:)` whose label and QoS
     /// are a row of the thread registry (plans/cmux-next/threading-model.md, "Registered threads and queues").
     ///
-    /// In Debug and bench builds a label ``ThreadRegistry/app`` does not declare, or a QoS other than the
-    /// declared one, logs a fault that names the call site, and `debug.threads` reports the queue's threads
-    /// against that row. Release builds only make the queue.
+    /// A queue states its QoS with `qos:`, or leaves it out and runs at its `target:`'s. In Debug and bench
+    /// builds each queue made here is recorded in ``CheckedQueueLog/app``, which `debug.threads` lists under
+    /// `queues`; a label ``ThreadRegistry/app`` does not declare, a QoS other than the declared one, or neither
+    /// a QoS nor a target with one also logs a fault that names the call site. Release builds only make the queue.
     ///
     /// ```swift
     /// let queue = DispatchQueue.checked(label: "com.cmuxterm.next.settings.watcher", qos: .utility)
@@ -17,7 +15,7 @@ extension DispatchQueue {
     ///
     /// - Parameters:
     ///   - label: The queue's label, as the registry declares it.
-    ///   - qos: The queue's QoS, as the registry declares it.
+    ///   - qos: The queue's QoS, as the registry declares it; leave it out to run at `target`'s.
     ///   - attributes: The queue's attributes.
     ///   - autoreleaseFrequency: How often the queue drains its autorelease pool.
     ///   - target: The queue this one targets.
@@ -26,7 +24,7 @@ extension DispatchQueue {
     /// - Returns: The new queue.
     public static func checked(
         label: String,
-        qos: DispatchQoS,
+        qos: DispatchQoS = .unspecified,
         attributes: Attributes = [],
         autoreleaseFrequency: AutoreleaseFrequency = .inherit,
         target: DispatchQueue? = nil,
@@ -34,10 +32,8 @@ extension DispatchQueue {
         line: UInt = #line
     ) -> DispatchQueue {
         #if DEBUG || CMUX_BENCH_HOOKS
-        if let problem = ThreadRegistry.app.problem(label: label, qos: ThreadQoS(qos.qosClass)) {
-            let site = "\(fileID):\(line)"
-            Logger(subsystem: "com.cmuxterm.app.next", category: "threads").fault("\(site, privacy: .public): \(problem, privacy: .public)")
-        }
+        CheckedQueueLog.app.record(label: label, qos: ThreadQoS(qos.qosClass), target: target, site: "\(fileID):\(line)",
+                                   registry: .app)
         #endif
         return DispatchQueue(label: label, qos: qos, attributes: attributes, autoreleaseFrequency: autoreleaseFrequency, target: target)
     }
@@ -85,8 +81,8 @@ public enum ThreadQoS: String, Sendable, CaseIterable {
     }
 }
 
-/// One declared thread or queue: its name (a pthread name or a dispatch label), the QoS it runs at, and
-/// who creates it.
+/// One declared thread or queue: its name (a pthread name, a dispatch label or an OperationQueue name), the QoS
+/// it runs at, and who creates it.
 public struct ThreadDeclaration: Sendable, Hashable {
     /// Who creates the thread.
     public enum Origin: String, Sendable {
@@ -96,32 +92,50 @@ public struct ThreadDeclaration: Sendable, Hashable {
         case library
     }
 
-    /// The full name, or the fixed start of the name when ``isPrefix``.
+    /// How a row's name matches a thread's name or the label of the queue the thread drains.
+    public enum Match: String, Sendable {
+        /// The whole name.
+        case exact
+        /// The fixed start of an interpolated name (`com.cmuxterm.next.control.<id>`).
+        case prefix
+        /// An `OperationQueue`'s `name`: Foundation runs each operation on a dispatch queue labelled
+        /// `<name> :: NSOperation 0x... (QOS: ...)`, so the label is the name or the name, a space and more.
+        case operationQueue = "operation-queue"
+    }
+
+    /// The full name, or the fixed start of the name for a ``Match/prefix`` row.
     public var name: String
-    /// Whether ``name`` is the start of an interpolated name (`com.cmuxterm.next.control.<id>`).
-    public var isPrefix: Bool
+    /// How ``name`` matches.
+    public var match: Match
     /// The QoS the thread's requested QoS must equal.
     public var qos: ThreadQoS
     /// Who creates the thread.
     public var origin: Origin
 
+    /// Whether ``name`` is the start of an interpolated name.
+    public var isPrefix: Bool { match == .prefix }
+
     /// Makes a declaration.
     ///
     /// - Parameters:
-    ///   - name: The full name, or its fixed start when `prefix`.
-    ///   - prefix: Whether `name` is the start of an interpolated name.
+    ///   - name: The full name, or its fixed start for a prefix row.
+    ///   - match: How `name` matches a thread name or a queue label.
     ///   - qos: The declared QoS.
     ///   - origin: Who creates the thread.
-    public init(_ name: String, prefix: Bool = false, qos: ThreadQoS, origin: Origin = .cmux) {
+    public init(_ name: String, match: Match = .exact, qos: ThreadQoS, origin: Origin = .cmux) {
         self.name = name
-        self.isPrefix = prefix
+        self.match = match
         self.qos = qos
         self.origin = origin
     }
 
     /// Whether `candidate` (a thread name or a queue label) is this row's thread.
     public func matches(_ candidate: String) -> Bool {
-        isPrefix ? candidate.hasPrefix(name) : candidate == name
+        switch match {
+        case .exact: candidate == name
+        case .prefix: candidate.hasPrefix(name)
+        case .operationQueue: candidate == name || candidate.hasPrefix(name + " ")
+        }
     }
 }
 
@@ -132,10 +146,18 @@ public struct ThreadDeclaration: Sendable, Hashable {
 public struct ThreadRegistry: Sendable {
     /// The rows, in no particular order.
     public let rows: [ThreadDeclaration]
+    /// The name starts only cmux code uses: a thread or queue with one and no row is an undeclared cmux thread
+    /// (`debug.threads` `undeclared_cmux`), not a system or library thread.
+    public let ownPrefixes: [String]
 
     /// Makes a registry over `rows` (tests; the app uses ``app``).
-    public init(rows: [ThreadDeclaration]) {
+    ///
+    /// - Parameters:
+    ///   - rows: The declared threads and queues.
+    ///   - ownPrefixes: The name starts only cmux code uses.
+    public init(rows: [ThreadDeclaration], ownPrefixes: [String] = []) {
         self.rows = rows
+        self.ownPrefixes = ownPrefixes
     }
 
     /// The row for a thread name or queue label: an exact row first, else the longest matching prefix; nil when
@@ -150,16 +172,36 @@ public struct ThreadRegistry: Sendable {
         return best
     }
 
-    /// What is wrong with a new queue: its label is not declared, or its QoS is not the declared one; nil when
-    /// the queue matches its row.
-    func problem(label: String, qos: ThreadQoS) -> String? {
+    /// Whether `name` (a thread name or a queue label) starts with one of ``ownPrefixes``.
+    public func isOwn(_ name: String) -> Bool {
+        ownPrefixes.contains { name.hasPrefix($0) }
+    }
+
+    /// What is wrong with a new queue: its label is not declared, it states neither a QoS nor a target with one,
+    /// or the QoS it runs at is not the declared one; nil when the queue matches its row.
+    ///
+    /// - Parameters:
+    ///   - label: The queue's label.
+    ///   - qos: The QoS the queue states; unspecified when it runs at its target's.
+    ///   - targetQoS: The target's QoS; nil with no target.
+    func problem(label: String, qos: ThreadQoS, targetQoS: ThreadQoS? = nil) -> String? {
         guard let row = declaration(for: label) else {
             return "queue \(label) is not in threading-model.md's registered threads (ThreadRegistry.app)"
         }
-        guard row.qos == qos else {
-            return "queue \(label) is \(qos.rawValue); ThreadRegistry.app declares \(row.qos.rawValue)"
+        let runs = Self.effectiveQoS(qos, targetQoS: targetQoS)
+        guard runs != .unspecified else {
+            return "queue \(label) states neither qos: nor a target with a QoS; ThreadRegistry.app declares \(row.qos.rawValue)"
+        }
+        guard row.qos == runs else {
+            let source = qos == .unspecified ? "its target's" : "stated"
+            return "queue \(label) runs at \(runs.rawValue) (\(source)); ThreadRegistry.app declares \(row.qos.rawValue)"
         }
         return nil
+    }
+
+    /// The QoS a queue runs at: the one it states, else its target's.
+    static func effectiveQoS(_ qos: ThreadQoS, targetQoS: ThreadQoS?) -> ThreadQoS {
+        qos == .unspecified ? targetQoS ?? .unspecified : qos
     }
 }
 
@@ -169,7 +211,8 @@ extension ThreadRegistry {
     public static let mainThreadName = "com.apple.main-thread"
 
     /// The app process's rows: plans/cmux-next/threading-model.md "Registered threads and queues", each at the
-    /// QoS its owner row and the QoS design (chrome-parity p02-threads, section C) give it.
+    /// QoS the doc writes after it (chrome-parity p02-threads section C's tiers); ThreadsControlTests compares
+    /// the two.
     public static let app = ThreadRegistry(rows: [
         // Main and frame.
         ThreadDeclaration(ThreadRegistry.mainThreadName, qos: .userInteractive),
@@ -177,22 +220,22 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux-next quit deadline", qos: .userInteractive),
         ThreadDeclaration("cmux-next crash deadline", qos: .userInteractive),
         // Daemon.
-        ThreadDeclaration("cmux-tui reader ", prefix: true, qos: .userInteractive),
+        ThreadDeclaration("cmux-tui reader ", match: .prefix, qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.next.daemon.write", qos: .userInteractive),
-        ThreadDeclaration("com.cmuxterm.next.daemon.path.", prefix: true, qos: .utility),
-        ThreadDeclaration("com.cmuxterm.next.daemon.exit.", prefix: true, qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.daemon.path.", match: .prefix, qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.daemon.exit.", match: .prefix, qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.retry-wake", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.process-progress", qos: .utility),
         // Control (automation).
         ThreadDeclaration("com.cmuxterm.next.control.accept", qos: .utility),
-        ThreadDeclaration("com.cmuxterm.next.control.", prefix: true, qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.control.", match: .prefix, qos: .utility),
         // Terminal (the key echo path).
         ThreadDeclaration("com.cmuxterm.next.terminal.output", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.next.localpty.read", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.next.localpty.write", qos: .userInteractive),
-        // Settings and files.
+        // Settings and files (watchers are utility).
         ThreadDeclaration("com.cmuxterm.next.settings.watcher", qos: .utility),
-        ThreadDeclaration("cmux.files.fsevents", qos: .userInitiated),
+        ThreadDeclaration("cmux.files.fsevents", qos: .utility),
         ThreadDeclaration("cmux.files.tree-fsevents", qos: .utility),
         ThreadDeclaration("com.cmuxterm.home.cache", qos: .userInitiated),
         // Remote and mobile.
@@ -210,21 +253,21 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-host.exit", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.cef-children", qos: .utility),
         ThreadDeclaration("com.cmuxterm.import-history-sync", qos: .utility),
-        ThreadDeclaration("com.cmuxterm.chromium-runtime.download", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.chromium-runtime.download", match: .operationQueue, qos: .utility),
         ThreadDeclaration("cmux-next webkit setup probe", qos: .utility),
         // Agents.
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated),
-        ThreadDeclaration("cmux.next.agent-pane.acpmux-exit.", prefix: true, qos: .utility),
+        ThreadDeclaration("cmux.next.agent-pane.acpmux-exit.", match: .prefix, qos: .utility),
         ThreadDeclaration("cmux.next.agent-pane.acpmux-log-progress", qos: .utility),
-        ThreadDeclaration("cmux.next.agent-pane.acpmux-launch-reap.", prefix: true, qos: .utility),
+        ThreadDeclaration("cmux.next.agent-pane.acpmux-launch-reap.", match: .prefix, qos: .utility),
         ThreadDeclaration("cmux.next.agent-pane.acpmux-status", qos: .utility),
         ThreadDeclaration("cmux.acpmux.checked-line", qos: .utility),
         ThreadDeclaration("cmux.agent-activity.socket", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.chief-settle", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.tasks.socket", qos: .userInitiated),
-        ThreadDeclaration("com.cmuxterm.app.next.agent-pane.socket", qos: .userInitiated),
-        ThreadDeclaration("com.cmuxterm.app.next.agent-pane.pull-request", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.agent-pane.socket", match: .operationQueue, qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.agent-pane.pull-request", match: .operationQueue, qos: .utility),
         ThreadDeclaration("cua-helper-v2-reap", qos: .utility),
         ThreadDeclaration("cua-helper-v2-stdout", qos: .utility),
         // Diagnostics.
@@ -242,6 +285,6 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux-next launch warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),
-        ThreadDeclaration("cmux.home.promised-files", qos: .userInitiated),
-    ])
+        ThreadDeclaration("cmux.home.promised-files", match: .operationQueue, qos: .userInitiated),
+    ], ownPrefixes: ["com.cmuxterm.", "com.cmux.", "cmux", "cua-", "debug."])
 }

@@ -4,9 +4,9 @@ internal import CmuxNextSettings
 import Darwin
 
 /// `debug.threads`: every thread of the app process with its requested QoS, effective priority, dispatch label
-/// and CPU time, each compared with its row in the thread registry (plans/cmux-next/threading-model.md), plus
-/// the process's task role (Debug and bench builds). The QoS audit (chrome-parity p02-threads RUN-3) reads it in
-/// STRESS, with the window visible and hidden.
+/// and CPU time, each compared with its row in the thread registry (plans/cmux-next/threading-model.md), every
+/// queue `DispatchQueue.checked` made, plus the process's task role (Debug and bench builds). The QoS audit
+/// (chrome-parity p02-threads RUN-3) reads it in STRESS, with the window visible and hidden.
 ///
 /// Requested QoS is the kernel's `THREAD_QOS_POLICY` tier, which excludes overrides (a waiter's boost, a
 /// sync onto the queue), so `match` checks what the code asked for. Effective priority is
@@ -17,18 +17,22 @@ import Darwin
 /// the main thread is busy.
 public struct ThreadsControl: Sendable {
     private let registry: ThreadRegistry
+    private let queueLog: CheckedQueueLog
     private let mainThreadID: UInt64
 
     /// Makes the method; call it on the main actor, which names the main thread's row.
     ///
-    /// - Parameter registry: The declared threads and queues (the app's by default).
+    /// - Parameters:
+    ///   - registry: The declared threads and queues (the app's by default).
+    ///   - queueLog: The queues `DispatchQueue.checked` made (the app's by default).
     @MainActor
-    public init(registry: ThreadRegistry = .app) {
-        self.init(registry: registry, mainThreadID: LiveThread.currentThreadID())
+    public init(registry: ThreadRegistry = .app, queueLog: CheckedQueueLog = .app) {
+        self.init(registry: registry, queueLog: queueLog, mainThreadID: LiveThread.currentThreadID())
     }
 
-    init(registry: ThreadRegistry, mainThreadID: UInt64) {
+    init(registry: ThreadRegistry, queueLog: CheckedQueueLog = CheckedQueueLog(), mainThreadID: UInt64) {
         self.registry = registry
+        self.queueLog = queueLog
         self.mainThreadID = mainThreadID
     }
 
@@ -37,15 +41,25 @@ public struct ThreadsControl: Sendable {
         .snapshot("debug.threads") { [self] _ in report() }
     }
 
-    /// The report over this process's threads now.
+    /// The report over this process's threads and checked queues now.
     func report() -> JSONValue {
-        Self.report(threads: LiveThread.all(), taskRole: LiveThread.taskRole(), registry: registry, mainThreadID: mainThreadID)
+        Self.report(threads: LiveThread.all(), taskRole: LiveThread.taskRole(), registry: registry,
+                    made: queueLog.records, droppedQueues: queueLog.droppedCount, mainThreadID: mainThreadID)
     }
 
-    static func report(threads: [LiveThread], taskRole: String, registry: ThreadRegistry, mainThreadID: UInt64) -> JSONValue {
-        var undeclared = 0
-        var mismatched = 0
+    /// The report: each thread against its row, then each row and each undeclared checked queue with its live
+    /// threads and the call sites that made it.
+    ///
+    /// Counts: `mismatched` (a declared thread whose requested QoS was read and is not the row's),
+    /// `unknown_qos` (a declared thread the kernel gave no QoS for, as when it exits mid-read: never a
+    /// mismatch), `undeclared` (every thread no row declares, system and library threads included),
+    /// `undeclared_cmux` (of those, the ones whose name or label has a cmux prefix: the RUN-3 / MQ-15 number,
+    /// 0 when every cmux thread is registered) and `queue_problems` (checked queues that do not match their row).
+    static func report(threads: [LiveThread], taskRole: String, registry: ThreadRegistry, made: [CheckedQueueRecord] = [],
+                       droppedQueues: Int = 0, mainThreadID: UInt64) -> JSONValue {
+        var counts = Counts()
         var live: [ThreadDeclaration: Int] = [:]
+        var liveUndeclaredLabels: [String: Int] = [:]
         var rows: [JSONValue] = []
         for thread in threads {
             let isMain = thread.id == mainThreadID
@@ -58,13 +72,21 @@ public struct ThreadsControl: Sendable {
                 declaration = thread.label.flatMap { registry.declaration(for: $0) }
             }
             var match: JSONValue = .null
+            var undeclaredCmux = false
             if let declaration {
                 live[declaration, default: 0] += 1
-                let matches = declaration.qos == thread.requestedQoS
-                if !matches { mismatched += 1 }
-                match = .bool(matches)
+                if let requested = thread.requestedQoS {
+                    let matches = declaration.qos == requested
+                    if !matches { counts.mismatched += 1 }
+                    match = .bool(matches)
+                } else {
+                    counts.unknownQoS += 1
+                }
             } else {
-                undeclared += 1
+                counts.undeclared += 1
+                undeclaredCmux = registry.isOwn(thread.name) || thread.label.map(registry.isOwn) == true
+                if undeclaredCmux { counts.undeclaredCmux += 1 }
+                if let label = thread.label { liveUndeclaredLabels[label, default: 0] += 1 }
             }
             rows.append(.object([
                 "tid": .number(Double(thread.id)),
@@ -77,24 +99,77 @@ public struct ThreadsControl: Sendable {
                 "declared": nullable(declaration?.qos.rawValue),
                 "declared_as": nullable(declaration?.name),
                 "origin": nullable(declaration?.origin.rawValue),
+                "undeclared_cmux": .bool(undeclaredCmux),
                 "match": match,
             ]))
         }
         return .object([
             "task_role": .string(taskRole),
             "thread_count": JSONValue(threads.count),
-            "undeclared": JSONValue(undeclared),
-            "mismatched": JSONValue(mismatched),
+            "undeclared": JSONValue(counts.undeclared),
+            "undeclared_cmux": JSONValue(counts.undeclaredCmux),
+            "mismatched": JSONValue(counts.mismatched),
+            "unknown_qos": JSONValue(counts.unknownQoS),
+            "queue_problems": JSONValue(made.filter { $0.problem != nil }.count),
+            "queues_not_recorded": JSONValue(droppedQueues),
             "threads": .array(rows),
-            "queues": .array(registry.rows.map { row in
-                .object([
-                    "name": .string(row.name),
-                    "prefix": .bool(row.isPrefix),
-                    "qos": .string(row.qos.rawValue),
-                    "origin": .string(row.origin.rawValue),
-                    "live_threads": JSONValue(live[row] ?? 0),
-                ])
-            }),
+            "queues": .array(queues(registry: registry, made: made, live: live, liveUndeclaredLabels: liveUndeclaredLabels)),
+        ])
+    }
+
+    private struct Counts {
+        var undeclared = 0
+        var undeclaredCmux = 0
+        var mismatched = 0
+        var unknownQoS = 0
+    }
+
+    /// Every row with its live threads and the checked queues made for it, then one entry per label of a
+    /// checked queue no row declares, so an undeclared queue shows even while it is idle.
+    private static func queues(registry: ThreadRegistry, made: [CheckedQueueRecord], live: [ThreadDeclaration: Int],
+                               liveUndeclaredLabels: [String: Int]) -> [JSONValue] {
+        var entries: [JSONValue] = registry.rows.map { row in
+            .object([
+                "name": .string(row.name),
+                "declared": .bool(true),
+                "match": .string(row.match.rawValue),
+                "prefix": .bool(row.isPrefix),
+                "qos": .string(row.qos.rawValue),
+                "origin": .string(row.origin.rawValue),
+                "live_threads": JSONValue(live[row] ?? 0),
+                "made": .array(made.filter { $0.declaredAs == row.name }.map(site)),
+            ])
+        }
+        var undeclared: [String: [CheckedQueueRecord]] = [:]
+        var order: [String] = []
+        for record in made where record.declaredAs == nil {
+            if undeclared[record.label] == nil { order.append(record.label) }
+            undeclared[record.label, default: []].append(record)
+        }
+        for label in order {
+            let records = undeclared[label] ?? []
+            entries.append(.object([
+                "name": .string(label),
+                "declared": .bool(false),
+                "match": .null,
+                "prefix": .bool(false),
+                "qos": nullable(records.first?.qos.rawValue),
+                "origin": .null,
+                "live_threads": JSONValue(liveUndeclaredLabels[label] ?? 0),
+                "made": .array(records.map(site)),
+            ]))
+        }
+        return entries
+    }
+
+    private static func site(_ record: CheckedQueueRecord) -> JSONValue {
+        .object([
+            "label": .string(record.label),
+            "qos": .string(record.qos.rawValue),
+            "target": nullable(record.target),
+            "site": .string(record.site),
+            "count": JSONValue(record.count),
+            "problem": nullable(record.problem),
         ])
     }
 
@@ -126,17 +201,8 @@ extension LiveThread {
 
     /// Every thread of this process; a thread that exits while it is read is left out.
     static func all() -> [LiveThread] {
-        var list: thread_act_array_t?
-        var count: mach_msg_type_number_t = 0
-        guard task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list else { return [] }
-        let threads = UnsafeBufferPointer(start: list, count: Int(truncatingIfNeeded: count))
-        defer {
-            for thread in threads { mach_port_deallocate(mach_task_self_, thread) }
-            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)),
-                          vm_size_t(truncatingIfNeeded: threads.count * MemoryLayout<thread_act_t>.stride))
-        }
         let labels = DispatchLabelReader()
-        return threads.compactMap { read($0, labels: labels) }
+        return MachThreads.withTaskThreads { threads in threads.compactMap { read($0, labels: labels) } }
     }
 
     /// The process's Mach task role (`TASK_CATEGORY_POLICY`, mach/task_policy.h): `foreground` for the
@@ -165,21 +231,11 @@ extension LiveThread {
     }
 
     private static func read(_ thread: thread_act_t, labels: DispatchLabelReader) -> LiveThread? {
-        guard let identity = info(thread, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t()),
-              let extended = info(thread, THREAD_EXTENDED_INFO, thread_extended_info_data_t()) else { return nil }
-        let name = withUnsafeBytes(of: extended.pth_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-        return LiveThread(id: identity.thread_id, name: name, label: labels.label(slot: identity.dispatch_qaddr),
+        guard let identity = MachThreads.info(thread, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t()),
+              let extended = MachThreads.info(thread, THREAD_EXTENDED_INFO, thread_extended_info_data_t()) else { return nil }
+        return LiveThread(id: identity.thread_id, name: MachThreads.name(of: extended), label: labels.label(slot: identity.dispatch_qaddr),
                           requestedQoS: requestedQoS(thread), effectivePriority: extended.pth_curpri,
                           cpuNanos: extended.pth_user_time &+ extended.pth_system_time)
-    }
-
-    private static func info<Info>(_ thread: thread_act_t, _ flavor: Int32, _ empty: Info) -> Info? {
-        var info = empty
-        var count = mach_msg_type_number_t(MemoryLayout<Info>.stride / MemoryLayout<natural_t>.stride)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(truncatingIfNeeded: count)) { thread_info(thread, thread_flavor_t(flavor), $0, &count) }
-        }
-        return result == KERN_SUCCESS ? info : nil
     }
 
     /// `THREAD_QOS_POLICY` (9, xnu osfmk/mach/thread_policy.h; not in the public SDK headers): `qos_tier` is the

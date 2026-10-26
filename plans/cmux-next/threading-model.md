@@ -116,40 +116,55 @@ still waits for everything queued before it on that queue.
 
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
+The parentheses after each label start with its declared QoS (chrome-parity p02-threads section C's tiers), and
+with OperationQueue for an OperationQueue name (Foundation labels the queue an operation runs on with the name,
+a space and the operation).
+`ThreadRegistry.app` (CmuxNextCompat) holds the same rows, `debug.threads` compares each live thread's requested
+QoS with them, and ThreadsControlTests fails when a label or QoS here and there differ.
 
-- Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
-- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
-  `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
-- Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
-- Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
-  `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
+- Main and frame: `cmux-next main-thread watchdog` (user-interactive), `cmux-next quit deadline` (user-interactive),
+  `cmux-next crash deadline` (user-interactive)
+- Daemon: `cmux-tui reader <path>` (user-interactive), `com.cmuxterm.next.daemon.write` (user-interactive),
+  `com.cmuxterm.next.daemon.path.<machine>` (utility), `com.cmuxterm.next.daemon.exit.<pid>` (utility),
+  `com.cmuxterm.next.retry-wake` (utility), `com.cmuxterm.next.process-progress` (utility)
+- Control: `com.cmuxterm.next.control.accept` (utility), `com.cmuxterm.next.control.<id>` (utility)
+- Terminal: `com.cmuxterm.next.terminal.output` (user-interactive), `com.cmuxterm.next.localpty.read` (user-interactive),
+  `com.cmuxterm.next.localpty.write` (user-interactive)
+- Settings and files: `com.cmuxterm.next.settings.watcher` (utility),
+  `cmux.files.fsevents` (utility: a watcher; FolderWatchStream still asks user-initiated, which `debug.threads`
+  reports as a mismatch), `cmux.files.tree-fsevents` (utility),
+  `com.cmuxterm.home.cache` (user-initiated; the `HomeCache` actor's executor: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
-- Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
-  `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
-  `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
-- Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
-  `com.cmuxterm.chromium-host.read` (user-initiated),
-  `com.cmuxterm.chromium-host.exit` (user-initiated serial queue for the host's exit source; a crash shows on the page),
-  `com.cmuxterm.app.next.cef-children`, `com.cmuxterm.import-history-sync`,
-  `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
-  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
-- Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
-  `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
-  `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
-  `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
-  `com.cmuxterm.app.next.agent-pane.pull-request` (gh reads for the header chip, utility, 2 at once),
-  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
-- Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
-  `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
-  `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`
+- Remote and mobile: `com.cmuxterm.next.remote-localhost` (user-initiated),
+  `com.cmuxterm.next.cloud-browser-proxy` (user-initiated), `com.cmuxterm.next.remote-fetch` (user-initiated),
+  `cmux.remote-view.render` (user-interactive), `cmux.remote-view.rd-transport` (user-initiated),
+  `cmux.remote-view.mock-host` (utility), `cmux.next.mobile.unix-lane` (user-initiated)
+- Browser: `com.cmuxterm.next.browser-host.provider.write` (user-initiated),
+  `cmux browser-host provider reader` (user-initiated), `com.cmuxterm.chromium-host.read` (user-initiated),
+  `com.cmuxterm.chromium-host.exit` (user-initiated; serial queue for the host's exit source: a crash shows on the page),
+  `com.cmuxterm.app.next.cef-children` (utility), `com.cmuxterm.import-history-sync` (utility),
+  `com.cmuxterm.chromium-runtime.download` (OperationQueue, utility, serial; the runtime download's URLSession
+  delegate queue), `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
+- Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal` (utility),
+  `com.cmuxterm.app.next.agent-pane.inbound` (user-initiated), `cmux.next.agent-pane.acpmux-exit.<pid>` (utility),
+  `cmux.next.agent-pane.acpmux-log-progress` (utility), `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (utility),
+  `cmux.next.agent-pane.acpmux-status` (utility), `cmux.acpmux.checked-line` (utility),
+  `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle` (utility),
+  `com.cmuxterm.app.next.tasks.socket` (user-initiated),
+  `com.cmuxterm.app.next.agent-pane.socket` (OperationQueue, user-initiated, serial; the agent pane's URLSession
+  delegate queue), `com.cmuxterm.app.next.agent-pane.pull-request` (OperationQueue, utility, 2 at once; gh reads
+  for the header chip), `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
+- Diagnostics: `cmux-next.hang-episodes` (utility), `cmux-next.hang-episodes.symbols` (utility),
+  `com.cmuxterm.app.next.run-marker` (utility), `com.cmuxterm.app.next.crash-forwarder` (utility),
+  `com.cmuxterm.app.next.owner-panic-forwarder` (utility), `com.cmuxterm.next.typing-probe` (utility),
+  `com.cmuxterm.app.next.blocking-drain` (utility), `com.cmux.host-pressure` (utility),
+  `debug.window_record` (user-initiated)
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,
   `cmux-trace-open`
-- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
-  `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
-  waits for the dropped files)
+- Launch and misc: `cmux-next resource bundle warm-up` (user-initiated), `cmux-next launch warm-up` (user-initiated),
+  `cmux.updates.network` (utility), `cmux.home.fixture.video` (utility),
+  `cmux.home.promised-files` (OperationQueue, user-initiated; a drop's file promises: the person waits for the
+  dropped files)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed.
 
