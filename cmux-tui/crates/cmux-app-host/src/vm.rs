@@ -175,8 +175,9 @@ impl CpuWindow {
     }
 
     /// Charges VM time from `start` to `end` (nanoseconds on the VM clock) to the slots it covers.
+    /// Only the last ring's span of a longer entry is kept: the rest is older than the window.
     fn charge(&mut self, start: u64, end: u64) {
-        let mut at = start;
+        let mut at = start.max(end.saturating_sub(self.slot.saturating_mul(CPU_SLOTS + 1)));
         while at < end {
             let slot = at / self.slot;
             let until = end.min(slot.saturating_add(1).saturating_mul(self.slot));
@@ -185,11 +186,6 @@ impl CpuWindow {
                 *entry = (slot, 0);
             }
             entry.1 = entry.1.saturating_add(until - at);
-            // An entry longer than the ring would overwrite its own start; what is left fills
-            // every slot anyway.
-            if until - start > self.slot.saturating_mul(CPU_SLOTS + 1) {
-                break;
-            }
             at = until;
         }
     }
@@ -529,7 +525,10 @@ impl AppVm {
     /// Moves the VM clock forward by `by`, as if the VM had idled that long (tests drive the CPU
     /// window with it instead of sleeping). Never rewinds; entry deadlines move with the clock.
     pub fn advance_clock(&mut self, by: Duration) {
-        self.skipped.fetch_add(by.as_nanos().min(u128::from(u64::MAX)) as u64, Ordering::Relaxed);
+        let by = by.as_nanos().min(u128::from(u64::MAX)) as u64;
+        let _ = self
+            .skipped
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| Some(s.saturating_add(by)));
     }
 
     /// Why the VM died, if it did. A dead VM refuses every entry.
@@ -575,7 +574,8 @@ impl AppVm {
             if left == 0 {
                 return Err(self.die(FatalReason::CpuBudget, name));
             }
-            if left < allowed {
+            // A tie goes to the window: an interrupt at that deadline used the window up.
+            if left <= allowed {
                 (allowed, self.window_bound) = (left, true);
             }
         }

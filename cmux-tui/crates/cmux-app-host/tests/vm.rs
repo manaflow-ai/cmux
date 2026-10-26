@@ -228,24 +228,25 @@ mod apps {
     const SPIN: &str = "(ms) => { const t = Date.now(); while (Date.now() - t < ms) {} return ms }";
 
     /// The per-entry deadline alone lets an app run 249 ms every 50 ms; the CPU window (2 s of VM
-    /// time in any 10 s) stops it (leo-workspace design/app-store.md, the first primitive).
+    /// time in any 10 s) stops it (leo-workspace design/app-store.md, the first primitive). The
+    /// entries spin 150 ms (the design's 200 ms leaves a loaded runner too little room under the
+    /// 250 ms deadline) and idle 50 ms on the VM clock, so all of them fall in one window.
     #[test]
-    fn entries_of_200_ms_every_50_ms_are_killed_within_the_cpu_window() {
+    fn entries_of_150_ms_every_50_ms_are_killed_within_the_cpu_window() {
         let mut h = Harness::new(&app(r#"return { render: () => Text("ok") }"#));
-        let started = Instant::now();
         let mut error = None;
-        for _ in 0..20 {
-            match h.vm.eval_json(&format!("({SPIN})(200)")) {
-                Ok(result) => assert_eq!(result, Ok(json!(200))),
+        // 2 s of budget is used up by the 14th entry; 30 would be 4.5 s of VM time.
+        for _ in 0..30 {
+            match h.vm.eval_json(&format!("({SPIN})(150)")) {
+                Ok(result) => assert_eq!(result, Ok(json!(150))),
                 Err(e) => {
                     error = Some(e);
                     break;
                 }
             }
-            std::thread::sleep(Duration::from_millis(50));
+            h.vm.advance_clock(Duration::from_millis(50));
         }
-        let error = error.expect("killed before 20 entries of 200 ms (4 s of VM time)");
-        assert!(started.elapsed() < Duration::from_secs(10), "within the window");
+        let error = error.expect("killed within 30 entries of 150 ms (4.5 s of VM time in 6 s)");
         assert!(
             matches!(error, VmError::Fatal { reason: FatalReason::CpuBudget, .. }),
             "{error:?}"
