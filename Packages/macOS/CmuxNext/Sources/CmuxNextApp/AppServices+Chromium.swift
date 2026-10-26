@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
+import CmuxNextFeatures
 import CmuxNextSettings
 import Observation
 
@@ -13,8 +14,22 @@ extension AppServices {
     func startChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
-        chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false })
+        // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
+        // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
+        let pagesSpare = features.isEnabled(.pagesSpareWindow)
+        chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
+                             pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false },
+                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
+        if pagesSpare {
+            // Pages follow the default engine: switched away from Chromium, the untaken pages spare
+            // closes; switched back, the next idle moment builds it again. The current value is
+            // the one `start` already reads; only changes act.
+            let (_, engineChanges) = ObservationStream.current({ preference.defaultEngine == .chromium })
+            chromiumLikelyObservations.append(Task { [weak self] in
+                for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
+            })
+        }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
             // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the

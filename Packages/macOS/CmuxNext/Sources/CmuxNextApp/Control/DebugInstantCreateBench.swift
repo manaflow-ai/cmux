@@ -25,12 +25,17 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// visible once the pane shows the new tab selected (its themed pane; `chrome_ms`: its browser view in it); `page_ms` the
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
+///
+/// `close_tab` is Cmd-W, measured the same way: the key is stamped here, in the app, and `visible_ms` is the first
+/// frame at which the focused pane shows another tab (no `confirmed_ms`: a close has no provisional object). With
+/// `window_ms`, the frames go on that long after it, so `frames.missed` counts the close's motion too.
 @MainActor
 enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
         case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser"
+        case closeTab = "close_tab"
 
         var key: (String, [String]) {
             switch self {
@@ -40,6 +45,7 @@ enum DebugInstantCreateBench {
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
             case .newBrowser: ("l", ["command", "shift"])
+            case .closeTab: ("w", ["command"])
             }
         }
     }
@@ -60,11 +66,12 @@ enum DebugInstantCreateBench {
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
+        let window = params["window_ms"]?.doubleValue ?? 0
+        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: window, deadline: 5_000)
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         let page = visible == nil || command != .newBrowser ? nil
             : await frames.settled(until: { Probe(controller).pagePainted(services) }, start: start, window: 0, deadline: 5_000)
-        let confirmed = visible == nil ? nil
+        let confirmed = visible == nil || command == .closeTab ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end()
         let stats = frames.stop()
@@ -122,6 +129,7 @@ enum DebugInstantCreateBench {
             case .newTab, .newTerminal: now.pane == pane && now.tab != nil && now.tab != tab
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
+            case .closeTab: now.pane != pane || now.tab != tab
             }
         }
 
@@ -130,6 +138,7 @@ enum DebugInstantCreateBench {
             switch command {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser: return realTab
             case .splitRight, .splitDown: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .closeTab: return true // never asked: a close has no provisional object
             }
         }
     }

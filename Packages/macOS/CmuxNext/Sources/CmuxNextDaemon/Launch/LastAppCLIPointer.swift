@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -10,8 +11,8 @@ public import Foundation
 /// launch: written to a temporary file in the same directory (mode 0600)
 /// and renamed over the old pointer, so a reader never sees a partial path,
 /// and a symlink put in its place is replaced, never followed. An isolated
-/// agent launch (`CMUX_NEXT_NO_ACTIVATE=1`) never writes it: a test build
-/// must not take over the user's `cmux`.
+/// launch (``LaunchIsolation/isolated``: an agent or bench launch) never
+/// writes it: a test build must not take over the user's `cmux`.
 public struct LastAppCLIPointer: Sendable, Equatable {
     public let file: URL
 
@@ -21,7 +22,7 @@ public struct LastAppCLIPointer: Sendable, Equatable {
 
     /// Whether a launch with `environment` is the user's own.
     public static func shouldPublish(environment: [String: String]) -> Bool {
-        environment["CMUX_NEXT_NO_ACTIVATE"] != "1"
+        !LaunchIsolation(environment: environment).isolated
     }
 
     /// Points the pointer at `cliPath`. False, and nothing written, when the

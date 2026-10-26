@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -35,6 +36,9 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         memoryFootprints.start()
+        if features.isEnabled(.occludedWindowDiscard) {
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+        }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`

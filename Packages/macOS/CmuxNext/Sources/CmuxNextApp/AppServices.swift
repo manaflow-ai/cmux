@@ -62,15 +62,15 @@ final class AppServices {
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
     let crashReporting: AppCrashReporting
-    /// The local daemon. Cloud machines are in `machines`; code acting on a
-    /// workspace, pane, or tab resolves its daemon through `machines`.
-    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    /// The local daemon (a build with the sidebar document orders rows from it only: placement-shift-v1). Cloud machines
+    /// are in `machines`; code acting on a workspace, pane, or tab resolves its daemon through `machines`.
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
+    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -405,11 +405,11 @@ final class AppServices {
     /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
     /// its Low Power Mode goes out by init and its inputs are pushed (`startEnergy`), never a shared instance.
     let energyMonitor: EnergyMonitor
-    /// Pushes the monitor's inputs to the consumers below the App and ``energyDriver`` (`startEnergy`).
+    /// Pushes the monitor's inputs to the consumers below the App and ``energy``'s policy driver (`startEnergy`).
     var energyLink: MainActorHandlerRegistration<EnergyInputs>?
-    /// Writes `mainWork.energy`, the policy every scheduler reads, from the inputs and `energy.saver`.
-    private(set) lazy var energyDriver = EnergyPolicyDriver(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
-    /// Follows `energy.saver` into ``energyDriver`` (`followEnergySaver`).
+    /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
+    private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
@@ -445,8 +445,8 @@ final class AppServices {
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
     /// The one owner of hover cards in the app: at most one card, ever
-    /// (plans/cmux-next/hovercards.md).
-    let hoverCards = HoverCardCoordinator()
+    /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
+    let hoverCards: HoverCardCoordinator
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -494,6 +494,7 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
@@ -611,7 +612,7 @@ final class AppServices {
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
-        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
@@ -681,26 +682,26 @@ final class AppServices {
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
-    /// Starts the energy monitor and pushes its inputs, now and on each change, to the consumers that cannot
-    /// import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
+    /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
+    /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared) {
-        energyMonitor.start()
+        energy.start(inputs: energyMonitor)
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
-            self?.energyDriver.update(inputs: inputs)
+            self?.energy.driver.update(inputs: inputs)
         }
     }
-    /// Follows `energy.saver` into ``energyDriver`` once the settings have loaded, so the first policy it
+    /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
     func followEnergySaver(_ settings: SettingsController) {
         guard energySaverObservation == nil else { return }
         // task-owner: app lifetime; event-driven (Observation)
         energySaverObservation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
-            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energyDriver.update(setting: mode) }
+            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energy.driver.update(setting: mode) }
         }
     }
     // MARK: Lookup

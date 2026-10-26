@@ -498,6 +498,8 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// Control-request latency by class and the dispatch queue.
+    request_stats: Arc<crate::diagnostics::RequestStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).
@@ -1026,6 +1028,8 @@ impl Drop for Mux {
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
+        // A provider bootstrap cancels once its weak mux no longer upgrades.
+        self.browser_providers.wake_waiters();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
         {

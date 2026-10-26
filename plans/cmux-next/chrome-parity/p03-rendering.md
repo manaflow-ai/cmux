@@ -796,8 +796,11 @@ every task that changes behavior or performance and is not repeated per row.
 - Change: protocol with `cpuStep` (today's step/applyPresentation) and `renderServer` backends, one entry point per
   motion kind (split/close, zoom, arrival, camera, rows, areas, screens, canvas, drop highlight, sidebar slide).
   Tunable `motion.renderServer`, default off.
-- Acceptance: tunable off = unchanged behavior (PaneMotionWorkTests pass); tasks 022a-033 edit
-  ScreenContentView+Motion.swift only to register a kind.
+- Acceptance: tunable off = unchanged behavior (PaneMotionWorkTests pass); tasks 022a-033 edit a host's
+  registration file only to register a kind: `ScreenContentView+Motion.swift` (split/close, zoom, arrival,
+  camera, rows, areas, canvas) or `LayoutRootView+Motion.swift` (screens, drop highlight). The seam
+  (`RenderMotionKind`, `RenderServerMotion<Host>`, `MotionBackends<Host>`) is in CmuxNextDesign, so task 100
+  registers the sidebar slide on `SidebarContainerView` with its own begin site.
 - Test phase: swift test --filter 'PaneMotion'.
 - Size M. Start hour 0. Queue: MQ-springs.
 

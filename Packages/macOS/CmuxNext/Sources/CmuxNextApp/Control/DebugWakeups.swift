@@ -125,8 +125,9 @@ nonisolated enum AppProcesses {
 
 extension EnergyReport {
     /// `debug.energy` over the energy services AppServices builds once (p14-energy-024): the monitor's
-    /// inputs, the driver's resolver state and the scheduler's policy and wake queue; the app's ledger
-    /// (where the main wake queue counts its wakes); and one sample of the processes ``AppProcesses`` lists.
+    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram (p14-energy-008), the
+    /// scheduler's policy and wake queue; the app's ledger (where the main wake queue counts its wakes);
+    /// and one sample of the processes ``AppProcesses`` lists.
     init(services: AppServices) {
         self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
             AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage) }
@@ -135,7 +136,7 @@ extension EnergyReport {
 
     private static func state(_ services: AppServices) -> State {
         let inputs = services.energyMonitor.inputs
-        let driver = services.energyDriver
+        let driver = services.energy.driver
         let wakeUps = services.mainWork.wakeUps
         return State(
             policy: services.mainWork.energy.policy,
@@ -145,7 +146,8 @@ extension EnergyReport {
                            sessionOverride: driver.isOffForSession),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
             // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
-            cef: CEF(saver: .unsupported, earlyPasses: nil)
+            cef: CEF(saver: .unsupported, earlyPasses: nil),
+            idle: services.energy.idle.stats
         )
     }
 }

@@ -1,3 +1,8 @@
+#if CMUX_BENCH_HOOKS
+import CmuxNextFeatures
+import os
+#endif
+
 /// The process root (plans/cmux-next/crash-elimination.md, P1b): the app's one
 /// `AppServices`, held here for the life of the process. Many service objects
 /// keep an `unowned` back-reference to `AppServices`; they are safe because their
@@ -12,9 +17,14 @@ final class AppProcessRoot {
     /// The adopted services; never released once set.
     private(set) var services: AppServices?
 
-    /// Holds `services` for the rest of the process.
+    /// Holds `services` for the rest of the process. A bench build also logs the perf lab features' values and
+    /// sources (the kill probe's proof; `PerfLabCanaryKeyDown` runs the canary's spin).
     func adopt(_ services: AppServices) {
         self.services = services
+        #if CMUX_BENCH_HOOKS
+        let report = PerfLabFeatureReport(services.features)
+        Logger(subsystem: "com.cmuxterm.app.next", category: "perf-lab").notice("\(report.line, privacy: .public)")
+        #endif
     }
 
     /// This launch's opt-in hang reports (`WatchdogReporting`); nil in tests and before launch.

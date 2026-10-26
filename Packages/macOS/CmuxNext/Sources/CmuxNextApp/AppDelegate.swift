@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
-    /// The startup phase's settle references (first snapshot, restore, visible page).
+    /// An unavailable daemon's settle: every phase reference and startup ref it ends.
     private let startupReferences: StartupReferences
     /// The launch's order owners, made in `main` (p08-startup-012).
     private let order: LaunchOrder
@@ -87,8 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The launch's phase (made in main with the main-thread scheduler) reveals at the first frame.
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
-        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal))
-        startupReferences = StartupReferences(startup: startup, reveal: reveal)
+        // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
+        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
+        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
+        startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
         super.init()
@@ -118,9 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
-        // An agent launch must never come back by itself: without this, loginwindow reopens it at the
-        // next login (without the agent's environment, so it activates and takes the tag's socket).
-        if environment.noActivate { NSApp.disableRelaunchOnLogin() }
+        // An agent or bench launch must never come back by itself: without this, loginwindow reopens it at
+        // the next login (without the agent's environment, so it activates and takes the tag's socket).
+        if environment.isolatedLaunch { NSApp.disableRelaunchOnLogin() }
         // A `cmux` shim outside this app runs the CLI of the app opened last
         // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
         if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
@@ -143,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
@@ -157,13 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startup = mainWork.startup
         startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
-        let references = startupReferences
-        references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
-        services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
-        let windows = services.windows
-        windows.onRestored = { [weak references, weak windows] in
-            references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
-        }
+        // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
+        startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
@@ -259,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageWebView.openPanel = services.webUI.openPanel
         PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
-        services.windows.restoreWhenLoaded()
+        services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -375,8 +373,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        // Agent-launched builds never take system-wide keys from the person's app.
-        if !environment.noActivate { services.globalHotKeys.start() }
+        // Agent- and bench-launched builds never take system-wide keys from the person's app.
+        if !environment.isolatedLaunch { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)

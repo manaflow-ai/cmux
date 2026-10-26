@@ -68,6 +68,7 @@ one move pool per push with the new-file rule (move_pools).
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import concurrent.futures
 import dataclasses
@@ -1487,38 +1488,89 @@ GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
 GENERIC_TYPE = swift_scope.GENERIC_TYPE
 PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
 MANIFEST = PACKAGE_ROOT + "Package.swift"
+UI_LEVELS = 2  # the batches of files GenericTypes.prefetch reads ahead: the named types, then their superclasses
 
 
 class GenericTypes:
-    """Which type names are declared generic (`struct Name<...>`) at one revision.
+    """Which type names are declared generic (`struct Name<...>`) at one revision, and which are UI types (main
+    actor by what they inherit, `final class TerminalView: NSView`).
 
     KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
     the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
-    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    in a file of another name is not found, and its extensions read as non-generic and not UI (fail open).
     """
 
     def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
         self.repo, self.rev = repo, rev
+        self.texts = texts
         self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
         self.looked: dict[str, bool] = {}
-        self.tree: list[str] | None = None
+        self.ui_known: set[str] | None = None
+        self.ui_looked: dict[str, bool] = {}
+        self.by_name: dict[str, list[str]] | None = None  # file name -> its paths at REV
+        self.named: dict[str, str] = {}  # type name -> its `Name.swift` texts, joined
+        self.headers: dict[str, list] = {}  # type name -> its class or struct declarations in `Name.swift`
 
     def __contains__(self, name: str) -> bool:
         if name in self.known:
             return True
         if name not in self.looked:
-            self.looked[name] = self.declared_generic(name)
+            declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+            self.looked[name] = declared.search(self.named_file(name)) is not None
         return self.looked[name]
 
-    def declared_generic(self, name: str) -> bool:
+    def ui_type(self, name: str) -> bool:
+        """Whether NAME is a UI type (check-main-actor-work.py's ui_subclasses): the main-thread rules read an
+        extension of it in another file (`extension TerminalView` in TerminalView+Drag.swift) as main actor."""
+        scope = swift_scope.main_actor_scope
+        if self.ui_known is None:
+            self.ui_known = set()
+            pushed = [scope.type_headers(text.split("\n")) for text in self.texts]
+            # The files the push's declarations name (`extension TerminalView`, `: TerminalView`), read in batches.
+            self.prefetch({n for headers in pushed for h in headers
+                           for n in ([h.name] if h.kind == "extension" else h.inherited if h.kind == "class" else [])})
+            for headers in pushed:
+                self.ui_known |= scope.ui_subclasses(headers, self.ui_type)
+        if name in self.ui_known:
+            return True
+        if name not in self.ui_looked:
+            self.ui_looked[name] = False  # a cycle (`class A: B`, `class B: A`) reads as no UI type
+            self.prefetch({name})
+            self.ui_looked[name] = any(scope.inherits_ui(h, self.ui_type) for h in self.headers[name])
+        return self.ui_looked[name]
+
+    def named_file(self, name: str) -> str:
+        """The revision's `NAME.swift` files under Sources and Tests, joined ("" when there is none)."""
+        self.prefetch({name})
+        return self.named[name]
+
+    def prefetch(self, names: set[str], levels: int = UI_LEVELS):
+        """Read the `Name.swift` files of NAMES not read yet in one `git cat-file --batch`, then, for LEVELS - 1 more
+        batches, the files of the types their classes inherit (a subclass of a subclass of NSView)."""
+        wanted = {n for n in names if n not in self.named}
+        if not wanted:
+            return
         if self.repo is None or self.rev is None:
-            return False
-        if self.tree is None:
-            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
-                            check=False).split("\n")
-        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
-        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
-        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+            self.named.update(dict.fromkeys(wanted, ""))
+            self.headers.update({n: [] for n in wanted})
+            return
+        if self.by_name is None:
+            self.by_name = collections.defaultdict(list)
+            tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS, check=False)
+            for path in tree.split("\n"):
+                self.by_name[path.rsplit("/", 1)[-1]].append(path)
+        paths = {n: self.by_name.get(f"{n}.swift", []) for n in wanted}
+        specs = [(self.rev, p) for found in paths.values() for p in found]
+        texts = blobs(self.repo, specs) if specs else {}
+        inherited = set()
+        for n, found in paths.items():
+            self.named[n] = "\n".join(texts[(self.rev, p)] for p in found if (self.rev, p) in texts)
+            lines = [line for line in self.named[n].split("\n") if n in line] if found else []
+            self.headers[n] = [h for h in swift_scope.main_actor_scope.type_headers(lines)
+                               if h.name == n and h.kind != "extension"]
+            inherited.update(i for h in self.headers[n] if h.kind == "class" for i in h.inherited)
+        if levels > 1:
+            self.prefetch(inherited, levels - 1)
 
 
 def main_by_default(path: str, targets: list) -> bool:
@@ -1756,6 +1808,12 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return debt, openers
 
 
+# The one fix for a main-thread hop (p06-scheduler.md recipe R-hop): main-async and main-hop print it, so neither
+# rule's fix is a line the other refuses.
+R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
+         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
+         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`")
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1767,8 +1825,7 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         R_HOP,
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1955,6 +2012,271 @@ INPUT_RULES = (
 )
 RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
+
+
+# ---------------------------------------------------------------- main-thread classes (p06-scheduler)
+# Main-thread work has a class and an owner, and hidden things do no view work
+# (plans/cmux-next/chrome-parity/p06-scheduler.md, section F). Chrome posts every UI-thread task to a typed queue
+# (content/browser/scheduler/browser_task_queues.h: BrowserTaskType and its priority), tells hidden pages so
+# (content/public/browser/visibility.h, WebContentsImpl::UpdateWebContentsVisibility), aligns timers
+# (base/task/delay_policy.h: kFlexibleNoSooner) and registers observers on their owner (base/observer_list.h).
+# Six line rules judge what a push adds, per file as a count ratchet like main-async: an edit of a line that
+# already has the debt adds none. Local only, never CI (Lawrence 2026-10-23). CmuxNextWakeups holds the
+# primitives that implement the classes and is not judged. Each concern has one owner, so these rules do not
+# repeat: `DispatchQueue.main.async` (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's
+# wakeup rule) and a monitor outside CmuxNextInput (input-monitor).
+# The block owns its lines from here to `RULES += MAIN_CLASS_RULES`.
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+main_actor_work = swift_scope.main_actor_scope  # check-main-actor-work.py: the main-actor scopes and Task predicate
+RAW_MAIN_HOP = re.compile(r"\bMainActor\.run\b|\bCFRunLoopPerformBlock\(|\bRunLoop\.main\.perform\b")
+MAIN_DELIVERY = re.compile(r"\bMainDelivery\(")
+
+
+def prefilter(*patterns: re.Pattern) -> re.Pattern:
+    """PATTERNS joined, each alternative without its leading `\\b` (so a superset): a rule with a context reads every
+    line of a changed file, and a leading `\\b` costs re its literal-prefix scan (5x slower); the rule's own check
+    holds the exact patterns."""
+    return re.compile("|".join(piece.removeprefix(r"\b") for p in patterns for piece in p.pattern.split("|")))
+
+
+MAIN_HOP_LINE = prefilter(main_actor_work.TASK_START, RAW_MAIN_HOP, MAIN_DELIVERY)
+ARGUMENT_LABEL = re.compile(r"\s*(\w+)\s*:(?!:)")
+CALL_LINES = 40  # the lines one call's arguments are read across (`MainDelivery(\n    owner: ...,\n    class: ...`)
+# `ObservationStream({`, its trailing-closure form and `.current({`; not `extension ObservationStream {`.
+VIEW_OBSERVATION = re.compile(r"(?<!extension )\bObservationStream(\s*[({]|\.current\()|\bwithObservationTracking\b")
+HIDDEN_WALK = re.compile(r"\bisHiddenOrHasHiddenAncestor\b")
+HIDE_OVERRIDE = re.compile(r"\boverride\s+func\s+viewDid(Hide|Unhide)\b")
+# The one body a hide override may have (recipe R-hide): call its own super and tell the view's VisibilityNode its
+# own direction (`viewDidHide` -> `.hidden`, `viewDidUnhide` -> `.visible`).
+HIDE_FORWARD = {
+    direction: re.compile(r"^\s*(super\.viewDid" + direction + r"\(\)|(self\.)?\w*[nN]ode\??\.set\(\." + state
+                          + r"\))\s*$")
+    for direction, state in (("Hide", "hidden"), ("Unhide", "visible"))
+}
+BODY_LINES = 40  # the lines a hide override's body is read across
+DEMAND_TIMER = re.compile(r"\bDemandTimer\(")
+SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):")
+WAKEUP_ALLOWED = re.compile(r"//\s*wakeup-allow:\s*\S")
+LOOP_OPENER = re.compile(r"^\s*(\}\s*)?(while|for|repeat)\b")
+BRANCH_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|switch|case|default|do|catch|defer)\b|^\s*\{$")
+SCOPE_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
+RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|will)[A-Za-z]+Notification\b"
+                          r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
+                          r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
+                          r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
+
+
+def allow_marker(rule: str) -> re.Pattern:
+    return re.compile(r"//\s*" + re.escape(rule) + r"-allow:\s*\S")
+
+
+# {id(side's lines): (those lines, the side's memo in its FileChange)}: matcher_rule makes a new Version per rule, so
+# main-hop and timer-class share one isolation reading per side through the FileChange (scoped_to registers it).
+SIDE_MEMO: dict[int, tuple[list[str], dict]] = {}
+
+
+def side_memo(version: Version) -> dict:
+    entry = SIDE_MEMO.get(id(version.lines))
+    return entry[1] if entry is not None and entry[0] is version.lines else version.memo
+
+
+def isolation(version: Version) -> list[tuple[bool, int]]:
+    """Each line of VERSION: (main-actor code, the 1-based line that made it so; 0: its target's default)."""
+    memo = side_memo(version)
+    if "isolation" not in memo:
+        ui_type = version.types.ui_type if version.types is not None else main_actor_work.no_ui_type
+        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True,
+                                                              ui_type=ui_type)
+    return memo["isolation"]
+
+
+def main_tasks(version: Version) -> dict[int, int]:
+    """{0-based line: the 1-based line that set its isolation} of VERSION's Tasks that run on the main actor."""
+    memo = side_memo(version)
+    if "main_tasks" not in memo:
+        memo["main_tasks"] = dict(main_actor_work.main_inherited_tasks(version.lines, version.main_default,
+                                                                       isolation(version)))
+    return memo["main_tasks"]
+
+
+def call_labels(lines: list[str], index: int, call: re.Pattern) -> tuple[set[str] | None, list[int]]:
+    """(the labels of the arguments of CALL on LINES[INDEX], read to its matching `)`, None when that `)` does not
+    come within CALL_LINES lines; the 1-based lines after INDEX it read). A label inside a nested call, closure or
+    collection (`MainDelivery(owner: f(class: 1))`) is not the call's own."""
+    text = "\n".join(code_of(line) for line in lines[index:index + CALL_LINES])
+    start = call.search(text).end()
+    depth, labels, argument = 1, set(), start
+    for i in range(start, len(text)):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if depth == 0 or (c == "," and depth == 1):
+            if label := ARGUMENT_LABEL.match(text, argument, i):
+                labels.add(label.group(1))
+            argument = i + 1
+            if depth == 0:
+                return labels, list(range(index + 2, index + 2 + text.count("\n", 0, i)))
+    return None, list(range(index + 2, index + 1 + min(CALL_LINES, len(lines) - index)))
+
+
+def main_hop_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw main hop, a MainDelivery without a class, or a Task that runs on the main actor (the shared predicate:
+    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt). A MainDelivery whose
+    arguments do not close within CALL_LINES lines is not judged."""
+    code = code_of(version.lines[index])
+    if RAW_MAIN_HOP.search(code):
+        return True, []
+    if MAIN_DELIVERY.search(code):
+        labels, read = call_labels(version.lines, index, MAIN_DELIVERY)
+        if labels is not None and "class" not in labels:
+            return True, read
+    main_task = main_tasks(version).get(index)
+    source = main_task if main_task is not None else isolation(version)[index][1]
+    return main_task is not None, [source] if source else []
+
+
+def block_body(lines: list[str], index: int) -> tuple[str, int] | None:
+    """(the code inside the first block that opens on LINES[INDEX], the 0-based line that closes it), or None when it
+    does not close within BODY_LINES."""
+    depth, body = 0, []
+    for j in range(index, min(len(lines), index + BODY_LINES)):
+        for c in code_of(lines[j]):
+            if c == "{":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(body), j
+            if depth > 0:
+                body.append(c)
+        if depth > 0:
+            body.append("\n")
+    return None
+
+
+def visibility_walk_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """An ancestor walk, or a hide override whose body does more than forward to the view's VisibilityNode (its body
+    lines are the context: an edit there re-judges it)."""
+    code = code_of(version.lines[index])
+    if HIDDEN_WALK.search(code):
+        return True, []
+    override = HIDE_OVERRIDE.search(code)
+    if override is None:
+        return False, []
+    body = block_body(version.lines, index)
+    if body is None:
+        return True, []
+    text, end = body
+    forward = HIDE_FORWARD[override.group(1)]
+    forwards = all(forward.match(s) for s in re.split(r"[\n;]", text) if s.strip())
+    return not forwards, list(range(index + 2, end + 2))
+
+
+def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A DemandTimer made in main-actor code, or a sleep in a loop that check-concurrency.sh lets through (its
+    `// wakeup-allow:`): a periodic timer with no class or alignment."""
+    lines = version.lines
+    code = code_of(lines[index])
+    if DEMAND_TIMER.search(code):
+        main, source = isolation(version)[index]
+        return main, [source] if source else []
+    match = SLEEP.search(code)
+    window = escape_window(lines, index)
+    context = [j + 1 for j in window]
+    if match is None or not any(WAKEUP_ALLOWED.search(lines[j]) for j in window):
+        return False, context  # an unescaped sleep is check-concurrency.sh's refusal, not this rule's
+    for opener, number in enclosing_openers(lines, index, SCOPE_STOP, code[:match.start()]):
+        if LOOP_OPENER.search(opener):
+            return True, context + [number]
+        if not BRANCH_OPENER.search(opener):
+            break  # a closure or a declaration: the loop around it does not repeat this sleep
+    return False, context
+
+
+def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
+    """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        kept = [c for c in changes if keep_file(c.path)]
+        if len(SIDE_MEMO) > 4096:  # one push holds a few hundred sides; a long-lived caller (the tests) many pushes
+            SIDE_MEMO.clear()
+        for change in kept:
+            for side, lines in (("head", change.head_lines), ("base", change.base_lines)):
+                SIDE_MEMO[id(lines)] = (lines, change.memo.setdefault(f"main-thread classes {side}", {}))
+        return matcher_rule(matcher)(kept, moved)
+    return find
+
+
+MAIN_CLASS_RULES = (
+    Rule("main-hop", "A main-thread hop without a class: a `Task` that runs on the main actor (`Task { @MainActor in`, "
+         "or a plain `Task {` in main-actor code), `MainActor.run`, `CFRunLoopPerformBlock`, `RunLoop.main.perform` or "
+         "a `MainDelivery(` with no `class:`",
+         "an unclassed hop is a FIFO main-queue job: the scheduler cannot put the person's input first or keep "
+         "automation and hidden work out of the frame (p06-scheduler.md rule 1; Chrome posts every UI-thread task "
+         "with a BrowserTaskType, content/browser/scheduler/browser_task_queues.h). Deleting `@MainActor in` does "
+         "not remove the hop: the Task still inherits the main actor",
+         R_HOP,
+         "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
+         scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
+    Rule("view-observation", "A raw observation: `ObservationStream(` or `withObservationTracking`",
+         "it re-arms on every change whether or not anything shows the value, with no class or owner: hidden "
+         "workspaces keep doing view work and one O(all) closure per row runs per change (p06-scheduler.md F5)",
+         "recipe R-obs: `VisibleObservation(node, owner:, on:)` when the apply touches views (it tracks only while "
+         "the node is visible), `ServiceObservation(class, owner, read, apply)` for anything else (model, daemon, "
+         "disk); waits use StoreWaiters or PageWaiters",
+         "// view-observation-allow: <why neither VisibleObservation nor ServiceObservation fits>",
+         scoped_to(Matcher(VIEW_OBSERVATION, allow_marker("view-observation")),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
+    Rule("visibility-walk", "An ad hoc visibility test: `isHiddenOrHasHiddenAncestor`, or a `viewDidHide`/"
+         "`viewDidUnhide` override that does more than forward to its VisibilityNode",
+         "an ancestor walk per call, and a per-view hidden flag the scheduler cannot see: hidden work is not held, "
+         "and on show it runs out of order (p06-scheduler.md rule 4; Chrome keeps one visibility per WebContents, "
+         "content/public/browser/visibility.h)",
+         "recipe R-vis: read `node.isVisible` and defer with `node.deferUntilVisible(key:)`; recipe R-hide: a hide "
+         "override only calls super and `node.set(.hidden)` / `node.set(.visible)`",
+         "// visibility-walk-allow: <the hit test or accessibility read that needs the walk>",
+         scoped_to(Matcher(prefilter(HIDDEN_WALK, HIDE_OVERRIDE), allow_marker("visibility-walk"),
+                           visibility_walk_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("timer-class", "A timer with no class: a `DemandTimer(` in main-actor code, or a `Task.sleep` / "
+         "`clock.sleep` loop (a sleep in a loop with `// wakeup-allow:`)",
+         "a main-thread deadline without a class fires in FIFO order beside the person's input, and an unaligned "
+         "periodic sleep wakes the process on its own schedule while hidden (p06-scheduler.md section E; Chrome "
+         "aligns delayed tasks, base/task/delay_policy.h, and throttles hidden ones, "
+         "third_party/blink/renderer/platform/scheduler/common/throttling/cpu_time_budget_pool.cc)",
+         "recipe R-timer: an event first (idle-wakeups.md); else `MainDeadline(owner:, workClass:, alignment:, "
+         "scheduler:)` on main (`.flexible` by default, `.precise` only under 36 ms); a race timeout uses the "
+         "`Deadline` helper; DemandTimer stays for off-main deadlines",
+         "// timer-class-allow: <why this deadline needs no class or alignment>",
+         scoped_to(Matcher(prefilter(DEMAND_TIMER, SLEEP), allow_marker("timer-class"),
+                           timer_class_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("raw-observer", "A raw notification or KVO observer (queue Q4: `addObserver(`, NSWindow/NSApplication "
+         "notices, the NSWorkspace center, `notifications(named:)`, DistributedNotificationCenter, `.observe(\\.`, "
+         "NSView frame/bounds notices, `didUpdateNotification`)",
+         "each observer runs for every post, visible or not, in no class: N views x every window notice "
+         "(p06-scheduler.md F5; Chrome observers register on their owner, base/observer_list.h)",
+         "recipe R-notif: subscribe through WindowEvents or AppEvents with a node (one observer per window or app "
+         "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
+         "`setFrameSize`; KVO on WebKit takes the tab's node",
+         "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+                   lambda path: not path.startswith(WAKEUPS))),
+    Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
+         "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
+         "monitors outside CmuxNextInput, and a module-local one beside the tap runs for every event outside its "
+         "order (Chrome's one InputRouter per widget, components/input/input_router_impl.cc)",
+         "recipe R-monitor: add a phase or a subscription to `InputEventTap`; a session monitor is subscribed only "
+         "while its session is active",
+         "// local-monitor-allow: <why the tap cannot see this event>",
+         scoped_to(Matcher(INPUT_MONITOR, allow_marker("local-monitor")),
+                   lambda path: path.startswith(INPUT_TAP_MODULE) and not TAP_FILE.match(path))),
+)
+RULES += MAIN_CLASS_RULES
+# ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -2369,7 +2691,7 @@ AWAITABLE = ("wait", "unregister")
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\("
+    r"PosixSpawn)\(|\bblockingCall\("
     # the system-call seams (p02-threads-003)
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
@@ -2946,6 +3268,340 @@ def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[
     return changed_debt(outside_seams(changes), judge)
 
 
+# raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
+# ScopedBlockingCall: base/files/file_util_posix.cc, base/process/kill_posix.cc, sql/database.cc,
+# base/system/sys_info_mac.mm). Free functions need a `(?<![\w.])` lookbehind (or `Darwin.`), an argument, no
+# argument label and their C arity, so a method (`menu.removeItem(at:)`, `rename(id, to:)`), a one-argument
+# `stat(resolved)` or the `stat()` initializer is not one. A bare `open(` counts only with an `O_*` flag among its
+# arguments. LAContext's `evaluatePolicy` has no synchronous form (a `reply:` closure or `await`), so only
+# `canEvaluatePolicy` is refused.
+POSIX_CALLS = (r"fsync|flock|ftruncate|rename|unlink|mkdir|rmdir|lstat|stat|realpath|access|chmod|symlink|readlink|"
+               r"opendir|readdir|pread|pwrite|waitpid|wait4|waitid|sysctl|sysctlbyname|getpw\w*")
+# Each fixed-arity C function's argument count (getpw* varies: getpwuid 1, getpwuid_r 5; open takes 2 or 3).
+C_ARITY = {"fsync": 1, "flock": 2, "ftruncate": 2, "rename": 2, "unlink": 1, "mkdir": 2, "rmdir": 1, "lstat": 2,
+           "stat": 2, "realpath": 2, "access": 2, "chmod": 2, "symlink": 2, "readlink": 3, "opendir": 1, "readdir": 1,
+           "pread": 4, "pwrite": 4, "waitpid": 3, "wait4": 4, "waitid": 4, "sysctl": 6, "sysctlbyname": 5}
+RAW_BLOCKING_EXT = re.compile(
+    r"(?:\bDarwin\.|(?<![\w.]))(?P<free>" + POSIX_CALLS + r"|(?P<open>open))\((?!\s*\))|\bDarwin\.(read|write)\("
+    r"|\bFileHandle(\.init)?\(\s*for(Reading|Writing|Updating)"
+    r"|\.write\(contentsOf:|\.read\(upToCount:|\.seekToEnd(OfFile)?\(\)|\.synchronize(File)?\(\)"
+    r"|\bCGImage(SourceCreateWithURL|DestinationCreateWithURL|DestinationFinalize)\("
+    r"|\bsqlite3_(open|open_v2|prepare_v2|prepare_v3|step|exec|close|close_v2)\("
+    r"|\bproc_(pidinfo|pidpath|listpids)\(|\.canEvaluatePolicy\("
+    r"|\bHost\.current\(\)|\bprocessInfo\.hostName\b|\bFileManager\(\)\.(" + FILE_OPS + r")\(")
+RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_CALLS.split("|") if "\\" not in name) + (
+    "getpw", "open(", "Darwin.", "FileHandle", "write(contentsOf:", "upToCount:", "seekToEnd", "synchronize", "CGImage",
+    "sqlite3_", "proc_", "canEvaluatePolicy(", "Host.current", "hostName", "FileManager()"))
+# Where a match names a declaration, not a call: `func rename(`, `case stat(`.
+DECLARED_AT = re.compile(r"\b(func|case)\s+$")
+O_FLAG = re.compile(r"\bO_[A-Z]")
+BRACE = re.compile(r"[{}]")
+ARGUMENT_TOKENS = re.compile(r"[()\[\]{},]")
+# The seam scopes: a call in a `blockingCall(.kind) { ... }` or `allowBlocking(.reason) { ... }` closure is marked.
+SEAM_SCOPE = re.compile(r"\b(blockingCall|allowBlocking)\s*\(")
+SIGNATURE = re.compile(r"\b(func|init[?!]?|subscript)\b")
+TYPE_NAME = re.compile(r"\b(?:class|struct|enum|actor|extension|protocol)\s+(?!(?:func|var|let)\b)(?P<name>[A-Za-z_]\w*)")
+# A declaration of a POSIX name that a bare call in its scope resolves to: a function, a local or member bound to a
+# value (`guard let rename = onRename`, `let stat = { ... }`), a function-typed property or a function-typed
+# parameter (`rename: @escaping (Target) -> Void`). `var stat: Bool` and `access: AccessLevel` call nothing; `open`
+# is never shadowed, because its `O_*` flag is the C signature.
+FUNCTION_TYPE = r"\s*:\s*(?:@\w+(?:\([^)]*\))?\s+|inout\s+)*\("
+POSIX_DECLARATION = re.compile(r"\bfunc\s+(?P<function>" + POSIX_CALLS + r")\b"
+                               r"|\b(?:let|var)\s+(?P<bound>" + POSIX_CALLS + r")\b(?=\s*=|" + FUNCTION_TYPE + r")"
+                               r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + POSIX_CALLS + r")(?=" + FUNCTION_TYPE + r")")
+# A name a file binds to a FileManager (`let fm = FileManager.default`, `fileManager: FileManager? = .default`,
+# `let files = FileManager()`); `FileManager.default.urls(` and `FileManager.SearchPathDirectory` bind nothing.
+FILE_MANAGER_BINDING = re.compile(
+    r"\b(?:let|var)\s+(?P<value>\w+)\s*(?::\s*FileManager\s*)?=\s*FileManager(?:\.default|\(\))(?![\w.(])"
+    r"|(?<![\w.])(?P<typed>\w+)\s*:\s*FileManager(?![\w.(])")
+
+
+class BraceBlocks:
+    """The brace blocks of one Version's code, read once: the block that holds a position, each block's parent and
+    header, and the blocks of each type name. A declaration is visible only in its scope (declaration_scope), so a
+    local in one function hides nothing in another."""
+
+    def __init__(self, lines: list[str], codes: list[str]) -> None:
+        self.lines, self.codes = lines, codes
+        self.parent: list[int] = []  # block -> enclosing block (-1: the file)
+        self.opened: list[tuple[int, int]] = []  # block -> (0-based line, column) of its `{`, in file order
+        self.starts: list[int] = []  # line -> the block open at the line's start
+        self.events: list[list[tuple[int, int]] | None] = []  # line -> [(brace column, block open after it)]
+        self.headers: dict[int, str] = {}
+        self.types: dict[str, list[int]] | None = None
+        stack = [-1]
+        for index, code in enumerate(codes):
+            self.starts.append(stack[-1])
+            if "{" not in code and "}" not in code:
+                self.events.append(None)
+                continue
+            events = []
+            for brace in BRACE.finditer(code):
+                if brace.group() == "{":
+                    stack.append(len(self.parent))
+                    self.parent.append(stack[-2])
+                    self.opened.append((index, brace.start()))
+                elif len(stack) > 1:
+                    stack.pop()
+                events.append((brace.start(), stack[-1]))
+            self.events.append(events)
+
+    def at(self, index: int, column: int) -> int:
+        """The innermost block open at COLUMN of line INDEX (-1: the file)."""
+        block = self.starts[index]
+        for position, after in self.events[index] or ():
+            if position >= column:
+                break
+            block = after
+        return block
+
+    def chain(self, block: int) -> list[int]:
+        """BLOCK and the blocks around it, innermost first, ending with the file (-1)."""
+        out = [block]
+        while block != -1:
+            block = self.parent[block]
+            out.append(block)
+        return out
+
+    def header(self, block: int) -> str:
+        """BLOCK's whole header up to its `{` (block_header)."""
+        if block not in self.headers:
+            index, column = self.opened[block]
+            self.headers[block] = block_header(self.lines, index + 1, self.codes[index][:column + 1])
+        return self.headers[block]
+
+    def declaration_scope(self, index: int, column: int, owner: str | None) -> tuple[int, ...]:
+        """The blocks a declaration at COLUMN of line INDEX is visible in: a function parameter's body (OWNER
+        "function"), a closure parameter's closure (OWNER "closure"), a local's block, or a member's type body and
+        the file's extensions of that type."""
+        block = self.at(index, column)
+        if owner == "function":
+            body = bisect.bisect_right(self.opened, (index, column))
+            if (body < len(self.opened) and self.opened[body][0] - index <= HEADER_LINES and self.parent[body] == block
+                    and SIGNATURE.search(self.header(body))):
+                return (body,)
+            return ()  # a protocol requirement or a function type: no body to see it
+        if owner == "closure":
+            return (block,)
+        named = TYPE_NAME.search(self.header(block)) if block != -1 else None
+        if named is None:
+            return (block,)
+        if self.types is None:
+            self.types = {}
+            for other, (line, at) in enumerate(self.opened):
+                found = TYPE_NAME.search(self.codes[line][:at + 1])
+                if found:
+                    self.types.setdefault(found.group("name"), []).append(other)
+        return (block, *self.types.get(named.group("name"), ()))
+
+
+def codes_of(version: Version) -> list[str]:
+    """code_of of each line of VERSION, read once."""
+    if "codes" not in version.memo:
+        version.memo["codes"] = [code_of(line) for line in version.lines]
+    return version.memo["codes"]
+
+
+def blocks_of(version: Version) -> BraceBlocks:
+    if "brace_blocks" not in version.memo:
+        version.memo["brace_blocks"] = BraceBlocks(version.lines, codes_of(version))
+    return version.memo["brace_blocks"]
+
+
+def declarations_in_scope(version: Version, pattern: re.Pattern, groups: tuple[str, ...],
+                          manager: bool) -> dict[tuple[str, int], list[tuple[int, int, bool]]]:
+    """Each PATTERN match in VERSION's code, by (the name in its matched group of GROUPS, each block of its scope):
+    [(line, column, whether it binds a FileManager)] in file order. A group named `parameter` is a parameter;
+    MANAGER says whether to judge the FileManager binding."""
+    codes = codes_of(version)
+    if "text" not in version.memo:
+        version.memo["text"] = "\n".join(codes)
+        version.memo["offsets"] = list(itertools.accumulate((len(code) + 1 for code in codes[:-1]), initial=0))
+    text, offsets = version.memo["text"], version.memo["offsets"]
+    found: dict[tuple[str, int], list[tuple[int, int, bool]]] = {}
+    if pattern.search(text) is None:
+        return found
+    scopes = blocks_of(version)
+    for match in pattern.finditer(text):
+        group = next(g for g in groups if match.group(g))
+        owner = parameter_owner(text, match.start(group)) if group == "parameter" else None
+        if group == "parameter" and owner is None:
+            continue  # a call's argument label (`list(fileManager: fileManager)`) declares nothing
+        line = bisect.bisect_right(offsets, match.start(group)) - 1
+        column = match.start(group) - offsets[line]
+        binds = False
+        if manager:
+            binding = (FILE_MANAGER_BINDING.match(text, match.start()) if group != "parameter" else None) \
+                or FILE_MANAGER_BINDING.match(text, match.start(group))
+            binds = binding is not None and not (binding.group("value") and line + 1 < len(codes)
+                                                 and codes[line + 1].lstrip().startswith("."))
+        for block in scopes.declaration_scope(line, column, owner):
+            found.setdefault((match.group(group), block), []).append((line, column, binds))
+    return found
+
+
+PARAMETER_LIST_REACH = 4000  # the most characters one parameter list is read back across
+SIGNATURE_BEFORE = re.compile(r"\b(?:func\s+[^\s(]+|init[?!]?|subscript)\s*(?:<[^()]*>)?\s*$")
+CLOSURE_BEFORE = re.compile(r"\{\s*(?:(?:\[[^\]]*\]|@\w+)\s*)*$")
+
+
+def parameter_owner(text: str, offset: int) -> str | None:
+    """Whether the `name:` at OFFSET of TEXT is a parameter of a function signature ("function"), of a closure
+    (`{ (name: T) in`, "closure"), or neither (a call's argument label: None): what comes before the innermost
+    `(` it is in."""
+    depth = 0
+    for position in range(offset - 1, max(-1, offset - PARAMETER_LIST_REACH), -1):
+        char = text[position]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                before = text[max(0, position - 200):position]
+                if SIGNATURE_BEFORE.search(before):
+                    return "function"
+                return "closure" if CLOSURE_BEFORE.search(before) else None
+            depth -= 1
+        elif char in "{}" and depth == 0:
+            return None
+    return None
+
+
+def nearest_declaration(version: Version, found: dict, name: str, index: int,
+                        column: int) -> tuple[int, int, bool] | None:
+    """The declaration of NAME that a use at COLUMN of line INDEX reads: in the innermost scope that declares it, the
+    latest one before the use (or that scope's first)."""
+    if not found:
+        return None
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column)):
+        candidates = found.get((name, block))
+        if candidates:
+            before = [c for c in candidates if (c[0], c[1]) <= (index, column)]
+            return before[-1] if before else candidates[0]
+    return None
+
+
+def call_arguments(version: Version, index: int, open_paren: int) -> list[str] | None:
+    """The arguments of the call whose `(` is at OPEN_PAREN of line INDEX, read across lines to its `)` and split at
+    its own commas; None when the list does not close within one header's reach."""
+    codes = codes_of(version)
+    arguments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for line in range(index, min(len(codes), index + HEADER_LINES)):
+        code = codes[line]
+        start = open_paren + 1 if line == index else 0
+        for token in ARGUMENT_TOKENS.finditer(code, open_paren if line == index else 0):
+            char = token.group()
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    current.append(code[start:token.start()])
+                    last = " ".join(current)
+                    if arguments or last.strip():
+                        arguments.append(last)
+                    return arguments
+            elif depth == 1:
+                current.append(code[start:token.start()])
+                arguments.append(" ".join(current))
+                current, start = [], token.end()
+        current.append(code[start:])
+    return None
+
+
+def posix_call(version: Version, index: int, match: re.Match) -> bool:
+    """Whether MATCH, a free-function match on line INDEX, is the C function: its arguments (read to the call's `)`)
+    carry no label and number its C arity, a bare `open` has an `O_*` flag, a `wait*` has no WNOHANG, and no
+    declaration in scope shadows the name (`Darwin.` and `open` never are)."""
+    name = match.group("free")
+    arguments = call_arguments(version, index, match.end() - 1)
+    if arguments is None:
+        return not match.group("open")
+    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):  # C functions take no labels
+        return False
+    if C_ARITY.get(name, len(arguments)) != len(arguments):
+        return False
+    joined = " ".join(arguments)
+    if match.group("open"):
+        return match.group(0).startswith("Darwin.") or O_FLAG.search(joined) is not None
+    if name in ("waitpid", "wait4", "waitid") and "WNOHANG" in joined:
+        return False
+    if match.group(0).startswith("Darwin."):
+        return True
+    if "posix_shadows" not in version.memo:
+        version.memo["posix_shadows"] = declarations_in_scope(version, POSIX_DECLARATION,
+                                                              ("function", "bound", "parameter"), False)
+    return nearest_declaration(version, version.memo["posix_shadows"], name, index, match.start("free")) is None
+
+
+def file_manager_calls(version: Version) -> tuple[re.Pattern, dict] | None:
+    """`<name>[?!]?.<FILE_OPS>(` for each name VERSION binds to a FileManager, with every declaration of those names
+    by scope (declarations_in_scope), or None when it binds none. A `let x = FileManager.default` whose next line
+    starts with `.` is a chained call, not a binding."""
+    if "file_manager_calls" not in version.memo:
+        lines, codes = version.lines, codes_of(version)
+        names = set()
+        for index, line in enumerate(lines):
+            if "FileManager" not in line:
+                continue
+            for match in FILE_MANAGER_BINDING.finditer(codes[index]):
+                if match.group("value") and index + 1 < len(lines) and codes[index + 1].lstrip().startswith("."):
+                    continue
+                names.add(match.group("value") or match.group("typed"))
+        result = None
+        if names:
+            alternatives = "|".join(sorted(names))
+            declared = re.compile(r"\b(?:let|var)\s+(?P<bound>" + alternatives + r")\b"
+                                  r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + alternatives + r")\s*:(?!:)")
+            result = (re.compile(r"(?<![\w$])(" + alternatives + r")[?!]?\.(" + FILE_OPS + r")\("),
+                      declarations_in_scope(version, declared, ("bound", "parameter"), True))
+        version.memo["file_manager_calls"] = result
+    return version.memo["file_manager_calls"]
+
+
+def in_seam_scope(version: Version, index: int, column: int) -> bool:
+    """Whether COLUMN of line INDEX runs in a `blockingCall(...) {` or `allowBlocking(...) {` closure of its own
+    function: the seam marks the call there, as Chrome's ScopedBlockingCall does."""
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column))[:-1]:
+        header = scopes.header(block)
+        if SEAM_SCOPE.search(header):
+            return True
+        if OPENER_STOP.search(header):
+            return False
+    return False
+
+
+def blocking_ext_match(version: Version, index: int, code: str) -> bool:
+    """Whether CODE, line INDEX of VERSION, holds a raw-blocking-ext primitive outside a seam scope: a
+    RAW_BLOCKING_EXT call (not a declaration; a free function only as posix_call reads it), or a FileManager disk op
+    through a name whose nearest declaration in scope binds a FileManager."""
+    if RAW_EXT_SCAN.search(code):
+        for match in RAW_BLOCKING_EXT.finditer(code):
+            if DECLARED_AT.search(code[:match.start()]):
+                continue
+            if match.group("free") and not posix_call(version, index, match):
+                continue
+            if not in_seam_scope(version, index, match.start()):
+                return True
+    found = file_manager_calls(version) if "." in code else None
+    if found is None:
+        return False
+    calls, declarations = found
+    for call in calls.finditer(code):
+        declaration = nearest_declaration(version, declarations, call.group(1), index, call.start())
+        if declaration is not None and declaration[2] and not in_seam_scope(version, index, call.start()):
+            return True
+    return False
+
+
+def raw_blocking_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw-blocking-ext primitives, on any thread: main-blocking and raw-blocking do not see them."""
+    return changed_debt(outside_seams(changes), blocking_ext_match)
+
+
 def doc_labels(doc: str) -> list[re.Pattern]:
     """The thread and queue labels the threading doc's "Registered threads and queues" section lists in
     backticks, each `<x>` inside a label a wildcard (a token that is only a placeholder lists nothing)."""
@@ -3052,6 +3708,17 @@ BLOCKING_RULES = (
          "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
          "// blocking-allow: <why this blocking call may hold a pool thread>",
          blocking_on_pool),
+    Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
+         "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
+         "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
+         "ImageIO URL I/O, `sqlite3_*`, `sysctl`, `proc_pid*`, `canEvaluatePolicy`, `getpw*`, `Host.current()`",
+         "each is disk, kernel or daemon I/O the runtime detector cannot see: on the main thread it drops frames "
+         "unseen, and off it nobody knows the thread blocks",
+         "from code that runs off the main thread, use `FileManager.checked.<op>` instead of a FileManager variable, "
+         "`handle.blockingRead(upToCount:)` / `handle.blockingWrite(contentsOf:)` for a FileHandle, and wrap any "
+         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading)",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking_ext),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",

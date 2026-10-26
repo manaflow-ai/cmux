@@ -848,7 +848,11 @@ class StateAndDriverTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             output = json.loads(done.stdout)
             self.assertEqual(output["cut"], 1)
-            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, {"wf-a"})
+            # Each m6 shard that the checkout's shard map gives a T0 story runs a T0 job on its host.
+            shards = json.loads((LAB / "shard_map.json").read_text())["classes"]["m6"]["shards"]
+            t0_hosts = {("wf-a", "wf-b")[s["index"]] for s in shards if s["stories"].get("T0")}
+            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, t0_hosts)
+            self.assertEqual(t0_hosts, {"wf-a", "wf-b"})
             self.assertTrue(state.is_file())
 
 

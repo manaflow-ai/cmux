@@ -1,0 +1,6 @@
+not json
+{"type":"user","isReplay":true,"uuid":"u1","message":{"content":[{"type":"text","text":"hi"}]}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}
+[1,2]
+null
+"str"

@@ -7,10 +7,13 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-Rules: main-blocking, raw-blocking, pool-blocking, maybe-main-blocking, task-priority, thread-doc. The hook gives a
-raw primitive that surely runs on main to main-blocking only (one refusal per line); the inventory lists each line
-under every rule it breaks, so raw-blocking here also holds the raw primitives main-blocking took (each still needs
-its seam), and a raw primitive on a pool thread is both raw-blocking and pool-blocking (MQ-3 counts the latter).
+Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc, and the
+inventory's own cpu-intensive (p02-threads-121: a raw JSON, property list, image, compression or regex call whose isolation,
+as the hit reports it, is main, instead of its size-gated seam; MQ-18). The hook gives a raw primitive that surely runs on
+main to main-blocking only (one refusal per line); the inventory lists each line under every rule it breaks, so
+raw-blocking here also holds the raw primitives main-blocking took (each still needs its seam), and a raw primitive on a
+pool thread is both raw-blocking and pool-blocking (MQ-3 counts the latter). raw-blocking-ext (POSIX, FileHandle, ImageIO,
+sqlite3, sysctl and FileManager variables) is reported on any thread, by the hook too.
 
 Each hit carries its call-graph context, read lexically from the source:
   enclosing_func  `Type.name` of the function, initializer, subscript or computed property around the line
@@ -37,7 +40,9 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule raw-blocking --group root --max-hits 25
   threading-inventory.py --rule main-blocking --jsonl
   threading-inventory.py --rule pool-blocking --group module --max-hits 25   # MQ-3
+  threading-inventory.py --rule cpu-intensive --group module --max-hits 25   # MQ-18
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
+  threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
 caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
@@ -90,20 +95,71 @@ def guardrails_rule(rule_id: str) -> Callable[[list, collections.Counter], list]
     return RULE_BY_ID[rule_id].find
 
 
+# Long CPU work whose cost grows with its input: Codable, JSONSerialization and PropertyListSerialization decoding,
+# image decoding, compression and regular-expression searches. Chrome disallows it on the UI thread
+# (`AssertLongCPUWorkAllowed`, base/threading/thread_restrictions.h) and sends large JSON and image decodes to its data
+# decoder service (services/data_decoder/public/cpp/data_decoder.h). Each has a size-gated seam in
+# CmuxNextCompat/Threading/CPUIntensive+Blocking.swift (`decoder.blockingDecode`, `JSONSerialization.blockingJSONObject`,
+# `PropertyListSerialization.blockingPropertyList`, `blockingImageDecode` (wrap its CGImage for an NSImage,
+# NSBitmapImageRep or CIImage), `blockingCompress`, `blockingDecompress`, `regex.blockingRegexMatches`). A keyed
+# container's `decode(_:forKey:)` decodes no bytes, making an NSRegularExpression searches nothing, and a `matches(in:)`
+# with no `range:` is not NSRegularExpression's (a search over an NSRange): none is a hit.
+CPU_INTENSIVE = re.compile(
+    r"(?<![\w.])(?:JSONDecoder|PropertyListDecoder)\(\)\s*\.decode\("
+    r"|(?<!\bSelf)\.decode\((?:[^()]|\([^()]*\))*?,\s*from:"
+    r"|\bJSONSerialization\.jsonObject\("
+    r"|\bPropertyListSerialization\.propertyList\(from:"
+    r"|\bCGImageSourceCreate(?:WithData|WithURL|WithDataProvider|ImageAtIndex|ThumbnailAtIndex|Incremental)\("
+    r"|\bNSImage\((?:data|contentsOf|contentsOfFile):"
+    r"|\bNSBitmapImageRep\(data:"
+    r"|\bCIImage\(data:"
+    r"|\.(?:compressed|decompressed)\(using:"
+    r"|\.(?:matches|firstMatch|numberOfMatches|enumerateMatches|stringByReplacingMatches|replaceMatches|"
+    r"rangeOfFirstMatch)\(in:(?:[^()]|\([^()]*(?:\([^()]*\)[^()]*)*\))*?\brange:")
+CPU_INTENSIVE_SCAN = g.Prefiltered(CPU_INTENSIVE, (".decode(", "jsonObject(", "propertyList(from:", "CGImageSourceCreate",
+                                                   "NSImage(", "NSBitmapImageRep(", "CIImage(", "compressed(using:",
+                                                   "(in:"))
+
+
+def cpu_intensive(changes: list, moved: collections.Counter) -> list:
+    """Raw long-CPU calls (CPU_INTENSIVE) that run on the main thread, outside the seams: each goes through its
+    size-gated seam, which is the plain call off the main thread and below its gate, and a ``cpu-intensive`` site on
+    the main thread above it. A line counts when the inventory's own context reader (context_of, the `isolation`
+    the hit reports) puts it on main in a main-actor target (`uiSwiftSettings`): directly in main-actor code, or in
+    a closure that keeps that isolation (`Task {`, `map {`, `withLock {`, control flow) or that runs on main
+    (`MainActor.run {`). A line in a pool closure (`Task.detached {`, `queue.async {`, `Task {` off any actor), an
+    actor's method, a `nonisolated` or `@concurrent` declaration, or a closure that may run elsewhere is already off
+    the main thread (or not known to be on it), so it is not a hit: the pool and the `.cpu` lane are where this work
+    belongs. `// blocking-allow:` escapes a line, as for the other blocking rules."""
+    targets = g.ui_targets()
+    in_main_actor = [c for c in g.outside_seams(changes) if g.module_of(c.path) in targets]
+
+    def judge(version, index: int, code: str) -> bool:
+        match = CPU_INTENSIVE_SCAN.search(code)
+        if match is None or index >= len(version.lines):
+            return False
+        return context_of(version.lines, index, code[:match.start()], True).isolation == "main"
+    return g.changed_debt(in_main_actor, judge)
+
+
 # The inventory's rules, in report order. Later p02-threads tasks add theirs here.
 RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "main-blocking": guardrails_rule("main-blocking"),
     "raw-blocking": raw_blocking,
     "pool-blocking": guardrails_rule("pool-blocking"),
+    "raw-blocking-ext": guardrails_rule("raw-blocking-ext"),
     "maybe-main-blocking": guardrails_rule("maybe-main-blocking"),
     "task-priority": guardrails_rule("task-priority"),
     "thread-doc": guardrails_rule("thread-doc"),
+    "cpu-intensive": cpu_intensive,
 }
 
 # Where on the hit line the judged call starts: braces before it enclose the call, braces after it are its own.
 LOCATORS = {
     "task-priority": g.TASK_CALL,
     "thread-doc": g.THREAD_SCAN.pattern,
+    "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+[?!]?\.(" + g.FILE_OPS + r")\("),
+    "cpu-intensive": CPU_INTENSIVE,
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING

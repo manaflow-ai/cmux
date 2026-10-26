@@ -79,13 +79,6 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
-    /// Whether a `Runtime.evaluate` result (by value) is the boolean `true`.
-    static func evaluationIsTrue(_ json: String) -> Bool {
-        guard let object = object(json), object["exceptionDetails"] == nil,
-              let result = object["result"] as? [String: Any] else { return false }
-        return result["value"] as? Bool == true
-    }
-
     /// The string a `Runtime.evaluate` with `returnByValue` returned, nil for an exception or
     /// another type.
     static func evaluationString(_ json: String) -> String? {

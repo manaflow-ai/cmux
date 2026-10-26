@@ -8,6 +8,8 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
+import CmuxNextInputDiagnostics
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -329,9 +331,9 @@ final class AppControl {
                 return .value(DebugWebInspector.handle(call.params, services: services))
             },
             // Open popup panels (sized window.open popups).
-            .mainActor("debug.popups") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPopups.report(call.params, services: services))
+            .async("debug.popups") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPopups.report(call.params, services: services)
             },
             // Scripted input into the real agent cursor stacks (visual checks).
             .mainActor("debug.agent_cursor.demo") { [weak services] call in
@@ -353,9 +355,18 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
-            .mainActor("debug.palette.capture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPaletteCapture.capture(call.params, services: services))
+            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            ShippingModeReport { @MainActor [weak services] in
+                guard let services else { return nil }
+                let hangReports = await AppProcessRoot.shared.hangReports?.shippingModeState(setting: services.settings?.snapshot.hangReports)
+                return ShippingModeReport.State(drawsWhenOccluded: WindowDrawPolicy.drawsWhenOccluded,
+                                                pagesRenderWhenCovered: PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment),
+                                                sentryShouldStart: services.crashReporting.reporter.policy.shouldStart,
+                                                hangReports: hangReports ?? .init(available: false, setting: nil, decision: nil, enabled: false))
+            }.method,
+            .async("debug.palette.capture") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPaletteCapture.capture(call.params, services: services)
             },
             // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
             // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.
