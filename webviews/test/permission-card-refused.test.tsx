@@ -391,9 +391,10 @@ test("an answer still out past the card's memory of taken answers keeps its ask,
     await card.key("1");
     await card.settle(i - 1, true);
   }
+  // p0 is back with its deny still out: its field still sends, and its keys answer nothing.
   await card.render(ask("p0"));
   await card.key("1");
-  await card.click(translate("permission.allowOnce"));
+  expect(card.host.querySelector("textarea")?.readOnly).toBe(true);
   expect(card.sent.filter((s) => s.permissionId === "p0")).toHaveLength(0);
   // Refused: p0's field takes text again, and it can be sent.
   await act(async () => replies[0]!(false));
