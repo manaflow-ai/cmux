@@ -21,7 +21,8 @@ struct ColdCmdNRowSlotTests {
     }
 
     @Test func firstColdCmdNWithRestoredFollowingRowsStaysAfterCurrent() async throws {
-        let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
+        let names = (1...3).map { "cold-restore-\($0)" }
+        let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true, preseedWorkspaceNames: names)
         do {
             let services = launched.services
             let window = try #require(services.windows.active?.state.id)
@@ -29,8 +30,6 @@ struct ColdCmdNRowSlotTests {
             let state = controller.state
             let list = controller.sidebar.container.sidebarView.list
             let store = services.daemon.store
-            let connection = try #require(services.daemon.connection)
-
             let config = launched.root.appendingPathComponent("cmux.json")
             try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: config)
             let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
@@ -41,11 +40,7 @@ struct ColdCmdNRowSlotTests {
             await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
             try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
 
-            // Restore three existing workspaces through the daemon state path, without a prior Cmd-N.
-            let names = (1...3).map { "cold-restore-\($0)" }
-            for name in names {
-                _ = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
-            }
+            // These workspaces were persisted before AppServices and the first window connected; this is a true cold restore.
             await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
                 names.allSatisfy { name in store.workspaces.contains { $0.name == name && !$0.isProvisional } }
             }
