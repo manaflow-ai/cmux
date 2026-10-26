@@ -85,6 +85,12 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     }
 }
 
+/// The watch source plus session id keeps mirrored acpmux chats with the same id distinct.
+struct AgentTurnSessionKey: Hashable {
+    let source: String
+    let session: String
+}
+
 /// Every local acpmux session's turn state, reduced from one `_acpmux/watch`
 /// result and its `_acpmux/session_changed` pushes (no poll). Pure.
 public nonisolated struct AgentTurnStates: Hashable, Sendable {
@@ -252,8 +258,8 @@ public final class AgentTurnStateStore {
     /// The source of the app's own acpmux watch.
     public nonisolated static let localSource = "local"
 
-    /// The records by session id; not observed itself (a reader observes the record it reads).
-    @ObservationIgnored var sessions: [String: Session] = [:]
+    /// The records by watch source and session id; not observed itself (a reader observes the record it reads).
+    @ObservationIgnored var sessions: [AgentTurnSessionKey: Session] = [:]
     /// Bumped by every turn state change of any session: for a reader that
     /// follows all of them (one read, no walk).
     public private(set) var stateRevision: UInt64 = 0
@@ -275,16 +281,23 @@ public final class AgentTurnStateStore {
     public init() {}
 
     /// The record of `session`, made empty on first use (an unobserved write).
-    private func record(_ session: String) -> Session {
-        if let record = sessions[session] { return record }
+    func key(_ session: String, source: String) -> AgentTurnSessionKey {
+        AgentTurnSessionKey(source: source, session: session)
+    }
+
+    private func record(_ session: String, source: String = AgentTurnStateStore.localSource) -> Session {
+        let key = key(session, source: source)
+        if let record = sessions[key] { return record }
         let record = Session()
-        sessions[session] = record
+        record.source = source
+        sessions[key] = record
         return record
     }
 
     private func local(_ ref: AgentSessionRef) -> Session? {
         guard let session = ref.session, isMirrored(ref.host) else { return nil }
-        return record(session)
+        let source = ref.host == localHost ? AgentTurnStateStore.localSource : ref.host
+        return record(session, source: source)
     }
 
     /// Whether a chat of `host` has its facts here: this Mac's or a mirrored acpmux's.
@@ -295,8 +308,8 @@ public final class AgentTurnStateStore {
     // MARK: Writes (the watch feed)
 
     /// Sets one session's turn state; writes only a change.
-    public func setState(_ state: AgentTurnState?, session: String) {
-        let record = record(session)
+    public func setState(_ state: AgentTurnState?, session: String, source: String = AgentTurnStateStore.localSource) {
+        let record = record(session, source: source)
         guard record.state != state else { return }
         record.state = state
         stateRevision &+= 1
@@ -307,8 +320,7 @@ public final class AgentTurnStateStore {
     public func apply(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
                       source: String = AgentTurnStateStore.localSource) {
-        let held = record(session)
-        held.source = source
+        let held = record(session, source: source)
         if recordsTimeline, held.state == .working, state != .working { onTurnEnded?(session) }
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
@@ -316,8 +328,8 @@ public final class AgentTurnStateStore {
                 held.timeline.append(event)
             }
         }
-        setState(state, session: session)
-        let record = record(session)
+        setState(state, session: session, source: source)
+        let record = record(session, source: source)
         if record.lastMessage != lastMessage { record.lastMessage = lastMessage }
         if record.muted != muted { record.muted = muted }
         if record.title != title { record.title = title }
@@ -330,7 +342,7 @@ public final class AgentTurnStateStore {
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
                         titles: [String: String], generatedTitles: [String: String] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource) {
-        let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
+        let own = sessions.compactMap { $0.value.source == source ? $0.key.session : nil }
         let ids = Set(own).union(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(details.keys)
         for id in ids {
@@ -342,8 +354,8 @@ public final class AgentTurnStateStore {
     /// `source`'s watch closed: nothing live is known of its sessions. Titles stay: a tab keeps
     /// reading as its chat while the watch reconnects.
     public func clearLive(source: String = AgentTurnStateStore.localSource) {
-        for (id, record) in sessions where record.source == source {
-            apply(session: id, state: nil, lastMessage: nil, muted: false, title: record.title,
+        for (key, record) in sessions where key.source == source {
+            apply(session: key.session, state: nil, lastMessage: nil, muted: false, title: record.title,
                   generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false, source: source)
         }
     }
@@ -359,7 +371,8 @@ public final class AgentTurnStateStore {
     /// The recent moments of the chat an agent chat tab shows (u3320); empty off this Mac.
     public func timeline(for ref: AgentSessionRef) -> AgentTimeline {
         guard let session = ref.session, isMirrored(ref.host) else { return AgentTimeline() }
-        return sessions[session]?.timeline ?? AgentTimeline()
+        let source = ref.host == localHost ? AgentTurnStateStore.localSource : ref.host
+        return ref.session.flatMap { sessions[key($0, source: source)]?.timeline } ?? AgentTimeline()
     }
 
     /// The model and running turn of the chat an agent chat tab shows; nil off this Mac.

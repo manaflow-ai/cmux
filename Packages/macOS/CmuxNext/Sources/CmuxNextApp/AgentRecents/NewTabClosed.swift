@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextHistory
 import Foundation
@@ -53,7 +54,9 @@ enum NewTabClosed {
             guard case .closed(let item) = entry.payload else { return nil }
             let kind = Self.kind(for: item)
             let detail = item.url ?? item.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? entry.detail
-            return AgentPaneClosedItem(id: entry.id, kind: kind, title: title(entry.title, item.url, item.cwd), detail: detail, closedAt: entry.time,
+            let rowTitle = title(entry.title, item.url, item.cwd, manualTitle: item.manualTitle, agentSession: item.agentSession,
+                                 machine: item.machine, localHost: services.agentTabs.localHost)
+            return AgentPaneClosedItem(id: entry.id, kind: kind, title: rowTitle, detail: detail, closedAt: entry.time,
                                        icon: nil, isAvailable: entry.isAvailable)
         }.prefix(AgentPaneClosedItem.maximumPushed).map(\.self)
     }
@@ -68,9 +71,20 @@ enum NewTabClosed {
         }
     }
 
-    /// A title that is only the address or folder (a daemon record keeps no page title) reads
-    /// as host and path, or the folder's name, so the row does not repeat its detail.
-    static func title(_ title: String, _ url: String?, _ cwd: String?) -> String {
+    /// A closed agent keeps an explicit daemon/tab name. Otherwise its local generated title is
+    /// read by machine plus session, so a same-named remote session cannot leak into this row;
+    /// a missing cache gets the stable agent title. Browser rows retain their existing fallback.
+    static func title(_ title: String, _ url: String?, _ cwd: String?, manualTitle: String? = nil,
+                      agentSession: CmuxNextHistory.ClosedItem.AgentSession? = nil, machine: String? = nil,
+                      localHost: String? = nil, turns: AgentTurnStateStore = .shared) -> String {
+        if let manualTitle { return manualTitle }
+        if let agentSession {
+            if machine == MachineRegistry.localID, let host = localHost, let session = agentSession.sessionID {
+                let ref = AgentSessionRef(host: host, session: session, harness: agentSession.harness)
+                if let generated = turns.generatedTitle(for: ref), !generated.isEmpty { return generated }
+            }
+            return AgentPaneModel.tabTitle
+        }
         if title == url, let url = url.flatMap(URL.init(string:)), let host = url.host() {
             return host + (url.path() == "/" ? "" : url.path())
         }

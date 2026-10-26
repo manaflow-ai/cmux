@@ -34,19 +34,20 @@ extension AgentTurnStateStore {
 
     /// Sets the session that started `session` (nil: a root session, or purged).
     public func setStartedBy(_ parent: String?, session: String, source: String = AgentTurnStateStore.localSource) {
-        if let record = sessions[session] {
+        let key = key(session, source: source)
+        if let record = sessions[key] {
             record.startedBy = parent
         } else if let parent {
             let record = Session()
             record.source = source
             record.startedBy = parent
-            sessions[session] = record
+            sessions[key] = record
         }
     }
 
     /// Replaces the links of every session of `source`'s watch with its page's.
     public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource) {
-        let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key : nil }
+        let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key.session : nil }
         for id in Set(own).union(links.keys) { setStartedBy(links[id], session: id, source: source) }
     }
 
@@ -56,10 +57,11 @@ extension AgentTurnStateStore {
     /// the session that started it. Never the chat itself.
     public func isFamily(_ session: String, of chat: String) -> Bool {
         guard session != chat else { return false }
-        if sessions[chat]?.startedBy == session { return true }
+        let source = AgentTurnStateStore.localSource
+        if sessions[key(chat, source: source)]?.startedBy == session { return true }
         var current = session
         for _ in 0..<Self.maxFamilyDepth {
-            guard let parent = sessions[current]?.startedBy else { return false }
+            guard let parent = sessions[key(current, source: source)]?.startedBy else { return false }
             if parent == chat { return true }
             current = parent
         }
