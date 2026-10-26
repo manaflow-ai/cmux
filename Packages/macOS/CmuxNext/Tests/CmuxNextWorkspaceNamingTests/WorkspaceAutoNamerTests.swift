@@ -208,7 +208,8 @@ struct WorkspaceAutoNamerTests {
         fixture.namer.apply(fixture.namer.pending())
         #expect(fixture.queued.count == 1)
         fixture.selectedTab = try #require(fixture.workspace.screens.first?.panes.first?.tabs.last?.id)
-        let deferred = try #require(fixture.queued.popLast())
+        let lastQueued = fixture.queued.popLast()
+        let deferred = try #require(lastQueued)
         #expect(!deferred.maySend())
         #expect(fixture.sent.isEmpty)
 
@@ -228,7 +229,7 @@ struct WorkspaceAutoNamerTests {
         let first = fixture.namer.pending()
         #expect(first.first?.name == "Chat A")
         fixture.namer.apply(first)
-        let attemptA1 = try #require(fixture.queued.removeFirst())
+        let attemptA1 = fixture.queued.removeFirst()
 
         fixture.selectedTab = try #require(fixture.workspace.screens.first?.panes.first?.tabs.last?.id)
         let second = fixture.namer.pending()
@@ -240,7 +241,7 @@ struct WorkspaceAutoNamerTests {
         let third = fixture.namer.pending()
         #expect(third.first?.name == "Chat A")
         fixture.namer.apply(third)
-        let attemptA2 = try #require(fixture.queued.removeFirst())
+        let attemptA2 = fixture.queued.removeFirst()
 
         #expect(!attemptA1.maySend(), "the old A1 callback cannot send after A2 owns the candidate")
         #expect(attemptA2.maySend(), "the newest A2 callback remains sendable")
