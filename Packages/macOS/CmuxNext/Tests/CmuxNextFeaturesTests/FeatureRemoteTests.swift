@@ -98,11 +98,13 @@ struct FeatureRemoteTests {
         #expect(everyone.serial == 3)
     }
 
-    @Test func todaysDocumentHasNoOverrides() throws {
-        let document = try FeatureRemoteDocument(json: Data(#"{"version": 1, "default": {}, "cohorts": {}}"#.utf8), cohort: "default")
-        #expect(document == FeatureRemoteDocument(serial: 0))
+    /// The committed `release-notes/next/flags.json` parses (it has the serial `nightly.yml` asserts) and overrides nothing.
+    @Test func theCommittedTemplateHasNoOverrides() throws {
+        let url = Self.repositoryRoot.appending(path: "release-notes/next/flags.json")
+        let document = try FeatureRemoteDocument(json: try Data(contentsOf: url), cohort: "default")
+        #expect(document.features.isEmpty && document.studies.isEmpty)
         let overrides = try FeatureRemoteOverrides(document, context: FeatureRemoteContext(registry: Self.registry, build: nil), now: Date())
-        #expect(overrides == FeatureRemoteOverrides.none)
+        #expect(overrides.values.isEmpty && overrides.studies.isEmpty)
     }
 
     @Test func aDocumentOfAnotherVersionOrWithoutASerialIsRefused() {
@@ -111,6 +113,10 @@ struct FeatureRemoteTests {
         }
         #expect(throws: FeatureRemoteDocumentError.missingSerial) {
             try FeatureRemoteDocument(json: Data(#"{"version": 1, "default": {"Features": {"killThing": "off"}}}"#.utf8), cohort: "default")
+        }
+        // A document with no feature keys needs its serial too, or it could never replace a stored one.
+        #expect(throws: FeatureRemoteDocumentError.missingSerial) {
+            try FeatureRemoteDocument(json: Data(#"{"version": 1, "default": {}, "cohorts": {}}"#.utf8), cohort: "default")
         }
     }
 
@@ -159,19 +165,18 @@ struct FeatureRemoteTests {
 
     @Test func maxBuildExcludesLaterBuilds() async throws {
         let json = #"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1, "FeaturesMinBuild": 90, "FeaturesMaxBuild": 100}}"#
+        // A build outside the range stores the document (the newest one decides) and gets nothing from it.
         let later = Harness(build: 101)
-        await #expect(throws: FeatureRemoteStore.WriteError.rejected(.buildAboveMaximum(build: 101, maximum: 100))) {
-            try await later.store.store(Self.copy(json))
-        }
-        #expect(await later.store.load().last == nil)
+        #expect(try await later.store.store(Self.copy(json)) == FeatureRemoteOverrides.none)
+        #expect(later.reported.contains("flags document 1 not applied: build 101 is above FeaturesMaxBuild 100"))
+        let excluded = try #require(await later.store.load().last)
+        #expect(later.store.overrides(of: excluded) == FeatureRemoteOverrides.none)
         let earlier = Harness(build: 89)
-        await #expect(throws: FeatureRemoteStore.WriteError.rejected(.buildBelowMinimum(build: 89, minimum: 90))) {
-            try await earlier.store.store(Self.copy(json))
-        }
+        #expect(try await earlier.store.store(Self.copy(json)) == FeatureRemoteOverrides.none)
+        #expect(earlier.reported.contains("flags document 1 not applied: build 89 is below FeaturesMinBuild 90"))
         let unnumbered = Harness(build: nil)
-        await #expect(throws: FeatureRemoteStore.WriteError.rejected(.buildUnknown)) {
-            try await unnumbered.store.store(Self.copy(json))
-        }
+        #expect(try await unnumbered.store.store(Self.copy(json)) == FeatureRemoteOverrides.none)
+        #expect(unnumbered.reported.contains { $0.hasPrefix("flags document 1 not applied: the document names a build range") })
         let inRange = Harness(build: 100)
         #expect(try await inRange.store.store(Self.copy(json)).values == ["killThing": false])
 
@@ -189,9 +194,73 @@ struct FeatureRemoteTests {
         let before = Harness(now: Date(timeIntervalSince1970: 1_700_000_000))
         #expect(try await before.store.store(Self.copy(json)).values == ["killThing": false])
         let after = Harness(now: Date(timeIntervalSince1970: 1_900_000_000))
-        await #expect(throws: FeatureRemoteStore.WriteError.rejected(.expired(at: Date(timeIntervalSince1970: 1_800_000_000)))) {
-            try await after.store.store(Self.copy(json))
+        #expect(try await after.store.store(Self.copy(json)) == FeatureRemoteOverrides.none)
+        #expect(await after.store.load().last?.document.serial == 1)
+        #expect(after.reported.contains { $0.hasPrefix("flags document 1 not applied: expired at") })
+    }
+
+    /// The newest document decides, as Chrome stores the latest seed and filters it when it is used
+    /// (components/variations/study_filtering.cc): one that excludes this build takes the older one's overrides back.
+    @Test func aNewerDocumentThatExcludesThisBuildTakesTheOverridesBack() async throws {
+        let older = #"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 7}}"#
+        let narrowed = #"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 8, "FeaturesMaxBuild": 100}}"#
+        let fixed = Harness(build: 101)
+        try await fixed.store.store(Self.copy(older))
+        #expect(try await fixed.store.store(Self.copy(narrowed)) == FeatureRemoteOverrides.none)
+        let launch = await fixed.store.load()
+        #expect(launch.last?.document.serial == 8)
+        #expect(fixed.store.overrides(of: launch.last) == FeatureRemoteOverrides.none)
+
+        // A build the narrowed range still holds keeps the overrides.
+        let old = Harness(build: 99)
+        try await old.store.store(Self.copy(older))
+        #expect(try await old.store.store(Self.copy(narrowed)).values == ["killThing": false])
+    }
+
+    @Test func aNewerDocumentThatHasExpiredTakesTheOverridesBack() async throws {
+        // 2027-01-15T08:00:00Z is 1_800_000_000 s after the epoch; the clock reads 1_900_000_000.
+        let harness = Harness(now: Date(timeIntervalSince1970: 1_900_000_000))
+        try await harness.store.store(Self.copy(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 5}}"#))
+        let expired = #"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 6, "FeaturesExpiresAt": "2027-01-15T08:00:00Z"}}"#
+        #expect(try await harness.store.store(Self.copy(expired)) == FeatureRemoteOverrides.none)
+        let launch = await harness.store.load()
+        #expect(launch.last?.document.serial == 6)
+        #expect(harness.store.overrides(of: launch.last) == FeatureRemoteOverrides.none)
+    }
+
+    /// Ending every override is a document with no `Features` and a higher serial; one with no serial is refused.
+    @Test func aDocumentWithNoFeaturesAndAHigherSerialEndsTheOverrides() async throws {
+        let harness = Harness()
+        try await harness.store.store(Self.copy(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 5}}"#))
+        await #expect(throws: FeatureRemoteStore.WriteError.rejected(.missingSerial)) {
+            try await harness.store.store(Self.copy(#"{"version": 1, "default": {}, "cohorts": {}}"#))
         }
+        #expect(try await harness.store.store(Self.copy(#"{"version": 1, "default": {"FeaturesSerial": 6}, "cohorts": {}}"#)) == FeatureRemoteOverrides.none)
+        let launch = await harness.store.load()
+        #expect(launch.last?.document.serial == 6)
+        #expect(harness.store.overrides(of: launch.last) == FeatureRemoteOverrides.none)
+    }
+
+    // MARK: Order
+
+    /// Stores and loads from tasks of every priority run one at a time in post order:
+    /// the highest serial stays and the stored copy always verifies.
+    @Test func concurrentStoresAtDifferentPrioritiesKeepTheHighestSerial() async throws {
+        let harness = Harness()
+        let priorities: [TaskPriority] = [.background, .utility, .medium, .high]
+        let serials = UInt64(1)...UInt64(40)
+        await withTaskGroup(of: Void.self) { group in
+            for serial in serials {
+                let copy = Self.copy(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": \#(serial)}}"#)
+                group.addTask(priority: priorities[Int(serial) % priorities.count]) {
+                    _ = try? await harness.store.store(copy)
+                    _ = await harness.store.load()
+                }
+            }
+        }
+        let launch = await harness.store.load()
+        #expect(launch.last?.document.serial == serials.upperBound)
+        #expect(!harness.reported.contains { $0.contains("does not verify") || $0.contains("unreadable") })
     }
 
     // MARK: Signatures and copies
@@ -205,11 +274,28 @@ struct FeatureRemoteTests {
         }
 
         try await harness.store.store(Self.copy(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1}}"#))
-        let file = harness.store.files(.last).data
-        let edited = try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "\"off\"", with: "\"on\"")
-        try Data(edited.utf8).write(to: file)
+        try Self.editStoredDocument(harness.store.file(.last)) { $0.replacingOccurrences(of: "\"off\"", with: "\"on\"") }
         #expect(await harness.store.load().last == nil)
         #expect(harness.reported.contains { $0.contains("does not verify") })
+    }
+
+    /// A stored copy that does not verify (only a file changed outside the app: a write replaces the
+    /// whole file) holds no serial: a lower one replaces it, and the store reports the bad copy.
+    @Test func aStoredCopyThatDoesNotVerifyHoldsNoSerial() async throws {
+        let harness = Harness()
+        try await harness.store.store(Self.copy(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 5}}"#))
+        try Self.editStoredDocument(harness.store.file(.last)) { $0.replacingOccurrences(of: "\"off\"", with: "\"on\"") }
+        try await harness.store.store(Self.copy(#"{"version": 1, "default": {"Features": {"perfThing": "off"}, "FeaturesSerial": 3}}"#))
+        #expect(harness.reported.contains("last flags document: the signature does not verify"))
+        #expect(await harness.store.load().last?.document.serial == 3)
+    }
+
+    /// Changes the document bytes of a stored copy and keeps its signature.
+    private static func editStoredDocument(_ file: URL, _ edit: (String) -> String) throws {
+        let stored = try JSONDecoder().decode(FeatureRemoteStore.Copy.self, from: Data(contentsOf: file))
+        let text = edit(String(decoding: stored.data, as: UTF8.self))
+        let edited = FeatureRemoteStore.Copy(data: Data(text.utf8), signature: stored.signature)
+        try JSONEncoder().encode(edited).write(to: file)
     }
 
     @Test func theLastKnownGoodCopyIsKeptApart() async throws {
@@ -231,7 +317,7 @@ struct FeatureRemoteTests {
         let harness = Harness()
         let launch = await harness.store.load()
         #expect(launch == FeatureRemoteStore.Launch(last: nil, lastKnownGood: nil))
-        #expect(harness.store.overrides(of: launch.last) == .none)
+        #expect(harness.store.overrides(of: launch.last) == FeatureRemoteOverrides.none)
         #expect(harness.reported.isEmpty)
     }
 
@@ -245,7 +331,7 @@ struct FeatureRemoteTests {
         #expect(check.publicKeys == [Self.key, testKey])
         #expect(check.isValid(data, signature: Self.fakeSign(data, key: testKey)))
         #else
-        // A Release (and every non-bench) build compiles no test key.
+        // A non-bench test build compiles no test key; check-no-bench-hooks.sh checks the shipped executable.
         #expect(FeatureRemoteSignatureCheck.benchTestPublicKey == nil)
         #expect(check.publicKeys == [Self.key])
         #expect(!check.isValid(data, signature: Self.fakeSign(data, key: Self.committedTestKey.publicKey)))
@@ -253,11 +339,15 @@ struct FeatureRemoteTests {
         #expect(check.isValid(data, signature: " \(Self.fakeSign(data))\n"))
     }
 
+    /// The checkout this file is in.
+    private static var repositoryRoot: URL {
+        URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
     /// `schemas/features/bench-test-signing-key.json`, read by path from the checkout.
     private static var committedTestKey: (publicKey: String, privateSeed: String) {
-        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let url = root.appending(path: "schemas/features/bench-test-signing-key.json")
+        let url = repositoryRoot.appending(path: "schemas/features/bench-test-signing-key.json")
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
               let publicKey = object["publicKey"], let privateSeed = object["privateSeed"]

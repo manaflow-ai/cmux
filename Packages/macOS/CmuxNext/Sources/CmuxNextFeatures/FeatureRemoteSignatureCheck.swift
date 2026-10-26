@@ -9,8 +9,9 @@ public import Foundation
 public nonisolated struct FeatureRemoteSignatureCheck: Sendable {
     /// The perf lab's test public key (raw Ed25519, base64): compiled only
     /// under `CMUX_BENCH_HOOKS`, so a shipped app trusts the content-signing
-    /// key alone (`check-no-bench-hooks.sh` refuses a bench app). The private
-    /// half is `schemas/features/bench-test-signing-key.json`.
+    /// key alone: `check-no-bench-hooks.sh` refuses a shipped app whose
+    /// executable contains this key. The private half is
+    /// `schemas/features/bench-test-signing-key.json`.
     #if CMUX_BENCH_HOOKS
     public static let benchTestPublicKey: String? = "tOVR4m5KjnfoL+4rA/GqbLNDSgK8cJV8G0noc8Atvww="
     #else

@@ -25,9 +25,12 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
     /// The cohort of a person in no test wave.
     public static let defaultCohort = "default"
 
-    /// `FeaturesSerial`: raised by every publish; a lower one is a rollback
-    /// and is refused (``FeatureRemoteDocumentError/lowerSerial(document:stored:)``).
-    /// 0 when the document has no `Features`.
+    /// `FeaturesSerial`: raised by every publish that changes the feature
+    /// keys; a lower one is a rollback and is refused
+    /// (``FeatureRemoteDocumentError/lowerSerial(document:stored:)``). Every
+    /// document has one, even with no `Features` (`nightly.yml` asserts it),
+    /// so a document that ends every override has a serial above the one it
+    /// replaces.
     public let serial: UInt64
     /// `FeaturesExpiresAt`: after it the document turns nothing on or off.
     public let expiresAt: Date?
@@ -70,9 +73,7 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
         let features = layer.features ?? base.features ?? [:]
         let studies = layer.studies ?? base.studies ?? []
         // Without a serial a replayed old document could not be told from a new one.
-        guard let serial = layer.serial ?? base.serial ?? (features.isEmpty && studies.isEmpty ? 0 : nil) else {
-            throw .missingSerial
-        }
+        guard let serial = layer.serial ?? base.serial else { throw .missingSerial }
         var expiresAt: Date?
         if let text = layer.expiresAt ?? base.expiresAt {
             do {
@@ -193,8 +194,11 @@ public nonisolated struct FeatureStudy: Sendable, Hashable {
     }
 }
 
-/// Why a whole flags document gives this build nothing. The store keeps its
-/// current copy when a fetched one fails with any of these.
+/// Why a whole flags document gives this build nothing. The store refuses a
+/// fetched document, and keeps its copy, for a bad signature, a document that
+/// does not parse (`malformed`, `unsupportedVersion`, `missingSerial`) and a
+/// lower serial; it stores one that has expired or excludes this build, which
+/// then gives nothing (``FeatureRemoteOverrides``).
 public nonisolated enum FeatureRemoteDocumentError: Error, Sendable, Equatable, CustomStringConvertible {
     /// The signature does not verify with a trusted key.
     case badSignature
@@ -202,7 +206,7 @@ public nonisolated enum FeatureRemoteDocumentError: Error, Sendable, Equatable, 
     case malformed(String)
     /// `version` is not 1.
     case unsupportedVersion(Int?)
-    /// `Features` or `Studies` without `FeaturesSerial`.
+    /// No `FeaturesSerial` for the cohort (in `default` or its own key).
     case missingSerial
     /// A lower `FeaturesSerial` than the stored document's: a replayed old document.
     case lowerSerial(document: UInt64, stored: UInt64)
@@ -220,7 +224,7 @@ public nonisolated enum FeatureRemoteDocumentError: Error, Sendable, Equatable, 
         case .badSignature: "the signature does not verify"
         case .malformed(let reason): "malformed: \(reason)"
         case .unsupportedVersion(let version): "version \(version.map { "\($0)" } ?? "none") is not \(FeatureRemoteDocument.version)"
-        case .missingSerial: "Features without FeaturesSerial"
+        case .missingSerial: "no FeaturesSerial"
         case .lowerSerial(let document, let stored): "FeaturesSerial \(document) is below the stored \(stored)"
         case .expired(let date): "expired at \(date.formatted(Date.ISO8601FormatStyle()))"
         case .buildBelowMinimum(let build, let minimum): "build \(build) is below FeaturesMinBuild \(minimum)"

@@ -6,17 +6,32 @@ import os
 /// The app's copies of the signed flags document in Application Support: the
 /// last accepted one and the last known good one, as Chrome's
 /// `VariationsSeedStore` keeps the latest and the safe seed
-/// (components/variations/variations_seed_store.cc). Each copy is the
-/// document's bytes with their signature, verified again on every read, so an
-/// edited file counts for nothing (as cmux-tui `feature_flags.rs` does).
+/// (components/variations/variations_seed_store.cc). Each copy is one file
+/// that holds the document's bytes with their signature and is replaced
+/// atomically, as Chrome keeps the seed and its signature in one Local State
+/// write: a reader never sees new bytes under an old signature. The signature
+/// is verified again on every read, so an edited file counts for nothing (as
+/// cmux-tui `feature_flags.rs` does).
 ///
-/// Every file read and write runs on ``BackgroundWork``'s files lane, never on
-/// the caller's thread. The fetch (task p12-perf-process-093) hands verified
-/// bytes to ``store(_:)``; they apply at the next launch, where the composition
-/// root reads both copies with ``load()`` and safe mode (task 094) picks one.
+/// The newest document that verifies, parses and is not a rollback is stored
+/// whole, even when it has expired or excludes this build. Chrome stores the
+/// latest seed and filters its studies only when it uses them
+/// (components/variations/study_filtering.cc); here too the newest document
+/// decides what this build gets, so a narrowed build range or a passed expiry
+/// takes an older document's overrides back. ``overrides(of:)`` filters.
+///
+/// Every file read and write is posted to ``BackgroundWork``'s files lane at
+/// one fixed priority (``lanePriority``), never raised to the caller's. The
+/// files lane runs one item per priority in post order (`LaneScheduler`'s
+/// `perPriority` policy), so the rollback check and the write of one store
+/// never interleave with another store, a promotion or a load. The fetch
+/// (task p12-perf-process-093) hands verified bytes to ``store(_:)``; they
+/// apply at the next launch, where the composition root reads both copies
+/// with ``load()`` and safe mode (task 094) picks one.
 public nonisolated final class FeatureRemoteStore: Sendable {
-    /// One document as fetched: its bytes and their base64 signature.
-    public struct Copy: Sendable, Equatable {
+    /// One document as fetched: its bytes and their base64 signature. On disk,
+    /// a JSON object with `data` (base64) and `signature`.
+    public struct Copy: Sendable, Equatable, Codable {
         public let data: Data
         public let signature: String
 
@@ -48,7 +63,7 @@ public nonisolated final class FeatureRemoteStore: Sendable {
         }
     }
 
-    /// Which copy a file pair holds.
+    /// Which copy a file holds.
     public enum Slot: String, Sendable, CaseIterable {
         /// The last document ``store(_:)`` accepted.
         case last = "flags"
@@ -60,7 +75,7 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     public enum WriteError: Error, Sendable, Equatable, CustomStringConvertible {
         /// The document itself is refused.
         case rejected(FeatureRemoteDocumentError)
-        /// The file system refused (the reason says why).
+        /// The file system refused, or shutdown dropped the write (the reason says why).
         case io(String)
 
         public var description: String {
@@ -70,6 +85,10 @@ public nonisolated final class FeatureRemoteStore: Sendable {
             }
         }
     }
+
+    /// The one priority of every file operation of the store: `load()` runs
+    /// at launch, where a person waits, and a store must never pass it.
+    public static let lanePriority = WorkPriority.userVisible
 
     /// The directory of the copies: `<Application Support>/<app folder>/features`.
     public let directory: URL
@@ -87,8 +106,9 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     ///   - work: the app's ``BackgroundWork``; every file operation runs on its files lane.
     ///   - signatures: the trusted keys.
     ///   - now: the wall clock `FeaturesExpiresAt` is compared with.
-    ///   - report: gets each refused document and ignored entry as a line, after the unified log
-    ///     (subsystem `com.cmuxterm.app.next`, category `features`) has it; tests read it.
+    ///   - report: gets each refused document, each document not applied to this build and each
+    ///     ignored entry as a line, after the unified log (subsystem `com.cmuxterm.app.next`,
+    ///     category `features`) has it; tests read it.
     public init(
         directory: URL,
         context: FeatureRemoteContext,
@@ -105,31 +125,24 @@ public nonisolated final class FeatureRemoteStore: Sendable {
         self.report = report
     }
 
-    /// The flags document (`<directory>/<slot>.json`) and its signature (`.json.sig`).
-    public func files(_ slot: Slot) -> (data: URL, signature: URL) {
-        let data = directory.appending(path: "\(slot.rawValue).json", directoryHint: .notDirectory)
-        return (data, directory.appending(path: "\(slot.rawValue).json.sig", directoryHint: .notDirectory))
+    /// The file of `slot`: `<directory>/<slot>.json`, the encoded ``Copy``.
+    public func file(_ slot: Slot) -> URL {
+        directory.appending(path: "\(slot.rawValue).json", directoryHint: .notDirectory)
     }
 
-    /// Stores a fetched document as the last copy when it verifies, parses,
-    /// applies to this build now and its serial is not below the stored
-    /// copy's; otherwise the stored copy stays. Returns what the document
-    /// gives this build (it applies at the next launch).
+    /// Stores a fetched document as the last copy when it verifies, parses and
+    /// its serial is not below the stored copy's; otherwise the stored copy
+    /// stays. Returns what the document gives this build (it applies at the
+    /// next launch): ``FeatureRemoteOverrides/none``, with the reason logged,
+    /// when it has expired or excludes this build.
     @discardableResult
     public func store(_ copy: Copy) async throws(WriteError) -> FeatureRemoteOverrides {
-        let outcome: Result<FeatureRemoteOverrides, WriteError>
-        do {
-            outcome = try await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { [self] in
-                storeOnLane(copy)
-            }
-        } catch {
-            // Shutdown dropped it or the caller was cancelled before it ran: nothing was written.
-            throw .io("not run: \(error)")
-        }
-        switch outcome {
-        case .success(let overrides):
-            log(ignored: overrides.ignored)
-            return overrides
+        let outcome = await inOrder(shutdown: .blockShutdown) { [self] in storeOnLane(copy) }
+        guard let outcome else { throw .io("not run: shutdown dropped it") }
+        for failure in outcome.failures { log(failure, error: true) }
+        switch outcome.result {
+        case .success(let document):
+            return overrides(of: document)
         case .failure(let error):
             log("flags document not stored: \(error)", error: true)
             throw error
@@ -141,17 +154,13 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     /// the build range are checked by ``overrides(of:)``, so safe mode sees
     /// the copies as they are.
     public func load() async -> Launch {
-        let read: (launch: Launch, failures: [String])
-        do {
-            read = try await work.run(.userVisible, mayBlock: .files) { [self] in
-                var failures: [String] = []
-                let last = readOnLane(.last, failures: &failures)
-                let lastKnownGood = readOnLane(.lastKnownGood, failures: &failures)
-                return (launch: Launch(last: last, lastKnownGood: lastKnownGood), failures: failures)
-            }
-        } catch {
-            return Launch(last: nil, lastKnownGood: nil)
+        let read = await inOrder(shutdown: .skipOnShutdown) { [self] () -> (launch: Launch, failures: [String]) in
+            var failures: [String] = []
+            let last = readOnLane(.last, failures: &failures)
+            let lastKnownGood = readOnLane(.lastKnownGood, failures: &failures)
+            return (launch: Launch(last: last, lastKnownGood: lastKnownGood), failures: failures)
         }
+        guard let read else { return Launch(last: nil, lastKnownGood: nil) }
         for failure in read.failures { log(failure, error: true) }
         return read.launch
     }
@@ -160,90 +169,111 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     /// with the reason logged when it has expired or excludes this build.
     public func overrides(of stored: Stored?) -> FeatureRemoteOverrides {
         guard let stored else { return .none }
-        do {
-            let overrides = try FeatureRemoteOverrides(stored.document, context: context, now: now())
-            log(ignored: overrides.ignored)
-            return overrides
-        } catch {
-            log("flags document \(stored.document.serial) not applied: \(error)", error: false)
-            return .none
-        }
+        return overrides(of: stored.document)
     }
 
     /// Writes `copy` as the last known good one: the copy this launch ran
     /// with, once the run has fetched successfully (safe mode, task 094).
     public func promoteLastKnownGood(_ copy: Copy) async throws(WriteError) {
-        let outcome: Result<Void, WriteError>
-        do {
-            outcome = try await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { [self] () -> Result<Void, WriteError> in
-                guard signatures.isValid(copy.data, signature: copy.signature) else {
-                    return .failure(.rejected(.badSignature))
-                }
-                return write(copy, to: .lastKnownGood)
+        let outcome = await inOrder(shutdown: .blockShutdown) { [self] () -> Result<Void, WriteError> in
+            guard signatures.isValid(copy.data, signature: copy.signature) else {
+                return .failure(.rejected(.badSignature))
             }
-        } catch {
-            throw .io("not run: \(error)")
+            return write(copy, to: .lastKnownGood)
         }
+        guard let outcome else { throw .io("not run: shutdown dropped it") }
         if case .failure(let error) = outcome {
             log("last known good flags document not stored: \(error)", error: true)
             throw error
         }
     }
 
-    // MARK: Lane work (BackgroundWork files lane only)
-
-    private func storeOnLane(_ copy: Copy) -> Result<FeatureRemoteOverrides, WriteError> {
-        guard signatures.isValid(copy.data, signature: copy.signature) else { return .failure(.rejected(.badSignature)) }
-        let overrides: FeatureRemoteOverrides
-        do throws(FeatureRemoteDocumentError) {
-            let document = try FeatureRemoteDocument(json: copy.data, cohort: context.cohort)
-            // A stored copy that no longer verifies or parses holds no serial to protect.
-            var unreadable: [String] = []
-            if let stored = readOnLane(.last, failures: &unreadable), document.serial < stored.document.serial {
-                return .failure(.rejected(.lowerSerial(document: document.serial, stored: stored.document.serial)))
-            }
-            overrides = try FeatureRemoteOverrides(document, context: context, now: now())
+    private func overrides(of document: FeatureRemoteDocument) -> FeatureRemoteOverrides {
+        do {
+            let overrides = try FeatureRemoteOverrides(document, context: context, now: now())
+            log(ignored: overrides.ignored)
+            return overrides
         } catch {
-            return .failure(.rejected(error))
+            log("flags document \(document.serial) not applied: \(error)", error: false)
+            return .none
         }
-        return write(copy, to: .last).map { _ in overrides }
+    }
+
+    /// Runs `body` on the files lane at ``lanePriority``, after every file
+    /// operation of the store posted before it; nil when shutdown dropped it.
+    private func inOrder<T: Sendable>(
+        shutdown: ShutdownBehavior,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ body: @escaping @Sendable () -> T
+    ) async -> T? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            work.post(
+                Self.lanePriority,
+                mayBlock: .files,
+                shutdown: shutdown,
+                fileID: fileID,
+                line: line,
+                abandoned: { continuation.resume(returning: nil) }
+            ) {
+                continuation.resume(returning: body())
+            }
+        }
+    }
+
+    // MARK: Lane work (BackgroundWork files lane, through inOrder only)
+
+    /// Refuses only a bad signature, a document that does not parse and a
+    /// serial below the stored copy's. A stored copy that does not verify or
+    /// parse holds no serial to protect: a write replaces the whole file, so
+    /// it can only be a file changed outside the app, and it is reported.
+    private func storeOnLane(_ copy: Copy) -> (result: Result<FeatureRemoteDocument, WriteError>, failures: [String]) {
+        var failures: [String] = []
+        guard signatures.isValid(copy.data, signature: copy.signature) else {
+            return (.failure(.rejected(.badSignature)), failures)
+        }
+        let document: FeatureRemoteDocument
+        do throws(FeatureRemoteDocumentError) {
+            document = try FeatureRemoteDocument(json: copy.data, cohort: context.cohort)
+        } catch {
+            return (.failure(.rejected(error)), failures)
+        }
+        if let stored = readOnLane(.last, failures: &failures), document.serial < stored.document.serial {
+            return (.failure(.rejected(.lowerSerial(document: document.serial, stored: stored.document.serial))), failures)
+        }
+        return (write(copy, to: .last).map { _ in document }, failures)
     }
 
     private func readOnLane(_ slot: Slot, failures: inout [String]) -> Stored? {
-        let paths = files(slot)
-        let data: Data
-        let signature: String
+        let copy: Copy
         do {
-            data = try Data(blockingContentsOf: paths.data)
-            signature = try String(blockingContentsOf: paths.signature, encoding: .utf8)
+            let bytes = try Data(blockingContentsOf: file(slot))
+            copy = try JSONDecoder().decode(Copy.self, from: bytes)
         } catch CocoaError.fileReadNoSuchFile {
             return nil
         } catch {
             failures.append("\(slot) flags document unreadable: \(error)")
             return nil
         }
-        guard signatures.isValid(data, signature: signature) else {
+        guard signatures.isValid(copy.data, signature: copy.signature) else {
             failures.append("\(slot) flags document: \(FeatureRemoteDocumentError.badSignature)")
             return nil
         }
         do {
-            let document = try FeatureRemoteDocument(json: data, cohort: context.cohort)
-            return Stored(copy: Copy(data: data, signature: signature), document: document)
+            let document = try FeatureRemoteDocument(json: copy.data, cohort: context.cohort)
+            return Stored(copy: copy, document: document)
         } catch {
             failures.append("\(slot) flags document: \(error)")
             return nil
         }
     }
 
-    /// The signature first, then the document, each replaced atomically: a
-    /// crash between the two leaves a pair that does not verify (read as no
-    /// copy), never an old signature over new bytes.
+    /// The bytes and their signature in one file, replaced atomically.
     private func write(_ copy: Copy, to slot: Slot) -> Result<Void, WriteError> {
-        let paths = files(slot)
         do {
+            let envelope = try JSONEncoder().encode(copy)
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data(copy.signature.utf8).blockingWrite(to: paths.signature, options: .atomic)
-            try copy.data.blockingWrite(to: paths.data, options: .atomic)
+            try envelope.blockingWrite(to: file(slot), options: .atomic)
             return .success(())
         } catch {
             return .failure(.io(String(describing: error)))
