@@ -249,12 +249,13 @@ enum RoomDefaultsUpdates {
     private final class Finish: Sendable {
         let signal: AsyncStream<Void>.Continuation
         init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
-        deinit { signal.finish() }
+        nonisolated deinit { signal.finish() }
     }
 
     static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
         let previous = tails[id]?.done
-        let (finished, signal) = AsyncStream<Void>.makeStream()
+        // Nothing is ever yielded; the stream only ends, so one slot is plenty.
+        let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let finish = Finish(signal)
         let token = UUID()
         tails[id] = (token, Task { @MainActor in
