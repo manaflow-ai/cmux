@@ -670,7 +670,14 @@ extension CEFRuntime {
     }
 
     private func displaysChanged() {
-        for host in hosts.values { host.hostView.layerHosting.displaysChanged() }
-        for tab in tabsByBrowser.values { tab.devToolsController.views?.host.layerHosting.displaysChanged() }
+        for host in hosts.values {
+            host.hostView.layerHosting.displaysChanged()
+            // Host mode: a page view on a display that changed mode, scale or place re-places its page (task 221).
+            host.hostedPageView?.screenParametersChanged()
+        }
+        for tab in tabsByBrowser.values {
+            tab.devToolsController.views?.host.layerHosting.displaysChanged()
+            tab.devToolsController.hostedPage?.screenParametersChanged()
+        }
     }
 }
