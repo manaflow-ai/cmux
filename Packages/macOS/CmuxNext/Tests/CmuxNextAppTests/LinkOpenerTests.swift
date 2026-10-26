@@ -76,7 +76,7 @@ import Testing
         guard case .openPath(let path, let line) = request else { Issue.record("not an open request"); return }
         #expect(services.linkOpener.openFile(URL(fileURLWithPath: path), from: pane, line: line))
         let pages = services.viewers.editorPages
-        let key = try #require(pages.openKeys.first)
+        let key = try #require(pages.debugTabs.first?.key)
         _ = pages.makeView(for: key, in: nil)
         let provider = try #require(pages.provider(key))
         defer { provider.close() }
@@ -84,7 +84,7 @@ import Testing
         let config = try await provider.call("cmux.editor.config", params: .object([:]), context: context)
         #expect(config["location"] == ["line": 42, "column": 7])
         #expect(services.linkOpener.openFile(url, from: pane, line: FileLineLocation("2-3")))
-        #expect(pages.openKeys == [key])
+        #expect(pages.debugTabs.map(\.key) == [key])
         let next = try await provider.call("cmux.editor.config", params: .object([:]), context: context)
         #expect(next["location"] == ["line": 2, "endLine": 3])
         #expect(services.viewers.openFile(url, in: pane, userChose: false, line: FileLineLocation("1")) == nil)

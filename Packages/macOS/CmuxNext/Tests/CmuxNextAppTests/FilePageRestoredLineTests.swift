@@ -35,7 +35,7 @@ import Testing
         _ = try #require(services.pages.view(forStoreTab: tab, in: services.daemon.store, local: true, window: nil))
         let providerKey = try #require(services.pages.storeKey(of: tab.id))
         #expect(key == providerKey)
-        #expect(files.openKeys == [providerKey], "no orphan state under the store tab id")
+        #expect(files.debugTabs.map(\.key) == [providerKey], "no orphan state under the store tab id")
         let provider = try #require(files.provider(providerKey))
         defer { provider.close() }
         let config = try await provider.call("cmux.editor.config", params: .object([:]), context: PageCallContext(page: "cmux.editor"))
