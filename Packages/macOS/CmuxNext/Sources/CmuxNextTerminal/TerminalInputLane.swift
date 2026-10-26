@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Darwin
 
 /// A session's input on its way to the ``TerminalIO``: a ring of records the main thread fills with
-/// no lock and no allocation of its own, drained on the IO's queue (``TerminalInputDrain``) when woken.
+/// no wait and no allocation of its own, drained on the IO's queue (``TerminalInputDrain``) when woken.
 /// It replaces an `AsyncStream` read by a detached task: a key no longer waits for a cooperative-pool
 /// thread before the IO's own queue (Chromium's `ui::InputHandlerProxy` hands an event to the
 /// compositor thread in one post, cc/input/input_handler.h; one hop here as there).
@@ -25,7 +25,7 @@ public nonisolated final class TerminalInputLane: Sendable {
     private let overflowByteLimit: Int
     // Lock carve-out: held only to append one record (a producer that is not the main thread, or the main
     // thread while the ring is full or spilled) or to move the overflow into the backlog (the drain queue),
-    // never across a call out; the main thread's common path, a free ring, takes no lock.
+    // never across a call out; the main thread's common path, a free ring, never waits (``TerminalInputRing/push(_:)``).
     private let overflow = Mutex(TerminalInputOverflow())
     /// True while records wait in the overflow: the main thread appends there too, so it never passes them.
     private let overflowing = Atomic<Bool>(false)
