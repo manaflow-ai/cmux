@@ -305,7 +305,7 @@ need it.
 ### D. Chromium
 
 - `BrowserTabConfiguration.origin`: `.user | .automation | .restoreVisible | .restoreHidden`, no default
-  in the new init.
+  in the new init, and the last parameter of it (after `navigationGuard`); 113 call sites rely on that position.
 - `.user` and `.automation` start CEF at once (input first). `.restoreVisible` (a page in a visible,
   not occluded window: browser tab, Home, New Tab, Chromium agent page) starts CEF as an afterFirstFrame
   post, right after the picture frame. `.restoreHidden` waits for afterStartup, shows its picture, and
@@ -448,7 +448,8 @@ Every hit of a queue is one task with the named template. Each queue is regenera
 - Q7 mark gaps. `startup-queue.py gaps warm.json --min-ms 5`. Template 039.
 - Q8 Chromium origin. After 040: the deprecated `BrowserTabConfiguration.init` without `origin` gives one
   compiler warning per site (`swift build 2>&1 | grep 'without origin'` in the fleet build log); 9 Sources
-  sites are done in 040; each test file with warnings is one task (113). Then 114 removes the overload.
+  sites are done in 040; each test file with warnings is one task (113). Branch `cp/110-p08-startup-113` does all
+  35 sites in the 26 test files at once; it merges after 040. Then 114 removes the overload.
 - Q9 pre-main. `xcrun xctrace record --template 'App Launch'` export, `otool -L "$NX_APP/Contents/MacOS/cmux" | grep -v -E '/System/|/usr/lib/'`.
   Each dylib or initializer >= 1 ms is one task (template 055).
 - Q10 order coverage. `pgo/check.py ... --launch-profile fresh.profraw`. A refresh trigger, not per hit.
