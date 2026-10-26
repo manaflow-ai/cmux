@@ -115,8 +115,9 @@ public nonisolated struct KeyBindingTable: Sendable {
     /// (p04-input-055). Pass `CollectionOfOne(key)` for one key. Chromium finds an accelerator's
     /// targets with one map lookup that copies nothing the same way
     /// (ui/base/accelerators/accelerator_map.h, `AcceleratorMap::Find`).
+    // perf-hot: 0.5ms key-dispatch (every chord key-down)
     public func resolveWinner(_ keys: some Collection<Shortcut>, in input: CompiledWhen.Input, isRunnable: (ActionID) -> Bool,
-                              accepts: (KeyBinding) -> Bool = { _ in true }) -> KeyBinding? { // perf-hot: 0.5ms key-dispatch (every chord key-down)
+                              accepts: (KeyBinding) -> Bool = { _ in true }) -> KeyBinding? {
         guard let first = keys.first, let offsets = byFirstKey[first] else { return nil }
         for offset in offsets.reversed() {
             guard entries[offset].keys.elementsEqual(keys) else { continue }

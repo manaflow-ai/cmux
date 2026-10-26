@@ -32,11 +32,8 @@ extension KeyRouter {
     /// `ghostty: false` leaves the Ghostty entries out (a browser chord in
     /// a browser context, which never runs a Ghostty keybind).
     func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? { // perf-hot: 0.5ms key-dispatch (every chord key-down)
-        let bindings = RegistryKeyBindings(registry)
-        let table = bindings.table
-        let input = CompiledWhen.Input(context)
-        let bits = input.bits
-        let codeEditor = bits.contains(.codeEditorFocused)
+        let bindings = RegistryKeyBindings(registry), table = bindings.table
+        let input = CompiledWhen.Input(context), bits = input.bits, codeEditor = bits.contains(.codeEditorFocused)
         for shortcut in ActionRegistry.shortcuts(for: event) {
             if let winner = table.resolveWinner(CollectionOfOne(shortcut), in: input, isRunnable: { bindings.canPerform($0, in: bits) },
                                                 accepts: { Self.accepts($0, ghostty: ghostty, codeEditor: codeEditor) }) {

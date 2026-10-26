@@ -79,7 +79,7 @@ import Testing
 
 /// Seeded clauses and contexts over the legacy bit keys and the string keys `when` clauses read.
 nonisolated struct WhenFuzz {
-    private struct SplitMix64: RandomNumberGenerator {
+    private nonisolated struct SplitMix64: RandomNumberGenerator {
         var state: UInt64
         mutating func next() -> UInt64 {
             state &+= 0x9E37_79B9_7F4A_7C15
