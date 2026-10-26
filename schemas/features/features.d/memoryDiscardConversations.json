@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDiscardConversations",
+  "owner": "PL-memory",
+  "description": "A conversation tab hidden for 10 minutes (sooner at critical memory pressure) lets its laid-out transcript rows, their cells and bitmaps go and keeps its messages, draft, read state and scroll place; showing it lays out about 40 rows around that place again.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

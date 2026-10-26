@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextTerminal
@@ -35,9 +36,8 @@ final class TabContentCache {
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
-    weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
-    /// Hibernated tabs, observed by the tab strips.
-    let dormantTabs = DormantTabs()
+    let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
+    let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
     let previews = PreviewImageCache()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
     /// on demand for its hover card.
