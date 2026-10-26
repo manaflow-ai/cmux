@@ -7,7 +7,7 @@
 
 use libc::{self, c_long, c_ulong, c_void};
 use std::io;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
 const EXT_MAGIC: u64 = 0xef53;
 const TMPFS_MAGIC: u64 = 0x0102_1994;
@@ -149,6 +149,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libc::{EACCES, EIO, ENOTTY, EOPNOTSUPP};
 
     #[test]
     fn refuses_unverified_filesystems() {
