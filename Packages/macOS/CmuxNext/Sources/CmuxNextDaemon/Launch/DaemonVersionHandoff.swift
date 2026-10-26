@@ -64,7 +64,7 @@ enum ProcessExit {
         await withCheckedContinuation { continuation in
             let once = Once()
             let deadline = DemandTimer(owner: "daemon.handoff.exit", clock: clock)
-            let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)")
+            let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)", qos: .userInitiated)
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             let finish: @Sendable (Bool) -> Void = { exited in
                 guard once.first() else { return }
