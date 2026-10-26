@@ -324,7 +324,7 @@ enum AgentHandlers {
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .workspace, .window:
                     workspace = key
-                    surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, on: connection, repair: repair) { created in
+                    surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, ledger: context.services.windows.newPlacements, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: options.cwd).surface
                     }
                 }

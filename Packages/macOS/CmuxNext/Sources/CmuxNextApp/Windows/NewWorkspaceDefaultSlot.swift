@@ -103,38 +103,29 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
-        if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { anchors[id] = anchor }
+        if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { windows.newPlacements.anchors[id] = anchor }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
 
-    /// New workspaces whose create sent the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`):
-    /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
-    /// `applyPendingPlacements` sends no second write for them (a second state change and render).
-    static var placedByDaemon: Set<String> = []
-
     /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
-    /// `key` in ``placedByDaemon``; nil for an older daemon, which ignores the fields, so the app still
-    /// sends its own placement afterwards.
-    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) async -> NewWorkspaceDefaultSlot? {
-        guard let rule else { return nil }
+    /// `key` in `ledger`'s ``Ledger/placedByDaemon``; nil for an older daemon, which
+    /// ignores the fields, or with no ledger to record it in, so the app still sends its own placement afterwards.
+    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection,
+                        ledger: Ledger?) async -> NewWorkspaceDefaultSlot? {
+        guard let rule, let ledger else { return nil }
         // Read before the create goes out: the window places the workspace only once the daemon lists it.
         guard await connection.identity?.supports(DaemonCapability.workspaceCreateCurrent.rawValue) == true else { return nil }
-        placedByDaemon.insert(key.rawValue)
+        ledger.placedByDaemon.insert(key.rawValue)
         return rule
     }
 
     /// Drops what a create that ended without its workspace left for it.
     static func forget(_ id: String, windows: WindowManager) {
         windows.pendingPlacements[id] = nil
-        placedByDaemon.remove(id)
-        anchors[id] = nil
+        windows.newPlacements.placedByDaemon.remove(id)
+        windows.newPlacements.anchors[id] = nil
     }
-
-    /// The neighbour each new workspace lists beside until the sidebar document places it
-    /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
-    /// document places the workspace or it is gone (`unplacedAnchor(of:)`).
-    static var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
 
     /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
     /// the window's current workspace (not Home), or the one New Workspace Above or Below names.
@@ -153,17 +144,33 @@ enum NewWorkspacePlacements {
         }
     }
 
-    /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
-    static func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
-        guard !anchors.isEmpty else { return nil }
-        if anchors.count > 16 {
-            anchors = anchors.filter { id, _ in machines.workspace(id: id) != nil && SidebarDocWiring.item(workspace: id, machines) == nil }
-        }
-        return anchors[workspace.id]
-    }
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
+    }
+
+    /// What these keep for each new workspace between its create and the
+    /// sidebar placing it; one per `WindowManager` (`newPlacements`).
+    @MainActor
+    final class Ledger {
+        /// New workspaces whose create sent the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`):
+        /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
+        /// `applyPendingPlacements` sends no second write for them (a second state change and render).
+        var placedByDaemon: Set<String> = []
+
+        /// The neighbour each new workspace lists beside until the sidebar document places it
+        /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
+        /// document places the workspace or it is gone (`unplacedAnchor(of:machines:)`).
+        var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
+
+        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
+        func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
+            guard !anchors.isEmpty else { return nil }
+            if anchors.count > 16 {
+                anchors = anchors.filter { id, _ in machines.workspace(id: id) != nil && SidebarDocWiring.item(workspace: id, machines) == nil }
+            }
+            return anchors[workspace.id]
+        }
     }
 }

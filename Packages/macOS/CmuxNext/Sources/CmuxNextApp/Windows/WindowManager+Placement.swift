@@ -28,7 +28,7 @@ extension WindowManager {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
             pendingPlacements[id] = nil
-            let named = NewWorkspacePlacements.placedByDaemon.remove(id) != nil
+            let named = newPlacements.placedByDaemon.remove(id) != nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)

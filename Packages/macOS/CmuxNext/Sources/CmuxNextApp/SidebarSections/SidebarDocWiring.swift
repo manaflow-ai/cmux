@@ -42,7 +42,7 @@ enum SidebarDocWiring {
         }
         // `beforeCurrent` / `afterCurrent` and New Workspace Above or Below: beside the workspace the create named.
         docSections.unplacedAnchor = { [weak services] workspace in
-            services.flatMap { NewWorkspacePlacements.unplacedAnchor(of: workspace, machines: $0.machines) }
+            services.flatMap { $0.windows.newPlacements.unplacedAnchor(of: workspace, machines: $0.machines) }
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
