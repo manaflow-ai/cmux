@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks that scripts/cmux-next/linux/swift-tier.sh never writes to the
-# checkout (p15-oracle-229).
+# checkout (p15-oracle-229) and that its runner reports every red
+# (p15-oracle-004).
 #
 # Builds a throwaway git repo whose CmuxNext manifest has a Linux mode with a
 # different dependency graph (CMUX_SWIFTPM_TARGET_LINUX=1 swaps the macOS-only
@@ -19,7 +20,23 @@
 #   7. a scratch root inside the checkout (relative, or through a symlink) is
 #      refused with exit 2 and writes nothing;
 #   8. control: the same Linux resolve run in the checkout itself rewrites
-#      Package.resolved, which is what the scratch copy prevents.
+#      Package.resolved, which is what the scratch copy prevents;
+#   9. the runner: a target that does not compile fails the run, lands in the
+#      errors queue under its own target, blocks its test target, and the
+#      green test target still runs;
+#  10. a `[ linux ]` Failure line on that target still fails the run while
+#      its blocked test target has no line of its own; with one it exits 0;
+#  11. --only and --measure-incremental build a subset and time a one-file
+#      edit without touching the checkout;
+#  12. --only with a test target alone keeps its unselected source dependency
+#      in the pruned tier, so its tests run;
+#  13. an --only name or a --measure-incremental target that matches nothing
+#      fails the run;
+#  14. a linux-tier.json the plan cannot read fails the run;
+#  15. a Skip line on a test target of a green build-all: not run, listed as
+#      skipped, not counted in the 5 % budget;
+#  16. --shared: a Skip line skips the package without building it; an --only
+#      name that matches no package fails the run.
 # Needs swift (SWIFT=..., or scripts/cmux-next/linux/setup-swift.sh), python3
 # and network access to github.com/apple.
 #
@@ -199,3 +216,186 @@ echo "ok 7 a scratch root inside the checkout is refused"
 [[ "$(porcelain)" == *"Packages/macOS/CmuxNext/Package.resolved"* ]] \
   || fail "control: an in-checkout Linux resolve did not touch Package.resolved"
 echo "ok 8 control: an in-checkout Linux resolve rewrites Package.resolved"
+
+# ---- the runner (p15-oracle-004): receipt, errors queue, [ linux ] lines ----
+git -C "$repo" checkout -q -- Packages # the committed pins (check 6 made them agree)
+mkdir -p "$repo/scripts/cmux-next/oracle" "$repo/tests/oracle/Expectations.d" \
+  "$pkg/Sources/Bad" "$pkg/Tests/TierTests" "$pkg/Tests/BadTests"
+cp "$root/scripts/cmux-next/linux/errors_queue.py" "$repo/scripts/cmux-next/linux/"
+cp "$root/scripts/cmux-next/oracle/expectations.py" "$repo/scripts/cmux-next/oracle/"
+# Like the CmuxNext manifest's Linux mode (p15-oracle-002), the fixture keeps
+# only the targets linux-tier.json names, so the runner can prune red ones.
+python3 -I - "$pkg/Package.swift" <<'PY'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    text = f.read()
+text = text.replace(
+    '    targets: [.target(name: "Tier", dependencies: tierDependencies)]',
+    '    targets: tierTargets',
+)
+text = text.replace(
+    "let package = Package(",
+    '''var tierTargets: [Target] = [
+    .target(name: "Tier", dependencies: tierDependencies),
+    .target(name: "Bad"),
+    .testTarget(name: "TierTests", dependencies: ["Tier"]),
+    .testTarget(name: "BadTests", dependencies: ["Bad"]),
+]
+let tierFile = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("linux-tier.json")
+if linux, let data = try? Data(contentsOf: tierFile),
+   let tier = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+    let waves = (tier["waves"] as? [[String]] ?? []).flatMap { $0 }
+    let keep = Set(waves + (tier["testTargets"] as? [String] ?? []))
+    tierTargets = tierTargets.filter { keep.contains($0.name) }
+}
+let package = Package(''',
+)
+with open(path, "w") as f:
+    f.write(text)
+PY
+cat >"$pkg/linux-tier.json" <<'EOF'
+{
+  "waves": [["Tier", "Bad"]],
+  "testTargets": ["TierTests", "BadTests"]
+}
+EOF
+cat >"$pkg/Sources/Bad/Bad.swift" <<'EOF'
+public let bad: Int = "not an int"
+EOF
+cat >"$pkg/Tests/TierTests/TierTests.swift" <<'EOF'
+import Testing
+@testable import Tier
+@Test func queueStartsEmpty() { #expect(tierQueue.isEmpty) }
+@Test func queueCountIsZero() { #expect(tierQueue.count == 0) }
+EOF
+cat >"$pkg/Tests/BadTests/BadTests.swift" <<'EOF'
+import Testing
+@testable import Bad
+@Test func badIsSet() { #expect(bad == 1) }
+EOF
+git -C "$repo" add -A
+commit runner-fixture
+runner() {
+  CMUX_LINUX_OUT="$work/out" tier --all --receipt "$work/receipt.json" --errors-queue "$work/queue.jsonl" \
+    --jobs 8 --workers 4 "$@"
+}
+# receipt_check CODE: run the Python CODE with `receipt` and `queue` loaded;
+# CODE calls want(condition, what).
+receipt_check() {
+  python3 -I - "$work/receipt.json" "$work/queue.jsonl" "$1" <<'PY' || fail "receipt: $(cat "$work/runner.out")"
+import json, sys
+with open(sys.argv[1]) as f:
+    receipt = json.load(f)
+with open(sys.argv[2]) as f:
+    queue = [json.loads(line) for line in f]
+def want(cond, what):
+    if not cond:
+        sys.exit(f"{what}: {json.dumps(receipt, indent=1)[:3000]}\n{queue}")
+exec(sys.argv[3])
+PY
+}
+# expect_lines LINE...: the fixture's swift-tier.txt holds exactly these lines.
+expect_lines() {
+  printf '%s\n' "$@" >"$repo/tests/oracle/Expectations.d/swift-tier.txt"
+  git -C "$repo" add -A
+  commit "expectations: $*"
+}
+
+if runner >"$work/runner.out" 2>&1; then fail "a compile error without a [ linux ] line exited 0: $(cat "$work/runner.out")"; fi
+receipt_check '
+want(receipt["ok"] is False, "ok")
+want([u["case"] for u in receipt["unexpected"]] == ["Bad"], "only the compile error is unexpected")
+want(receipt["targets"]["built"] == ["Tier"], "built")
+want(receipt["targets"]["failed"] == ["Bad"], "failed")
+want(receipt["test_targets"]["blocked"] == ["BadTests"], "blocked")
+want(receipt["test_targets"]["run"] == ["TierTests"], "run")
+want(receipt["tests"]["executed"] == 2 and receipt["tests"]["passed"] == 2, "tests")
+want(receipt["checkout_resolved_unchanged"] is True, "resolved")
+want(receipt["sha"] and receipt["toolchain"].startswith("Swift version"), "header")
+compile_entries = [q for q in queue if q["kind"] == "compile"]
+want(len(compile_entries) == 1 and compile_entries[0]["target"] == "Bad", "queue")
+want(compile_entries[0]["files"][0]["path"] == "Packages/macOS/CmuxNext/Sources/Bad/Bad.swift", "queue path")
+'
+[[ -z "$(porcelain)" ]] || fail "the runner changed the checkout: $(porcelain)"
+echo "ok 9 a compile error fails the run and lands in the queue under its target"
+
+expect_lines 'p15-oracle-004 [ linux ] swift-tier/Bad [ Failure ]  # fixture: Bad does not compile'
+if runner >"$work/runner.out" 2>&1; then fail "a line on Bad hid its blocked BadTests: $(cat "$work/runner.out")"; fi
+grep -q 'UNEXPECTED Failure: swift-tier/BadTests (test blocked by Bad)' "$work/runner.out" \
+  || fail "no blocked red for BadTests: $(cat "$work/runner.out")"
+expect_lines 'p15-oracle-004 [ linux ] swift-tier/Bad [ Failure ]  # fixture: Bad does not compile' \
+  'p15-oracle-004 [ linux ] swift-tier/BadTests [ Failure ]  # fixture: blocked by Bad'
+runner >"$work/runner.out" 2>&1 || fail "expected failures still failed the run: $(cat "$work/runner.out")"
+grep -qx 'OK' "$work/runner.out" || fail "no OK line: $(cat "$work/runner.out")"
+echo "ok 10 a line on a target fails the run until its blocked dependent has its own line"
+
+runner --only Tier,TierTests --measure-incremental Tier >"$work/runner.out" 2>&1 \
+  || fail "--only run failed: $(cat "$work/runner.out")"
+receipt_check '
+inc = receipt["incremental"]
+want(inc and inc["target"] == "Tier" and inc["status"] == "pass", "incremental")
+want(receipt["targets"]["built"] == ["Tier"], "built")
+'
+[[ -z "$(porcelain)" ]] || fail "--measure-incremental changed the checkout: $(porcelain)"
+echo "ok 11 --only and --measure-incremental time a one-file edit on a private copy"
+
+runner --only TierTests >"$work/runner.out" 2>&1 || fail "--only TierTests failed: $(cat "$work/runner.out")"
+receipt_check '
+want(receipt["test_targets"]["run"] == ["TierTests"] and receipt["tests"]["passed"] == 2, "TierTests ran")
+want(receipt["setup"]["passed"] == ["resolve", "test-product"], "the test product linked")
+'
+echo "ok 12 --only with a test target keeps its source dependency in the tier"
+
+if runner --only Tier,Typo >"$work/runner.out" 2>&1; then fail "--only Typo exited 0: $(cat "$work/runner.out")"; fi
+receipt_check 'want(receipt["targets"]["missing"] == ["Typo"] and receipt["targets"]["built"] == ["Tier"], "missing Typo")'
+if runner --only Tier --measure-incremental Nope >"$work/runner.out" 2>&1; then
+  fail "--measure-incremental Nope exited 0: $(cat "$work/runner.out")"
+fi
+receipt_check 'want([(u["case"], u["what"]) for u in receipt["unexpected"]] == [("Nope", "incremental build")], "Nope")'
+echo "ok 13 an --only or --measure-incremental name that matches nothing fails the run"
+
+printf '{ broken\n' >"$pkg/linux-tier.json"
+commit broken-tier
+if runner >"$work/runner.out" 2>&1; then fail "an unreadable linux-tier.json exited 0: $(cat "$work/runner.out")"; fi
+receipt_check 'want(receipt["setup"]["failed"] == ["plan"], "plan setup red")'
+echo "ok 14 a linux-tier.json the plan cannot read fails the run"
+
+cat >"$pkg/linux-tier.json" <<'EOF'
+{
+  "waves": [["Tier"]],
+  "testTargets": ["TierTests"]
+}
+EOF
+commit green-tier
+expect_lines 'p15-oracle-004 [ linux ] swift-tier/TierTests [ Skip ]  # fixture: a green build-all with a Skip line'
+runner >"$work/runner.out" 2>&1 || fail "a Skip line failed a green run: $(cat "$work/runner.out")"
+receipt_check '
+want("build-all" in receipt["wall_seconds"] and "build-targets" not in receipt["wall_seconds"], "the green build-all path ran")
+want(receipt["test_targets"]["skipped"] == ["TierTests"] and receipt["test_targets"]["run"] == [], "TierTests skipped")
+want(receipt["cases"]["TierTests"]["build"] == "skip" and not receipt["linux_share_over_budget"], "no budget red")
+'
+echo "ok 15 a Skip line on a green build-all keeps the test target out of the run"
+
+mini="$repo/Packages/Shared/Mini"
+mkdir -p "$mini/Sources/Mini"
+cat >"$mini/Package.swift" <<'EOF'
+// swift-tools-version:6.0
+import PackageDescription
+let package = Package(name: "Mini", targets: [.target(name: "Mini")])
+EOF
+echo 'public let mini: Int = "not an int"' >"$mini/Sources/Mini/Mini.swift"
+printf '%s\n' 'p15-oracle-004 [ linux ] swift-shared/Mini [ Skip ]  # fixture: never built' \
+  >"$repo/tests/oracle/Expectations.d/swift-shared.txt"
+git -C "$repo" add -A
+commit shared-fixture
+shared() {
+  CMUX_LINUX_OUT="$work/out" tier --shared --receipt "$work/receipt.json" --errors-queue "$work/queue.jsonl" \
+    --jobs 8 --workers 4 "$@"
+}
+shared --only Mini >"$work/runner.out" 2>&1 || fail "a skipped package failed the run: $(cat "$work/runner.out")"
+receipt_check 'want(receipt["packages"]["skipped"] == ["Mini"] and receipt["packages"]["built"] == [], "Mini skipped")'
+if shared --only Mini,Typo >"$work/runner.out" 2>&1; then fail "shared --only Typo exited 0: $(cat "$work/runner.out")"; fi
+receipt_check 'want(receipt["targets"]["missing"] == ["Typo"], "missing Typo")'
+[[ -z "$(porcelain)" ]] || fail "the shared runner changed the checkout: $(porcelain)"
+echo "ok 16 --shared honors Skip lines and fails on an --only name that matches nothing"

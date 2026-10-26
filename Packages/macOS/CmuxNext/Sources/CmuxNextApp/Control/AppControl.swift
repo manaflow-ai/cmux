@@ -119,12 +119,11 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
-        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
-        service.router.register(DebugHibernationControl.methods(services))
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { service.router.register([DaemonWireControl(stats: wireStats).method]) }
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])

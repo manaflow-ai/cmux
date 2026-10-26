@@ -419,9 +419,9 @@ public final class TerminalSurfaceView: NSView {
     /// A rough app-side memory cost of this surface for the resource hover
     /// card: its drawable (three BGRA buffers) plus the GPU cell buffers
     /// (about 64 bytes per cell). Ghostty does not report its own
-    /// allocations (font atlas, parser state), so this is a lower bound.
-    public var memoryEstimateBytes: UInt64 {
-        guard let surface else { return 0 }
+    /// allocations (font atlas, parser state), so this is a lower bound. Nil before attach or after free.
+    public var memoryEstimateBytes: UInt64? {
+        guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let pixels = UInt64(size.width_px) * UInt64(size.height_px)
         let cells = UInt64(size.columns) * UInt64(size.rows)
