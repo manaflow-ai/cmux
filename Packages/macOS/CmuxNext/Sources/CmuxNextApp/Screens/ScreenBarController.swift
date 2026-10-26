@@ -42,7 +42,7 @@ final class ScreenBarController {
     /// - Parameter node: The node the bar follows its screens under; nil: the workspace's, else the bar's own.
     init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
-        view =TabStripView(model: model, input: content.services.inputTap)
+        view = TabStripView(model: model, input: content.services.inputTap)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false

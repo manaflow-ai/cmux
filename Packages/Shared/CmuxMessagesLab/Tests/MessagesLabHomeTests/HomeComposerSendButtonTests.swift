@@ -278,7 +278,7 @@ import Testing
         #expect(hit == Self.identifier, "the window's hit test at the button's centre found \(hit ?? "no element")")
         let focused = h.window.makeFirstResponder(chrome)
         #expect(focused, "Full Keyboard Access: the send button takes the keyboard focus")
-        let element = h.window.accessibilityFocusedUIElement() as? NSAccessibilityElement
+        let element = h.window.accessibilityFocusedUIElement as? NSAccessibilityElement
         let focusedID = element?.accessibilityIdentifier()
         let isFocused = element?.isAccessibilityFocused() == true
         let parentIsChrome = element?.accessibilityParent().map { $0 as AnyObject } === chrome
