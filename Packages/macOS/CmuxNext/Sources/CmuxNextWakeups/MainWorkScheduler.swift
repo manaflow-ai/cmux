@@ -65,7 +65,7 @@ public final class MainWorkScheduler {
         }
     }
 
-    /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
+    /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:targetTimestamp:)``,
     /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
     ///
     /// - Parameters:
@@ -80,8 +80,9 @@ public final class MainWorkScheduler {
                           renderPasses: nil)
     }
 
-    /// One display frame (the link's tick; tests call it directly).
-    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
-        frames.frameDidFire(timestamp: timestamp, refreshInterval: refreshInterval)
+    /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when it is shown.
+    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil,
+                             targetTimestamp: CFTimeInterval? = nil) {
+        frames.frameDidFire(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
     }
 }
