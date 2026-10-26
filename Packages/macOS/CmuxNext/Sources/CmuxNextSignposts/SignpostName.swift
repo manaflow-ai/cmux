@@ -291,6 +291,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
     /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
     case inputFrame = 55
+    /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
+    /// into the app's input dispatch by p04-input-005): a point event when its slot closes, at the presented estimate
+    /// of the frame that shows it (the turn's commit for a view, the target's own content submission for a terminal
+    /// or a page), so it never runs as an interval across turns. Message (``InputLatencySignpostMessage``, numbers
+    /// only): `kind target entry source vrr coalesced frame gen_ns`, then each stage in microseconds after `gen_ns`, -1
+    /// when skipped: `last_gen_us arrived_us dispatch_start_us ti_start_us ti_end_us dispatch_end_us commit_us
+    /// content_us daemon_us pty_us echo_read_us echo_sent_us presented_us`. Ring: instant, "estimated" when the
+    /// presented time is a vsync estimate (not when it was skipped); arg0 packs kind | target << 8 | entrypoint << 16
+    /// | source << 24 | caused frame update << 32 | variable refresh << 33, arg1 the generated-to-presented time in us
+    /// (0 when presented was skipped). Id 82: ids are append-only and 69-81 were taken first.
+    case inputLatency = 82
 
     // MARK: webview (reserved: task 114, PL-telemetry)
     /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
@@ -479,6 +490,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .hangInProgress: "hang.in_progress"
         case .hangInvalidated: "hang.invalidated"
         case .inputFrame: "input.frame"
+        case .inputLatency: "input.latency"
         case .webviewINP: "webview.inp"
         case .webviewLoAF: "webview.loaf"
         case .remoteInput: "remote.input"
