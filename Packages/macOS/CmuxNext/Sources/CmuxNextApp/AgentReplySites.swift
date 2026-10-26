@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextFavicons
 import CmuxNextRemoteFetch
 import CmuxNextSettings
@@ -63,7 +64,7 @@ struct AgentReplySites {
     }
 
     static func png(_ image: NSImage) -> Data? {
-        image.cgImage(forProposedRect: nil, context: nil, hints: nil).flatMap { Self.png($0) }
+        image.bestCGImage.flatMap { Self.png($0) }
     }
 
     static func png(_ cgImage: CGImage) -> Data? {

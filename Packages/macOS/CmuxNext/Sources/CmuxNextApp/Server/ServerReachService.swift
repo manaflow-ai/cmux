@@ -310,11 +310,13 @@ final class ServerReachService {
         guard FileManager.default.fileExists(atPath: socket) else { return nil }
         var names: [String] = []
         var buffer = [CChar](repeating: 0, count: 256)
-        if gethostname(&buffer, buffer.count) == 0 {
+        // SAFETY: gethostname writes at most buffer.count bytes into the array's storage, live for the call.
+        if unsafe gethostname(&buffer, buffer.count) == 0 {
             names.append(String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
         }
         if let local = SCDynamicStoreCopyLocalHostName(nil) as String? { names.append(local) }
-        if let computer = SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
+        // SAFETY: the encoding pointer is nil, so SCDynamicStoreCopyComputerName writes no caller memory.
+        if let computer = unsafe SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
         let short = names.compactMap { $0.split(separator: ".").first.map(String.init) }.filter { !$0.isEmpty }
         return short.isEmpty ? nil : ServerReachPlan.LocalServer(hostNames: short, brainSocket: socket)
     }

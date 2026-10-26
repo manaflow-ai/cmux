@@ -1,3 +1,4 @@
+import struct CmuxNextDaemon.POSIXErrorText
 import CryptoKit
 import Darwin
 import Foundation
@@ -46,19 +47,22 @@ nonisolated enum FileDocument {
     static func read(_ url: URL, inWorkspace: Bool, maximumBytes: Int = maximumBytes) throws(FileOpenFailure) -> FileSnapshot {
         let real = url.standardizedFileURL.resolvingSymlinksInPath()
         var info = stat()
-        guard stat(real.path, &info) == 0 else { throw .notFound }
+        // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe stat(real.path, &info) == 0 else { throw .notFound }
         guard info.st_mode & S_IFMT == S_IFREG else { throw .notFile }
         guard Int(info.st_size) <= maximumBytes else { throw .tooLarge }
         // concurrency-allow: FileDocument is nonisolated; the pages call it from @concurrent functions only
         guard let bytes = try? Data(contentsOf: real, options: .mappedIfSafe) else { throw .notFound }
         let (text, exact) = decode(bytes)
+        // SAFETY: access (the permission case) reads the NUL-terminated copy of the path made for the call.
         let reason: FileReadOnlyReason? = if isBinary(bytes) {
             .binary
         } else if !exact {
             .encoding
         } else if !inWorkspace {
             .outside
-        } else if access(real.path, W_OK) != 0 {
+        } else if unsafe access(real.path, W_OK) != 0 {
             .permission
         } else {
             nil
@@ -103,7 +107,7 @@ nonisolated enum FileDocument {
     nonisolated struct WriteError: Error, CustomStringConvertible {
         let step: String
         let code: Int32
-        var description: String { "\(step): \(String(cString: strerror(code)))" }
+        var description: String { "\(step): \(POSIXErrorText(code))" }
     }
 
     /// Writes `bytes` to a temporary file beside `target`, gives it the file's permissions and
@@ -112,21 +116,25 @@ nonisolated enum FileDocument {
         let folder = target.deletingLastPathComponent()
         let temporary = folder.appending(path: ".\(target.lastPathComponent).cmux-save-\(UUID().uuidString.prefix(8))")
         var info = stat()
-        let exists = stat(target.path, &info) == 0
+        // SAFETY: stat, open, unlink and rename read the NUL-terminated copies of the paths Swift makes for each
+        // call; stat writes one struct stat into `info`, a local live for the call.
+        let exists = unsafe stat(target.path, &info) == 0
         let mode = exists ? mode_t(info.st_mode & 0o7777) : 0o644
-        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
+        let descriptor = unsafe open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
         guard descriptor >= 0 else { throw WriteError(step: "open", code: errno) }
         var renamed = false
         defer {
-            if !renamed { unlink(temporary.path) }
+            if !renamed { unsafe unlink(temporary.path) }
         }
         do {
             defer { close(descriptor) }
-            try bytes.withUnsafeBytes { buffer in
+            // SAFETY: the view is the Data's bytes for the closure; each write(2) reads from `offset`, which stays
+            // below buffer.count, for the bytes left before buffer.count, so no read leaves the view.
+            try unsafe bytes.withUnsafeBytes { buffer in
                 var offset = 0
-                while offset < buffer.count {
+                while unsafe offset < buffer.count {
                     // concurrency-allow: atomicWrite runs inside FileDocument.save, which the pages call from @concurrent functions
-                    let written = write(descriptor, buffer.baseAddress?.advanced(by: offset), buffer.count - offset)
+                    let written = unsafe write(descriptor, buffer.baseAddress?.advanced(by: offset), buffer.count - offset)
                     if written < 0 {
                         if errno == EINTR { continue }
                         throw WriteError(step: "write", code: errno)
@@ -141,26 +149,29 @@ nonisolated enum FileDocument {
             }
             guard fsync(descriptor) == 0 else { throw WriteError(step: "fsync", code: errno) }
         }
-        guard rename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
+        guard unsafe rename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
         renamed = true
     }
 
     /// Copies every extended attribute of `path` (tags, the quarantine flag, a Finder comment).
     /// An attribute that fails to copy is skipped: the text still saves.
     private static func copyExtendedAttributes(from path: String, to descriptor: Int32) {
-        let size = listxattr(path, nil, 0, XATTR_NOFOLLOW)
+        // SAFETY: each listxattr, getxattr and fsetxattr call reads the NUL-terminated copies of `path` and `key`
+        // made for the call; a nil buffer only asks for the size, and a buffer passed is an array of exactly
+        // the size given (names: size, value: at least length), live for the call.
+        let size = unsafe listxattr(path, nil, 0, XATTR_NOFOLLOW)
         guard size > 0 else { return }
         var names = [CChar](repeating: 0, count: size)
-        guard listxattr(path, &names, size, XATTR_NOFOLLOW) == size else { return }
+        guard unsafe listxattr(path, &names, size, XATTR_NOFOLLOW) == size else { return }
         let joined = names.split(separator: 0, omittingEmptySubsequences: true)
         for name in joined {
             let key = String(decoding: name.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            let length = getxattr(path, key, nil, 0, 0, XATTR_NOFOLLOW)
+            let length = unsafe getxattr(path, key, nil, 0, 0, XATTR_NOFOLLOW)
             guard length >= 0 else { continue }
             var value = [UInt8](repeating: 0, count: max(length, 1))
-            let read = getxattr(path, key, &value, length, 0, XATTR_NOFOLLOW)
+            let read = unsafe getxattr(path, key, &value, length, 0, XATTR_NOFOLLOW)
             guard read == length else { continue }
-            _ = fsetxattr(descriptor, key, value, length, 0, 0)
+            _ = unsafe fsetxattr(descriptor, key, value, length, 0, 0)
         }
     }
 }

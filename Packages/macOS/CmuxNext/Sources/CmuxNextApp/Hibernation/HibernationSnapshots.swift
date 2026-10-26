@@ -176,11 +176,13 @@ final class HibernationSnapshots {
     nonisolated static func isOpaque(_ image: CGImage) -> Bool {
         if [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) { return true }
         let side = 32
-        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let pixels = context.data?.bindMemory(to: UInt8.self, capacity: side * side * 4) else { return false }
+        guard let context = CGContext.bitmapOwningPixels(width: side, height: side, bytesPerRow: side * 4,
+                                                         space: CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-        return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[$0] == 255 }
+        // The sample's bytes are read back as a copy (rows of exactly side * 4 bytes), not through the context's buffer.
+        guard let pixels = context.makeImage()?.dataProvider?.data as Data?, pixels.count >= side * side * 4 else { return false }
+        return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[pixels.startIndex + $0] == 255 }
     }
 }
 
