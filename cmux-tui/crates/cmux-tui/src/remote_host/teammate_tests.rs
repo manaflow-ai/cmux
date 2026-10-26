@@ -569,6 +569,7 @@ fn every_config_write_goes_through_commit() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/remote_host");
     let mut scanned = 0;
     let mut callers = 0;
+    let mut restarting = std::collections::BTreeSet::new();
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -578,11 +579,20 @@ fn every_config_write_goes_through_commit() {
         let source = std::fs::read_to_string(&path).unwrap();
         scanned += 1;
         callers += source.matches("Listener::Caller").count();
+        for (at, _) in source.match_indices("Listener::Restart") {
+            restarting.insert(format!("{name}:{}", enclosing_fn(&source, at)));
+        }
         let found = bypasses(&source);
         assert!(found.is_empty(), "{name}: {found:?}; write the config through config::commit");
     }
     assert!(scanned >= 10, "read the remote_host sources ({scanned})");
     assert_eq!(callers, 2, "enable and disable each pass Listener::Caller once");
+    // allow/deny, grant, revoke, and share/unshare (`shares::run`) restart a running listener.
+    assert_eq!(
+        restarting.into_iter().collect::<Vec<_>>(),
+        ["mod.rs:edit_allow", "mod.rs:grant_access", "mod.rs:revoke_access", "shares.rs:run"],
+        "every verb but enable and disable commits with Listener::Restart"
+    );
     // The scan catches a new verb's plain write, an unlocked write by path, and a moved Caller.
     let by_name = r#"fn pause() { std::fs::write(config::dir()?.join("remote.json"), b"{}"); }"#;
     assert!(!bypasses(by_name).is_empty());
