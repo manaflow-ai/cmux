@@ -9,7 +9,8 @@
 # count fewer tests than the log shows starting, or when any started test never
 # finished. Names are counted across the whole log, so a truncation that only
 # loses tests another target already ran and summarized still reads as a pass;
-# that one needs per-summary-block bookkeeping and is not covered here.
+# that one needs per-summary-block bookkeeping and is not covered here. The
+# reporter lines are read anchored, so a test cannot report itself finished.
 # A test still running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
 # No Swift: a stub `swift` prints canned Swift Testing output.
 set -euo pipefail
@@ -259,19 +260,37 @@ run knownissue 0
 [[ "$status" == 0 ]] || fail "a test that passed with a known issue exited $status" "$out"
 [[ "$out" != *"::error"* ]] || fail "a test that passed with a known issue printed an error" "$out"
 
-# A test that writes to stderr without a trailing newline runs its own output into
-# the next reporter line. The markers are read wherever they are on the line, so the
-# finish still counts and the whole run stays green. The summary line too.
+# The reporter lines are read anchored at the start of the line, and these two cases
+# are the two sides of that choice.
+#
+# A test's own output is never read as a reporter event. A test that writes
+# "✔ Test hung() passed after ..." cannot mark itself finished, so a truncated run
+# still fails: that is the failure this whole check exists to prevent, and a marker
+# matched anywhere on the line would let a hung test hide behind its own output.
+cat > "$TMP/selfreport.out" <<'EOF'
+◇ Test hung() started.
+debug: ✔ Test hung() passed after 0.001 seconds.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run selfreport 0
+[[ "$status" != 0 ]] || fail "a test that printed its own finish line passed as finished" "$out"
+grep '^::error' <<<"$out" | grep -q 'hung()' || fail "the error does not name the test that never finished" "$out"
+if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a finished test" "$out"; fi
+
+# The other side: a test that writes without a trailing newline runs its output into
+# the next reporter line, so that finish is not seen and the run fails naming it. A
+# red naming the exact test, never a silent pass. Of ~12000 marker lines across three
+# real job logs every one was anchored, so this shape is the rarer of the two.
 cat > "$TMP/runon.out" <<'EOF'
 ◇ Test aPasses() started.
 progress: ✔ Test aPasses() passed after 0.001 seconds.
-◇ Test bPasses() started.
-✔ Test bPasses() passed after 0.001 seconds.
-still writing... ✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
 EOF
 run runon 0
-[[ "$status" == 0 ]] || fail "a log whose output ran into the reporter lines exited $status" "$out"
-[[ "$out" != *"::error"* ]] || fail "a log whose output ran into the reporter lines printed an error" "$out"
+[[ "$status" != 0 ]] || fail "a finish line the output ran into was read as a finish" "$out"
+grep '^::error' <<<"$out" | grep -q 'aPasses()' || fail "the error does not name the test whose finish was swallowed" "$out"
 
 # One test hangs while the others finish: past CMUX_NEXT_TEST_STUCK_SECONDS the
 # run fails within seconds, not at the whole-run limit, and one ::error names

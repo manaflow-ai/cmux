@@ -178,45 +178,41 @@ report() {
       if (count > max) out = out "; and " (count - max) " more"
       return out
     }
-    # A test writing to stderr without a trailing newline runs its own output into the next
-    # reporter line ("progress: ✔ Test a() passed after ..."), so a marker is looked for anywhere
-    # on the line, not only at its start. Starts, finishes and the summary are all read from this
-    # one normalized form: catching the start of a test and missing its finish is exactly what
-    # makes a whole run look truncated. A line with no marker is left alone, so nothing matches
-    # less than it did before.
-    # The markers are spelled as whole alternatives, never as a bracket expression: an awk in a
-    # byte locale reads [◇✔✘➜] as the SET OF BYTES those four characters are made of, and every
-    # one of them ends in a byte that is also in that set, so the match landed mid-character and
-    # the normalized line began with half a marker.
-    {
-      marked = $0
-      marker_at = match($0, /(◇|✔|✘|➜) Test /)
-      if (marker_at > 1) marked = substr($0, marker_at)
-    }
-    marked ~ /^✘ Test .* recorded an issue at / {
-      name = name_of(marked)
+    # Every rule below is anchored at the start of the line, deliberately. A reporter marker found
+    # ANYWHERE on the line would read the output of a test as a reporter event too, so a test that
+    # writes "debug: ✔ Test hung() passed after 0.001 seconds." could mark itself finished and a
+    # truncated run would pass -- the one failure this whole check exists to prevent. Anchoring
+    # trades that for the opposite risk: a test that writes without a trailing newline runs its
+    # output into the next reporter line, that finish is not seen, and the start of it makes a
+    # whole run look truncated. That is a red naming the exact test rather than silence, so it is
+    # the better of the two. Measured before choosing: of ~12000 marker lines across three real job
+    # logs (a healthy run, the #23680 truncation and the live #25364 one) every one was anchored,
+    # so the run-on shape is hypothetical while the false pass defeats the gate.
+    /^✘ Test .* recorded an issue at / {
+      name = name_of($0)
       if (!(name in red)) {
-        at = marked; sub(/.* recorded an issue at /, "", at); sub(/:[0-9]+: .*$/, "", at)
+        at = $0; sub(/.* recorded an issue at /, "", at); sub(/:[0-9]+: .*$/, "", at)
         red[name] = 1; reds[++red_count] = name " " at
       }
     }
-    marked ~ /^◇ Test .* started\.$/ && marked !~ /^◇ Test case passing / && marked !~ /^◇ Test run started\.$/ {
-      name = name_of(marked)
+    /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
+      name = name_of($0)
       if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
     }
     # "✘ Test f() passed after 0.001 seconds with 1 known issue." is a test that FINISHED and
     # passed: a ✘ finish is not only a failure, so both verbs are accepted here. Reading it as
     # unfinished would fail a whole run.
-    marked ~ /^✔ Test / || marked ~ /^✘ Test .* (passed|failed) after / || marked ~ /^➜ Test / {
-      finished[name_of(marked)] = 1
+    /^✔ Test / || /^✘ Test .* (passed|failed) after / || /^➜ Test / {
+      finished[name_of($0)] = 1
     }
-    marked ~ /^[^ ]+ Test run with [0-9]+ tests? / {
+    /^[^ ]+ Test run with [0-9]+ tests? / {
       has_summary = 1
       # "✔ Test run with 399 tests in 80 suites passed after ...". Taken out of the text rather
-      # than as a field, so a line the normalization had to shift still reads right.
-      # Summed, not assigned: one log can hold a summary per test target, and the starts are
-      # counted across all of them, so only the total is comparable with start_count.
-      counted = marked
+      # than as field $5, which says what it reads.
+      # Summed, not assigned: one log can hold a summary per test target (the live #25364 step
+      # holds dozens, one per isolated suite), and the starts are counted across all of them, so
+      # only the total is comparable with start_count.
+      counted = $0
       sub(/^[^ ]+ Test run with /, "", counted); sub(/ .*$/, "", counted)
       summary_tests += counted + 0
     }
