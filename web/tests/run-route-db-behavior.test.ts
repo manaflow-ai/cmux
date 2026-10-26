@@ -521,19 +521,14 @@ describe("sandboxed Run create (hq#3367)", () => {
       const retry = await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
       expect(retry.status).toBe(202);
       expect(await json(retry)).toMatchObject({ id: first.id, image: { id: "sh-retired-default" } });
-      // A replay launches the Run's own pinned image, never one it resolved itself.
+      // A replay launches nothing: the original request's launcher owns the attempt (and the sweep
+      // fails it if that process died), whatever the attempt's state.
       sandboxLaunches.length = 0;
       await sql!`update run_attempts set status = 'queued' where run_id = ${first.id}`;
-      await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(sandboxLaunches.map((launch) => launch.image.id)).toEqual(["sh-retired-default"]);
-      // A replay under another team's scope launches nothing.
-      sandboxLaunches.length = 0;
-      await sql!`update runs set billing_team_id = 'some-other-team' where id = ${first.id}`;
-      await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
+      const queuedRetry = await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
+      expect((await json<{ id: string }>(queuedRetry)).id).toBe(first.id);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(sandboxLaunches).toEqual([]);
-      await sql!`update runs set billing_team_id = ${TEAM_ID} where id = ${first.id}`;
       // The same key with another task is a conflict, not a second Run.
       const other = await createRunRoute.POST(sandboxRequest(key, { task: "something else" }));
       expect(other.status).toBe(409);
@@ -569,8 +564,7 @@ describe("sandboxed Run create (hq#3367)", () => {
       // so its retry below runs under the deployment's allowlist.
       const replayKey = `sandbox-${randomUUID()}`;
       const replayed = await json<{ id: string }>(await createRunRoute.POST(sandboxRequest(replayKey, { task: "x" })));
-      // It launched (the launcher is mocked in this suite): its attempt is no longer queued.
-      await sql!`update run_attempts set status = 'running' where run_id = ${replayed.id}`;
+      // Its attempt is still queued (the launcher is mocked in this suite): a retry must still recover it.
       // A deployment allows only the accounts it names.
       const saved = { vercel: process.env.VERCEL, users: process.env.CMUX_RUN_SANDBOX_USER_IDS };
       process.env.VERCEL = "1";

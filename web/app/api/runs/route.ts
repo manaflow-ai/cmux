@@ -146,17 +146,17 @@ function runRequestDigest(parsed: ParsedRunBody): string {
 }
 
 /**
- * A retry of a sandboxed Run that already launched answers that Run before any check that can
- * change between the two requests (provisioning scope, the allocation rate limit, the allowlist):
- * a lost create response must always be recoverable under its key. A Run still queued, or a
- * different request under the key, goes the normal path (which launches it, or conflicts).
+ * A retry of a sandboxed Run answers that Run before any check that can change between the two
+ * requests (provisioning scope, the allocation rate limit, the allowlist): a lost create response
+ * must always be recoverable under its key. It launches nothing: the original request's
+ * after-response launcher does, and if that process died, the abandoned-sandbox sweep fails a
+ * Run left queued. A different request under the key goes the normal path (and conflicts).
  */
 async function replaySandboxRun(parsed: ParsedRunBody, userId: string, idempotencyKey: string): Promise<Response | null> {
   if (!parsed.sandbox) return null;
   const existing = await findRunByIdempotencyKey(userId, idempotencyKey);
   if (existing?.environment !== "sandboxed" || existing.requestDigest !== runRequestDigest(parsed)) return null;
   const snapshot = await getRun(existing.id, userId);
-  if (snapshot.attempts.some((attempt) => attempt.status === "queued")) return null;
   return runJson({
     id: snapshot.run.id,
     status: snapshot.run.status,
