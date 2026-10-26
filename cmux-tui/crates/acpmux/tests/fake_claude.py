@@ -175,9 +175,18 @@ def agent_failure(tool, kind="agent-503"):
           "summary": "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]})
 
 
+def extra_agents():
+    """FAKE_CLAUDE_EXTRA_503=N: "agent-503" starts N more agents, which fail on the 503 too."""
+    n = int(os.environ.get("FAKE_CLAUDE_EXTRA_503") or "0")
+    return [("toolu_c%d" % i, "c%015d" % i) for i in range(n)]
+
+
 def agent_failed(said):
     """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
     agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
+    for tool, task in extra_agents():
+        send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
+              "status": "failed", "output_file": "", "summary": AGENT_ERRORS["agent-503"]})
     send(init())
     if said.startswith("agent-503-held: "):
         import time
@@ -788,6 +797,13 @@ while True:
                   "content": "Async agent launched"}]}})
             send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_a503",
                   "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
+            for i, (tool, task) in enumerate(extra_agents()):
+                send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool, "name": "Agent",
+                      "input": {"description": "Extra %d" % i, "prompt": "Extra", "run_in_background": True}}]}})
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool,
+                      "content": "Async agent launched"}]}})
+                send({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool,
+                      "description": "Extra %d" % i, "task_type": "local_agent", "is_backgrounded": True})
         if 'SendMessage to "%s"' % AGENT_503 in said:
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_send", "name": "SendMessage",
                   "input": {"to": AGENT_503, "message": "Continue where you stopped."}}]}})

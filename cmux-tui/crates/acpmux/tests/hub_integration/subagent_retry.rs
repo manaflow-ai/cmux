@@ -297,3 +297,59 @@ async fn a_resume_of_a_forgotten_agent_ends_its_retry() {
     assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
     assert_eq!(user_messages(&hub, &id).len(), 2);
 }
+
+/// The last entry of every subagent a retry was scheduled for.
+fn last_entries(hub: &Hub, id: &str) -> Vec<Value> {
+    let mut subs: Vec<String> = records(hub, id)
+        .into_iter()
+        .filter(|e| e.kind == "subagent_retry")
+        .filter_map(|e| e.msg["subagentId"].as_str().map(str::to_owned))
+        .collect();
+    subs.sort();
+    subs.dedup();
+    subs.iter().filter_map(|s| entries_of(hub, id, s).last().cloned()).collect()
+}
+
+/// Closing a chat after a Stop, or after the attempts were used up, says no retry can work.
+#[tokio::test]
+async fn close_after_stop_or_giving_up_is_not_retryable() {
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    until(&hub, &id, |o| o.len() >= 2).await;
+    assert_eq!(last_entries(&hub, &id)[0]["retryable"], true);
+    hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
+    assert_eq!(last_entries(&hub, &id)[0]["retryable"], false, "stopped, then closed");
+
+    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
+    let (hub, _c, id) = chat_env("agent-503", vec![20], env).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(last_entries(&hub, &id)[0]["retryable"], true);
+    hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
+    assert_eq!(last_entries(&hub, &id)[0]["retryable"], false, "given up, then closed");
+}
+
+/// A chat keeps at most 32 failed subagents no retry waits for: past that, after a Stop or once
+/// the attempts are used up, the oldest is forgotten and says it can't be retried.
+#[tokio::test]
+async fn failures_past_the_limit_are_forgotten_after_a_stop_or_giving_up() {
+    let extra = || BTreeMap::from([("FAKE_CLAUDE_EXTRA_503".to_owned(), "32".to_owned())]);
+    let forgotten = |hub: &Hub, id: &str| {
+        last_entries(hub, id).iter().filter(|e| e["retryable"] == false).count()
+    };
+    // 33 waiting retries, then Stop.
+    let (hub, mut c, id) = chat_env("agent-503", vec![60_000], extra()).await;
+    let got = until(&hub, &id, |o| o.iter().filter(|o| *o == "scheduled").count() == 33).await;
+    assert_eq!(got.len(), 33, "{got:?}");
+    assert_eq!(forgotten(&hub, &id), 0);
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    until(&hub, &id, |o| o.len() >= 66).await;
+    assert_eq!(forgotten(&hub, &id), 1, "stopped");
+    // No automatic attempts: each is given up at once.
+    let (hub, _c, id) = chat_env("agent-503", vec![], extra()).await;
+    let got = until(&hub, &id, |o| o.len() >= 33).await;
+    assert!(got.iter().all(|o| o == "exhausted"), "{got:?}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(forgotten(&hub, &id), 1, "given up");
+}

@@ -42,7 +42,8 @@
 //!   `skipped` or `exhausted`.
 //! - A wait is not persisted: a daemon restart drops it. A chat keeps at most [`MAX_FAILED`]
 //!   failed subagents no retry waits for (given up or stopped, for a person's retry): past
-//!   that the oldest is forgotten. All go at close.
+//!   that the oldest is forgotten, checked whenever one fails, is stopped or is given up. All
+//!   go at close, each entry then `retryable: false`.
 
 use super::{Hub, PromptOptions, Session, SessionStatus};
 use crate::rpc::RpcError;
@@ -89,6 +90,8 @@ struct Failure {
     reason: &'static str,
     /// When it failed, in Unix ms.
     at: u64,
+    /// Stopped or given up: no automatic attempt comes (counted against [`MAX_FAILED`]).
+    idle: bool,
     wait: Option<Wait>,
 }
 
@@ -140,13 +143,11 @@ impl Retries {
     }
 }
 
-/// Past [`MAX_FAILED`] failed subagents no retry waits for, the oldest ones, taken.
+/// Past [`MAX_FAILED`] stopped or given-up failed subagents, the oldest ones, taken.
 fn forget_oldest(subs: &mut HashMap<String, Sub>) -> Vec<(String, Failure)> {
     let mut idle: Vec<(u64, String)> = subs
         .iter()
-        .filter_map(|(id, s)| {
-            Some((s.failed.as_ref().filter(|f| f.wait.is_none())?.at, id.clone()))
-        })
+        .filter_map(|(id, s)| Some((s.failed.as_ref().filter(|f| f.idle)?.at, id.clone())))
         .collect();
     idle.sort();
     let over = idle.len().saturating_sub(MAX_FAILED);
@@ -224,13 +225,11 @@ impl Hub {
                                 error: error.to_owned(),
                                 reason,
                                 at: crate::store::now_ms(),
+                                idle: false,
                                 wait: None,
                             });
                             subs.insert(id.to_owned(), sub);
                             schedule.push(id.to_owned());
-                            for (old, f) in forget_oldest(subs) {
-                                skipped.push((old, f, "forgotten", "failed", false));
-                            }
                         }
                     }
                     // Completed, cancelled or gone: nothing more to retry.
@@ -280,16 +279,19 @@ impl Hub {
             let mut all = self.subagent_retries.lock();
             let mut waits = Vec::new();
             if closed {
+                // Every failure goes, waiting or not: each entry then says it can't be retried.
                 for (id, sub) in all.subs.remove(&session.id).into_iter().flatten() {
-                    if let Some(f) = sub.failed.filter(|f| f.wait.is_some()) {
+                    if let Some(f) = sub.failed {
                         waits.push((id, f));
                     }
                 }
             } else {
+                // Waiting, or failed a moment ago with its first wait not planned yet.
                 for (id, sub) in all.subs.get_mut(&session.id).into_iter().flatten() {
-                    if let Some(f) = sub.failed.as_mut().filter(|f| f.wait.is_some()) {
+                    if let Some(f) = sub.failed.as_mut().filter(|f| !f.idle) {
                         waits.push((id.clone(), f.clone()));
                         f.wait = None;
+                        f.idle = true;
                     }
                 }
             }
@@ -299,6 +301,21 @@ impl Hub {
         for (id, failure) in waits {
             // After a Stop a person can still retry it; not after close.
             self.skip_wait(session, &id, failure, why, "failed", !closed);
+        }
+        if !closed {
+            self.forget_past_limit(session);
+        }
+    }
+
+    /// Forgets the chat's oldest failures past [`MAX_FAILED`] no retry waits for: each entry
+    /// then says it can't be retried.
+    fn forget_past_limit(&self, session: &Arc<Session>) {
+        let forgotten = match self.subagent_retries.lock().subs.get_mut(&session.id) {
+            Some(subs) => forget_oldest(subs),
+            None => return,
+        };
+        for (id, failure) in forgotten {
+            self.skip_wait(session, &id, failure, "forgotten", "failed", false);
         }
     }
 
@@ -318,16 +335,17 @@ impl Hub {
 
     /// Records the next attempt's wait and logs it (`scheduled`, or `exhausted` past the
     /// configured attempts): the wait and its delay in ms.
-    fn plan_retry(&self, session: &Session, id: &str, delays: &[u64]) -> Option<(Wait, u64)> {
+    fn plan_retry(&self, session: &Arc<Session>, id: &str, delays: &[u64]) -> Option<(Wait, u64)> {
         let (failure, wait, delay) = {
             let mut all = self.subagent_retries.lock();
             let sub = all.subs.get_mut(&session.id)?.get_mut(id)?;
             let attempts = sub.attempts;
-            let failure = sub.failed.as_mut().filter(|f| f.wait.is_none())?;
+            let failure = sub.failed.as_mut().filter(|f| f.wait.is_none() && !f.idle)?;
             let of = delays.len();
             let delay = match delays.get(attempts) {
                 Some(&delay) => super::auto_resume::staggered(delay, &session.id),
                 None => {
+                    failure.idle = true;
                     let failure = failure.clone();
                     drop(all);
                     let extra = json!({"attempt": attempts, "of": of});
@@ -344,6 +362,7 @@ impl Hub {
                             extra,
                         },
                     );
+                    self.forget_past_limit(session);
                     return None;
                 }
             };
@@ -617,7 +636,7 @@ mod tests {
         retries.start("other", || {}).unwrap();
     }
 
-    /// Past the limit the oldest failures no retry waits for go; a waiting one stays.
+    /// Past the limit the oldest stopped or given-up failures go; a waiting one stays.
     #[test]
     fn failed_subagents_past_the_limit_forget_only_the_oldest() {
         let failed = |at: u64, waiting: bool| Sub {
@@ -626,6 +645,7 @@ mod tests {
                 error: String::new(),
                 reason: "capacity",
                 at,
+                idle: !waiting,
                 wait: waiting.then(|| Wait {
                     attempt: 1,
                     of: 1,
