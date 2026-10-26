@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn classify_install_result_rejects_unsynchronized_thread() {
-        assert_eq!(classify_install_result(0, 0), Ok(()));
+        assert!(classify_install_result(0, 0).is_ok());
         assert_eq!(
             classify_install_result(-1, EACCES).unwrap_err().raw_os_error(),
             Some(EACCES)
