@@ -108,7 +108,8 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+kind, IDLE-BUDGET-UNCLASSIFIED <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
+`kind other != classified`), IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
 when the build has debug.wakeups, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
 POWER-OVER <owner> <mW>, a Markdown table, and --json with every sample.
@@ -140,8 +141,17 @@ UTILITY_KINDS = {"network.mojom.NetworkService": "cef-network", "storage.mojom.S
                  "audio.mojom.AudioService": "cef-audio"}
 
 
-def kind(cmd):
-    """The budget kind of a process of the app's set."""
+def kind(cmd, pid=None, window=None):
+    """The budget kind of a process of the app's set. With `pid` and `window` (WindowKinds: the window's process
+    tree and WebKit census) also what the command line alone cannot tell: a terminal's job, an agent's harness, and
+    whether a WebContent process runs cmux's own pages. `other:<executable>` is a process no rule names: an over
+    in every judged session (over_budget)."""
+    if window is not None and pid is not None:
+        for _parent, command in window.tree.ancestors(pid):
+            if "__terminal-host" in command:
+                return "terminal-job"  # the person's shell and what it runs, not cmux's work
+            if "__agent-host" in command:
+                return "agent-harness"
     if "__holder" in cmd:
         return "holder"
     if "__terminal-host" in cmd:
@@ -152,6 +162,8 @@ def kind(cmd):
         return "acpmux"
     if "--type=crashpad-handler" in cmd or "chrome_crashpad_handler" in cmd:
         return "crashpad"
+    if procs.CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
     chromium = tab_pages.chromium_kind(cmd)
     if chromium == "cef-utility":
         service = re.search(r"--utility-sub-type=(\S+)", cmd)
@@ -159,15 +171,43 @@ def kind(cmd):
     if chromium:
         return chromium
     if "com.apple.WebKit." in cmd:
-        return "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
+        service = "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
+        if service != "webkit-webcontent" or window is None or window.app_pages is None or pid is None:
+            return service
+        return "webkit-app-page" if pid in window.app_pages else "webkit-browser-tab"
     exe = cmd.split(" --", 1)[0]
+    if procs.CUA_HELPER_APP in exe:
+        return "cua-helper"
     if exe.count(".app/") == 1 and "/Contents/MacOS/" in exe:
         return "app"
     return "other:" + os.path.basename(exe.split()[0])[:32]
 
 
+class WindowKinds:
+    """`kind` of one window's processes, with what their command lines cannot tell: the process tree of the app's
+    set (`ps` rows [(pid, ppid, command)] of its processes only) for terminal jobs and agent harnesses, and `app_pages`, the WebContent pids of
+    cmux's own pages (webkit_app_pages), None when the build has no census (a WebContent stays webkit-webcontent)."""
+
+    def __init__(self, table, app_pages):
+        self.tree = procs.ProcessTree(table)
+        self.app_pages = app_pages
+
+    def __call__(self, cmd, pid=None):
+        return kind(cmd, pid, self)
+
+
+def webkit_app_pages(census):
+    """The WebContent pids of cmux's own pages and spares from a debug.webui reply (WebUICensus: `pages` and
+    `spares`, each with `webkit_pid`), or None when the build has no census. Any other WebContent of the app is a
+    browser tab's: WebKit browser tabs are the only other WKWebViews the app makes."""
+    if not isinstance(census.get("pages"), list):
+        return None
+    rows = census["pages"] + (census.get("spares") if isinstance(census.get("spares"), list) else [])
+    return {row["webkit_pid"] for row in rows if isinstance(row, dict) and isinstance(row.get("webkit_pid"), int)}
+
+
 def process_set(instance):
-    """{pid: command} of the app's processes plus their descendants (shells of the terminals are `other:`)."""
+    """{pid: command} of the app's processes plus their descendants (the terminals' jobs: `terminal-job`)."""
     found = dict(instance.pids())
     table = procs.process_table()
     children = {}
@@ -251,12 +291,15 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     last_pids = process_set(instance)
     last = snapshot(last_pids)
     power = window.finish() if window else None
+    # The tree of the set alone: a bench started from a cmux terminal must not make the app a terminal's job.
+    classify = WindowKinds([entry for entry in procs.process_table() if entry[0] in last_pids],
+                           webkit_app_pages(read_rpc(app, "debug.webui")))
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
     end = window_end(app, last_pids, read_anim)
-    rows = process_rows(first, last, elapsed, gpu0, gpu1, kind)
+    rows = process_rows(first, last, elapsed, gpu0, gpu1, classify)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
               "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
@@ -313,10 +356,10 @@ def process_rows(first, last, elapsed, gpu0, gpu1, classify):
 
 def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, classify=None):
     """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
-    window, `partial`); its kind from `classify` (default: the cmux kinds, `kind`)."""
+    window, `partial`); its kind from `classify(cmd, pid)` (default: the cmux kinds, `kind`)."""
     got = procs.rates(first, last, elapsed)
     return {
-        "pid": pid, "kind": (classify or kind)(cmd), "command": cmd[:160], "partial": first is None,
+        "pid": pid, "kind": (classify or kind)(cmd, pid), "command": cmd[:160], "partial": first is None,
         "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
         "cpu_pct": round(got["cpu_pct"], 4),
         "wakeups_per_s": round(got["wakeups_per_s"], 3),
@@ -623,6 +666,12 @@ def unknown_sum(kinds, selector, field):
     return bool(selected(kinds, selector)) and selector_value(kinds, selector, field) is None
 
 
+def unclassified(name):
+    """Whether `name` is the kind of a process no rule of `kind` names (`other:<executable>`): every process of
+    the app's tree has a budget kind, so one that has none is an over in any session but a reference browser's."""
+    return name.startswith("other:")
+
+
 def setting_on(value):
     return value not in (None, False, "off", "never", 0, "")
 
@@ -636,6 +685,8 @@ def over_budget(session, kinds, budget, facts=None):
     out = []
     for name in sorted(kinds):
         entry = kinds[name]
+        if unclassified(name) and not own.get("reference"):
+            out.append((name, "kind", "other", "classified"))
         for field in limited_fields(budget, session, name):
             limit = limit_for(budget, session, name, field)
             if limit is None:
@@ -895,10 +946,11 @@ LOAD_EXTENSION_GONE_MAJOR = 137
 MANIFEST_V2_GONE_MAJOR = 139
 
 
-def chrome_kind(cmd):
+def chrome_kind(cmd, pid=None):
     """The kind of a Chrome process: browser, renderer, extension, gpu, utility, crashpad, other (Chromium's
     process types, content/public/common/content_switches.cc; an extension's renderer carries
-    --extension-process, extensions/common/switches.cc; Crashpad's handler runs with no --type)."""
+    --extension-process, extensions/common/switches.cc; Crashpad's handler runs with no --type). The command
+    alone decides; `pid` is the classifier signature process_row calls."""
     typed = tab_pages.process_type_kind(cmd)
     if typed:
         return CHROME_KINDS[typed]
@@ -1760,6 +1812,8 @@ def main(argv=None):
             if "anim" in entry:
                 print(f"IDLE-BUDGET-ANIM {session} " + json.dumps(entry["anim"]), flush=True)
             for row in result["processes"]:
+                if unclassified(row["kind"]):
+                    print(f"IDLE-BUDGET-UNCLASSIFIED {session} pid {row['pid']} {row['kind']}: {row['command']}", flush=True)
                 if row["kind"] in ("app", "daemon", "holder", "acpmux") and row["ran"]:
                     names = ", ".join(f"{t['name'] or t['tid']}={t['cpu_us']}us" for t in row["ran"])
                     print(f"IDLE-BUDGET-THREADS {session} {row['kind']} pid {row['pid']}: {names}", flush=True)

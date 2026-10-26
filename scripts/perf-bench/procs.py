@@ -35,7 +35,7 @@ An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
 cmux daemons and terminal hosts, which outlive their parents), and every
 process macOS counts the main pid responsible for (Safari's and cmux's
-WebKit XPC processes).
+WebKit XPC processes), and the Computer Use helper started with `--owner-pid <main pid>`.
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
 `coalition_from_words`, `coalition_rates`, `window_totals`) import and test on any OS.
@@ -335,6 +335,31 @@ def main_pid(bundle: str) -> int | None:
     return min(pids) if pids else None
 
 
+# The Computer Use helper app (CuaHelperIdentity.appName), in a cmux bundle's Contents/Library or on its own.
+CUA_HELPER_APP = "/cmux Computer Use.app/Contents/MacOS/"
+# The crash watcher (CrashWatcher.swift): `zsh -f -c <script> cmux-crash-watcher <pid> <sample file> <seconds>`.
+CRASH_WATCHER = re.compile(r"^/bin/zsh -f -c .* cmux-crash-watcher \d+ ", re.S)
+
+
+class ProcessTree:
+    """The parents and commands of one `ps` table ([(pid, ppid, command)], process_table): what a process's
+    ancestry tells that its command line cannot (a terminal's job, an agent's harness)."""
+
+    def __init__(self, table):
+        self.parent = {pid: ppid for pid, ppid, _cmd in table}
+        self.command = {pid: cmd for pid, _ppid, cmd in table}
+
+    def ancestors(self, pid: int) -> list[tuple[int, str]]:
+        """[(pid, command)] of `pid`'s parents, nearest first, up to launchd; a parent not in the table ends it."""
+        out, seen = [], {pid}
+        parent = self.parent.get(pid)
+        while parent and parent not in seen and parent in self.command:
+            out.append((parent, self.command[parent]))
+            seen.add(parent)
+            parent = self.parent.get(parent)
+        return out
+
+
 def kind_of(cmd: str) -> str:
     """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
     chromium = process_type_kind(cmd)
@@ -353,6 +378,10 @@ def kind_of(cmd: str) -> str:
         return "cmux-tui"
     if "/bin/acpmux" in cmd:
         return "acpmux"
+    if CUA_HELPER_APP in cmd.split(" --", 1)[0]:
+        return "cua-helper"
+    if CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
     exe = cmd.split(" --", 1)[0].split(" -")[0]
     if " Helper" in exe:
         return "helper"
@@ -421,10 +450,13 @@ class Instance:
                 found.add(pid)
             elif responsible is not None and pid != self.pid and responsible(pid) == self.pid:
                 found.add(pid)
-        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle.
+        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the Computer Use
+        # helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from another cmux.
         for pid, cmd in commands.items():
             owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
             if owner and int(owner.group(1)) in found:
+                found.add(pid)
+            if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
                 found.add(pid)
         self.seen |= found
         return {pid: commands[pid] for pid in found}
