@@ -124,6 +124,11 @@ extension WindowPictureStore {
             return result
         }
 
+        /// Records the launch mark `name` with the read's recorder (a refusal, WindowPictureStore+LaunchRules.swift).
+        func note(_ name: String) {
+            mark(name)
+        }
+
         func finished() async -> FrontPicture? {
             guard let read else { return nil }
             return await read.finished()
