@@ -77,13 +77,13 @@ public nonisolated struct AppleWallpapers: Sendable {
     /// the downloaded aerials, then the aerials macOS lists but has not downloaded yet (backgrounds
     /// plan phase 3b). A missing aerial is named by the file idleassetsd will write, so it becomes
     /// a real choice as soon as System Settings downloads it; the picker shows it with a cloud.
-    public func videos(fileManager: FileManager = .default) -> [BackdropSelection] {
+    public func videos(fileManager: FileManager = .default, names: [String: String]? = nil) -> [BackdropSelection] {
         let present = presentVideos(fileManager: fileManager)
         let downloaded = Set(present.compactMap { choice -> String? in
             guard case .system(let path) = choice else { return nil }
             return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         })
-        let names = aerialNames()
+        let names = names ?? aerialNames()
         let folder = aerialFolder(fileManager: fileManager)
         let missing = names.keys.filter { !downloaded.contains($0) }
             .sorted { (names[$0] ?? $0).localizedStandardCompare(names[$1] ?? $1) == .orderedAscending }

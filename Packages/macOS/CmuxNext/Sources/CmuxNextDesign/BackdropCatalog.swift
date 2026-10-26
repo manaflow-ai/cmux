@@ -8,6 +8,8 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public let choices: [BackdropSelection]
     /// The macOS wallpapers among ``choices``, by path.
     public let appleWallpapers: [String: AppleWallpaper]
+    /// The aerial names read once while building this catalog.
+    public let aerialNames: [String: String]
 
     /// The bundled art in picker order: by collection, darkest works first within each.
     public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
@@ -18,6 +20,7 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public init(bundledOnly: Void) {
         choices = Self.bundled
         appleWallpapers = [:]
+        aerialNames = [:]
     }
 
     /// Builds a catalog from an injected directory listing.
@@ -34,7 +37,8 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
         let apple = wallpapers.pictures(assets: assets, fileManager: fileManager)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let yours = userImages?.list(fileManager: fileManager) ?? []
-        let moving = wallpapers.videos(fileManager: fileManager)
+        aerialNames = wallpapers.aerialNames()
+        let moving = wallpapers.videos(fileManager: fileManager, names: aerialNames)
         choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
             + moving + yours.filter(\.isVideo)
     }

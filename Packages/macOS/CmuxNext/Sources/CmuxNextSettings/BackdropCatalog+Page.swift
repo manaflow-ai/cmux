@@ -6,8 +6,9 @@ public extension BackdropCatalog {
     /// grid by it; a video says so, and a macOS still whether its full picture is downloaded.
     var pageRows: JSONValue {
         .array(choices.map { choice -> JSONValue in
-            var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
-                                            "attribution": .string(choice.attribution)]
+            let title = choice.title(aerialNames: aerialNames)
+            var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(title),
+                                            "attribution": .string(choice.attribution(title: title))]
             if let collection = choice.pickerCollection {
                 row["collection"] = .string(collection.id)
                 row["collection_title"] = .string(collection.title)
