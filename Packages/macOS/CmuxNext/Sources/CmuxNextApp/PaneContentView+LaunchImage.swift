@@ -23,7 +23,7 @@ extension PaneContentView {
         launchImageView = view
         launchImageShare = share
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
-        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
+        launchImageDeadline.scheduleOnMain(after: LaunchImageHold.imageLimit) { [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).

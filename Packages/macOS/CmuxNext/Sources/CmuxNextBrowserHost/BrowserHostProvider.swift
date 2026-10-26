@@ -284,7 +284,7 @@ public final class BrowserHostProvider {
     private func scheduleRetry(_ gen: Int) {
         status = .waitingToRetry
         let delay = backoff.next()
-        retryTimer.schedule(after: delay) { @MainActor [weak self] in
+        retryTimer.scheduleOnMain(after: delay) { [weak self] in
             guard let self, gen == self.generation else { return }
             self.connect()
         }
