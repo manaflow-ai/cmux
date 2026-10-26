@@ -582,10 +582,16 @@ impl Hub {
                 return Err(e);
             }
             match self.adopt_pooled(session, pooled).await {
+                // MDM forces full access off (#23322, review 71): a report of full access held
+                // past the take's check may not have reached the chat when its start is capped.
+                Ok((_, true)) if self.full_access_managed_off() => {
+                    self.stop_full_access_agent(session).await;
+                    return Err(super::start_mode::full_access_off());
+                }
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
-                Ok(child) => {
+                Ok((child, _)) => {
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,
@@ -1261,13 +1267,18 @@ impl Hub {
         // that answer is missed.
         let reports =
             Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
-        let seen = reports.clone();
+        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
+        let reported = Arc::new(tokio::sync::Notify::new());
+        let (seen, notify) = (reports.clone(), reported.clone());
         let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
             if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
                 (dir, msg)
                 && m == method::SESSION_UPDATE
             {
                 seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
+                if super::full_access_bound::StartReports::reports_full_access(params) {
+                    notify.notify_one();
+                }
             }
             true
         });
@@ -1275,6 +1286,11 @@ impl Hub {
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
+        // The off count before the state, as `probe_bound` reads it: an off that begins while the
+        // probe runs ends it once its harness reported full access, an unset after it too (review
+        // 71 of #23322).
+        let offs = self.full_access_off_watch();
+        let offs_seen = *offs.borrow();
         // MDM forces full access off (#23322): a profile pinning it is never started to probe,
         // and a probe that runs when the off lands ends then (`probe_bound`).
         let mut bound =
@@ -1300,7 +1316,7 @@ impl Hub {
                 super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
             view.reported =
                 reports.lock().unwrap_or_else(|e| e.into_inner()).of(res["sessionId"].as_str());
-            if self.full_access_managed_off()
+            if self.full_access_off_since(offs_seen)
                 && super::full_access_bound::runs_full_access(&view).is_some()
             {
                 anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
@@ -1319,6 +1335,11 @@ impl Hub {
             listed = listed => listed,
             () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
                 Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
+            }
+            () = self.reported_under_off(offs, offs_seen, &reported, || {
+                reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
+            }) => {
+                Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
             }
         };
         child.kill().await;

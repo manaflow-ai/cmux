@@ -657,12 +657,13 @@ impl Hub {
     /// `ensure_child` takes a claimed pooled session for `session`: move its
     /// record into the hosts directory, log its host start and held lines,
     /// switch it live, and record what its harness answered. An entry that
-    /// cannot be promoted is ended and the caller starts cold.
+    /// cannot be promoted is ended and the caller starts cold. Also whether its
+    /// held lines report full access (review 71 of #23322), read as they go live.
     pub(super) async fn adopt_pooled(
         self: &Arc<Self>,
         session: &Arc<Session>,
         mut p: Pooled,
-    ) -> anyhow::Result<Arc<ChildAgent>> {
+    ) -> anyhow::Result<(Arc<ChildAgent>, bool)> {
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);
@@ -681,15 +682,18 @@ impl Hub {
         self.append(session, "mux", "host_started", started);
         #[cfg(debug_assertions)]
         adopt_report(&p);
-        {
+        let reported = {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
+            let mut reported = false;
             if let TapSlot::Held(held) = &mut *slot {
+                reported = start::held_reports_full_access(held, p.new_result.as_ref());
                 for (dir, msg, host_seq) in held.drain(..) {
                     tap(dir, &msg, host_seq);
                 }
             }
             *slot = TapSlot::Live(tap);
-        }
+            reported
+        };
         if let Some(target) = p.target.take() {
             let _ = target.send(session.inbound_tx.clone());
         }
@@ -734,7 +738,7 @@ impl Hub {
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
-        Ok(child)
+        Ok((child, reported))
     }
 
     /// A local session was created: the harness used before it in that cwd

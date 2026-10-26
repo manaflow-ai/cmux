@@ -8,23 +8,31 @@ impl Pooled {
     /// for that session since it started (`StartReports`), held until a chat takes it
     /// (`held.rs`; reviews 32 and 46 of #23322).
     pub(super) fn runs_full_access(&self, argv: &[String]) -> bool {
-        use crate::hub::full_access_bound::{FullAccessView, StartReports, runs_full_access};
+        use crate::hub::full_access_bound::{FullAccessView, runs_full_access};
         let new = self.new_result.as_ref();
         let mut view = FullAccessView::of_session_new(argv, new);
-        let mut reports = StartReports::default();
         if let TapSlot::Held(held) = &*self.tap.lock().unwrap_or_else(|e| e.into_inner()) {
-            for (dir, msg, _) in held {
-                if let (Direction::In, Message::Notification { method: m, params: Some(p) }) =
-                    (dir, msg)
-                    && m == crate::rpc::method::SESSION_UPDATE
-                {
-                    reports.note(p);
-                }
-            }
+            view.reported = held_reports_full_access(held, new);
         }
-        view.reported = reports.of(new.and_then(|r| r["sessionId"].as_str()));
         runs_full_access(&view).is_some()
     }
+}
+
+/// Whether the lines `held` for a pooled agent whose harness answered `session/new` with `new`
+/// report full access for its session (`StartReports`).
+pub(super) fn held_reports_full_access(
+    held: &[(Direction, Message, Option<u64>)],
+    new: Option<&Value>,
+) -> bool {
+    let mut reports = crate::hub::full_access_bound::StartReports::default();
+    for (dir, msg, _) in held {
+        if let (Direction::In, Message::Notification { method: m, params: Some(p) }) = (dir, msg)
+            && m == crate::rpc::method::SESSION_UPDATE
+        {
+            reports.note(p);
+        }
+    }
+    reports.of(new.and_then(|r| r["sessionId"].as_str()))
 }
 
 impl Hub {
