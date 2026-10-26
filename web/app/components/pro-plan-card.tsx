@@ -101,21 +101,7 @@ export function ProPlanCard({
     interval: action ? "month" : interval,
     currentPrice,
   });
-  const billedYearly = shown.yearlyTotal === null
-    ? null
-    : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
-  // Founder's Edition is always named; any other own price only when it is
-  // below today's list price. Otherwise the line says how it is billed, so
-  // the label keeps two lines in either period and the card never jumps. A
-  // yearly subscriber with such a note still sees the yearly charge, as a
-  // third line on their own card only.
-  const priceNote = currentPrice?.foundersEdition
-    ? labels.foundersEdition
-    : shown.listMonthly !== null
-      ? labels.earlySupporterPrice
-      : null;
-  const billingDetail = priceNote ?? billedYearly ?? labels.billedMonthly;
-  const extraBillingDetail = priceNote ? billedYearly : null;
+  const billingDetails = billingDetailLines({ shown, currentPrice, labels });
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -166,8 +152,9 @@ export function ProPlanCard({
         </span>
         <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
           <span>{labels.perMonth}</span>
-          <span className="truncate">{billingDetail}</span>
-          {extraBillingDetail ? <span className="truncate">{extraBillingDetail}</span> : null}
+          {billingDetails.map((line) => (
+            <span key={line} className="truncate">{line}</span>
+          ))}
         </span>
       </div>
       <div className="mt-3">
@@ -196,6 +183,34 @@ type CardPrice = {
   /** What a yearly subscription bills each year, or null for monthly. */
   readonly yearlyTotal: number | null;
 };
+
+/**
+ * The lines under "/mo". Founder's Edition is always named; any other own
+ * price only when it is below today's list price. Otherwise the line says how
+ * it is billed, so the label keeps two lines in either period and the card
+ * never jumps. A yearly subscriber with such a note still sees the yearly
+ * charge, as a third line on their own card only.
+ */
+function billingDetailLines({
+  shown,
+  currentPrice,
+  labels,
+}: {
+  shown: CardPrice;
+  currentPrice?: PlanCardSubscriptionPrice;
+  labels: ProAnnualLabels;
+}): string[] {
+  const billedYearly = shown.yearlyTotal === null
+    ? null
+    : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
+  const priceNote = currentPrice?.foundersEdition
+    ? labels.foundersEdition
+    : shown.listMonthly !== null
+      ? labels.earlySupporterPrice
+      : null;
+  if (priceNote) return billedYearly ? [priceNote, billedYearly] : [priceNote];
+  return [billedYearly ?? labels.billedMonthly];
+}
 
 function cardPrice({
   pricing,
