@@ -5,20 +5,19 @@ import os
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "openPanel")
 
 /// What ``MadeAheadOpenPanel`` does, over any ``ReusableOpenPanel``: keep one panel made ahead of the click, hand
-/// it out while it is free, and make it while the person is idle. Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)``
-/// it makes none before a click and releases the kept one once it goes unused. The panel factory, the warm-up check
-/// and the clock are injected, so a test drives it with stand-in panels and a manual clock, and awaits each check on
-/// ``checksRan`` and each release deadline on ``releaseChecksRan`` (`MadeAheadPanelStoreTests`).
+/// it out while it is free, and make it while the person is idle. Under
+/// ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)`` it makes none before a click and releases the kept one
+/// once it goes unused. The panel factory, the warm-up check, the clock and the release deadline are injected, so a
+/// test drives it with stand-in panels and a manual clock, and awaits each check on ``checksRan``
+/// (`MadeAheadPanelStoreTests`; the release deadline on a hand-fired rig in `MadeAheadPanelFirstUseTests`).
 @MainActor
 final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     private let makePanel: @MainActor () -> Panel
     private let warmCheck: @MainActor () -> OpenPanelWarmCheck
     private let policy: OpenPanelWarmPolicy
     private let timer: DemandTimer
-    /// The deadline that releases the kept panel once it goes unused (``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)``).
-    private let releaseTimer: DemandTimer
     /// Whether a click asked for a panel since the store was made or last released one: until then the
-    /// ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)`` policy runs no warm-up.
+    /// ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)`` policy runs no warm-up.
     private var usedSinceRelease = false
     /// The panel made ahead and the texts it had when it was made (both or neither).
     private var made: (panel: Panel, defaults: OpenPanelDefaults)?
@@ -42,15 +41,11 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     /// listens.
     let checksRan: AsyncStream<Void>
     private let checkRan: AsyncStream<Void>.Continuation
-    /// One element each time a release deadline has run to its end (released the panel, or found it in use and
-    /// armed the next deadline). Keeps only the newest element.
-    let releaseChecksRan: AsyncStream<Void>
-    private let releaseCheckRan: AsyncStream<Void>.Continuation
     /// Whether the one notice for a warm-up that may never run (``OpenPanelWarmCheck/never(reason:)``) was logged.
     private var saidNever = false
 
     /// - Parameters:
-    ///   - clock: The clock of the warm-up's checks and the release deadline; tests pass a manual clock.
+    ///   - clock: The clock of the warm-up's checks; tests pass a manual clock.
     ///   - policy: When a panel is made and how long it is kept.
     ///   - makePanel: Makes a new panel (`NSOpenPanel()`, 105 to 300 ms on the main thread).
     ///   - warmCheck: Whether a warm-up may make the panel now; read when a check fires.
@@ -60,13 +55,9 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         self.warmCheck = warmCheck
         self.policy = policy
         timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: clock)
-        releaseTimer = DemandTimer(owner: "openPanel.madeAhead.release", clock: clock)
         let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         checksRan = ran.stream
         checkRan = ran.continuation
-        let released = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        releaseChecksRan = released.stream
-        releaseCheckRan = released.continuation
     }
 
     // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050 / #23233); the timer
@@ -95,7 +86,7 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
 
     /// Makes the panel once the person has paused: the first check 2 s from now, then one a second while busy,
     /// ten at most. Nothing after a dead panel (``warmGaveUp``), and nothing before a click under
-    /// ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)``.
+    /// ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)``.
     func warmWhenIdle() {
         guard made == nil, !warmGaveUp, !timer.isScheduled, policy.allowsWarmUp(usedSinceRelease: usedSinceRelease) else { return }
         check(after: .seconds(2), triesLeft: 10)
@@ -145,17 +136,16 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         }
     }
 
-    /// Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)``, arms the deadline that releases the kept panel
-    /// `releaseAfter` from now, replacing a pending one: each use pushes it back.
+    /// Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)``, arms the deadline that releases the kept
+    /// panel `releaseAfter` from now, replacing a pending one: each use pushes it back.
     private func armRelease() {
-        guard case .afterFirstUse(let releaseAfter) = policy, made != nil else { return }
-        releaseTimer.scheduleOnMain(after: releaseAfter) { [weak self] in self?.releaseIfUnused() }
+        guard case .afterFirstUse(let releaseAfter, let deadline) = policy, made != nil else { return }
+        deadline.schedule(after: releaseAfter) { [weak self] in self?.releaseIfUnused() }
     }
 
     /// Releases the kept panel when no sheet or window shows it, so its panel service can exit; a panel in use is
     /// kept and checked again a full `releaseAfter` later. A pending warm-up ends too: the next waits for a click.
     private func releaseIfUnused() {
-        defer { releaseCheckRan.yield() }
         guard let kept = made else { return }
         guard kept.panel.isFreeForReuse else {
             armRelease()

@@ -23,9 +23,9 @@ public import AppKit
 /// `NSOpenPanel` on the main thread for each click, not made ahead and with no dead-panel guard (open, routed to
 /// the CEF owners). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
 ///
-/// Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)`` (feature `memoryOpenPanelOnFirstUse`) the launch's and
-/// the views' warm-ups make no panel, so no panel service runs at Home idle: the first click makes the panel, which
-/// is kept for later clicks and released once it goes unused.
+/// Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)`` (feature `memoryOpenPanelOnFirstUse`) the
+/// launch's and the views' warm-ups make no panel, so no panel service runs at Home idle: the first click makes the
+/// panel, which is kept for later clicks and released once it goes unused.
 @MainActor
 public final class MadeAheadOpenPanel {
     private let store: MadeAheadPanelStore<NSOpenPanel>
@@ -60,7 +60,7 @@ public final class MadeAheadOpenPanel {
     ///
     /// The app also calls it once from an afterStartup post of its launch, so the first click on a picker is not
     /// cold even before a view that offers it reached a window (Lead decision 2026-10-23: keep the system panel;
-    /// start its warm-up at launch idle). Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:)`` it makes none
+    /// start its warm-up at launch idle). Under ``OpenPanelWarmPolicy/afterFirstUse(releaseAfter:deadline:)`` it makes none
     /// until a click asked for a panel since the last release.
     public func warmWhenIdle() { store.warmWhenIdle() }
 }

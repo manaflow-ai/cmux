@@ -169,7 +169,8 @@ final class AppServices {
     /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and released once unused, so no
     /// panel service process runs at Home idle.
     private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
-        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)) : .ahead)
+        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
+                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
     /// The agent page WebKit warm-up.
     let agentPageWarmup = AgentPageWarmup(chromiumChat: { AgentPaneTunables.chromium.value })
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
