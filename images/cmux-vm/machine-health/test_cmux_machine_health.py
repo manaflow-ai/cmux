@@ -2,7 +2,7 @@
 
 Run: python3 -m unittest test_cmux_machine_health (from this directory); web/tests/vm-image-cmux-vm-machine-health.test.ts runs it in CI.
 """
-import contextlib, importlib.machinery, importlib.util, io, json, os, socket, tempfile, threading, unittest
+import contextlib, fnmatch, importlib.machinery, importlib.util, io, json, os, socket, tempfile, threading, unittest
 from types import SimpleNamespace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -101,10 +101,11 @@ class FakeHost:
             return 0, ""
         if argv[:2] == ["systemctl", "show"] and argv[-1] == "tailscaled.service":
             return 0, "loaded\n" if self.tailscaled else "not-found\n"
-        if argv[:2] == ["systemctl", "--user"]:
-            name, verb = argv[3][:-1], argv[4]
+        if argv[:2] == ["systemctl", "--user"] or (argv[0] == "systemctl" and argv[1] in ("list-units", "reset-failed", "start")):
+            name, verb = (argv[3][:-1], argv[4]) if argv[1] == "--user" else ("", argv[1])
             if verb == "list-units":
-                return 0, "".join(f"{u} loaded failed failed acpmux\n" for u in self.failed.get(name, []))
+                patterns = argv[argv.index("--") + 1:]
+                return 0, "".join(f"{u} loaded failed failed unit\n" for u in self.failed.get(name, []) if any(fnmatch.fnmatch(u, g) for g in patterns))
             if verb == "start":
                 if self.start_ok:
                     self.failed[name].remove(argv[-1])
@@ -175,6 +176,7 @@ class HealthTests(unittest.TestCase):
         host.hygiene, host.free = True, 5 * cmh.GB
         h = run(host)
         self.assertEqual(details(h), ["disk: 5.0 GB free on /, under the floor of 12.8 GB"])
+        self.assertEqual(h["problems"][0]["severity"], "warning")
         started = [c for c in host.calls if c.startswith("systemd-run")]
         self.assertEqual(len(started), 1)
         self.assertIn("--unit=cmux-machine-health-hygiene-0 -p RuntimeMaxSec=900", started[0])
@@ -183,6 +185,7 @@ class HealthTests(unittest.TestCase):
         host.free, host.t = 2 * cmh.GB, host.t + 60
         h = run(host)
         self.assertEqual(details(h), ["disk: CRITICAL: 2.0 GB free on /, under the hard floor of 3.0 GB"])
+        self.assertEqual(h["problems"][0]["severity"], "critical")
         self.assertEqual(len([c for c in host.calls if c.startswith("systemd-run")]), 1, "rate limited")
 
     def test_floors_scale_with_a_small_disk_and_ram_and_config_overrides_them(self):
@@ -310,8 +313,8 @@ class HealthTests(unittest.TestCase):
     def test_no_unit_patterns_means_no_unit_is_touched(self):
         host = FakeHost()
         host.linger, host.failed = ["leo"], {"leo": ["ssh-agent.service"]}
-        self.assertEqual(run(host, {"acpmuxUnits": []})["problems"], [])
-        self.assertFalse(any("--user" in c for c in host.calls))
+        self.assertEqual(run(host, {"acpmuxUnits": [], "cmuxUserUnits": [], "cmuxSystemUnits": []})["problems"], [])
+        self.assertFalse(any(" list-units " in c for c in host.calls if c.startswith("systemctl")))
 
     def test_long_peer_names_reconnect_by_their_full_name_and_never_share_a_limit(self):
         host = FakeHost()
@@ -398,6 +401,28 @@ class HealthTests(unittest.TestCase):
             first = run(host)["fixed"]
             host.t += 60
             self.assertEqual(run(host)["fixed"], first, name)
+
+    def test_a_failed_cmux_tui_unit_is_reset_and_started_system_and_user_alike(self):
+        host = FakeHost()
+        host.linger = ["leo"]
+        host.failed = {"": ["cmux-tui-daemon.service", "ssh.service"], "leo": ["cmux-server.service", "acpmux.service"]}
+        host.start_ok = False
+        h = run(host)
+        self.assertEqual(sorted(details(h)), sorted([
+            "cmux: cmux-tui-daemon.service failed",
+            "cmux: cmux-server.service for leo failed",
+            "acpmux: acpmux.service for leo failed",
+        ]))
+        self.assertEqual([p["check"] for p in h["problems"]], ["acpmux", "cmux", "cmux"], "ordered acpmux, cmux, then the rest")
+        self.assertIn("systemctl reset-failed -- cmux-tui-daemon.service", host.calls)
+        self.assertNotIn("systemctl start -- ssh.service", host.calls)
+        self.assertIn("reset and started cmux-tui-daemon.service", [f["action"] for f in h["fixed"]])
+        host.t += 60
+        run(host)
+        self.assertEqual(sum(c == "systemctl start -- cmux-tui-daemon.service" for c in host.calls), 1, "once per 5 min")
+        host.t, host.start_ok = host.t + 5 * 60, True
+        self.assertEqual([p["check"] for p in run(host)["problems"]], [])
+        self.assertEqual(cmh.config_problems({"cmuxSystemUnits": ["x.service; rm -rf /"]}), ["cmuxSystemUnits must be unit names or globs"])
 
     def test_reconnect_limits_are_per_daemon_socket(self):
         host = FakeHost()

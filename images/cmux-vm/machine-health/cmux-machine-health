@@ -4,7 +4,7 @@
 One bounded, idempotent pass per run, as root, from cmux-machine-health.timer every 60 s (a
 oneshot with TimeoutStartSec=45: no resident process). Its state lives only in /run/cmux (tmpfs)
 and every fix is rate-limited. It writes /run/cmux/machine-health.json:
-  {"schema": 1, "checkedAt": T, "problems": [{"check", "detail", "since"}], "fixed": [{"check", "action", "at"}]}
+  {"schema": 1, "checkedAt": T, "problems": [{"check", "detail", "since", "severity"?}], "fixed": [{"check", "action", "at"}]}
 problems: what is wrong now and could not be fixed. fixed: the last 24 h of actions, at most 20.
 
   dns     A public name, and this machine's MagicDNS name when it is logged in to a tailnet,
@@ -12,17 +12,21 @@ problems: what is wrong now and could not be fixed. fixed: the last 24 h of acti
           /etc/resolv.conf to its stub if it is not, restart tailscaled when installed (so it
           picks resolved mode again), and check again.
   disk    Free space on / stays above a floor. Else start the hygiene commands, each as its own
-          transient unit (at most once per 15 min). Under the hard floor it is critical.
+          transient unit (at most once per 15 min). Under the floor the problem has severity
+          "warning"; under the hard floor, "critical".
   ram     MemAvailable stays above a floor. Reported only: kills are the cgroup limits' job.
   acpmux  For each user with lingering on: a failed acpmux*.service user unit is reset and
           started (at most once per 5 min).
+  cmux    A failed cmux-tui unit is reset and started (at most once per 5 min per unit): system
+          units matching cmuxSystemUnits (cmux-tui-daemon.service on a devbox, cmux-host.service on
+          a cmux VM), and user units matching cmuxUserUnits for each user with lingering on.
   peer    For each running daemon: every peer that is not connected is reported with a fixed
           summary of its last error (PEER_ERRORS, never the daemon's words) and how long it has been down; one down 10 min gets one forced reconnect
           (_acpmux/peer_reconnect, what `acpmux host doctor NAME --fix` does) per 15 min. An
           expected peer (config expectedPeers) the daemon has no peer for is reported, never added:
           adding one needs a route and a token, the operator's or app's call.
 
-problems come most important first (acpmux, dns, disk, ram, peer, loop), at most 8.
+problems come most important first (acpmux, cmux, dns, disk, ram, peer, loop), at most 8.
 
 Config: /etc/cmux/machine-health.json overrides DEFAULTS. Install, from any copy of this file:
   sudo python3 cmux-machine-health install [--config FILE]
@@ -52,6 +56,8 @@ DEFAULTS = {
     "hygieneCommands": None,  # argv lists; default: cmux-machine-hygiene --apply per /home user
     "acpmuxUnits": ["acpmux*.service"],
     "acpmuxSockets": ["~/.acpmux/acpmux.sock"],
+    "cmuxSystemUnits": ["cmux-tui-daemon.service", "cmux-host.service", "cmux-server.service"],
+    "cmuxUserUnits": ["cmux-server.service", "cmux-host-remote.service"],
     "peerDownMinutes": 10,
     "expectedPeers": [],  # peer names every daemon here should have; none in code
 }
@@ -62,17 +68,18 @@ FIXED_ACTIONS = re.compile("|".join([
     r"relinked /etc/resolv\.conf to the systemd-resolved stub",
     r"restarted tailscaled so it picks systemd-resolved",
     r"started disk hygiene \(\d+ of \d+ commands\)",
-    r"reset and started [A-Za-z0-9@._:-]{1,100} for [a-z_][a-z0-9_-]{0,31}",
+    r"reset and started [A-Za-z0-9@._:-]{1,100}( for [a-z_][a-z0-9_-]{0,31})?",
     r"forced a reconnect of the peer link to ([A-Za-z0-9][A-Za-z0-9._-]{0,79}|a peer with an unreadable name)"
 ]))
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
-ORDER = ["acpmux", "dns", "disk", "ram", "peer", "loop"]
+ORDER = ["acpmux", "cmux", "dns", "disk", "ram", "peer", "loop"]
+UNIT_NAME = re.compile(r"[A-Za-z0-9@._:*?\[\]-]{1,100}")
 MAX_PROBLEMS = 8
 MAX_PEERS = 256  # rows read from one daemon's list
 MAX_REPLY = 4 << 20  # bytes read from one daemon socket
 GUARD = "# cmux machine guard (cmux-machine-health install). Managed, do not edit.\n"
 UNITS = {
-    "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk, RAM and acpmux once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
+    "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk, RAM, acpmux and cmux-tui once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
     "/etc/systemd/system/cmux-machine-health.timer": "[Unit]\nDescription=Run cmux machine health every minute\n\n[Timer]\nOnActiveSec=60\nOnUnitActiveSec=60\nAccuracySec=5\n\n[Install]\nWantedBy=timers.target\n",
     # Every ssh and login session (logind's session-N.scope): a runaway hits its own limits.
     # MemorySwapMax as a share of swap needs systemd 254+; older systemd ignores the line.
@@ -334,9 +341,11 @@ class Pass:
         self.last[key] = now
         return True
 
-    def problem(self, check, key, detail, since=None):
+    def problem(self, check, key, detail, since=None, severity=None):
         self.since[key] = self.since_was.get(key) or since or iso(self.host.now())
         self.problems.append({"check": check, "detail": clean(detail, self.homes), "since": self.since[key]})
+        if severity:
+            self.problems[-1]["severity"] = severity
 
     def fixed(self, check, action):
         self.new_fixed.append({"check": check, "action": clean(action, self.homes), "at": iso(self.host.now())})
@@ -415,9 +424,9 @@ class Pass:
             else:
                 del self.last["fix:disk"]  # nothing ran: the next pass tries again
         if free < hard:
-            self.problem("disk", "disk", f"disk: CRITICAL: {gb(free)} free on {path}, under the hard floor of {gb(hard)}")
+            self.problem("disk", "disk", f"disk: CRITICAL: {gb(free)} free on {path}, under the hard floor of {gb(hard)}", severity="critical")
         elif free < floor:
-            self.problem("disk", "disk", f"disk: {gb(free)} free on {path}, under the floor of {gb(floor)}")
+            self.problem("disk", "disk", f"disk: {gb(free)} free on {path}, under the floor of {gb(floor)}", severity="warning")
 
     def check_ram(self):
         avail, total = self.host.meminfo()
@@ -435,28 +444,37 @@ class Pass:
             except KeyError:
                 continue
             self.homes.add(user.pw_dir)
-            self.check_units(user)
+            self.check_units(user, "acpmux", self.config["acpmuxUnits"])
+            self.check_units(user, "cmux", self.config["cmuxUserUnits"])
             for sock in self.config["acpmuxSockets"]:
                 answered |= self.check_peers(user, user.pw_dir + sock[1:] if sock.startswith("~/") else sock, sock)
         if self.config["expectedPeers"] and not answered:
             self.problem("acpmux", "acpmux:none", "acpmux: no acpmux daemon answers on this machine, so its peers cannot be checked")
 
-    def check_units(self, user):
-        if not self.config["acpmuxUnits"]:
+    def check_units(self, user, check, patterns):
+        """A failed unit matching patterns (a user's when user is set, else a system unit) is reset
+        and started at most once per 5 min, and reported while it stays failed."""
+        if not patterns:
             return  # no patterns: systemctl would list every failed unit
-        manager = ["systemctl", "--user", "-M", f"{user.pw_name}@"]
-        code, out = self.run(manager + ["list-units", "--state=failed", "--plain", "--no-legend", "--no-pager", "--"] + self.config["acpmuxUnits"], 10)
+        manager = ["systemctl", "--user", "-M", f"{user.pw_name}@"] if user else ["systemctl"]
+        whose = f" for {user.pw_name}" if user else ""
+        code, out = self.run(manager + ["list-units", "--state=failed", "--plain", "--no-legend", "--no-pager", "--"] + patterns, 10)
         if code != 0:
-            return  # no user manager to ask
+            return  # no manager to ask
         for unit in [line.split()[0] for line in out.splitlines() if line.strip()]:
-            key = f"acpmux:{user.pw_name}:{unit}"
+            if not UNIT_NAME.fullmatch(unit):
+                continue
+            key = f"{check}:{user.pw_name if user else ''}:{unit}"
             if self.may(f"fix:{key}", 5 * 60, needs_s=25):
                 self.run(manager + ["reset-failed", "--", unit], 5)
                 started = self.run(manager + ["start", "--", unit], 20)[0] == 0
-                self.fixed("acpmux", f"reset and started {unit} for {user.pw_name}")
+                self.fixed(check, f"reset and started {unit}{whose}")
                 if started:
                     continue
-            self.problem("acpmux", key, f"acpmux: {unit} for {user.pw_name} failed")
+            self.problem(check, key, f"{check}: {unit}{whose} failed")
+
+    def check_cmux(self):
+        self.check_units(None, "cmux", self.config["cmuxSystemUnits"])
 
     def rpc_as(self, user, sock, method, params, timeout):
         """One daemon request over its socket, as its user; None when no daemon answers. Never starts one."""
@@ -530,9 +548,12 @@ def config_problems(given):
         return ["the config must be a JSON object"]
     unknown = set(given) - set(DEFAULTS)
     problems = [f"{len(unknown)} unknown config keys (known: {', '.join(DEFAULTS)})"] if unknown else []
-    for key in ("dnsNames", "acpmuxUnits", "acpmuxSockets", "expectedPeers"):
+    for key in ("dnsNames", "acpmuxUnits", "acpmuxSockets", "expectedPeers", "cmuxSystemUnits", "cmuxUserUnits"):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")
+    for key in ("acpmuxUnits", "cmuxSystemUnits", "cmuxUserUnits"):
+        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_NAME.fullmatch(u) for u in given[key]):
+            problems.append(f"{key} must be unit names or globs")
     if isinstance(given.get("expectedPeers"), list) and not all(isinstance(n, str) and PEER_NAME.fullmatch(n) for n in given["expectedPeers"]):
         problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
     if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
@@ -591,7 +612,7 @@ def run_pass(host, heal=True):
     p = Pass(host, config, state, heal)
     if config_error:
         p.problem("loop", "loop:config", config_error)
-    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns), ("acpmux", p.check_acpmux)):
+    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns), ("cmux", p.check_cmux), ("acpmux", p.check_acpmux)):
         p.run_check(name, fn)
     health, state = p.report()
     for item in p.problems:
