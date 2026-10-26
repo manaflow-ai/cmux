@@ -24,6 +24,8 @@ struct PageLifecycleTests {
         /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them (p13-webui-032).
         let keep = PageKeepReasons()
         var reasonReads = 0
+        /// The page refuses its discard (it still shows): the lifecycle must keep its state.
+        var refusesDiscard = false
         weak var lifecycle: PageLifecycle?
 
         init(_ name: String, log: Log) {
@@ -55,7 +57,10 @@ struct PageLifecycleTests {
         func dropHideSnapshot() {}
         func freeze() { page.log.lines.append("freeze \(page.name)") }
         func thaw() { page.log.lines.append("thaw \(page.name)") }
-        func discard() { page.log.lines.append("discard \(page.name)") }
+        func discard() -> Bool {
+            page.log.lines.append((page.refusesDiscard ? "refuse " : "discard ") + page.name)
+            return !page.refusesDiscard
+        }
     }
 
     private let log = Log()
@@ -117,6 +122,25 @@ struct PageLifecycleTests {
         #expect(log.lines == ["discard settings"])
         #expect(lifecycle.nextPassAt == nil)
         #expect(rig.queue.count == 0, "a one-shot deadline: nothing left armed")
+    }
+
+    /// A page that refuses its discard keeps the state it was in (it still holds its document), and
+    /// the next pass, at the discard pace, tries again.
+    @Test func aRefusedDiscardKeepsTheStateAndTriesAgainAtTheDiscardPace() throws {
+        let settings = page("settings")
+        settings.refusesDiscard = true
+        lifecycle.hide("a", page: Target(page: settings))
+        try fireDuePass()
+        #expect(near(lifecycle.nextPassAt, .seconds(300)))
+        try fireDuePass()
+        #expect(log.lines == ["refuse settings"])
+        #expect(lifecycle.state(of: "a") == .hidden, "a refused discard reads as discarded")
+        #expect(near(lifecycle.nextPassAt, .seconds(305)), "nothing looks at the refused page again")
+        settings.refusesDiscard = false
+        try fireDuePass()
+        #expect(log.lines == ["refuse settings", "discard settings"])
+        #expect(lifecycle.state(of: "a") == .discarded)
+        #expect(lifecycle.nextPassAt == nil)
     }
 
     @Test func anOlderHiddenPageFreezesOnceItIsNoLongerRecentlyVisible() throws {
