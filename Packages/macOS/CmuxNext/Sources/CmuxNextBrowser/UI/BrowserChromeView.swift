@@ -86,7 +86,7 @@ public final class BrowserChromeView: NSView {
     /// Find in page: the bar's state, which the find bar view writes and renders.
     public let find: BrowserFindModel
     let findBar: FindBarView
-    private let promptBar = PromptBarView()
+    let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
@@ -238,7 +238,7 @@ public final class BrowserChromeView: NSView {
         addSubview(accessoryBar)
         installHeaderBand()
         addSubview(progressLine)
-        pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
+        pageStatus.install(in: self) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
         installPageBars()
@@ -255,6 +255,7 @@ public final class BrowserChromeView: NSView {
     /// The find and prompt bars float over the page at its edge by the toolbar. They size
     /// themselves with constraints, and follow the framed page area by constraints.
     private func installPageBars() {
+        for bar in [findBar, promptBar] as [NSView] { bar.translatesAutoresizingMaskIntoConstraints = false }
         toolbarEdge.top += [
             // The shared find pill sits where every pane's does.
             findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
@@ -404,12 +405,14 @@ public final class BrowserChromeView: NSView {
         progressLine.setChromeFrame(mapping.map(rows.progressLine))
         accessoryView?.setChromeFrame(accessoryBar.bounds)
         if tab.contentView.superview === contentContainer { tab.contentView.setChromeFrame(contentContainer.bounds) }
-        // The page bars and status views follow the page area by constraints.
+        // The page bars follow the page area by constraints; the status views by frame, below.
+        promptBar.followRoom()
         super.layout()
         // The row places the address bar in its own layout, which runs after this one.
         // sync-layout: followLayout below reads the address bar's frame from this pass.
         toolbar.layoutSubtreeIfNeeded()
         addressBar.followLayout()
+        pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
     }
