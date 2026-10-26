@@ -246,7 +246,7 @@ public final class HoverCardAccessoryView: NSView {
         didSet {
             guard accessory != oldValue else { return }
             invalidateIntrinsicContentSize()
-            needsLayout = true
+            needsLayout = true // invalidate: another mark (the guard above): new paths and percentage frame.
             percentLabel.stringValue = accessory?.label ?? ""
             percentLabel.isHidden = accessory?.label == nil
             applyColors()
@@ -350,7 +350,7 @@ public final class HoverCardAccessoryView: NSView {
             }
             percentLabel.textColor = Palette.textSecondary
         }
-        needsLayout = true
+        // No layout: `layout()` places the paths and the percentage from the mark, never from a color.
     }
 }
 
