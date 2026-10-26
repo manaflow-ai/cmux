@@ -7,7 +7,7 @@
 
 use libc::{self, c_long, c_ulong, c_void};
 use std::io;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
 const EXT_MAGIC: u64 = 0xef53;
 const TMPFS_MAGIC: u64 = 0x0102_1994;
@@ -103,9 +103,23 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
         return Err(format!("fstatfs failed for directory: errno {}", errno()));
     }
     let magic = fs.f_type as u64;
+    // O_PATH is enough for fstatfs, but inode and XFS ioctls need a readable
+    // directory description. Reopen the same held object without following a
+    // mutable child name.
+    let readable = unsafe {
+        libc::openat(
+            fd.as_raw_fd(),
+            b".\0".as_ptr().cast(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if readable < 0 {
+        return Err(format!("cannot reopen directory for lookup verification: errno {}", errno()));
+    }
+    let readable = unsafe { OwnedFd::from_raw_fd(readable) };
+    let readable_fd = readable.as_raw_fd();
     let mut bits: c_long = 0;
-    let flags = if unsafe { libc::ioctl(fd.as_raw_fd(), libc::FS_IOC_GETFLAGS as _, &mut bits) } < 0
-    {
+    let flags = if unsafe { libc::ioctl(readable_fd, libc::FS_IOC_GETFLAGS as _, &mut bits) } < 0 {
         Err(errno())
     } else {
         Ok(bits)
@@ -114,7 +128,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
         let mut geom = XfsFsopGeomV1::default();
         if unsafe {
             libc::ioctl(
-                fd.as_raw_fd(),
+                readable_fd,
                 xfs_geometry_request() as _,
                 (&mut geom as *mut XfsFsopGeomV1).cast::<c_void>(),
             )
