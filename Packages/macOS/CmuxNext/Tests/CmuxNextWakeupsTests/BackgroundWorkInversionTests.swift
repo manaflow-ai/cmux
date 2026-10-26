@@ -100,6 +100,37 @@ import Testing
         #expect(BlockingDetector(table: table).sites.map(\.kind) == [.priorityInversion])
     }
 
+    /// An awaited sequence item is the same inversion, and a worse one: it also waits behind every item posted
+    /// before it in the sequence. The site is the awaiting line.
+    @MainActor @Test func aBestEffortSequenceRunAwaitedInAnInputTurnRecordsOneSite() async throws {
+        let (board, table) = (MainTaskBoard(), BlockingViolationTable(mode: .record, poolMode: .record))
+        let work = BackgroundWork(cpuWidth: 1, label: "test.inversion.sequence", inputTurns: board)
+        let sequence = work.sequence("test.inversion.sequence")
+        let line: UInt = #line
+        let value = try await Self.inInputTurn(board, table) {
+            try await sequence.run(.bestEffort, line: line) { 7 }
+        }
+        await table.flush()
+
+        let sites = BlockingDetector(table: table).sites
+        #expect(value == 7)
+        #expect(sites.map(\.kind) == [.priorityInversion])
+        #expect(sites.map(\.location) == ["\(#fileID):\(line)"])
+        #expect(sites.map(\.count) == [1])
+    }
+
+    @MainActor @Test func aUserBlockingSequenceRunInAnInputTurnRecordsNothing() async throws {
+        let (board, table) = (MainTaskBoard(), BlockingViolationTable(mode: .record, poolMode: .record))
+        let work = BackgroundWork(cpuWidth: 1, label: "test.inversion.sequence-user-blocking", inputTurns: board)
+        let sequence = work.sequence("test.inversion.sequence-user-blocking")
+        try await Self.inInputTurn(board, table) {
+            try await sequence.run(.userBlocking) {}
+        }
+        await table.flush()
+
+        #expect(BlockingDetector(table: table).sites.isEmpty)
+    }
+
     /// The check is record only: a table in trap mode records the site and the process goes on.
     @MainActor @Test func trapModeRecordsTheSiteWithoutStopping() async throws {
         let (board, table) = (MainTaskBoard(), BlockingViolationTable(mode: .trap, poolMode: .record))

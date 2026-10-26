@@ -134,9 +134,10 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                                  fileID: StaticString = #fileID, line: UInt = #line,
                                  _ body: @escaping @Sendable () throws -> T) async throws -> T {
         try Task.checkCancellation()
+        let site = BackgroundWork.CallSite(fileID: fileID, line: line)
+        work.noteAwaited(priority, site: site)
         let id = work.nextID()
         let level = max(priority, WorkPriority(Task.currentPriority))
-        let site = BackgroundWork.CallSite(fileID: fileID, line: line)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
                 guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
