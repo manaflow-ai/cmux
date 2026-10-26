@@ -179,3 +179,17 @@ test("a summary line the page would fold warns but does not block the notes", ()
   expect(defects.filter((d) => d.kind === "internal").map((d) => d.text)).toEqual(folded);
   expect(defects.filter(blocksPublish)).toEqual([]);
 });
+
+test("a curated headline repeated by an entry is reported as a duplicate", () => {
+  const { notes, previous } = at("3917159104301");
+  const base = clean(notes);
+  const headline = "Keep the Mac awake while agents work";
+  const entries = [
+    { ...base.whatsNew!.entries[0]!, id: "curated-a", title: { en: "Different Hero" }, summary: { en: "A real feature" } },
+    { ...base.whatsNew!.entries[0]!, id: "curated-b", title: { en: headline }, summary: { en: "Another detail" } },
+  ];
+  const duplicate = { ...base, whatsNew: { ...base.whatsNew!, headline: { en: headline }, entries } };
+  expect(checkNightlyNotes(duplicate, previous).map((d) => `${d.where} ${d.kind} ${d.text}`)).toContain(
+    `notes duplicate ${headline}`,
+  );
+});
