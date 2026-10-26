@@ -74,13 +74,18 @@ one renderer. Hosts are built only in `PageDescriptor.origin`.
 A process lock only allows sharing; it does not cause it. Page tabs in different browsers or BrowsingInstances get
 new processes unless something picks an existing one. Process-per-site does not do it across origins: its map
 (`SiteProcessMap` in `content/browser/renderer_host/render_process_host_impl.cc`) is keyed on the whole SiteInfo
-(`SiteInfo::MakeSecurityPrincipalKey`, which includes the full WebUI site URL and the AgentClusterKey), and
-`SiteInfo::ShouldUseProcessPerSite` is true for WebUI only through the embedder (Chrome: the NTP). Chrome shares
-top-chrome WebUI another way: `ChromeContentBrowserClient::ShouldTryToUseExistingProcessHost` returns true for them,
-and `RenderProcessHostImpl::GetExistingProcessHost` takes any existing renderer that `IsSuitableHost` accepts (equal
-lock, same storage partition). So each shared group (`privileged`, `viewer`) needs the TLD lock and that reuse; the
-agent group (one origin) needs only process-per-site with `ProcessPerSiteUpToMainFrameThreshold` (cap 8, task 085).
-`secrets` and `solo` use neither. Section 5 has the spike's result.
+(`SiteInfo::MakeSecurityPrincipalKey`, which includes the full WebUI site URL and the AgentClusterKey). At
+154.0.8037.98, `SiteInfo::ShouldUseProcessPerSite` (`content/browser/site_info.cc`) has no WebUI rule: it is true
+for `--process-per-site`, for error pages, for privileged embedder content (`PrivilegedWebContents`) and when the
+embedder says so (Chrome: the NTP). cmux-page has no WebUI controller and is not privileged embedder content, so
+process-per-site applies only where the fork asks for it. `ProcessPerSiteUpToMainFrameThreshold` does not apply to
+cmux-page: `GetProcessReusePolicyForMainFrame` (`content/browser/renderer_host/render_frame_host_manager.cc`) refuses
+a site that is not HTTP(S) (`kSchemeIsNotHttpOrHttps`). Chrome shares top-chrome WebUI another way:
+`ChromeContentBrowserClient::ShouldTryToUseExistingProcessHost` returns true for them, and
+`RenderProcessHostImpl::GetExistingProcessHost` takes any existing renderer that `IsSuitableHost` accepts (equal
+lock, same storage partition), with no main-frame cap. So every shared group (`agent`, `privileged`, `viewer`)
+needs the TLD lock, that reuse and one embedder cap of 8 main frames per renderer. `secrets` and `solo` use none of
+them. Section 5.1 has the spike, which has not run.
 
 The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
 delivered the message, never from the payload.
@@ -178,36 +183,48 @@ gate and no budget rows.
 Spikes write their results here: the process-lock mechanism (fork, task 091, with the renderer count per group),
 the preload park state (task 090), the WebKit suspend SPI (task 029) and the code cache (task 052).
 
-### 5.1 Process lock across page origins (task 091)
+### 5.1 Process lock across page origins (task 091): open, not run
 
-Fork branch `cp/p13-webui-091` on manaflow-ai/cef (83c228cfdd5, on `cmux/8037-cmux34-hosted-switch`), Chromium
+Status: open. The fork has not been built and the test has not run, so nothing in this section is measured and task
+091 is not done. Tasks 011 and 094 stay blocked until the Measured column has a job id and values. The expected
+values come from reading the Chromium source, and they are a hypothesis (expected B, unmeasured). The spike exists
+to show where that reading is wrong.
+
+Fork branch `cp/p13-webui-091` on manaflow-ai/cef (`9767458`, on `cmux/8037-cmux34-hosted-switch`), Chromium
 154.0.8037.98. The switch `--cmux-page-process-lock` (browser process, off by default) selects an option in
 `libcef/browser/chrome/chrome_content_browser_client_cef.cc`:
 
 - `effective-url` (A): `GetEffectiveURL` maps `cmux-page://<page>.<group>/` to `cmux-page://<group>/`, and
-  `ShouldUseProcessPerSite` is true for it.
+  `ShouldUseProcessPerSite` is true for cmux-page.
 - `webui-scheme` (B): `cmux-page` is an additional WebUI scheme (`GetAdditionalWebUISchemes`), so
-  `IsWebUIAndUsesTLDForProcessLockURL` locks `cmux-page://settings.privileged/` to `cmux-page://privileged`, and
-  `ShouldTryToUseExistingProcessHost` is true for a grouped host, as Chrome does for `chrome://*.top-chrome/`.
+  `IsWebUIAndUsesTLDForProcessLockURL` locks `cmux-page://settings.privileged/` to `cmux-page://privileged`.
+  `ShouldTryToUseExistingProcessHost` is true for every grouped host (`<page>.<group>`, and the agent origin
+  `cmux.agent` too), as Chrome does for `chrome://*.top-chrome/`. `IsSuitableHost` refuses a grouped renderer that
+  already holds 8 main frames. This is the one cap of 8 for every group and every reuse path.
 
-With the switch on, the browser logs each cmux-page renderer's ProcessLock (`cmux-page-process-lock:`). The test
-`ceftests --gtest_filter=CmuxPageProcessTest.*` opens `settings.privileged`, `cloud.privileged` and
-`apps.privileged` in three browsers (three BrowsingInstances, as page tabs are). Each page uses localStorage, a
-same-origin fetch and postMessage; the test counts renderer pids and fails on any renderer termination.
+With the switch on, the browser logs each cmux-page renderer lock (`cmux-page-process-lock: site <url> lock
+<lock>`). The test `ceftests --gtest_filter=CmuxPageProcessTest.*` opens one browser at a time (one BrowsingInstance
+each, as page tabs are): `settings.privileged`, `cloud.privileged`, `apps.privileged`, `markdown.viewer`,
+`files.viewer`, `passwords` (single label, the secrets class) and nine pages of `cmux.agent`. Each page uses
+localStorage, a same-origin fetch and postMessage. The test asserts the renderer count of each group, that no
+renderer holds pages of two groups, and that no renderer terminates (a bad-message kill). It logs each page's
+renderer pid and each group's count.
 
-| Option | Lock of `settings.privileged` | Renderers for 3 origins | Bad-message kills | Measured |
+| Option | Lock of `settings.privileged` | Renderers: privileged (3 pages) / viewer (2) / passwords (1) / agent (9) | Bad-message kills | Measured (job id, counts, logged locks, kills) |
 | --- | --- | --- | --- | --- |
-| off (Chrome default) | `cmux-page://settings.privileged` | 3 (expected) | 0 (expected) | not run |
-| A `effective-url` | `cmux-page://settings.privileged` | 3 (expected) | 0 (expected) | not run |
-| B `webui-scheme` | `cmux-page://privileged` | 1 (expected) | 0 (expected) | not run |
+| off (Chrome default) | `cmux-page://settings.privileged` (expected) | 3 / 2 / 1 / 9 (expected) | 0 (expected) | not run |
+| A `effective-url` | `cmux-page://settings.privileged` (expected) | 3 / 2 / 1 / 1 (expected) | 0 (expected) | not run |
+| B `webui-scheme` | `cmux-page://privileged` (expected) | 1 / 1 / 1 / 2 (expected) | 0 (expected) | not run |
 
-The expected values come from the source at that tag. A cannot share: `SiteInfo::Create` computes the lock from the
-real URL (`GetAgentClusterKeyForURL(..., /*effective_url=*/std::nullopt)`), the site-process map key includes that
-AgentClusterKey, and `IsSuitableHost` refuses a renderer with another lock. A lock override that forced A to share
-would fail `CanAccessDataForOrigin` on the first localStorage access of a second origin, which kills the renderer.
-B keeps one lock per group, so the security checks see the same lock that the navigation used.
+Why the source predicts these values. Under A, `SiteInfo::Create` computes the lock from the real URL
+(`GetAgentClusterKeyForURL(..., /*effective_url=*/std::nullopt)`), the site-process map key includes that
+AgentClusterKey, and `IsSuitableHost` refuses a renderer with another lock. Thus only pages of one real origin (the
+nine agent pages) share, and with no cap. A lock override that forced A to share would fail
+`CanAccessDataForOrigin` on the first localStorage access of a second origin, which kills the renderer. Under B, a
+group has one lock, so the security checks see the lock that the navigation used. The ninth agent page passes the
+cap and gets a second renderer.
 
-Risks of B that the test run must show are absent:
+Risks of B that the run must show are absent:
 
 - A navigation to a WebUI scheme skips the navigation interceptors and uses `CreateWebUIURLLoaderFactory`
   (`content/browser/loader/navigation_url_loader_impl.cc`). That factory is still wrapped by
@@ -217,10 +234,21 @@ Risks of B that the test run must show are absent:
   URL. Web tabs then cannot load page resources. This is stricter than today and is wanted.
 - The WebUI scheme list is read once per process (`URLDataManagerBackend::GetWebUISchemes`), so the choice is fixed
   at launch.
-- `GetExistingProcessHost` has no main-frame cap. Task 011 adds the cap of 8 per group renderer.
+- The cap is in `IsSuitableHost`, which `SiteInstanceImpl::IsSuitableForUrlInfo` also asks. A new navigation of a
+  page whose renderer holds 8 main frames then moves to another renderer. Chrome keeps its own main-frame threshold
+  out of `IsSuitableHost` (`IsBelowReuseResourceThresholds` in `render_process_host_impl.cc`). If the run or 011
+  shows that move, the cap goes into a content patch of `GetExistingProcessHost` instead.
+- `RenderProcessHost::ForEachRenderFrameHost` skips speculative frames, so pages that start to load in the same turn
+  can pass the cap. The test opens pages in order; 011 measures concurrent opens.
 
-Winner for task 011: B, on the condition that the fork run gives 1 renderer and 0 kills for `webui-scheme`. If B
-fails on page loading, the next try is the same last-label rule as a content patch (`site_info.cc`, a scheme list
-from the embedder) without the WebUI scheme. If that also fails, groups fall back to one origin per process
-(p13-webui.md risk 2). Run: `cmux-ci build cef` on the fork branch, then the test three times (no switch, then each
-value), and put the counts and the logged locks in the Measured column.
+Size. The fork diff is 344 lines (libcef 134, test 197, wiring 13), which is more than the 200-line limit of task 091.
+Review asked for all four groups, the ninth-frame case and the cap in the spike, and the test carries most of the
+lines. The lead accepts the size or asks for a cut.
+
+No winner is named. After the run: if B gives 1 / 1 / 1 / 2 with 0 kills and every page loads, 011 uses B and 094 can
+start. If B fails on page loading, the next try is the same last-label rule as a content patch (`site_info.cc`, a
+scheme list from the embedder) without the WebUI scheme. If that also fails, groups fall back to one origin per
+process (p13-webui.md risk 2). Run: `cmux-ci build cef --ref 976745836370f6b40e216235b198371d2b210bd3` for the fork,
+then `ceftests --gtest_filter=CmuxPageProcessTest.*` three times (no switch, `--cmux-page-process-lock=effective-url`,
+`--cmux-page-process-lock=webui-scheme`). Put the job id, the counts, the logged locks and the kills in the Measured
+column.
