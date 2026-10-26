@@ -20626,8 +20626,7 @@
        "name": "boolean"
       },
       "presence": "optional",
-      "nullable": false,
-      "default": null
+      "nullable": false
      },
      "index": {
       "type": {

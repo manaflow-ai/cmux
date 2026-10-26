@@ -392,7 +392,7 @@
           "type": "boolean"
         },
         "max_bytes": {
-          "description": "UTF-8 byte bound of a string member; required for strings in a binary layout.",
+          "description": "UTF-8 byte bound of a string member, or of each item of an array of strings; required for strings in a binary layout.",
           "$ref": "#/$defs/maxBytes"
         }
       }
