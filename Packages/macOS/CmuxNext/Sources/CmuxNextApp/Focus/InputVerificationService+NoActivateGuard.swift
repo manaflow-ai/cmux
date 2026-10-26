@@ -19,15 +19,14 @@ private enum NoActivateApplicationResolver {
     }
 
     /// The frontmost app, or with `relaunch` the app that was frontmost when the update relaunch
-    /// began (still running), else nil.
+    /// began (by its pid; nil when it quit since, and the front then goes to the next app in line).
     static func resolveFrontmost(relaunch: UpdateRelaunchFocus? = nil,
                                  completion: @escaping @MainActor (NSRunningApplication?, pid_t?) -> Void) {
-        let recorded = relaunch != nil, recordedPID = relaunch?.frontmostPID, recordedBundle = relaunch?.frontmostBundleID
+        let recorded = relaunch != nil, recordedPID = relaunch?.frontmostPID
         DispatchQueue.global(qos: .utility).async {
             let me = ProcessInfo.processInfo.processIdentifier
             let application = if !recorded { NSWorkspace.shared.frontmostApplication } else {
                 recordedPID.flatMap { $0 == me ? nil : NSRunningApplication(processIdentifier: $0) }
-                    ?? recordedBundle.flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first { $0.processIdentifier != me } }
             }
             let reference = application.map(NoActivateApplicationReference.init)
             let pid = reference?.application.processIdentifier
