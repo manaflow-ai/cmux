@@ -62,10 +62,15 @@ public final class WorkspaceAutoNamer {
                                     @escaping @MainActor @Sendable () -> Void) -> Bool
     /// Only live targets' current revisions remain here. Bookkeeping never wakes
     /// the observer: an immediate queue refusal waits for real input to change.
-    @ObservationIgnored private var submitted: Set<Submission> = []
+    @ObservationIgnored private var submitted: [Submission: AttemptToken] = [:]
+    @ObservationIgnored private var nextAttemptID: UInt64 = 0
     /// A deferred cancellation must retry even when its candidate becomes current
     /// again before observation runs. Only that cancellation advances this value.
     private var retryRevision: UInt64 = 0
+
+    private struct AttemptToken: Hashable, Sendable {
+        var id: UInt64
+    }
 
     private struct Submission: Hashable, Sendable {
         var machineID: String
@@ -106,8 +111,8 @@ public final class WorkspaceAutoNamer {
     func pending() -> [Rename] {
         _ = retryRevision
         let targets = workspaces()
-        submitted = submitted.filter { submission in
-            targets.contains { target in self.matchesTarget(submission, target: target) }
+        submitted = submitted.filter { entry in
+            targets.contains { target in self.matchesTarget(entry.key, target: target) }
         }
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
@@ -129,8 +134,10 @@ public final class WorkspaceAutoNamer {
             let submission = self.submission(for: candidate)
             // Keep at most the current title for a target. A late completion for an
             // older title then cannot clear a newer same-revision submission.
-            submitted = submitted.filter { old in !self.matchesTarget(old, target: target) || old == submission }
-            guard !submitted.contains(submission) else { continue }
+            submitted = submitted.filter { entry in
+                !self.matchesTarget(entry.key, target: target) || entry.key == submission
+            }
+            guard submitted[submission] == nil else { continue }
             renames.append(candidate)
         }
         return renames
@@ -181,12 +188,14 @@ public final class WorkspaceAutoNamer {
     func apply(_ renames: [Rename]) {
         for candidate in renames {
             let submission = self.submission(for: candidate)
-            guard !submitted.contains(submission), let target = currentTarget(for: candidate) else { continue }
-            submitted.insert(submission)
+            guard submitted[submission] == nil, let target = currentTarget(for: candidate) else { continue }
+            let attempt = AttemptToken(id: nextAttemptID)
+            nextAttemptID &+= 1
+            submitted[submission] = attempt
             let maySend: @MainActor @Sendable () -> Bool = { [weak self] in
                 guard let self else { return false }
                 guard currentTarget(for: candidate) != nil else {
-                    if submitted.remove(submission) != nil { retryRevision &+= 1 }
+                    if submitted.removeValue(forKey: submission) != nil { retryRevision &+= 1 }
                     return false
                 }
                 return true
@@ -194,7 +203,7 @@ public final class WorkspaceAutoNamer {
             let queued = rename(target, candidate.name, maySend) { [weak self] in
                 self?.acceptedSendFailed(submission)
             }
-            if !queued { submitted.remove(submission) }
+            if !queued { submitted.removeValue(forKey: submission) }
         }
     }
 
@@ -202,6 +211,6 @@ public final class WorkspaceAutoNamer {
     /// that exact candidate; no observation wakeup means failures stay idle until
     /// a real title/focus/ownership change produces a new candidate.
     private func acceptedSendFailed(_ submission: Submission) {
-        submitted.remove(submission)
+        submitted.removeValue(forKey: submission)
     }
 }
