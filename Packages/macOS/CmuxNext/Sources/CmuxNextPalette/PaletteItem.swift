@@ -74,6 +74,10 @@ public struct PaletteItem: Identifiable {
     /// The catalog's first-use suggestion order: the row shows in the empty
     /// query's Suggested section (`ActionDescriptor.paletteSuggestionRank`).
     public var suggestedRank: Int?
+    /// Short ids the row is known by, such as a Chief subagent workspace's `a612`: a query that is
+    /// one of them, or its digits (`612`), puts the row first, above every text match. Not keywords,
+    /// so a handle's letters never match other rows' words.
+    public var handles: [String] = []
 
     public init(
         id: String,

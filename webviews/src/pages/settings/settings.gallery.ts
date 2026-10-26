@@ -68,6 +68,7 @@ const cmuxSigningIn: AccountsCmux = {
   note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
 };
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
+  teams: null,
   refresh: "Refresh",
   refreshing: false,
   cmux: cmuxSignedIn,
@@ -87,6 +88,30 @@ const host: Partial<HostLists> = {
     },
   ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
+  // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every
+  // host list since fe482b41. Without it the category draws nothing (serverCard.gallery.ts has its states).
+  server: {
+    title: "Server",
+    empty: "No server has answered yet.",
+    socket_title: "Local Socket",
+    tailnet_title: "Tailscale Address",
+    copy_title: "Copy",
+    pair_title: "Pair",
+    servers: [
+      {
+        id: "cmux-tui|local",
+        kind: "cmux-tui",
+        host: null,
+        name: "cmux-tui",
+        running: true,
+        status: "Running",
+        version_line: "Version 0.67.0 · Build 7a3c9e1 · Protocol 12",
+        restart: null,
+        socket: "/Users/sample/.cmux/sockets/main.sock",
+        tailnet: "100.64.0.7:7777",
+      },
+    ],
+  },
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
   // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
@@ -781,6 +806,11 @@ Object.assign(variants, {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
+  // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
+  "chief-look-bubbles": variant("chief", {
+    focus: "home.chiefBubbleStyle",
+    note: "Look: the pet, the characters, then Bubble Style at the card's foot (no Chief Chat card of its own).",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -840,6 +870,25 @@ Object.assign(variants, {
       },
     }),
     note: "Empty credential form; fixtures never contain credentials.",
+  }),
+  "accounts-teams": variant("accounts", {
+    accounts: accounts(
+      {},
+      {
+        teams: {
+          title: "Active Team",
+          help: "Cloud machines, CodeRouter and phone access use this team.",
+          options: [
+            { id: "sample-team-1", name: "Sample team", active: true },
+            { id: "sample-team-2", name: "Another sample team", active: false },
+          ],
+          disabled: false,
+          note: null,
+          error: null,
+        },
+      },
+    ),
+    note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
   }),
   "accounts-success": variant("accounts", {
     accounts: accounts({ outcome: { kind: "success", text: "Account connected." } }),
@@ -935,6 +984,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",

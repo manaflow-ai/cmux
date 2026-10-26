@@ -8,7 +8,7 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, NewsLayout, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
 import { ChangePullRequest } from "./ChangePullRequest";
 
@@ -17,6 +17,8 @@ export interface PartsContext {
   onTry: (action: string) => void;
   /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
+  /** How the update's news shows its clips (SpanNews.tsx); grid when unset. */
+  news?: NewsLayout;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {

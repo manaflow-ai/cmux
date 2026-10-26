@@ -54,7 +54,7 @@ export function mergePrefs(cur: Prefs, patch: Partial<Prefs>): Prefs {
 }
 
 export type PushEnvironment = "sandbox" | "production"
-export const PUSH_KINDS = ["question", "permission", "completed", "failed", "chief"] as const
+export const PUSH_KINDS = ["question", "permission", "completed", "failed", "chief", "terminal"] as const
 export type PushKind = (typeof PUSH_KINDS)[number]
 
 export interface PushRegistration {
@@ -64,6 +64,10 @@ export interface PushRegistration {
   environment: PushEnvironment
   topic: string
   kinds: Array<PushKind>
+  /** Mac device ids this phone wants no push from. */
+  mutedMacs: Array<string>
+  /** Show previews: false hides content in the banner. */
+  previews: boolean
   updatedAt: string
 }
 
@@ -124,6 +128,8 @@ const pushRow = (r: typeof pushTokens.$inferSelect): PushRegistration => ({
   environment: r.environment,
   topic: r.topic,
   kinds: r.kinds.split(",").filter((k): k is PushKind => (PUSH_KINDS as ReadonlyArray<string>).includes(k)),
+  mutedMacs: (r.mutedMacs ?? "").split(",").filter(Boolean),
+  previews: r.previews ?? true,
   updatedAt: r.updatedAt.toISOString()
 })
 
@@ -196,10 +202,14 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     },
     async setPush(p) {
       const kinds = p.kinds.join(",")
+      const mutedMacs = p.mutedMacs.length ? p.mutedMacs.join(",") : null
       const [r] = await db
         .insert(pushTokens)
-        .values({ ...p, kinds })
-        .onConflictDoUpdate({ target: pushTokens.deviceId, set: { ownerUserId: p.ownerUserId, token: p.token, environment: p.environment, topic: p.topic, kinds, updatedAt: sql`now()` } })
+        .values({ ...p, kinds, mutedMacs })
+        .onConflictDoUpdate({
+          target: pushTokens.deviceId,
+          set: { ownerUserId: p.ownerUserId, token: p.token, environment: p.environment, topic: p.topic, kinds, mutedMacs, previews: p.previews, updatedAt: sql`now()` }
+        })
         .returning()
       return pushRow(r!)
     },
@@ -297,7 +307,7 @@ export const memoryStore = (): Store => ({
     return gone
   },
   async setPush(p) {
-    const r = { ...p, kinds: [...p.kinds], updatedAt: new Date().toISOString() }
+    const r = { ...p, kinds: [...p.kinds], mutedMacs: [...p.mutedMacs], updatedAt: new Date().toISOString() }
     mem.push.set(p.deviceId, r)
     return { ...r }
   },
@@ -305,7 +315,7 @@ export const memoryStore = (): Store => ({
     mem.push.delete(id)
   },
   async listOwnerPush(owner) {
-    return [...mem.push.values()].filter((p) => p.ownerUserId === owner).map((p) => ({ ...p }))
+    return [...mem.push.values()].filter((p) => p.ownerUserId === owner).map((p) => ({ ...p, kinds: [...p.kinds], mutedMacs: [...p.mutedMacs] }))
   },
   async dropPushTokens(tokens) {
     for (const [k, p] of mem.push) if (tokens.includes(p.token)) mem.push.delete(k)
@@ -344,6 +354,7 @@ export const memoryStore = (): Store => ({
 
 export const openStore = (env: Env): Promise<Store> => {
   if (env.HYPERDRIVE) return pgStore(env.HYPERDRIVE)
-  if (env.ENVIRONMENT === "test") return Promise.resolve(memoryStore())
+  // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
+  if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
   throw new Error("no database binding")
 }

@@ -13,12 +13,9 @@ import Testing
 /// Labs flags): every card is one existing cmux-next.json key, Get writes its on value, Remove
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
-    /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674 and #22775).
-    static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
-    ]
+    /// Keys whose PR has not landed: the tab hides their cards until the schema lists them. None
+    /// now: the New Tab widgets landed with #22674 and #22775.
+    static let pendingKeys: Set<String> = []
 
     static func make(_ json: String = "{}", recommended: [String: JSONValue] = [:]) async throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-store-features-\(UUID().uuidString)")

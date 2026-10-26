@@ -242,8 +242,18 @@ impl Mux {
         self.resource_projection_stats.snapshot()
     }
 
+    /// Flush the registry commits made so far to disk, soon, off the
+    /// caller's thread: after a reply went out, or after a background batch
+    /// (`workspace_registry::wal_durability`).
+    pub(crate) fn request_registry_flush(&self) {
+        self.registry_connection.request_flush();
+    }
+
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
-        self.registry_connection.write_path_stats().snapshot()
+        let mut snapshot = self.registry_connection.write_path_stats().snapshot();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) =
+            self.registry_connection.durability_counts();
+        snapshot
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {

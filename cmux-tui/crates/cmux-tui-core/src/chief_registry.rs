@@ -296,6 +296,7 @@ impl ChiefStore {
                     .with_context(|| format!("open chief registry {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict chief registry {}", path.display()))?;
+                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
                 connection
             }
             None => Connection::open_in_memory()?,
@@ -306,9 +307,7 @@ impl ChiefStore {
     fn initialize(mut connection: Connection) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS chief (
                id TEXT PRIMARY KEY NOT NULL,
@@ -409,6 +408,15 @@ impl ChiefStore {
         }
         records.sort_by_key(|r| !r.is_default);
         Ok(records)
+    }
+
+    /// The ids of deleted Chiefs (their tombstones), in deletion order.
+    pub(crate) fn deleted(&self) -> anyhow::Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id FROM chief WHERE record IS NULL ORDER BY deleted_at ASC, id ASC")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<_, _>>().map_err(Into::into)
     }
 
     pub(crate) fn get(&self, id: &str) -> anyhow::Result<Option<ChiefRecord>> {
