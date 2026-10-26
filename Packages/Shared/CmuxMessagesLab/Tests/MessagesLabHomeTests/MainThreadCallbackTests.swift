@@ -11,13 +11,13 @@ import Testing
         let name = Notification.Name("MainThreadCallbackTests.ping")
         let (events, sink) = AsyncStream.makeStream(of: String.self)
         var delivered = events.makeAsyncIterator()
-        var observed: MainQueueObservation? = MainQueueObservation(name, object: nil, center: center) { sink.yield("observed") }
+        var observed: MainQueueObservation? = MainQueueObservation(name, object: nil, center: center) { _ in sink.yield("observed") }
         center.post(name: name, object: nil)
         #expect(await delivered.next() == "observed")
         #expect(observed != nil)
         observed = nil
         // Main-queue deliveries keep their order: the probe's comes after any the released observation still made.
-        let probe = MainQueueObservation(name, object: nil, center: center) { sink.yield("probe") }
+        let probe = MainQueueObservation(name, object: nil, center: center) { _ in sink.yield("probe") }
         center.post(name: name, object: nil)
         #expect(await delivered.next() == "probe", "a released observation still ran")
         withExtendedLifetime(probe) {}

@@ -570,7 +570,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         FlightRecorder.shared.attach(self)
         followKeyState()  // its own window's key state; drops the old window's key observers
         guard let window, demo != nil else { return }
-        observers.append(MainQueueObservation(NSWindow.didChangeScreenNotification, object: window) { [weak self] in self?.followDisplay() })
+        observers.append(MainQueueObservation(NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in self?.followDisplay() })
         followDisplay()
     }
 

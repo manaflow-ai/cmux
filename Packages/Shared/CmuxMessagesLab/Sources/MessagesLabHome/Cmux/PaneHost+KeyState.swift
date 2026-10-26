@@ -22,7 +22,7 @@ extension ChatController {
         demo.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: window.isKeyWindow))
         guard follows else { return }
         keyObservers = [(NSWindow.didBecomeKeyNotification, true), (NSWindow.didResignKeyNotification, false)].map { name, key in
-            MainQueueObservation(name, object: window) { [weak self] in
+            MainQueueObservation(name, object: window) { [weak self] _ in
                 self?.demo?.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: key))
             }
         }

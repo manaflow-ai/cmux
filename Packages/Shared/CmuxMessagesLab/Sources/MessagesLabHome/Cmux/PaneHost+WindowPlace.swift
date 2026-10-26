@@ -32,7 +32,7 @@ extension HostView {
         windowPlaceObservation = nil
         lastWindowPlace = nil
         guard let window else { return }
-        windowPlaceObservation = MainQueueObservation(NSWindow.didUpdateNotification, object: window) { [weak self] in
+        windowPlaceObservation = MainQueueObservation(NSWindow.didUpdateNotification, object: window) { [weak self] _ in
             self?.refreshWindowPlaceIfMoved()
         }
         refreshWindowPlace(placeVideo: false)
