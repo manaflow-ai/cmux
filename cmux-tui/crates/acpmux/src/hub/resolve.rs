@@ -355,5 +355,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        lineage: None,
     }
 }

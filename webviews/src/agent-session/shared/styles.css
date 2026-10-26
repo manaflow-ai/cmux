@@ -71,10 +71,6 @@ textarea {
   font: inherit;
 }
 
-button,
-select {
-  cursor: default;
-}
 
 /* Keyboard focus in the agent pane and on New Tab is never a thick or blue ring (Leo 2026-10-21:
    "I HATE THE APPEARANCE OF THIS FOCUS RING"). The shared desktop ring (pages/shared/desktop.css)

@@ -475,6 +475,8 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
+    Retention(RetentionArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -896,6 +898,9 @@ pub enum DaemonCmd {
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
     Reload,
+    /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
+    /// 14): their raw harness lines and long tool output go, their messages stay.
+    Retention(RetentionArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -904,6 +909,22 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RetentionArgs {
+    /// Only report the chats and bytes a pass would compact; change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Keep every old log segment under this folder (`<folder>/<chat id>/<pass>/events/`).
+    #[arg(long)]
+    pub archive: Option<PathBuf>,
+    /// Chats closed for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// One chat only (name or id).
+    #[arg(long)]
+    pub only: Option<String>,
 }
 
 #[derive(Args)]
@@ -1068,6 +1089,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
+            DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
@@ -1307,6 +1329,27 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
+    /// taken as the listing (review of #25602).
+    #[test]
+    fn host_hold_needs_a_name_to_change_anything() {
+        for argv in [
+            &["acpmux", "host", "hold", "--release"][..],
+            &["acpmux", "host", "hold", "--reason", "x"][..],
+            &["acpmux", "host", "hold", "--until", "2026-10-28T23:59:59Z"][..],
+            &["acpmux", "host", "hold", "m", "--release", "--reason", "x"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} parsed");
+        }
+        for argv in [
+            &["acpmux", "host", "hold"][..],
+            &["acpmux", "host", "hold", "m", "--release"][..],
+            &["acpmux", "host", "hold", "m", "--reason", "x", "--until", "2026-10-28T23:59:59Z"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
     }
 
     #[test]

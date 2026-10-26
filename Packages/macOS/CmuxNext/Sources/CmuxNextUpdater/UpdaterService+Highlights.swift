@@ -27,6 +27,9 @@ extension UpdaterService {
                                           fromBuild: record.fromBuild, notes: notes, appcast: record.changelog)
         }
         highlights.changelog = UpdateHighlights.Changelog(from: record.fromVersion, to: record.toVersion)
+        // A record saved before `builtAt`: the staged appcast item's date.
+        if highlights.builtAt == nil { highlights.builtAt = record.changelog.date.flatMap(UpdateHighlights.instant) }
+        highlights.pulled = pulledWatch.pulledBuilds
         return highlights
     }
 
@@ -37,8 +40,10 @@ extension UpdaterService {
     public var updatedWithoutRecordHighlights: UpdateHighlights? {
         guard whatsNew.lastUpdate == nil, whatsNew.isUpdated else { return nil }
         let from = whatsNew.lastSeen?.description ?? identity.shortVersion
-        return UpdateHighlights(version: identity.shortVersion, build: identity.build, fromVersion: from, fromBuild: "",
-                                notes: currentBuildNotes, appcast: nil)
+        var highlights = UpdateHighlights(version: identity.shortVersion, build: identity.build, fromVersion: from, fromBuild: "",
+                                          notes: currentBuildNotes, appcast: nil)
+        highlights.pulled = pulledWatch.pulledBuilds
+        return highlights
     }
 
     /// "See all changes": the changelog page for the releases after this
