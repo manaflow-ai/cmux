@@ -72,7 +72,7 @@ struct MemoryReportTests {
         ])
     }
 
-    @Test func budgetEncodesItsFieldsAndDecodesFromItsInputs() throws {
+    @Test func budgetRoundTripsEveryField() throws {
         let data = try JSONEncoder().encode(Self.budget)
         let object = try JSONSerialization.jsonObject(with: data)
         let json = try #require(object as? [String: Any])
@@ -83,49 +83,62 @@ struct MemoryReportTests {
         #expect(decoded == Self.budget)
     }
 
-    @Test func entriesReportEachLiveConsumerOnceWithItsLimit() {
-        let registry = RecordingRegistry()
+    @Test func budgetDecodesTheFieldsItHoldsNotItsFormulas() throws {
+        // A report from a build whose formulas differ: the decoded budget is what that build had.
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.budget))
+        var json = try #require(object as? [String: Any])
+        json["chromium_renderer_limit"] = 10
+        json["parked_idle_timeout_seconds"] = 60
+        let decoded = try JSONDecoder().decode(SubsystemBudget.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.physicalMiB == 16_384)
+        #expect(decoded.chromiumRendererLimit == 10)
+        #expect(decoded.parkedIdleTimeout == .seconds(60))
+        #expect(decoded.imageCacheBytes == Self.budget.imageCacheBytes)
+    }
+
+    @MainActor @Test func coordinatorReportsEachLiveConsumerOnceWithItsLimit() {
+        let source = ManualMemoryPressureSource(initial: .normal)
+        let clock = ManualClock()
+        let pressure = MemoryPressureEvents(source: source)
+        let coordinator = MemoryCoordinator(
+            pressure: pressure, mode: .aggressive, slicer: ManualSlicer(clock: clock), clock: clock)
+        let pages = CountingConsumer(usage: nil)
         let images = CountingConsumer(usage: MemoryUsage(footprintBytes: 4096, volatileBytes: 1024, entries: 2))
-        let unknown = CountingConsumer(usage: nil)
         let gone = CountingConsumer(usage: .empty)
+        // The lossy planner registers first; the report lists release order, so the cheap cache leads.
+        let pagesRegistration = MemoryConsumerRegistration(
+            name: "pages", traits: Self.pagePlanner, consumer: pages, registry: coordinator)
         let imagesRegistration = MemoryConsumerRegistration(
-            name: "images", traits: Self.cheapCache, consumer: images, registry: registry)
-        let unknownRegistration = MemoryConsumerRegistration(
-            name: "pages", traits: Self.pagePlanner, consumer: unknown, registry: registry)
+            name: "images", traits: Self.cheapCache, consumer: images, registry: coordinator)
         let goneRegistration = MemoryConsumerRegistration(
-            name: "gone", traits: Self.cheapCache, consumer: gone, registry: registry)
+            name: "gone", traits: Self.cheapCache, consumer: gone, registry: coordinator)
         goneRegistration.cancel()
+        coordinator.pressureOverride = .warning
+        coordinator.mode = .medium
 
-        let report = MemoryReport(
-            level: .critical, mode: .aggressive, budget: Self.budget, entries: registry.consumers.liveEntries()
-        ) { traits in traits.isManaged ? MemoryLimit(percent: 0) : .default }
+        let report = coordinator.report(budget: Self.budget)
 
+        #expect(report.level == .warning)
+        #expect(report.mode == .medium)
+        #expect(report.budget == Self.budget)
+        #expect(coordinator.limit(for: Self.cheapCache) == MemoryLimit(percent: 25))
         #expect(report.consumers == [
             MemoryReport.Consumer(
-                name: "images", traits: Self.cheapCache, limit: MemoryLimit(percent: 0),
+                name: "images", traits: Self.cheapCache, limit: coordinator.limit(for: Self.cheapCache),
                 footprintBytes: 4096, volatileBytes: 1024, entries: 2),
             MemoryReport.Consumer(
-                name: "pages", traits: Self.pagePlanner, limit: .default,
+                name: "pages", traits: Self.pagePlanner, limit: coordinator.limit(for: Self.pagePlanner),
                 footprintBytes: nil, volatileBytes: nil, entries: nil),
         ])
         #expect(images.usageReads == 1)
-        #expect(unknown.usageReads == 1)
+        #expect(pages.usageReads == 1)
         #expect(gone.usageReads == 0)
-        withExtendedLifetime((imagesRegistration, unknownRegistration)) {}
-    }
-}
-
-/// A registry that keeps entries as the coordinator does and hands each one the default limit.
-private final class RecordingRegistry: MemoryConsumerRegistry {
-    var consumers = MemoryConsumerList()
-
-    func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
-        consumers.add(entry)
-        entry.liveConsumer?.updateMemoryLimit(.default)
+        withExtendedLifetime((pressure, pagesRegistration, imagesRegistration)) {}
     }
 }
 
 /// A consumer with a fixed usage that counts how often the report reads it.
+@MainActor
 private final class CountingConsumer: MemoryConsumer {
     private let usage: MemoryUsage?
     private(set) var usageReads = 0

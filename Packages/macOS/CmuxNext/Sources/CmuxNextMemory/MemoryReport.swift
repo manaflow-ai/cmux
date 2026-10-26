@@ -4,7 +4,7 @@ public import CmuxNextCompat
 /// (footprint and volatile bytes, entries), its traits and the limit the coordinator gives it, and
 /// the pressure level, Memory Saver mode and budget the limits come from.
 ///
-/// ``MemoryCoordinator/report()`` makes it in one pass over the consumers. `debug.memory` serves it
+/// ``MemoryCoordinator/report(budget:)`` makes it in one pass over the consumers. `debug.memory` serves it
 /// and `memory-report.py` joins it with the process footprint, so the bytes that no consumer
 /// claims show as unattributed.
 ///
@@ -23,7 +23,8 @@ public nonisolated struct MemoryReport: Codable, Hashable, Sendable {
     public let mode: MemorySaverMode
     /// The budgets at normal pressure, sized from physical memory.
     public let budget: SubsystemBudget
-    /// Every live consumer, in registration order.
+    /// Every live consumer, in the coordinator's release order (``MemoryReleaseOrder``, then
+    /// registration order).
     public let consumers: [Consumer]
 
     /// A report of `consumers` under `level`, `mode` and `budget`.
@@ -32,40 +33,6 @@ public nonisolated struct MemoryReport: Codable, Hashable, Sendable {
         self.mode = mode
         self.budget = budget
         self.consumers = consumers
-    }
-
-    /// The report of every live consumer in `entries`, each with the limit `limit` gives its
-    /// traits, in one pass: one ``MemoryConsumer/memoryUsage`` read per consumer on the main actor
-    /// and no lock held across consumers.
-    ///
-    /// A consumer on another actor registers through the asynchronous registration (Chrome's
-    /// `base/memory_coordinator/async_memory_consumer_registration.h`), whose main-actor
-    /// `memoryUsage` is the last value the consumer sent, so the report never waits for an actor.
-    /// Entries whose registration was released are left out.
-    ///
-    /// - Parameters:
-    ///   - level: The pressure level the limits come from.
-    ///   - mode: The Memory Saver mode the limits come from.
-    ///   - budget: The budgets at normal pressure.
-    ///   - entries: The registry's entries, in registration order.
-    ///   - limit: The limit the coordinator gives a consumer with these traits now.
-    @MainActor
-    public init(
-        level: MemoryPressureLevel,
-        mode: MemorySaverMode,
-        budget: SubsystemBudget,
-        entries: some Sequence<MemoryConsumerEntry>,
-        limit: (MemoryConsumerTraits) -> MemoryLimit
-    ) {
-        var consumers: [Consumer] = []
-        consumers.reserveCapacity(entries.underestimatedCount)
-        for entry in entries {
-            guard let consumer = entry.liveConsumer else { continue }
-            consumers.append(
-                Consumer(name: entry.name, traits: entry.traits, limit: limit(entry.traits), usage: consumer.memoryUsage)
-            )
-        }
-        self.init(level: level, mode: mode, budget: budget, consumers: consumers)
     }
 
     /// One registered consumer: its name, traits, current limit and what it holds.
@@ -184,14 +151,23 @@ nonisolated extension SubsystemBudget: Codable {
         case webProcessPagesPerGroup = "web_process_pages_per_group"
     }
 
-    /// Reads the two inputs and sizes the budget from them again, so the formulas have one home.
+    /// Reads every field as the report holds it, so a report from a build with other formulas
+    /// decodes to the budgets that build had.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let mib = try container.decode(UInt64.self, forKey: .physicalMiB)
-        self = .forMemory(
-            physicalBytes: mib << 20,
-            gpuResidentAvailable: try container.decode(Bool.self, forKey: .gpuResidentAvailable)
-        )
+        physicalMiB = try container.decode(Int.self, forKey: .physicalMiB)
+        gpuResidentAvailable = try container.decode(Bool.self, forKey: .gpuResidentAvailable)
+        chromiumRendererLimit = try container.decode(Int.self, forKey: .chromiumRendererLimit)
+        warmTerminalSurfaces = try container.decode(Int.self, forKey: .warmTerminalSurfaces)
+        parkedWorkspaces = try container.decode(Int.self, forKey: .parkedWorkspaces)
+        parkedIdleTimeout = .seconds(try container.decode(Int64.self, forKey: .parkedIdleTimeoutSeconds))
+        imageCacheBytes = try container.decode(Int.self, forKey: .imageCacheBytes)
+        homeRenderBitmapBytes = try container.decode(Int.self, forKey: .homeRenderBitmapBytes)
+        hibernationSnapshotBytes = try container.decode(Int.self, forKey: .hibernationSnapshotBytes)
+        liveHiddenAgentPages = try container.decode(Int.self, forKey: .liveHiddenAgentPages)
+        liveHiddenInternalPages = try container.decode(Int.self, forKey: .liveHiddenInternalPages)
+        kittyImageBytesPerSurface = try container.decode(Int.self, forKey: .kittyImageBytesPerSurface)
+        webProcessPagesPerGroup = try container.decode(Int.self, forKey: .webProcessPagesPerGroup)
     }
 
     /// Writes the inputs and every budget a report reader shows.

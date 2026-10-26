@@ -66,7 +66,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     private var isSliceScheduled = false
     private let slicer: any MemoryReleaseSlicer
     private let clock: any Clock<Duration>
-    private let budget: Duration
+    private let sliceDuration: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
@@ -90,7 +90,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
         self.clock = clock
-        budget = sliceBudget
+        sliceDuration = sliceBudget
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
@@ -100,6 +100,33 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// - Returns: Its limit.
     public func limit(for traits: MemoryConsumerTraits) -> MemoryLimit {
         policy.limit(for: traits, at: level)
+    }
+
+    /// What every live consumer holds now, with the limit it has and the level and mode the limits
+    /// come from (Chrome's memory-infra dump, `base/trace_event/memory_dump_manager.h`).
+    ///
+    /// One pass over the consumers, O(consumers), on the main actor, in release order: one
+    /// ``MemoryConsumer/memoryUsage`` read per live consumer and no lock held across consumers. A
+    /// consumer on another actor registers through the asynchronous registration (Chrome's
+    /// `base/memory_coordinator/async_memory_consumer_registration.h`), whose main-actor
+    /// `memoryUsage` is the last value it sent, so the report never waits for an actor. Released
+    /// registrations are left out; a consumer that cannot tell its size shows as unknown, never 0.
+    ///
+    /// - Parameter budget: The app's budgets at normal pressure (`AppServices.memoryBudget`).
+    /// - Returns: The snapshot `debug.memory` serves.
+    public func report(budget: SubsystemBudget) -> MemoryReport {
+        dropReleased()
+        var rows: [MemoryReport.Consumer] = []
+        rows.reserveCapacity(consumers.count)
+        for registered in consumers {
+            guard let consumer = registered.entry.liveConsumer else { continue }
+            rows.append(
+                MemoryReport.Consumer(
+                    name: registered.entry.name, traits: registered.entry.traits, limit: registered.limit,
+                    usage: consumer.memoryUsage)
+            )
+        }
+        return MemoryReport(level: level, mode: mode, budget: budget, consumers: rows)
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
@@ -149,7 +176,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     private func runSlice() {
         isSliceScheduled = false
         dropReleased()
-        let isExpired = Self.deadline(on: clock, after: budget)
+        let isExpired = Self.deadline(on: clock, after: sliceDuration)
         for registered in consumers where registered.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()
