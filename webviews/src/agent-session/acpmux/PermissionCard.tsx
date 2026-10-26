@@ -109,7 +109,7 @@ export function PermissionCard({
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
   /// withdrawn, a policy change): the card says so and its keys answer again.
-  onAnswer(optionId: string): void | Promise<unknown>;
+  onAnswer(optionId: string): unknown;
   /// Denies with `optionId`, then gives the agent `text` (empty: only denies). False when acpmux
   /// refused the deny: the field stays, with what was typed.
   onDenyWithFeedback?(optionId: string, text: string): Promise<boolean>;
@@ -211,10 +211,11 @@ export function PermissionCard({
     const sent = onAnswer(option.id);
     focusComposer?.();
     // A refusal is never silent, and never leaves the keys spent on an ask still waiting.
-    sent?.catch(() => {
-      if (answered.current === permissionId) answered.current = undefined;
-      setRefused(permissionId);
-    });
+    if (sent instanceof Promise)
+      sent.catch(() => {
+        if (answered.current === permissionId) answered.current = undefined;
+        setRefused(permissionId);
+      });
   };
   const answerByKey = (option: PermissionOption) => {
     if (answered.current === permission.permissionId) return;
