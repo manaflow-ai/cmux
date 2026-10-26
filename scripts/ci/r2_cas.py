@@ -13,6 +13,10 @@ correct with R2's conditional requests instead.
         Writes FILE only while the object still has ETAG (or does not exist).
         Exits 3 when another writer changed it first (HTTP 412 or 409).
 
+    r2_cas.py delete --key KEY
+        Removes an object this run alone created (a name unique to the run).
+        Unconditional: R2 does not document conditional DELETE.
+
     r2_cas.py lock --key KEY --owner ID --ttl SECONDS --wait SECONDS
         Takes the lease at KEY: creates it only while absent, or replaces a
         released or expired lease only while it still holds the bytes read.
@@ -98,6 +102,16 @@ def put(key: str, body: bytes, *, etag: str | None, cache_control: str, content_
         raise
 
 
+def delete(key: str) -> None:
+    request = r2._build_signed_request(_target(key), b"", _now(), method="DELETE")
+    try:
+        with r2._open_signed_request(request, timeout=60) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+
+
 def _lease(body: bytes) -> dict:
     try:
         lease = json.loads(body or b"{}")
@@ -151,6 +165,8 @@ def main(argv: list[str]) -> int:
     cond = p.add_mutually_exclusive_group(required=True)
     cond.add_argument("--if-match")
     cond.add_argument("--if-absent", action="store_true")
+    dl = sub.add_parser("delete")
+    dl.add_argument("--key", required=True)
     lk = sub.add_parser("lock")
     lk.add_argument("--key", required=True)
     lk.add_argument("--owner", required=True)
@@ -173,6 +189,9 @@ def main(argv: list[str]) -> int:
         written = put(args.key, Path(args.file).read_bytes(), etag=None if args.if_absent else args.if_match,
                       cache_control=args.cache_control, content_type=args.content_type)
         return 0 if written else CONFLICT
+    if args.command == "delete":
+        delete(args.key)
+        return 0
     if args.command == "lock":
         return 0 if lock(args.key, args.owner, args.ttl, args.wait) else CONFLICT
     if args.command == "holds":

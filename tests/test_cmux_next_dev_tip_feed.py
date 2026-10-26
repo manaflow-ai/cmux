@@ -100,7 +100,7 @@ check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evict
 check("concurrency:" not in workflow, "no concurrency group in the DEV publisher evicts a pending run")
 upload = tip[tip.index("Upload the tip feed to R2"):]
 # Codex (2026-10-26): a retry after the write cannot stop a rollback; the write itself is conditional.
-check(upload.index("r2_cas.py get") < upload.index("tip_feed.py newest") < upload.index("r2_cas.py put")
+check(upload.index("r2_cas.py get") < upload.index("tip_feed.py newest") < upload.index("tip_feed.py merge") < upload.index("r2_cas.py put")
       and '--if-match "$etag"' in upload and "(( rc == 3 )) || exit" in upload
       and 'upload "tip-out/$TIP_APPCAST"' not in upload,
       "the tip feed is written only by a compare-and-swap on the feed this run read")
@@ -166,7 +166,8 @@ r2_now[0] += 61
 check(r2_cas.lock("l", "b", 60, 0, clock, sleep) and not r2_cas.holds("l", "a"), "a lease expired on R2's clock is taken over")
 check(not r2_cas.unlock("l", "a") and r2_cas.unlock("l", "b") and not r2_cas.holds("l", "b"), "the holder releases its own lease")
 check(r2_cas.lock("l", "c", 60, 0, clock, sleep), "a released lease is free at once")
-check("def delete" not in (ROOT / "scripts/ci/r2_cas.py").read_text(), "release is a conditional PUT, not an undocumented conditional DELETE")
+unlock_src = (ROOT / "scripts/ci/r2_cas.py").read_text().split("def unlock", 1)[1].split("\ndef ", 1)[0]
+check("delete(" not in unlock_src and "_store(" in unlock_src, "release is a conditional PUT, not an undocumented conditional DELETE")
 
 # The publish step's decision, run in bash with gh and the R2 helper stubbed.
 import subprocess
@@ -256,6 +257,96 @@ rc, log = run_publish(B)
 check(rc == 0 and wrote(log), "with no release and no record, the first run publishes")
 rc, log = run_publish(B, record=A, holds="no", cmp={f"{B}...{A}": "behind"})
 check(rc != 0 and not wrote(log), "a run that lost the lease never writes")
+
+
+# merge: the generated appcast came from an earlier read; a build published since is kept.
+def appcast(*builds):
+    return open(feed(*builds)).read()
+generated = feed(102, 100, 99)
+live = feed(101, 100, 99)
+merged = tip_feed.merge(generated, live, 102, 3)
+merged_path = feed()
+open(merged_path, "w").write(merged)
+check([e["build"] for e in tip_feed.items(merged_path)] == [102, 101, 100] and not tip_feed.check(merged_path, 102),
+      "merging onto the latest feed keeps a build published since the appcast was generated")
+check([e["build"] for e in tip_feed.items(feed(102))] == [102], "fixture sanity")
+open(merged_path, "w").write(tip_feed.merge(generated, None, 102, 3))
+check([e["build"] for e in tip_feed.items(merged_path)] == [102], "with no live feed, the merge is the new item alone")
+try:
+    tip_feed.merge(generated, feed(103), 102, 3)
+    check(False, "merging under a newer live build must refuse")
+except ValueError:
+    pass
+
+# The tip upload step, run in bash: R2 and the uploader stubbed, tip_feed.py real.
+tip_lines = upload.split("run: |\n", 1)[1].splitlines()
+tip_body = []
+for line in tip_lines:
+    if line.strip() and len(line) - len(line.lstrip()) < 10:
+        break
+    tip_body.append(line)
+tip_script = textwrap.dedent("\n".join(tip_body))
+TIP_STUB_PY = r"""#!/bin/bash
+if [[ "$1" == scripts/ci/r2_cas.py ]]; then
+  echo "r2 ${*:2}" >> "$STUB_LOG"
+  case "$2" in
+    get)
+      n=$(( $(cat "$STUB_DIR/gets" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/gets"
+      src="$STUB_DIR/live$n.xml"; [[ -f "$src" ]] || src="$STUB_DIR/live.xml"
+      out="${@: -1}"
+      if [[ -f "$src" ]]; then cp "$src" "$out"; echo "\"etag$n\""; else : > "$out"; echo absent; fi; exit 0 ;;
+    put)
+      n=$(( $(cat "$STUB_DIR/puts" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/puts"
+      file=""; prev=""; for a in "$@"; do [[ "$prev" == --file ]] && file="$a"; prev="$a"; done
+      cp "$file" "$STUB_DIR/written$n.xml"
+      [[ -f "$STUB_DIR/conflict$n" ]] && exit 3; exit 0 ;;
+    delete) exit 0 ;;
+  esac
+fi
+if [[ "$1" == scripts/ci/upload-r2-object.py ]]; then
+  echo "upload ${*:2}" >> "$STUB_LOG"
+  [[ -n "$FAIL_UPLOAD" && "$*" == *"$FAIL_UPLOAD"* ]] && exit 1; exit 0
+fi
+exec "$REAL_PY" "$@"
+"""
+def run_tip(lives, conflicts=(), fail_upload=""):
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "bin").mkdir()
+        (tmp / "bin" / "python3").write_text(TIP_STUB_PY)
+        (tmp / "bin" / "python3").chmod(0o755)
+        (tmp / "scripts" / "ci").mkdir(parents=True)
+        (tmp / "scripts" / "ci" / "tip_feed.py").write_text((ROOT / "scripts/ci/tip_feed.py").read_text())
+        (tmp / "tip-new").mkdir(); (tmp / "tip-out").mkdir()
+        (tmp / "tip-new" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
+        (tmp / "tip-out" / "cmux-NEXT-DEV-tip-7-1-102-100.delta").write_text("delta")
+        (tmp / "tip-out" / "appcast-arm64.xml").write_text(appcast(102, 100, 99))
+        for n, builds in enumerate(lives, 1):
+            if builds is not None:
+                (tmp / f"live{n}.xml").write_text(appcast(*builds))
+        for n in conflicts:
+            (tmp / f"conflict{n}").write_text("")
+        env = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "STUB_LOG": str(tmp / "log"), "STUB_DIR": str(tmp),
+               "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
+               "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
+               "TIP_BASE_URL": "https://files.cmux.com/nightly-next/tip", "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
+        result = subprocess.run(["bash", "-e", "-c", tip_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+        log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
+        written = sorted(tmp.glob("written*.xml"))
+        last = [e["build"] for e in tip_feed.items(str(written[-1]))] if written else None
+        return result.returncode, log, last, result.stderr
+rc, log, last, err = run_tip([(100, 99), (101, 100, 99)], conflicts=(1,))
+check(rc == 0 and last == [102, 101, 100] and "r2 delete" not in log,
+      f"a lost race re-reads and keeps the build published in between ({rc} {last} {err[-300:]})")
+rc, log, last, err = run_tip([(100, 99), (103, 100)], conflicts=(1,))
+check(rc == 0 and last == [102, 100, 99] and log.count("r2 delete") == 2,
+      f"a newer build ends the run, which removes its unused archive and delta ({rc} {log!r})")
+rc, log, last, err = run_tip([None])
+check(rc == 0 and last == [102] and "r2 delete" not in log, f"the first feed is created with the new item ({rc} {err[-300:]})")
+rc, log, last, err = run_tip([(100, 99)], fail_upload=".delta")
+check(rc != 0 and last is None and log.count("r2 delete") == 2,
+      f"a failed upload fails the step, writes no feed and removes what it uploaded ({rc} {log!r})")
 
 if failures:
     for failure in failures:
