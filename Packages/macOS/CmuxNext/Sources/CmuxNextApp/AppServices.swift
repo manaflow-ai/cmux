@@ -490,6 +490,8 @@ final class AppServices {
     let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`).
+    let tabSwitch = TabSwitchSignpost()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
     let vscodeServeWeb = VSCodeServeWebService(
         planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,

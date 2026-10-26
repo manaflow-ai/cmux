@@ -1,14 +1,19 @@
 import AppKit
+import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSignposts
 import os
 
 /// `debug.tab_switch`: the app's own time per tab switch (`SwitchFrameTimer`), apart from the socket
 /// reply, which also waits for the daemon's confirm: intent (`PaneController.select`) to shown
 /// selection (`applySelection`) to the Core Animation commit (cx-8w027.25, scripts/cmux-next/perf-gate.py).
 /// Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
-/// `tab-switch`, name `switch`) with one event per stage, for Instruments, recording or not.
+/// `tab-switch`, name `switch`) with one event per stage, for Instruments, recording or not, and in every
+/// build one `switch.tab` trace pair (`AppServices.tabSwitch`): from the intent, with the destination's
+/// kind, to the content commit (for a Chromium page, the commit of its page window's show).
 @MainActor
 enum DebugTabSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
@@ -26,18 +31,23 @@ enum DebugTabSwitch {
         body()
     }
 
-    static func began(_ owner: AnyObject) {
-        let key = ObjectIdentifier(owner)
+    /// `pane` begins a switch to `tab`.
+    static func began(_ pane: PaneController, to tab: StripTabID) {
+        let key = ObjectIdentifier(pane)
         if signposter.isEnabled {
             if let open = intervals.removeValue(forKey: key) { signposter.endInterval("switch", open.state, "superseded") }
             let id = signposter.makeSignpostID()
             intervals[key] = (id, signposter.beginInterval("switch", id: id))
         }
-        guard timer.isRecording else { return }
         // A key binding or click being handled now: its age is the input stage.
         let event = NSApp.currentEvent
         let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
-        timer.began(key, inputTimestamp: input ?? click)
+        let inputTimestamp = input ?? click, now = CACurrentMediaTime()
+        // Only this switch's own input (not an event left over from a launch or a menu), as the timer reads it.
+        let age = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? (now - $0) * 1_000 : nil } ?? -1
+        pane.services.tabSwitch.began(pane, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)
+        guard timer.isRecording else { return }
+        timer.began(key, at: now, inputTimestamp: inputTimestamp)
     }
 
     /// The switch of `owner` reached `stage`.
@@ -52,14 +62,27 @@ enum DebugTabSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
+    /// `pane` resolved the content its switch shows; a Chromium page takes the `switch.tab` request its show ends.
+    static func content(_ pane: PaneController, _ content: TabContent) {
+        kind(pane, content.switchKind)
+        if case .browser(let entry) = content { pane.services.tabSwitch.shows(entry.tab, for: pane) }
+    }
+
+    /// `pane` put its content in the pane this turn (the `view` stage): its `switch.tab` ends at this commit.
+    static func contentShown(_ pane: PaneController) {
+        mark(pane, "view")
+        pane.services.tabSwitch.contentShown(pane)
+    }
+
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
         if let open = intervals.removeValue(forKey: ObjectIdentifier(owner)) { signposter.endInterval("switch", open.state) }
         timer.shown(ObjectIdentifier(owner), in: window)
     }
 
-    /// `owner` (a pane) goes away: a switch it began and never showed ends here.
-    static func forget(_ owner: AnyObject) {
-        if let open = intervals.removeValue(forKey: ObjectIdentifier(owner)) { signposter.endInterval("switch", open.state, "gone") }
+    /// `pane` goes away: a switch it began and never showed ends here.
+    static func forget(_ pane: PaneController) {
+        if let open = intervals.removeValue(forKey: ObjectIdentifier(pane)) { signposter.endInterval("switch", open.state, "gone") }
+        pane.services.tabSwitch.forget(pane)
     }
 
     /// A window record write requested at `requested` (`CACurrentMediaTime`) was stored by the daemon.
@@ -80,5 +103,14 @@ extension SwitchFrameTimer {
             return .object(row)
         }
         return ["recording": .bool(isRecording), key: .array(rows), "confirms_ms": .array(confirms.map { .number($0) })]
+    }
+}
+
+extension PaneController {
+    /// The `switch.tab` kind of a switch to the tab `key`: its page's, else warm while its content lives.
+    func tabSwitchKind(to key: String) -> TabSwitchSignpost.Kind {
+        if let page = services.cache.existingBrowser(key)?.tab { return services.tabSwitch.kind(of: page) }
+        return services.cache.hasContent(for: key) || services.agentTabs.existingView(key) != nil
+            || services.pages.existingView(key) != nil ? .warm : .cold
     }
 }

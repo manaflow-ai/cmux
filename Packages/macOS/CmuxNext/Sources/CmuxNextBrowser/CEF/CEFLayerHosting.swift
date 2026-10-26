@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSignposts
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -145,7 +146,12 @@ final class CEFLayerHosting {
     /// A tab of the page window shows (`CEFPaneHost.present`). While the page
     /// is hosted and hosting is still wanted, nothing reaches the fork unless
     /// the resize deadline changed; a tunable change applies here.
-    func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
+    ///
+    /// `tabSwitch` is the `switch.tab` interval waiting for this tab (the app's
+    /// visible-time request, taken from the tab): the page window shows the tab
+    /// in this turn's commit, hosted or not, so the switch ends there.
+    func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
+        defer { tabSwitch?.pageShown() }
         guard let fork else { return }
         self.browser = browser
         let wanted = isEnabled()
