@@ -128,7 +128,8 @@ its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
-Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
+Dispatches of iroh-release-gate.yml, and of cmux-next-dev-daily.yml (its
+verify job), are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
 only takes an owned pool with a machine free now (no queue rounds), so that
 job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
@@ -301,10 +302,13 @@ E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
+# The cmux NEXT DEV publisher's `runner` job offers its secret-free verify job
+# to an owned Mac free now, like iroh-release-gate.yml's.
+CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH = ".github/workflows/cmux-next-dev-daily.yml"
 # workflow_dispatch runs watched like an E2E run: each has a `runner` job that
 # picks the pool and uploads the marker.
 DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH,
-                           IROH_RELEASE_GATE_WORKFLOW_PATH)
+                           IROH_RELEASE_GATE_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
 # since run 36136190497).
@@ -1397,7 +1401,8 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
       macOS legs read `github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-...-macos-...'`);
     - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it;
     - ci.yml's re-run of failed jobs reuses attempt 1's placement through LAST_OWNED_ATTEMPT;
-    - test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml take their retry route from attempt 2;
+    - test-ios.yml, ios-screenshots.yml, iroh-release-gate.yml and cmux-next-dev-daily.yml take their retry
+      route from attempt 2;
       test-e2e.yml does not count, since a UI run's retry_label stays on its owned pool and the path alone
       cannot tell one apart;
     - the base and PR autofix's Mac exports (OWNED_EVERY_ATTEMPT_PATHS) keep their owned label on every
@@ -1453,6 +1458,13 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
+    if target.nightly and target.push_branch == "nightly-next":
+        # Each nightly-next run builds and signs in groups of its own (nightly.yml
+        # scopes them to github.run_id), so a newer tip builds alongside this one
+        # and never makes it moot: a newer tip is never a reason to cancel a
+        # nightly (Nightly freshness). publish-nightly's order check refuses a
+        # build no newer than the feed, so re-running an older one never downgrades.
+        return ""
     if target.nightly:
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
