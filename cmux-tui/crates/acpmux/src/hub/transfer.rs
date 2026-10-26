@@ -219,7 +219,10 @@ impl Hub {
             return Err(anyhow::anyhow!("cmux-harness durable state requires a local session store"));
         };
         let source = store_dir.join("journal.ndjson");
-        if !source.is_file() { return Err(anyhow::anyhow!("durable journal is not a regular file")); }
+        let source_meta = std::fs::symlink_metadata(&source)?;
+        if !source_meta.file_type().is_file() {
+            return Err(anyhow::anyhow!("durable journal is not a regular file"));
+        }
         let bytes = std::fs::read(&source).map_err(|e| anyhow::anyhow!("read durable journal: {e}"))?;
         let target = dir.join("harness").join("journal.ndjson");
         std::fs::create_dir_all(target.parent().unwrap())?;
