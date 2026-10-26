@@ -149,7 +149,9 @@ extension PropertyListSerialization {
         fileID: StaticString = #fileID, line: UInt = #line
     ) throws -> Any {
         try cpuIntensiveCall(size: data.count, limit: BlockingKind.cpuIntensiveJSONBytes, fileID: fileID, line: line) {
-            try propertyList(from: data, options: options, format: format)
+            // SAFETY: forwards the caller's `format` pointer unchanged, only for the call; the caller's own `unsafe`
+            // states why it is valid for it.
+            try unsafe propertyList(from: data, options: options, format: format)
         }
     }
 }

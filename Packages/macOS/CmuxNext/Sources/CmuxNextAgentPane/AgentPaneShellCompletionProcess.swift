@@ -27,7 +27,8 @@ nonisolated final class CompletionProcess: Sendable {
     static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration,
                     launcher: ChildProcessLauncher) async throws(AgentPaneShellCompletion.Failure) -> Data {
         var pipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
+        // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+        guard unsafe Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
         let writeEnd = pipe[1]
         do {
@@ -103,31 +104,32 @@ nonisolated final class CompletionProcess: Sendable {
 
     private static func spawn(_ path: String, arguments: [String], environment: [String: String], folder: String,
                               output: Int32, priority: MayBlockPriority) throws(AgentPaneShellCompletion.Failure) -> pid_t {
+        // SAFETY (every posix_spawn_* call below): each takes the address of `actions` or `attributes`, locals
+        // initialized here and destroyed once by the defers, and copies the C strings it is lent (the NUL-terminated
+        // copies made for the call) before it returns.
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        guard posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawnattr_destroy(&attributes) }
-        let configured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) } == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0
-            && "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, $0, O_WRONLY, 0) } == 0
-            && folder.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } == 0
-            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
-            && posix_spawnattr_setpgroup(&attributes, 0) == 0
-        guard configured else { throw .spawnFailed(EINVAL) }
+        guard unsafe posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        guard unsafe posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
+        guard unsafe posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0,
+              unsafe posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_addchdir_np(&actions, folder) == 0,
+              unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0,
+              unsafe posix_spawnattr_setpgroup(&attributes, 0) == 0 else { throw .spawnFailed(EINVAL) }
         let variables = environment.map { "\($0.key)=\($0.value)" }
         var pid: pid_t = 0
-        let status = withCStrings(arguments) { argv in
-            withCStrings(variables) { envp in blockingPosixSpawn(&pid, path, &actions, &attributes, argv, envp, priority: priority) }
+        // SAFETY: argv and envp are NULL-terminated lists that withCStringList lends for its closure; posix_spawn
+        // copies them, writes the child's pid into `pid`, a local, and reads `actions` and `attributes` (above).
+        let status = unsafe withCStringList(arguments) { argv in
+            unsafe withCStringList(variables) { envp in
+                unsafe blockingPosixSpawn(&pid, path, &actions, &attributes, argv, envp, priority: priority)
+            }
         }
+        guard let status = status.flatMap({ $0 }) else { throw .spawnFailed(ENOMEM) }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid
-    }
-
-    private static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
-        let pointers = strings.map { strdup($0) } + [nil]
-        defer { for pointer in pointers { free(pointer) } }
-        return body(pointers)
     }
 }

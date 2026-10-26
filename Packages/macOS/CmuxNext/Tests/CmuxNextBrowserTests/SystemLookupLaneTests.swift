@@ -64,6 +64,20 @@ import Testing
         #expect(await Self.recorded(priorities) == [.userVisible])
     }
 
+    /// Addresses keep network byte order, whether parsed from a literal or copied out of a lookup's sockaddr.
+    @Test func addressesKeepNetworkByteOrder() async throws {
+        #expect(RemoteAddress(literal: "203.0.113.7") == .v4([203, 0, 113, 7]))
+        #expect(RemoteAddress(literal: "2001:db8::1") == .v6([0x20, 0x01, 0x0d, 0xb8] + [UInt8](repeating: 0, count: 11) + [1]))
+        #expect(RemoteAddress(literal: "::ffff:10.1.2.3") == .v6([UInt8](repeating: 0, count: 10) + [0xff, 0xff, 10, 1, 2, 3]))
+        #expect(RemoteAddress(literal: "fe80::1%en0") == nil)
+        #expect(RemoteAddress(literal: "example.com") == nil)
+        let (_, record) = AsyncStream.makeStream(of: MayBlockPriority.self)
+        let resolver = SystemRemoteResolver(runner: RecordingRunner(lanes: BackgroundWork(label: "test.order"), record: record))
+        let addresses = try await resolver.resolve("127.0.0.1")
+        record.finish()
+        #expect(addresses == [.v4([127, 0, 0, 1])])
+    }
+
     @Test func anUnwiredResolverFindsNoHost() async {
         await #expect(throws: URLError.self) { try await UnwiredRemoteResolver().resolve("localhost") }
     }

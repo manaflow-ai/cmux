@@ -115,3 +115,14 @@
                  TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
                  y += 14
                  TextDraw.line(Self.fit(Self.kindText(a), Self.kindFont, tw), font: Self.kindFont, color: Fixture.secondaryText, x: tx, baseline: y, in: c)
+@@ -262,9 +278,7 @@
+ 
+     /// The thumbnail shown for an image (tests).
+     func shownImage(_ id: ID) -> CGImage? {
+-        guard let raw = imageLayers[id]?.image.contents else { return nil }
+-        let contents = raw as AnyObject
+-        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
++        imageLayers[id]?.image.bitmapContents // cmux: the one checked downcast (RowDrawing.swift)
+     }
+ }
+ 

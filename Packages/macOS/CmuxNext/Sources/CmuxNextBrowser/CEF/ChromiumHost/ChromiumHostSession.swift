@@ -70,14 +70,18 @@ public final class ChromiumHostSession {
     /// The page's pixels and input target; one view for every host the session starts.
     public let view = ChromiumHostPageView(frame: .zero)
 
-    private let configuration: ChromiumHostConfiguration
+    let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
     private let policy: ChromiumHostRestartPolicy
     private let now: () -> ContinuousClock.Instant
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
-    private var connection: ChromiumHostConnection?
+    /// Takes each presentation report of the host (ChromiumHostSession+InputPresented.swift).
+    let inputPresented: InputPresented
+    let reportsInputPresented: ReportsInputPresented
+    @ObservationIgnored var failedInputPresentations = 0
+    private(set) var connection: ChromiumHostConnection?
     private var startedAt: ContinuousClock.Instant?
     private var isFirstStart = true
     /// ``close()`` sent `quit` to the running host; its exit does not restart it.
@@ -87,14 +91,14 @@ public final class ChromiumHostSession {
     /// SIGKILLs the quitting host at the quit limit; cancelled when it ends.
     @ObservationIgnored private let quitDeadline = DemandTimer(owner: "ChromiumHostSession.quit")
     /// No live page this long quits the host; nil keeps it (the default).
-    private let idleExit: Duration?
+    let idleExit: Duration?
     /// The owner's last picture of the page, shown while no host shows it.
     private let standInPicture: @MainActor () -> CGImage?
     /// Quits the host ``idleExit`` after its page stopped being live; cancelled by a show or its end.
     /// Background class: nothing shows the page while it waits.
     @ObservationIgnored private let idleDeadline: MainDeadline?
     /// The page's view is in a window.
-    private var isLive = false
+    private(set) var isLive = false
     /// The quit in progress is the idle exit's: the host's end leaves ``Phase/exitedIdle``.
     private var idleQuitting = false
     private var geometry: ChromiumHostGeometry?
@@ -113,16 +117,23 @@ public final class ChromiumHostSession {
     ///   - idleExit: No live page this long quits the host (feature `chromiumHostIdleExit`,
     ///     param `idleExitAfter`), on the app's deadline scheduler; nil keeps it running.
     ///   - standInPicture: The page's last picture, shown while no host shows the page.
+    ///   - inputPresented: Takes the host's presentation report of each input (the input latency tracker).
+    ///   - reportsInputPresented: Takes whether the current host sends those reports.
     public convenience init(configuration: ChromiumHostConfiguration, idleExit: ChromiumHostIdleExit? = nil,
-                            standInPicture: @escaping @MainActor () -> CGImage? = { nil }) {
+                            standInPicture: @escaping @MainActor () -> CGImage? = { nil },
+                            inputPresented: @escaping InputPresented = { _, _ in },
+                            reportsInputPresented: @escaping ReportsInputPresented = { _ in }) {
         self.init(configuration: configuration, launcher: ChromiumHostLauncher(), now: { ContinuousClock.now },
-                  idleExit: idleExit, standInPicture: standInPicture)
+                  idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
+                  reportsInputPresented: reportsInputPresented)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
          policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
          quitLimit: Duration = ChromiumHostFrame.quitLimit, idleExit: ChromiumHostIdleExit? = nil,
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
+         inputPresented: @escaping InputPresented = { _, _ in },
+         reportsInputPresented: @escaping ReportsInputPresented = { _ in },
          connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
         self.configuration = configuration
         self.launcher = launcher
@@ -132,6 +143,8 @@ public final class ChromiumHostSession {
         self.idleExit = idleExit?.after
         self.standInPicture = standInPicture
         self.connected = connected
+        self.inputPresented = inputPresented
+        self.reportsInputPresented = reportsInputPresented
         idleDeadline = idleExit.map {
             MainDeadline(owner: "ChromiumHostSession.idleExit", workClass: .background, scheduler: $0.deadlines)
         }
@@ -254,32 +267,6 @@ public final class ChromiumHostSession {
         return pid
     }
 
-    /// State for `debug.chromium_host`.
-    public var report: [String: Any] {
-        let phaseText: String
-        switch phase {
-        case .idle: phaseText = "idle"
-        case .starting: phaseText = "starting"
-        case .running: phaseText = "running"
-        case .ended(let reason): phaseText = "ended: \(reason)"
-        case .exitedIdle: phaseText = "exited idle"
-        }
-        let backlog = connection?.backlog
-        var fields: [String: Any] = [
-                "phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
-                "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "idle_exits": idleExits, "idle_exit_s": idleExit.map(Self.seconds) ?? 0,
-                "live": isLive, "idle_exit_armed": isIdleExitArmed, "stand_in": view.standIn != nil,
-                "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? "",
-                "wire_waiting": backlog?.waiting ?? 0, "wire_coalesced": Int(clamping: backlog?.coalesced ?? 0)]
-        for (name, count) in view.textInput.stats.report { fields[name] = count }
-        return fields
-    }
-
-    private static func seconds(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
-    }
-
     // MARK: Lifecycle
 
     /// Starts a host. The launcher spawns it off the main thread (ChromiumHostLauncher's spawn queue, as
@@ -369,6 +356,7 @@ public final class ChromiumHostSession {
         case .ready:
             forkAPI = frame.v[0]
             phase = .running
+            reportsInputPresented(frame.reportsInputPresented)
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)
@@ -390,6 +378,8 @@ public final class ChromiumHostSession {
             lastError = "renderer ended (status \(frame.v[0]))"
         case .textInputState:
             if let state = ChromiumHostTextInputState(frame: frame) { view.applyTextInputState(state) }
+        case .inputPresented:
+            takeInputPresented(frame)
         default:
             break
         }
@@ -404,6 +394,7 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        reportsInputPresented(false)
         // The focused field ended with the host, and any composition in it.
         view.applyTextInputState(ChromiumHostTextInputState())
         fillPageBackground()

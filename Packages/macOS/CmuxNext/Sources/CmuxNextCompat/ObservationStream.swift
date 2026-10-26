@@ -334,8 +334,10 @@ public struct ObservationTrigger<Value: Sendable>: Sendable {
 struct ObservationStreamNativeOptIn {
     static let enabled: Bool = {
         #if DEBUG
-        guard let raw = getenv("CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS") else { return false }
-        return String(cString: raw) == "1"
+        // SAFETY: getenv returns the environment's own NUL-terminated value or NULL, copied at once into a String
+        // here, before this one-time read returns.
+        guard let raw = unsafe getenv("CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS") else { return false }
+        return unsafe String(cString: raw) == "1"
         #else
         return false
         #endif

@@ -22,6 +22,13 @@ static const char kWheelGolden[2][129] = {
     "000000000000008056443322110000000700000000000000000000002b000000",
 };
 
+// An input presented frame (task p04-input-066), the same bytes as
+// ChromiumHostFrameTests.inputPresentedGolden: the input of event time
+// 0x1122334455 showed in a vsync frame at 0x1122a0b0c0.
+static const char kInputPresentedGolden[] =
+    "6e00000000000000010000000000000000000000000000000000000000000000"
+    "00000000000000005544332211000000c0b0a022110000000000000000000000";
+
 static int failures = 0;
 
 static void Check(bool ok, const char* what) {
@@ -195,6 +202,60 @@ static void TestWheel() {
         "deltas add up only within one phase");
 }
 
+// An input frame's event time (task p04-input-065).
+static void TestEventTime() {
+  using namespace cmux_host;
+  const uint64_t now = 5'000'000'000ULL;
+  Header key;
+  key.kind = kKey;
+  key.t0 = now - 1'500'000;  // the NSEvent came 1.5 ms ago
+  Check(EventTimeOf(key, now) == now - 1'500'000, "a key's event time is its t0, the NSEvent's timestamp");
+  Header mouse = key;
+  mouse.kind = kMouse;
+  Header wheel = key;
+  wheel.kind = kWheel;
+  Check(EventTimeOf(mouse, now) == key.t0 && EventTimeOf(wheel, now) == key.t0,
+        "so is a click's, a move's and a wheel's");
+  Check(EventTimeOf(key, key.t0) == key.t0, "a t0 of now is now");
+  Header future = key;
+  future.t0 = now + 1;
+  Check(EventTimeOf(future, now) == 0, "a t0 later than now is of another clock: Chromium stamps the send time");
+  Header none = key;
+  none.t0 = 0;
+  Check(EventTimeOf(none, now) == 0, "a frame with no event time gets the send time");
+  Header ping;
+  ping.kind = kPing;
+  ping.t0 = now - 10;
+  Header geometry = key;
+  geometry.kind = kGeometry;
+  Check(EventTimeOf(ping, now) == 0 && EventTimeOf(geometry, now) == 0,
+        "a ping's t0 (cmux's send time) and a geometry frame are not input events");
+}
+
+// The host's report that an input's frame was presented: before it cmux had
+// no presentation time for a Chromium page's input.
+static void TestInputPresented() {
+  using namespace cmux_host;
+  const Header frame = InputPresentedFrame(0x1122334455ULL, 0x1122a0b0c0ULL, kPresentationVSync);
+  uint8_t golden[kHeaderSize], encoded[kHeaderSize];
+  FromHex(kInputPresentedGolden, golden);
+  Encode(frame, encoded);
+  Check(std::memcmp(encoded, golden, sizeof golden) == 0, "an input presented frame encodes as its golden bytes");
+  Header d;
+  Check(Decode(golden, &d) && d.kind == kInputPresented && d.payload == 0, "it decodes as kInputPresented");
+  Check(d.t0 == 0x1122334455ULL && d.t1 == 0x1122a0b0c0ULL, "t0 is the event time, t1 the presentation time");
+  Check(static_cast<uint32_t>(d.v[0]) == kPresentationVSync, "v0 carries the feedback flags");
+  // The capability rides kReady's v2, the bit ChromiumHostFrame.readyReportsInputPresented reads.
+  Header ready;
+  ready.kind = kReady;
+  ready.v[2] = kReadyReportsInputPresented;
+  uint8_t bytes[kHeaderSize];
+  Encode(ready, bytes);
+  Header readBack;
+  Check(Decode(bytes, &readBack) && readBack.kind == kReady && readBack.v[2] == 1,
+        "a ready that reports presentation carries bit 0 of v2");
+}
+
 int main() {
   uint8_t golden[cmux_host::kHeaderSize];
   FromHex(kGolden, golden);
@@ -318,6 +379,8 @@ int main() {
   }
 
   TestWheel();
+  TestEventTime();
+  TestInputPresented();
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");

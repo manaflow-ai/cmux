@@ -149,3 +149,35 @@ describe("split page build", () => {
     expect(reactUrls[1]).toBe(reactUrls[0]);
   }, 60_000);
 });
+
+describe("the shared React (cmux-page://cmux.shared/)", () => {
+  const REACT = `${SHARED_ORIGIN}react-R.js`;
+  const sharedHtml = pageHtml({
+    page: "history",
+    entry: "app-H.js",
+    preload: [`${SHARED_ORIGIN}chunk-A.js`, REACT],
+    loader: "",
+    css: "",
+  });
+  const sharedEntry = `import{react$useState as u}from"${REACT}";import{a}from"${SHARED_ORIGIN}chunk-A.js";a(u);`;
+  const withReact = {
+    ...whole,
+    "history/index.html": sharedHtml,
+    "history/app-H.js": sharedEntry,
+    "_shared/react-R.js": "export const react$useState=()=>{};",
+  };
+
+  test("an import and a preload of the shared React file resolve", () => {
+    expect(checkPageTree(tree(withReact), ["history"])).toEqual([]);
+  });
+
+  test("a React file the tree's _shared lacks fails, for the preload and the import, on both servers", () => {
+    const { ["_shared/react-R.js"]: _, ...files } = withReact;
+    expect(checkPageTree(tree(files), ["history"])).toEqual([
+      `history/index.html: ${REACT} is not on ${APP}`,
+      `history/app-H.js: ${REACT} is not on ${APP}`,
+      `history/index.html: ${REACT} is not on ${DAEMON}`,
+      `history/app-H.js: ${REACT} is not on ${DAEMON}`,
+    ]);
+  });
+});

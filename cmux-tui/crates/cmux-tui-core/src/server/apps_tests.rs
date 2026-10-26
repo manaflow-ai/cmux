@@ -1,6 +1,9 @@
 use super::*;
 use crate::SurfaceOptions;
-use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
+use crate::server::{
+    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
+    handle_connection_frame,
+};
 
 /// A local connection with `kind`, bound to an agent when `agent`.
 fn connection(mux: &Arc<Mux>, kind: Option<&str>, agent: bool) -> (u64, Arc<BoundedOutbound>) {
@@ -15,8 +18,35 @@ fn connection(mux: &Arc<Mux>, kind: Option<&str>, agent: bool) -> (u64, Arc<Boun
     (client, outbound)
 }
 
-/// Sends `request` on `client` and returns the reply's error code
-/// (`None` when the reply is ok).
+/// Sends `line` on the local connection `client` through the daemon's frame
+/// dispatch, so the line reaches this module by its route as a real one
+/// does. Returns the reply and the JSON parses the line took.
+fn send_line(mux: &Arc<Mux>, client: u64, outbound: &BoundedOutbound, line: &str) -> (Value, u64) {
+    let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let stats = crate::diagnostics::IpcStats::default();
+    {
+        let _parses = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Lines,
+        );
+        assert!(handle_connection_frame(
+            mux,
+            client,
+            ClientTransport::Unix,
+            line,
+            &writer,
+            &scheduler
+        ));
+    }
+    let reply = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
+    (reply, stats.snapshot().parses.lines.json_parses)
+}
+
+/// Hands `request` to this module's route entry on `client` (whatever its
+/// transport, so the module's own gates answer) and returns the reply's
+/// error code (`None` when the reply is ok).
 fn error_code(
     mux: &Arc<Mux>,
     client: u64,
@@ -24,7 +54,10 @@ fn error_code(
     request: Value,
 ) -> Option<String> {
     let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
-    assert_eq!(try_handle(mux, client, &request.to_string(), &writer), Some(true));
+    let message = request.to_string();
+    let head = crate::server::RequestHead::parse(&message);
+    let line = RouteLine { mux, client, message: &message, writer: &writer, head: &head };
+    assert_eq!(handle(&line), Some(true));
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
     reply["error_code"].as_str().map(str::to_string)
 }
@@ -256,19 +289,68 @@ fn error_replies_carry_details_and_retryable() {
 fn a_cancel_request_is_answered_on_the_apps_door() {
     let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
     let (cli, out) = connection(&mux, Some("cli"), false);
-    let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
     let cancel =
         json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" });
-    assert_eq!(try_handle(&mux, cli, &cancel.to_string(), &writer), Some(true));
-    let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
+    let (reply, _) = send_line(&mux, cli, &out, &cancel.to_string());
     assert_eq!(
         (reply["id"].clone(), reply["ok"].clone(), reply["data"].clone()),
         (json!("cancel-request-1"), json!(true), json!({}))
     );
     // Without a target the frame is a bad request, not silence.
     let bad = json!({ "id": 2, "cmd": "cancel-request" });
-    assert_eq!(try_handle(&mux, cli, &bad.to_string(), &writer), Some(true));
-    let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
+    let (reply, _) = send_line(&mux, cli, &out, &bad.to_string());
+    assert_eq!(reply["error_code"], "bad-request");
+}
+
+/// The route is found by the line's decoded `cmd`, never a substring of the
+/// raw line (p05-ipc-067): an `apps-*` or `cancel-request` name spelled with
+/// a JSON escape answers as its plain spelling, and every line, accepted or
+/// refused, takes two parses (the head and the route's one decode).
+#[test]
+fn cmux_next_apps_routes_by_the_decoded_cmd_and_decodes_once() {
+    let mux = Mux::new_for_test("apps-routes-decoded-cmd", SurfaceOptions::default());
+    let (cli, out) = connection(&mux, Some("cli"), false);
+    // The JSON escape of `-`.
+    let dash = "\\u002d";
+    let cases = [
+        // Answered by the door (an app host or `apps.unavailable`).
+        (
+            r#"{"id":1,"cmd":"apps-list"}"#.to_string(),
+            format!(r#"{{"id":1,"cmd":"apps{dash}list"}}"#),
+        ),
+        // Refused by the typed parse: apps-set needs an idempotency key.
+        (
+            r#"{"id":2,"cmd":"apps-set","app":"cmux/a"}"#.to_string(),
+            format!(r#"{{"id":2,"cmd":"apps{dash}set","app":"cmux/a"}}"#),
+        ),
+        // Refused by Gate A2: apps-set needs the verified app.
+        (
+            r#"{"id":3,"cmd":"apps-set","idempotency_key":"k","app":"cmux/a","installed":true}"#
+                .to_string(),
+            format!(
+                r#"{{"id":3,"cmd":"apps{dash}set","idempotency_key":"k","app":"cmux/a","installed":true}}"#
+            ),
+        ),
+        (
+            r#"{"id":4,"cmd":"cancel-request","target":"apps-run-1"}"#.to_string(),
+            format!(r#"{{"id":4,"cmd":"cancel{dash}request","target":"apps-run-1"}}"#),
+        ),
+    ];
+    for (plain, escaped) in &cases {
+        let (expected, parses) = send_line(&mux, cli, &out, plain);
+        assert_eq!(parses, 2, "{plain}: the head and the route's decode");
+        let (routed, parses) = send_line(&mux, cli, &out, escaped);
+        assert_eq!(routed, expected, "{escaped}");
+        assert_eq!(parses, 2, "{escaped}");
+    }
+    // A repeated `cmd` routes and decodes by its last value, as the head
+    // reads it: the earlier `apps-set` is not what answers.
+    let repeated = r#"{"id":5,"cmd":"apps-set","cmd":"cancel-request","target":"apps-run-1"}"#;
+    let (reply, _) = send_line(&mux, cli, &out, repeated);
+    assert_eq!((reply["id"].clone(), reply["data"].clone()), (json!(5), json!({})), "{reply}");
+    // A null id is answered as null.
+    let (reply, _) = send_line(&mux, cli, &out, r#"{"id":null,"cmd":"cancel-request"}"#);
+    assert_eq!(reply.get("id"), Some(&Value::Null), "{reply}");
     assert_eq!(reply["error_code"], "bad-request");
 }
 
@@ -314,9 +396,10 @@ impl serde::de::Error for VariantList {
 
 /// Every serde name of this module's `Command` enum.
 fn apps_command_names() -> Vec<&'static str> {
-    let deserializer = serde::de::value::MapDeserializer::<_, VariantList>::new(
-        std::iter::once(("cmd", "__no_such_command__")),
-    );
+    let deserializer = serde::de::value::MapDeserializer::<_, VariantList>::new(std::iter::once((
+        "cmd",
+        "__no_such_command__",
+    )));
     match Command::deserialize(deserializer) {
         Err(VariantList::Variants(names)) => names.to_vec(),
         Err(VariantList::Other(message)) => panic!("no variant list: {message}"),

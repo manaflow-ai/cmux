@@ -21,6 +21,7 @@ extension BrowserChromeView {
         Motion.overlays.animateTimed(hidden ? .disappear : .appear, in: self, {
             // Outside a window no display runs the animation, so set the constant directly.
             (self.window == nil ? self.toolbarHeight : Motion.animator(self.toolbarHeight, in: self)).constant = height
+            // sync-layout: inside the animation group, so the rows' frames animate to the new toolbar height.
             self.layoutSubtreeIfNeeded()
         }, completion: {
             if self.isToolbarHidden {

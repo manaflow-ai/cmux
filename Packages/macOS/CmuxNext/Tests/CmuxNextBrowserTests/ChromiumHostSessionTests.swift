@@ -361,6 +361,56 @@ import Testing
         #expect(launcher.count == 1)
     }
 
+    /// The presentation reports the session handed on (the app's input latency tracker), observed.
+    @MainActor @Observable
+    final class PresentedReports {
+        var reports: [[UInt64]] = []
+    }
+
+    /// The host reports when each input's frame was presented (task p04-input-066): the session hands the event time
+    /// and the presentation time on, in order, and keeps a frame that failed to present to itself.
+    @Test func hostPresentationReportsReachTheInputLatencySeam() async throws {
+        let launcher = FakeLauncher()
+        let recorded = PresentedReports()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          inputPresented: { event, presented in recorded.reports.append([event, presented]) })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        host.wire.send(.inputPresented(.init(eventNanos: 1_000, presentedNanos: 9_000,
+                                             feedbackFlags: ChromiumHostFrame.presentationFailed)))
+        host.wire.send(.inputPresented(.init(eventNanos: 2_000, presentedNanos: 20_000, feedbackFlags: 1)))
+        host.wire.send(.inputPresented(.init(eventNanos: 3_000, presentedNanos: 30_000, feedbackFlags: 1 | 1 << 2)))
+        try await until("two reports") { recorded.reports.count == 2 }
+        #expect(recorded.reports == [[2_000, 20_000], [3_000, 30_000]])
+        #expect(session.report["input_presented_failed"] as? Int == 1)
+    }
+
+    /// Whether the current host reports presentation, as the session told the seam (the app's tracker), in order.
+    @MainActor @Observable
+    final class ReportsSeen {
+        var values: [Bool] = []
+    }
+
+    /// The session tells the tracker whether page slots can expect a report: what the host's `ready` announced, and
+    /// false once that host ended, so a page slot waits for a report only while one can come (task p04-input-066).
+    @Test func theHostsReadyDecidesWhetherPageSlotsWaitForReports() async throws {
+        let launcher = FakeLauncher()
+        let seen = ReportsSeen()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          reportsInputPresented: { seen.values.append($0) })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        first.wire.send(ChromiumHostFrame(.ready, v: [27, first.pid, ChromiumHostFrame.readyReportsInputPresented]))
+        try await until("the first host reports") { seen.values == [true] }
+        launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))
+        let second = try await nextLaunch(launcher)
+        #expect(seen.values == [true, false], "no report comes from a host that ended")
+        answer(second, context: 5, address: "https://a.example/")  // an older host: no bit in its ready
+        try await until("the second host does not report") { seen.values == [true, false, false] }
+        #expect(session.phase == .running)
+    }
+
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
     /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
     /// sequential calls continue where the last one stopped.

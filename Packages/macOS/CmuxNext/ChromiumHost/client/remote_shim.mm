@@ -172,8 +172,9 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
 // stream"): those of Chrome's RenderWidgetHostNSViewHost pipe
 // (content/common/render_widget_host_ns_view.mojom) that change where input lands or that input
 // must reach first: focus (OnFirstResponderChanged), the active page and embedder activity
-// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged); IME (ImeSetComposition,
-// ImeCommitText) and edit commands (ExecuteEditCommand) join as tasks 043 and 047 add their ops.
+// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged), IME (ImeSetComposition,
+// ImeCommitText, ImeFinishComposingText, ImeCancelComposition: p04-input-064), so a commit never
+// passes the key that made it; edit commands (ExecuteEditCommand) join as task 047 adds them.
 // Each carries its control seq and the input seq it follows; input frames name the last one.
 bool IsOrderedOp(uint16_t op) {
   switch (op) {
@@ -182,6 +183,10 @@ bool IsOrderedOp(uint16_t op) {
     case kOpBrowserSetEmbedderActive:
     case kOpTabActivate:
     case kOpDevtoolsSetPlacement:
+    case kOpBrowserImeSetComposition:
+    case kOpBrowserImeCommitText:
+    case kOpBrowserImeFinishComposing:
+    case kOpBrowserImeCancelComposition:
       return true;
     default:
       return false;
@@ -851,6 +856,16 @@ CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_
 // app does not sample, so there is no pid here. Host mode is task p14-energy-124a.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
   (void)browser_id;
+  return 0;
+}
+
+// Memory per hidden workspace is in-process only for the same reason: the renderers are the Chromium
+// Host's children, so the app finds no pid for them and counts the sample unclear (p09-observability-061).
+CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity) {
+  (void)browser_ids;
+  (void)client_ids;
+  (void)frame_counts;
+  (void)capacity;
   return 0;
 }
 

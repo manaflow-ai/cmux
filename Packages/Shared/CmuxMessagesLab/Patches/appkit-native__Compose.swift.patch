@@ -69,17 +69,18 @@
      func installCaret() {
          guard Self.ownCaret else { return }
          insertionPointColor = .clear
-@@ -143,7 +176,8 @@
+@@ -143,7 +176,9 @@
              if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
                  local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
              } else {
 -                let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
 +                // cmux: AppKit's own rect, never the emoji picker's anchor (`pickerAnchor`).
-+                let screen = super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
++                // SAFETY: the actual-range pointer is nil, so AppKit writes no range.
++                let screen = unsafe super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
                  let r = convert(window.convertFromScreen(screen), from: nil)
                  local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
              }
-@@ -185,11 +219,13 @@
+@@ -185,11 +220,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -95,7 +96,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -210,6 +246,7 @@
+@@ -210,6 +247,7 @@
          return ok
      }
      override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
@@ -103,7 +104,7 @@
          caretByEdit = editing
          super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
          // A caret move (an arrow key) shows the caret by this rule whatever AppKit scrolls; an
-@@ -229,6 +266,10 @@
+@@ -229,6 +267,10 @@
      /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
      /// menu's "Check Spelling While Typing" switches it.
      lazy var spell = DeferredSpellChecker(view: self)
@@ -114,7 +115,7 @@
      /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
      func setSpellCheckingEnabled(_ enabled: Bool) {
          if DeferredSpellChecker.useAppKit {
-@@ -241,6 +282,9 @@
+@@ -241,6 +283,9 @@
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -124,7 +125,7 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -253,17 +297,15 @@
+@@ -253,17 +298,15 @@
          return ok
      }
      override func resignFirstResponder() -> Bool {
@@ -145,7 +146,7 @@
      /// The text storage's edits (its `didProcessEditing` posts), the container's width and the layout
      /// objects when `caretRect` last laid out the whole text.
      private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
-@@ -296,17 +338,27 @@
+@@ -296,17 +339,27 @@
          didSet { if !NSDictionary(dictionary: typingAttributes).isEqual(to: oldValue) { inputChanges &+= 1 } }
      }
      private var storageEdits = 0
@@ -178,7 +179,7 @@
          }
      }
      override func setFrameSize(_ newSize: NSSize) {
-@@ -358,11 +410,9 @@
+@@ -358,11 +411,9 @@
          // call, 2 to 3 calls per key; arrow keys edit nothing).
          let storage = textStorage.map(ObjectIdentifier.init)
          if observedStorage != storage {
@@ -192,7 +193,7 @@
              }
              observedStorage = storage
              laidOut = nil
-@@ -387,13 +437,36 @@
+@@ -387,13 +438,36 @@
              tlm.ensureLayout(for: tlm.documentRange)
              laidOut = state
          }
@@ -214,7 +215,7 @@
 +        let storageText = textStorage
 +        func picture(_ i: Int) -> Bool {
 +            guard let s = storageText, i >= 0, i < s.length else { return false }
-+            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
++            return s.attribute(.attachment, at: i) is ComposeInlineAttachment
 +        }
 +        let length = storageText?.length ?? 0
 +        let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
@@ -234,7 +235,7 @@
      }
      /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
      /// whole text is laid out again from scratch (equal when no layout input went stale).
-@@ -429,14 +502,115 @@
+@@ -429,14 +503,117 @@
          return super.scrollToVisible(rect)
      }
  
@@ -251,8 +252,10 @@
 +        super.flagsChanged(with: event)
 +    }
 +    override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-+        if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
-+        return super.firstRect(forCharacterRange: range, actualRange: actualRange)
++        // SAFETY: AppKit passes nil or a pointer to one NSRange it owns for this call; one range is written to it,
++        // during the call only, and the same pointer goes on to super under the same contract.
++        if let pickerAnchor { unsafe actualRange?.pointee = range; return pickerAnchor }  // cmux
++        return unsafe super.firstRect(forCharacterRange: range, actualRange: actualRange)
 +    }
 +
      /// The pasteboard Paste reads (a check injects its own).
@@ -351,7 +354,7 @@
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -464,7 +638,7 @@
+@@ -464,7 +641,7 @@
      var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
      var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
      var text: String { view.string }
@@ -360,7 +363,7 @@
      init() {
          // TextKit 2, as UITextView on Catalyst.
          view = FieldTextView(usingTextLayoutManager: true)
-@@ -485,7 +659,8 @@
+@@ -485,7 +662,8 @@
          clip.addSubview(scrollView)
          // The caret follows the text when the field scrolls (a trackpad scroll over the field).
          scrollView.contentView.postsBoundsChangedNotifications = true
@@ -370,7 +373,7 @@
              view?.updateCaret(reset: false)
          }
          view.onEndLiveResize = { [weak self] in
-@@ -495,7 +670,6 @@
+@@ -495,7 +673,6 @@
              DispatchQueue.main.async { self?.placeWaitingWidth() }
          }
      }
@@ -378,7 +381,7 @@
  
      /// The field's frame whose width waits for the end of a live resize (nil: none waits).
      private(set) var widthWaiting: CGRect?
-@@ -642,10 +816,40 @@
+@@ -642,10 +819,40 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -420,7 +423,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -668,16 +872,32 @@
+@@ -668,16 +875,32 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -458,7 +461,7 @@
      }
      /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
      /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
-@@ -688,9 +908,16 @@
+@@ -688,9 +911,16 @@
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
          if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
@@ -476,7 +479,7 @@
      /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
      static let emptyLineMinWidth: CGFloat = 20
      private var emptyLinesMemo: (CGFloat, Int)?
-@@ -759,6 +986,7 @@
+@@ -759,6 +989,7 @@
          tv.textColor = Fixture.incomingText
          tv.insertionPointColor = Fixture.caret
          tv.installCaret()
@@ -484,7 +487,7 @@
          tv.textContainer?.lineFragmentPadding = 0
          // AppKit puts `textContainerInset.height` above and below the text when it sizes the
          // document; the container origin puts the text at the top inset.
-@@ -777,7 +1005,7 @@
+@@ -777,7 +1008,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -493,7 +496,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -800,6 +1028,7 @@
+@@ -800,6 +1031,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -501,7 +504,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -845,6 +1074,8 @@
+@@ -845,6 +1077,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -510,7 +513,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -859,7 +1090,8 @@
+@@ -859,7 +1093,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -520,7 +523,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -877,10 +1109,11 @@
+@@ -877,10 +1112,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -533,7 +536,18 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -950,11 +1183,11 @@
+@@ -927,8 +1163,8 @@
+             let space = CGColorSpace(name: CGColorSpace.sRGB)
+             for (stops, fromTop) in [(top, true), (bottom, false)] {
+                 // an optional gradient draws nothing when it fails (CrashSafeGraphics).
+-                let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
+-                                   locations: stops.map { $0.0 / cap })
++                let g = CGGradient.checked(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor },
++                                           locations: stops.map { $0.0 / cap })
+                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
+             }
+             c.restoreGState()
+@@ -950,11 +1186,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -547,7 +561,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -968,7 +1201,54 @@
+@@ -968,7 +1204,55 @@
      }
  
      private func renderChips() {
@@ -570,7 +584,8 @@
 +        guard let storage = tv.textStorage else { return }
 +        var range: NSRange?
 +        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { v, r, stop in
-+            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; stop.pointee = true }
++            // SAFETY: `stop` is Foundation's flag for this enumeration, valid during the block only.
++            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; unsafe stop.pointee = true }
 +        }
 +        guard let range, tv.shouldChangeText(in: range, replacementString: "") else { return }
 +        storage.replaceCharacters(in: range, with: "")
@@ -603,7 +618,7 @@
      }
  
      /// The attachment whose remove control is at p (window coordinates).
-@@ -994,13 +1274,20 @@
+@@ -994,13 +1278,20 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -628,7 +643,7 @@
              }
          }
          let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
-@@ -1017,8 +1304,7 @@
+@@ -1017,8 +1308,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -638,7 +653,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1055,6 +1341,7 @@
+@@ -1055,6 +1345,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -646,3 +661,12 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
+@@ -1093,7 +1384,7 @@
+         // no trap on a NaN or huge size (crash ratchet)
+         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
+         if rep.pixelsWide != wide || rep.pixelsHigh != high,
+-           let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
++           let scaled = NSBitmapImageRep.owned(pixelsWide: wide, pixelsHigh: high,
+                                          bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
+                                          hasAlpha: rep.hasAlpha, isPlanar: rep.isPlanar, colorSpaceName: rep.colorSpaceName,
+                                          bitmapFormat: rep.bitmapFormat, bytesPerRow: 0, bitsPerPixel: rep.bitsPerPixel)?

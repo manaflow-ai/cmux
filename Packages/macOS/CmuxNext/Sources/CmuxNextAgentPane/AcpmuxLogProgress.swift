@@ -16,7 +16,8 @@ nonisolated final class AcpmuxLogProgress: Sendable {
 
     /// Watches `logPath` (created when missing) for writes from now on.
     init(logPath: String) {
-        let fd = open(logPath, O_EVTONLY | O_CREAT, 0o600)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(logPath, O_EVTONLY | O_CREAT, 0o600)
         guard fd >= 0 else {
             source = nil
             return

@@ -140,7 +140,7 @@ fn cancel_request(mux: &Mux, client: u64) -> bool {
     if !mux.control_clients.is_unix(client) { return false; }
     true
 }
-fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
     if !mux.control_clients.is_unix(client) { return Some(false); }
     Some(true)
@@ -154,7 +154,7 @@ enum Command {
 }
 fn helper(mux: &Mux, client: u64) -> bool { if !mux.control_clients.is_unix(client) { return false; } true }
 fn cancel_request(mux: &Mux, client: u64) -> bool { true }
-fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
     if !mux.control_clients.is_unix(client) { return Some(false); }
     Some(true)
@@ -182,7 +182,7 @@ fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
 
     def test_literal_only_module_needs_its_guard_and_a_production_literal(self) -> None:
         guarded = """\
-pub(super) fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if cmd != "agent-session-observe" { return None; }
     if !mux.control_clients.is_unix(client) { return Some(false); }
     Some(true)
@@ -190,7 +190,7 @@ pub(super) fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
 """
         unguarded = guarded.replace("    if !mux.control_clients.is_unix(client) { return Some(false); }\n", "")
         test_only = """\
-pub(super) fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if !mux.control_clients.is_unix(client) { return Some(false); }
     None
 }
@@ -211,7 +211,7 @@ mod tests {
                     {"agent-session-observe": "local-admin"},
                 )
             for source, message in (
-                (unguarded, "try_handle does not refuse non-Unix connections"),
+                (unguarded, "handle does not refuse non-Unix connections"),
                 (test_only, "no longer matches 'agent-session-observe'"),
             ):
                 observe.write_text(source)

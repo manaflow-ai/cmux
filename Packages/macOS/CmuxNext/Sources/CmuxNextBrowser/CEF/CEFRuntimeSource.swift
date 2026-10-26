@@ -24,6 +24,9 @@ public final class CEFRuntimeSource {
     /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
     /// runtime adopts the source, before Chromium starts; in process it changes nothing.
     public var showsHostWidgets = false
+    /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
+    /// the App; p01-process-050). Read when the runtime adopts the source; in process it changes nothing.
+    public var takesHostDrags = false
 
     /// Creates a source.
     ///

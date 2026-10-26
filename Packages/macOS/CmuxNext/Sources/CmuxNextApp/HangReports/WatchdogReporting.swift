@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -16,11 +17,18 @@ enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
     static func install(_ watchdog: MainThreadWatchdog, services: AppServices) -> HangReportsController {
         let reporter = services.crashReporting.reporter
+        let memory = HiddenWorkspaceMemory(
+            work: services.work, mainWork: services.mainWork,
+            capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
+            rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
             counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown },
-            watchdog: watchdog, input: services.inputTap, events: services.appEvents, work: services.work, mainWork: services.mainWork)
+            watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory,
+            work: services.work, mainWork: services.mainWork,
+            metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
+            daemonPID: { [weak services] in services?.daemon.identity?.pid })
         let collector = hangReports.collector
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
@@ -58,6 +66,34 @@ enum WatchdogReporting {
         return CoarseCounts(windows: services.windows.controllers.count, workspaces: workspaces.count, panes: panes.count,
                             tabs: panes.reduce(0) { $0 + $1.tabs.count },
                             userBlockingWaitP99Nanos: services.work.userBlockingQueueWaitP99Nanos)
+    }
+
+    /// Every mounted browser tab with its workspace and renderer frames, the workspaces with one that no window
+    /// shows, and every Chromium browser's frames per renderer (task 061). O(browser tabs + frames): each tab's
+    /// workspace from the stores' tab index, one shim call for all frames. A live page of another engine has
+    /// unknown frames, so its hidden workspace's sample is unclear.
+    static func hiddenWorkspaceCapture(_ services: AppServices) -> HiddenWorkspaceMemory.Capture {
+        let shown = Set(services.windows.controllers.flatMap { $0.onScreenContents.map(\.workspace.id) })
+        // An engine not built yet runs no Chromium: no browser, no frame.
+        let frames: CEFRendererFrames? = if let engine = services.cache.chromium.built { engine.rendererFrames } else { CEFRendererFrames([]) }
+        var hidden = Set<String>()
+        let tabs = services.cache.browsers.map { key, entry in
+            let workspace = services.workspaceID(ofTab: key)
+            if let workspace, !shown.contains(workspace) { hidden.insert(workspace) }
+            return HiddenWorkspaceMemory.Placement(workspace: workspace, rendererFrames: rendererFrames(of: entry.tab, in: frames))
+        }
+        return HiddenWorkspaceMemory.Capture(tabs: tabs, hiddenWorkspaces: hidden, rendererFrameTotals: frames?.totals ?? [:])
+    }
+
+    /// `tab`'s frames per renderer from `frames`: none for a page with no engine page (hibernated, deferred),
+    /// which holds no renderer memory; nil (unknown) for a live page of another engine and when `frames` is
+    /// unknown (host mode).
+    static func rendererFrames(of tab: any BrowserTab, in frames: CEFRendererFrames?) -> [(clientID: Int32, frames: Int)]? {
+        switch tab {
+        case let tab as CEFTab: frames?.frames(ofBrowser: tab.browserID)
+        case is HibernatedBrowserTab, is DeferredBrowserTab: []
+        default: nil
+        }
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {

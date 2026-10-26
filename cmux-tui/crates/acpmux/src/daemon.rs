@@ -328,14 +328,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("--person-key-fd: {e}");
         }
     }
+    // Periodic upkeep (catalog, harness health, upload sweep) shares one clock (`maintenance.rs`).
+    let phase = crate::maintenance::install_phase(&home().join(crate::maintenance::PHASE_FILE));
+    if let Err(e) = hub.maintenance.start(phase) {
+        tracing::warn!("the maintenance clock did not start, periodic upkeep is off: {e}");
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
-    if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+    if let Err(e) = hub.catalog.schedule(&hub.maintenance, fetch_catalog) {
+        tracing::warn!("the periodic model catalog refresh is off: {e}");
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).

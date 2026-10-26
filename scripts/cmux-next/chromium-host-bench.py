@@ -49,9 +49,13 @@ Per mode:
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
-           key-window counters stay 0), the keys of cmux's defaults domain that changed while the host ran less
-           those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
-           the host; last row).
+           key-window counters stay 0), the host's on-screen windows (CGWindowList; pass: 0, its page windows are
+           detached and never ordered in, task p01-process-053), the keys of cmux's defaults domain that changed
+           while the host ran less those cmux changed alone before it (pass: none), and a Quit AppleEvent to the
+           bundle id (cmux quits, not the host; last row).
+  geometry helper: the window moves, then grows, 1 point per display frame; the host's geometry counters
+           (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
+           display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
@@ -77,6 +81,13 @@ Per mode:
            `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
            shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
            pointer route to the host: the row says not_measurable with the reason instead of passing.
+  dragin   `--modes dragin` (task 050), on an input host (real HID events) with feature chromiumHostDragIn on: a
+           Chromium tab of the app's backend over a drop zone and an <input type=file>; a real drag session from
+           another app (pointer-probe.swift drag-file, as from Finder) drops one file on each. Pass: the zone's drop
+           event and the input's change event have the file's name and size, the source saw the drop taken, and
+           `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
+           page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
+           where the relay takes the drops), the row says not_measurable with the reason instead of passing.
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -217,6 +228,26 @@ margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
 <div id=custom style="top:75%;cursor:url(data:image/png;base64,PNG) 4 4,auto;background:#ecd">custom</div>""".replace(
     "PNG", base64.b64encode(cursor_png()).decode())
 
+# The drag-in probe (task 050): a drop zone that takes the drop (preventDefault in dragover) and a file input,
+# whose default drop sets its files. window.dragLog records what each saw.
+DRAG_PAGE = """<!doctype html><meta charset=utf-8><title>drag probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}#zone,#file{position:fixed;top:10%;width:40%;height:50%;
+box-sizing:border-box;margin:0}#zone{left:5%;background:#2a6}#file{left:55%;background:#ddd}</style>
+<div id=zone>drop zone</div><input id=file type=file>
+<script>
+const log = window.dragLog = {zone: [], dropped: null, file: null};
+const zone = document.getElementById('zone');
+for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEventListener(type, event => {
+  event.preventDefault();
+  if (!log.zone.includes(type)) log.zone.push(type);
+  if (type === 'drop') log.dropped = [...event.dataTransfer.files].map(f => [f.name, f.size]);
+});
+document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
+</script>"""
+DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+# ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
+DRAG_TARGET_FORK_API = 31
+
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -233,6 +264,52 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def on_screen_windows(pid):
+    """The on-screen windows `pid` owns (CGWindowListCopyWindowInfo with kCGWindowListOptionOnScreenOnly), each
+    {"layer", "alpha", "bounds" [x, y, w, h]}, or None when CoreGraphics cannot be read."""
+    import ctypes
+    try:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    except OSError:
+        return None
+    ptr, index = ctypes.c_void_p, ctypes.c_long
+    cg.CGWindowListCopyWindowInfo.restype, cg.CGWindowListCopyWindowInfo.argtypes = ptr, [ctypes.c_uint32, ctypes.c_uint32]
+    cg.CGRectMakeWithDictionaryRepresentation.restype = ctypes.c_bool
+    cg.CGRectMakeWithDictionaryRepresentation.argtypes = [ptr, ptr]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = index, [ptr]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = ptr, [ptr, index]
+    cf.CFDictionaryGetValue.restype, cf.CFDictionaryGetValue.argtypes = ptr, [ptr, ptr]
+    cf.CFNumberGetValue.restype, cf.CFNumberGetValue.argtypes = ctypes.c_bool, [ptr, index, ptr]
+    cf.CFRelease.argtypes = [ptr]
+    key = {name: ptr.in_dll(cg, name).value for name in ("kCGWindowOwnerPID", "kCGWindowLayer", "kCGWindowAlpha",
+                                                         "kCGWindowBounds")}
+    sint32, double = 3, 13  # kCFNumberSInt32Type, kCFNumberDoubleType
+
+    def number(entry, name, kind, ctype):
+        value, out = cf.CFDictionaryGetValue(entry, key[name]), ctype()
+        return out.value if value and cf.CFNumberGetValue(value, kind, ctypes.byref(out)) else None
+
+    windows = cg.CGWindowListCopyWindowInfo(1, 0)  # kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+    if not windows:
+        return None
+    found = []
+    try:
+        for i in range(cf.CFArrayGetCount(windows)):
+            entry = cf.CFArrayGetValueAtIndex(windows, i)
+            if number(entry, "kCGWindowOwnerPID", sint32, ctypes.c_int32) != pid:
+                continue
+            rect = (ctypes.c_double * 4)()  # CGRect: origin x, y, size width, height
+            bounds = cf.CFDictionaryGetValue(entry, key["kCGWindowBounds"])
+            placed = bool(bounds) and cg.CGRectMakeWithDictionaryRepresentation(bounds, rect)
+            found.append({"layer": number(entry, "kCGWindowLayer", sint32, ctypes.c_int32),
+                          "alpha": number(entry, "kCGWindowAlpha", double, ctypes.c_double),
+                          "bounds": [round(v, 1) for v in rect] if placed else None})
+    finally:
+        cf.CFRelease(windows)
+    return found
 
 
 # ChromiumHostFrame.quitLimit: how long a host may take to end after `quit` or EOF before it is SIGKILLed / ends itself.
@@ -487,6 +564,8 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if "dragin" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -529,6 +608,10 @@ def main():
             cursor_probe = os.path.join(opts.out, "cursor.html")
             open(cursor_probe, "w").write(CURSOR_PAGE)
             ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
+        if "dragin" in modes:
+            drag_probe = os.path.join(opts.out, "drag.html")
+            open(drag_probe, "w").write(DRAG_PAGE)
+            ok = run_dragin(rpc, pathlib.Path(drag_probe).as_uri()) and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:
@@ -983,6 +1066,11 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
+    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # page shown and after the clicks, the window server lists no window of the host on screen.
+    host_windows = on_screen_windows(host_pid) if host_pid else None
+    identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),
+                                          "windows": (host_windows or [])[:8]}
     try:
         opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=20)
         open_exit, open_err = opened.returncode, opened.stderr.strip()[:200]
@@ -994,7 +1082,8 @@ def run_helper(rpc, url, inproc_tab):
     identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
                         and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly")
                         and identity["clicks"]["host_frontmost"] == 0 and identity["clicks"]["activations"] == 0
-                        and identity["clicks"]["key_windows"] == 0)
+                        and identity["clicks"]["key_windows"] == 0
+                        and identity["host_windows_on_screen"]["count"] == 0)
     # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
     # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
     host_point = click_point("t")
@@ -1012,6 +1101,7 @@ def run_helper(rpc, url, inproc_tab):
     row["fork_api"] = state.get("fork_api")
 
     row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    bounded(row, "geometry", lambda: geometry_row(rpc))
     if opts.ime:
         bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
 
@@ -1088,6 +1178,93 @@ def run_cursor(rpc, url):
     else:
         row["pass"] = all(b.get("pass") for b in bands)
     RESULT["modes"]["cursor"] = row
+    return True
+
+
+def build_pointer_probe():
+    """pointer-probe.swift built here (an input host's Accessibility grant posts its events); None when it fails."""
+    probe = os.path.join(tempfile.mkdtemp(prefix="pointer-probe-"), "pointer-probe")
+    built = subprocess.run(["xcrun", "swiftc", "-O", os.path.join(HERE, "pointer-probe.swift"), "-o", probe],
+                           capture_output=True, text=True, timeout=300)
+    return probe if built.returncode == 0 else None
+
+
+def run_dragin(rpc, url):
+    """The drag-in row (task 050): a real drag session from another app (pointer-probe drag-file, as from Finder)
+    of one file onto the drag probe's drop zone, then onto its <input type=file>. Each passes when the page got
+    the file with its bytes (the zone's drop event, the input's change event) and the source saw the drop taken."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["dragin"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'drag probe'"), 60, 0.5):
+        RESULT["modes"]["dragin"] = {"error": f"the drag probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        RESULT["modes"]["dragin"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    frame = window.get("frame") or {}
+    # Window points from the top left to screen points from the top left (the pane's page view fills its border).
+    left = frame.get("x", 0) + border[0]
+    top = float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1]
+    path = os.path.join(opts.out, "drag-in.txt")
+    with open(path, "w") as out:
+        out.write(DRAG_FILE_TEXT)
+    expected = [[os.path.basename(path), len(DRAG_FILE_TEXT.encode())]]
+    # The source sits left of the window when there is room, else at its top left corner (it floats above cmux).
+    source = (max(30.0, frame.get("x", 0) - 40), top + 20)
+
+    def page_drag():
+        # Only a host-mode page view has a page_drag (debug.cef): in process the DevTools relay takes file drags.
+        cef = rpc("debug.cef") or {}
+        mine = [e for e in cef.get("devtools") or [] if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_drag"), (cef.get("windows") or {}).get("fork_api")
+
+    counts, fork_api = page_drag()
+    row = {"backend": "host" if counts else "in_process", "fork_api": fork_api, "page_drag": counts}
+    if not counts:
+        row["not_measurable"] = "the tab runs in process, where the DevTools relay takes file drags: no DragTarget path"
+    elif not isinstance(fork_api, (int, float)) or fork_api < DRAG_TARGET_FORK_API:
+        row["not_measurable"] = (f"fork API {fork_api} is below {DRAG_TARGET_FORK_API} (p01-process-178): the page view "
+                                 "refuses the drag and the DevTools relay takes the drops")
+    elif not counts.get("takes_drags"):
+        row["error"] = "the page view takes no drags: feature chromiumHostDragIn is off or the pane never wired it"
+    for target, field in (("zone", "dropped"), ("file", "file")):
+        rect = page(f"(() => {{ const r = document.getElementById('{target}').getBoundingClientRect(); "
+                    "return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+        if not rect:
+            row[target] = {"error": "no target rect", "pass": False}
+            continue
+        point = (left + rect[0], top + rect[1])
+        dragged = subprocess.run([probe, "drag-file", f"{source[0]:.0f}", f"{source[1]:.0f}", f"{point[0]:.0f}", f"{point[1]:.0f}",
+                                  "40", path], capture_output=True, text=True, timeout=60)
+        got = wait(lambda: page(f"window.dragLog.{field}"), 5, 0.1)
+        log = page("JSON.stringify(window.dragLog)")
+        before, after = counts or {}, page_drag()[0] or {}
+        # This drop went through cmux_shim_browser_drag_target_*: one more DragTarget drop, and the renderer
+        # answered the drag's enter or over through the fork's watch.
+        drag_target = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("enters", "drops", "answers")}
+        counts = after
+        row[target] = {"point": point, "source": dragged.stdout.strip() or dragged.stderr.strip()[:200], "got": got, "log": log,
+                       "drag_target": drag_target,
+                       "pass": (got == expected and dragged.returncode == 0 and drag_target["drops"] == 1
+                                and drag_target["answers"] >= 1)}
+    if "not_measurable" not in row:
+        row["pass"] = "error" not in row and all(row[t].get("pass") for t in ("zone", "file"))
+    RESULT["modes"]["dragin"] = row
     return True
 
 
@@ -1195,6 +1372,48 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 
 
 IME_STATS = ("changes", "pushes", "frames", "unsent", "watches")
+
+
+GEOMETRY_STATS = ("frames", "applied", "unchanged", "unplaced")
+
+
+def geometry_row(rpc, steps=60):
+    """Geometry frames per moving page per display frame (task p01-process-053). The host places a page's window only
+    when its geometry changed (HostContext::PlaceFrame), so a page that moves every frame costs at most one placement
+    per frame. The window moves 1 point per display frame for `steps` frames, then grows 1 point per frame for
+    `steps` frames (debug.window_frame: one programmatic setFrame each, as a display change or Rectangle does); the
+    host's counters (kOpGeometryStats: frames, applied, unchanged, unplaced) are read before and after through
+    `debug.chromium_host.measure {op: geometry}`. Pass: placements per display frame <= 1 for the one moving page, and
+    no geometry the host could not place. Until cmux's host session asks the host for them, the row says the counters
+    are unavailable instead of passing."""
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "geometry"}) or {}
+    before = counters()
+    if not all(isinstance(before.get(key), (int, float)) for key in GEOMETRY_STATS):
+        return {"unavailable": "the app does not answer debug.chromium_host.measure geometry", "reply": before,
+                "pass": None}
+    start = (rpc("debug.window_frame") or {}).get("frame")
+    if not (isinstance(start, list) and len(start) == 4):
+        return {"error": "no window frame (debug.window_frame)", "pass": False}
+    hz = main_display_hz() or 60.0
+    x, y, w, h = start
+    began = time.monotonic()
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + i, y, w, h]})
+        time.sleep(1 / hz)  # test harness: one move per display frame
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + steps, y, w + i, h]})
+        time.sleep(1 / hz)  # test harness: one resize per display frame
+    time.sleep(0.2)  # test harness: the last geometry reaches the host
+    elapsed = time.monotonic() - began
+    after = counters()
+    rpc("debug.window_frame", {"frame": start})
+    delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in GEOMETRY_STATS}
+    display_frames = max(1, round(elapsed * hz))
+    row = {"steps": 2 * steps, "display_frames": display_frames, "hz": hz, **delta}
+    row["applied_per_frame"] = round(delta["applied"] / display_frames, 3)
+    row["frames_per_frame"] = round(delta["frames"] / display_frames, 3)
+    row["pass"] = delta["applied"] > 0 and delta["applied"] <= display_frames and delta["unplaced"] == 0
+    return row
 
 
 def ime_row(rpc, title, click_point):

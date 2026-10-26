@@ -35,7 +35,9 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         }
         guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: request.port)) else { throw HTTPError(reason: "port") }
         let tls = NWProtocolTLS.Options()
-        sec_protocol_options_set_tls_server_name(tls.securityProtocolOptions, request.host)
+        // SAFETY: the call reads the NUL-terminated copy of the host name made for it and copies the name into the
+        // options.
+        unsafe sec_protocol_options_set_tls_server_name(tls.securityProtocolOptions, request.host)
         // A silent address (often a broken IPv6 route) must fail fast, so the next checked address
         // gets its turn inside the fetch's deadline.
         let tcp = NWProtocolTCP.Options()

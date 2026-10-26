@@ -82,6 +82,7 @@ struct SidebarGroupEditing {
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
+        // sync-layout: the anchor below reads the row's nameHitFrame and more button frame.
         view.layoutSubtreeIfNeeded()
         // The row's settled frame: a group made a moment ago may still be moving in.
         let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame

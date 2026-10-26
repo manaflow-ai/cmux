@@ -363,7 +363,8 @@ struct SidebarPalette: Equatable, Sendable { // cmux: checked Sendable (Swift 6)
         func build() -> SidebarPalette {
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
+                // SAFETY: Core Graphics reads the space's 3 components and the alpha, 4 values, the array's count.
+                unsafe CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
                     ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // no force unwrap
             }
             return SidebarPalette(

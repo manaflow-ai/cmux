@@ -27,29 +27,35 @@ nonisolated enum AgentPaneProjectCopy {
     /// Appends `lines` to the regular file at canonical `path`, after a newline when its text does not
     /// end in one. A link there now is refused.
     static func append(_ lines: [String], to path: String) -> Bool {
-        let fd = open(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         var info = stat()
-        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return false }
+        // SAFETY: fstat writes one struct stat into `info`, a local.
+        guard unsafe fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return false }
         var text = lines.joined(separator: "\n") + "\n"
         var last: UInt8 = 0
-        if info.st_size > 0, pread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
+        // SAFETY: pread writes at most 1 byte into `last`, a local UInt8.
+        if info.st_size > 0, unsafe pread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
         let bytes = Array(text.utf8)
-        return bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } == bytes.count
+        // SAFETY: write reads bytes.count bytes from the array's own storage, lent for the call.
+        return unsafe write(fd, bytes, bytes.count) == bytes.count
     }
 
     /// `folder/.cmux/context`, opened a component at a time without following links and made when
     /// missing.
     private static func openContext(_ folder: String) -> Int32? {
-        var fd = open(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        var fd = unsafe open(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         for component in [".cmux", "context"] {
-            if mkdirat(fd, component, 0o755) != 0, errno != EEXIST {
+            // SAFETY: mkdirat and openat read the NUL-terminated copy of the name made for each call.
+            if unsafe mkdirat(fd, component, 0o755) != 0, errno != EEXIST {
                 close(fd)
                 return nil
             }
-            let next = openat(fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            let next = unsafe openat(fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             close(fd)
             guard next >= 0 else { return nil }
             fd = next
@@ -60,11 +66,13 @@ nonisolated enum AgentPaneProjectCopy {
     /// Copies one regular file into the open context folder; nil when it is not one or the copy failed.
     private static func copy(_ source: URL, into context: Int32) -> String? {
         // Non-blocking: a FIFO swapped in for the file must not hang the copy; it fails the check below.
-        let input = open(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let input = unsafe open(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard input >= 0 else { return nil }
         defer { close(input) }
         var info = stat()
-        guard fstat(input, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+        // SAFETY: fstat writes one struct stat into `info`, a local.
+        guard unsafe fstat(input, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
         let name = source.lastPathComponent.split(whereSeparator: \.isWhitespace).joined(separator: "-")
         guard !name.isEmpty, name != ".", name != ".." else { return nil }
         let stem = (name as NSString).deletingPathExtension
@@ -72,14 +80,17 @@ nonisolated enum AgentPaneProjectCopy {
         for number in 1...999 {
             let candidate = number == 1 ? name : (ext.isEmpty ? "\(stem)-\(number)" : "\(stem)-\(number).\(ext)")
             // Exclusive and never through a link: a name taken (a link too) tries the next number.
-            let output = openat(context, candidate, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+            // SAFETY: openat reads the NUL-terminated copy of the name made for the call.
+            let output = unsafe openat(context, candidate, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
             if output < 0 {
                 if errno == EEXIST { continue }
                 return nil
             }
-            let copied = fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA)) == 0
+            // SAFETY: fcopyfile copies between two open descriptors with no state object (nil).
+            let copied = unsafe fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA)) == 0
             close(output)
-            if !copied { unlinkat(context, candidate, 0) }
+            // SAFETY: unlinkat reads the NUL-terminated copy of the name made for the call.
+            if !copied { unsafe unlinkat(context, candidate, 0) }
             return copied ? candidate : nil
         }
         return nil

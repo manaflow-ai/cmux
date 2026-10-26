@@ -423,11 +423,13 @@ public final class TabStripView: NSView {
             chip.font = Typography.caption
         }
         groupEditor.hide()
-        newTabButton.needsLayout = true
+        // Runs for new tokens (`startObservingTokens`' change check), new custom metrics or a new window.
+        newTabButton.needsLayout = true // invalidate: the + button's glyph follows the metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
-        needsLayout = true
+        needsLayout = true // invalidate: every cell takes the new metrics
+        // sync-layout: relayout below reads the viewport the new metrics give (tabsClip, placed in layout()).
         layoutSubtreeIfNeeded()
         relayout(animated: animated && !reduceMotion)
     }

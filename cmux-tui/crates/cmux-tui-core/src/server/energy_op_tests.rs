@@ -256,3 +256,56 @@ fn energy_lines_are_routed_and_the_capability_is_advertised() {
     let mux = Mux::new_for_test("energy-capability", SurfaceOptions::default());
     assert!(crate::server::identify_capabilities(&mux).contains(&CAPABILITY));
 }
+
+/// The daemon relays its mode to acpmux (p14-energy-034): the app's
+/// `energy.set` reaches a fake acpmux as `_acpmux/energy` on the agent chat
+/// watch's connection, after the mode the watch sent as it connected.
+#[cfg(unix)]
+#[test]
+fn energy_set_reaches_acpmux_on_the_chat_watch_connection() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+
+    let dir = std::env::temp_dir().join(format!("cmx-energy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("acpmux.sock");
+    let _ = std::fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mux = Mux::new_for_test("energy-acpmux-relay", SurfaceOptions::default());
+    mux.watch_agent_chats(Some(socket));
+
+    let (stream, _) = listener.accept().unwrap();
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut next = || {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("a request from the daemon");
+        let request: Value = serde_json::from_str(&line).unwrap();
+        // acpmux answers each request; the watch reads past the energy replies.
+        let result = match request["method"].as_str() {
+            Some("_acpmux/watch") => json!({"sessions": []}),
+            _ => json!({}),
+        };
+        let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+        writer.write_all(format!("{reply}\n").as_bytes()).unwrap();
+        request
+    };
+    let opened: Vec<Value> = (0..3).map(|_| next()).collect();
+    assert_eq!(opened[0]["method"], "initialize");
+    assert_eq!(opened[1]["method"], "_acpmux/watch");
+    assert_eq!(opened[2]["method"], "_acpmux/energy");
+    assert_eq!(opened[2]["params"], json!({"saver": false}), "the mode as the watch connects");
+
+    let app = Caller::new(&mux, ClientTransport::Unix, true);
+    let set = app.call(&mux, json!({"id": 1, "cmd": SET, "saver": true, "reason": "battery"}));
+    assert_eq!(set["data"], json!({"changed": true, "saver": true}), "{set}");
+    let edge = next();
+    assert_eq!(edge["method"], "_acpmux/energy");
+    assert_eq!(edge["params"], json!({"saver": true}), "an edge");
+
+    // The override ends with the app's connection: acpmux hears that edge too.
+    assert!(disconnect_client(&mux, app.id, false));
+    assert_eq!(next()["params"], json!({"saver": false}));
+    let _ = std::fs::remove_dir_all(&dir);
+}

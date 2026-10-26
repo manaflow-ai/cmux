@@ -26,6 +26,8 @@ final class ProfileBadgeView: NSView {
     private(set) var shownSymbol: String?
     var shownText: String { label.stringValue }
     private var color: GroupColor?
+    /// The badge shown now.
+    private var shown: BrowserProfileBadge?
     /// The profile's menu (right-click or click): the host's actions.
     var makeMenu: (() -> NSMenu?)?
 
@@ -60,6 +62,9 @@ final class ProfileBadgeView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func show(_ badge: BrowserProfileBadge) {
+        // The chrome shows the tab's badge on every mount and profile list change, most with the same badge.
+        guard badge != shown else { return }
+        shown = badge
         color = badge.color
         // A profile icon is an emoji, a letter, or an SF Symbol name.
         if let image = Self.symbolImage(badge.monogram) {
@@ -75,7 +80,7 @@ final class ProfileBadgeView: NSView {
         let help = BrowserProfileStrings.badgeHelp(badge.name)
         themedToolTip = help
         setAccessibilityLabel(help)
-        needsDisplay = true
+        needsDisplay = true // invalidate: another badge (the guard above)
         updateLayer()
     }
 
