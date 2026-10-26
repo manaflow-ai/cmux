@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextPages
+import CmuxNextWakeups
 
 /// ``NewTabPreload`` on the app's collaborators, and its pure size and timing helpers.
 extension NewTabPreload {
@@ -16,17 +17,18 @@ extension NewTabPreload {
         let slot = services.webUI.preload ?? PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
         services.webUI.preload = slot
         return NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: services.inputTap,
+                             deadlines: services.mainDeadlines,
                              preloadOnMakeVisible: services.features.isEnabled(.pageRendererAtFirstShow),
                              parksHidden: services.features.isEnabled(.newTabParksHidden))
     }
 
     /// The adapter on `services`' collaborators (held, not `services`).
     convenience init(services: AppServices, slot: PagePreloadSlot, memory: any MemoryConsumerRegistry,
-                     input: any InputObserving, clock: any Clock<Duration> = ContinuousClock(),
+                     input: any InputObserving, deadlines: MainDeadlineScheduler,
                      preloadOnMakeVisible: Bool = false, parksHidden: Bool = false) {
         self.init(slot: slot, agentTabs: services.agentTabs, windows: services.windows, appEvents: services.appEvents,
                   sparePage: { [weak services] in services.map { NewTabPage.sparePage($0) } },
-                  memory: memory, input: input, clock: clock, preloadOnMakeVisible: preloadOnMakeVisible, parksHidden: parksHidden)
+                  memory: memory, input: input, deadlines: deadlines, preloadOnMakeVisible: preloadOnMakeVisible, parksHidden: parksHidden)
     }
 
     /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's

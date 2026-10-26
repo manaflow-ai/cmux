@@ -59,7 +59,8 @@ final class NewTabPreload {
     private let parking = PagePreloadParkingView(frame: .zero)
     /// The main window the page parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
-    private let warmTimer: DemandTimer, fitTimer: DemandTimer
+    /// The quiet-input warm and the pane fit: work on a page nobody sees, so the background class.
+    private let warmTimer: MainDeadline, fitTimer: MainDeadline
     /// The app's input tap: a warm waiting for quiet input observes its ``warmDelayingInput``.
     private let input: any InputObserving
     private var inputSubscription: InputSubscription?
@@ -95,17 +96,17 @@ final class NewTabPreload {
     ///   - slot: The app's one preload slot; tests pass their own.
     ///   - agentTabs, windows, appEvents: The app's agent tabs, main windows and app notices.
     ///   - sparePage: What a preloaded page loads with.
-    ///   - memory, input, clock: The app's memory coordinator (registered with at once), its input
-    ///     tap, and the warm and fit deadlines' clock (tests: a manual one).
+    ///   - memory, input, deadlines: The app's memory coordinator (registered with at once), its
+    ///     input tap, and the deadline scheduler of the warm and the fit (tests: a hand-fired one).
     ///   - preloadOnMakeVisible: The first page waits for the first New Tab page of the session.
     ///   - parksHidden: The page waits hidden and Cmd-T shows the slot's cover.
     init(slot: PagePreloadSlot, agentTabs: AgentTabStore, windows: WindowManager, appEvents: AppEvents,
          sparePage: @escaping @MainActor () -> AgentPaneNewTab?, memory: any MemoryConsumerRegistry,
-         input: any InputObserving, clock: any Clock<Duration>, preloadOnMakeVisible: Bool, parksHidden: Bool) {
+         input: any InputObserving, deadlines: MainDeadlineScheduler, preloadOnMakeVisible: Bool, parksHidden: Bool) {
         (self.slot, self.agentTabs, self.windows, self.appEvents, self.sparePage) = (slot, agentTabs, windows, appEvents, sparePage)
         (self.input, self.preloadOnMakeVisible, self.parksHidden) = (input, preloadOnMakeVisible, parksHidden)
-        warmTimer = DemandTimer(owner: "NewTabPreload.warm", clock: clock)
-        fitTimer = DemandTimer(owner: "NewTabPreload.fit", clock: clock)
+        warmTimer = MainDeadline(owner: "NewTabPreload.warm", workClass: .background, scheduler: deadlines)
+        fitTimer = MainDeadline(owner: "NewTabPreload.fit", workClass: .background, scheduler: deadlines)
         spareMemory = SpareMemoryConsumer(
             name: "new-tab-spare", registry: memory, spares: { [weak self] in self?.spareView == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
@@ -247,7 +248,7 @@ final class NewTabPreload {
     func paneLayoutDidChange(in window: NSWindow?) {
         guard let window, window === target, let content = parking.superview, let size = parkSize else { return }
         guard parking.frame != PagePreloadParkingView.frame(in: content.bounds, size: size) else { return }
-        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+        fitTimer.schedule(after: Self.fitSettle) { [weak self] in self?.fitParked() }
     }
 
     // MARK: Taking
@@ -364,7 +365,7 @@ final class NewTabPreload {
         // `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? Self.launchDelay : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.schedule(after: launch ? Self.launchDelay : Self.idleInput) { [weak self] in self?.warmNow() }
     }
 
     /// `view` as the slot holds it: hidden while parked with `newTabParksHidden`, else rendering.

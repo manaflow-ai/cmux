@@ -7,7 +7,6 @@ import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import CmuxNextMemory
 import CmuxNextPages
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -56,26 +55,22 @@ struct NewTabPreloadTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-input")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let clock = ManualClock()
+            let rig = MainDeadlineRig()
             let pool = NewTabPreload(services: services, slot: Self.slot(services),
-                                     memory: services.memoryCoordinator, input: tap, clock: clock)
+                                     memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it runs
             let window = Self.window()
             defer { window.close() }
             pool.retarget(window) // the launch warm, 250 ms out
             #expect(tap.liveSubscriptions == 1)
             #expect(tap.classes == [.key, .button, .scroll])
-            try await clock.waitForSleeper()
-            clock.advance(by: .milliseconds(200))
+            rig.advance(by: .milliseconds(200))
             tap.deliver(InputEventRecord(type: .keyDown, timestamp: 1)) // the warm moves to 950 ms
-            try await clock.waitForSleeper()
-            clock.advance(by: .milliseconds(100))
-            for _ in 0..<50 { await Task.yield() }
-            #expect(tap.liveSubscriptions == 1, "the key-down pushed the 250 ms warm back")
+            #expect(tap.liveSubscriptions == 1, "the key-down ended the warm's wait")
             tap.deliver(InputEventRecord(type: .keyUp, timestamp: 2)) // a re-arm here would move it to 1050 ms
-            clock.advance(by: .milliseconds(660))
-            await Self.turns { tap.liveSubscriptions == 0 }
-            #expect(tap.liveSubscriptions == 0, "the warm ran at 950 ms and dropped the subscription")
+            rig.fireAndRun()
+            #expect(tap.liveSubscriptions == 0, "the warm did not run and drop the subscription")
+            #expect(rig.elapsed >= 0.95 && rig.elapsed < 1.05, "the warm ran at \(rig.elapsed) s, not 950 ms after launch")
         }
     }
 
@@ -86,7 +81,7 @@ struct NewTabPreloadTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
             let pool = NewTabPreload(services: services, slot: Self.slot(services),
-                                     memory: services.memoryCoordinator, input: tap, clock: ManualClock())
+                                     memory: services.memoryCoordinator, input: tap, deadlines: MainDeadlineRig().deadlines)
             pool.webKit.markSlow()
             let window = Self.window()
             defer { window.close() }
@@ -111,7 +106,7 @@ struct NewTabPreloadTests {
             let memory = MemoryCoordinator(pressure: pressure, mode: .medium, slicer: BrowserHibernationPressureTests.HeldSlices())
             let tap = FakeInputTap()
             let pool = NewTabPreload(services: services, slot: Self.slot(services),
-                                     memory: memory, input: tap, clock: ManualClock())
+                                     memory: memory, input: tap, deadlines: MainDeadlineRig().deadlines)
             pool.webKit.markSlow()
             let window = Self.window()
             defer { window.close() }
@@ -148,7 +143,7 @@ struct NewTabPreloadTests {
             let held = slot.preload(PagePreloadSlot.Key("settings"), size: NSSize(width: 400, height: 300), in: parking) { _ in other }
             #expect(held)
             let tap = FakeInputTap()
-            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: ManualClock())
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: MainDeadlineRig().deadlines)
             let window = Self.window()
             defer { window.close() }
             pool.retarget(window)
@@ -171,8 +166,8 @@ struct NewTabPreloadTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let slot = Self.slot(services)
             let tap = FakeInputTap()
-            let clock = ManualClock()
-            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: clock)
+            let rig = MainDeadlineRig()
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.request = {}
             pool.webKit.probe {}
             await Self.turns { pool.webKit.state == .ready }
@@ -180,8 +175,7 @@ struct NewTabPreloadTests {
             let window = Self.window()
             defer { window.close() }
             pool.retarget(window)
-            try await clock.waitForSleeper()
-            clock.advance(by: NewTabPreload.launchDelay)
+            rig.fireAndRun() // the launch warm, 250 ms out
             await Self.turns { slot.count == 1 }
             #expect(slot.key == NewTabPreload.key, "the launch warm did not preload New Tab")
             let held = try #require(pool.spareView)
@@ -196,8 +190,7 @@ struct NewTabPreloadTests {
 
             #expect(pool.recycle(held), "refused: \(pool.lastRecycleRefusal ?? "?")")
             #expect(held.superview == nil, "a recycled page stays out of the window until a quiet moment")
-            try await clock.waitForSleeper()
-            clock.advance(by: NewTabPreload.idleInput)
+            rig.fireAndRun() // the quiet-input warm
             await Self.turns { slot.count == 1 }
             #expect((slot.page as? AgentPanePreloadPage)?.pane === held, "the recycled page did not go back to the slot")
             pool.dropAll()
@@ -216,7 +209,7 @@ struct NewTabPreloadTests {
             let other = OtherPage()
             #expect(slot.preload(settings, size: NSSize(width: 400, height: 300), in: Parking()) { _ in other })
             let tap = FakeInputTap()
-            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: ManualClock())
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: MainDeadlineRig().deadlines)
             pool.webKit.markSlow()
             let window = Self.window()
             defer { window.close() }
@@ -237,8 +230,8 @@ struct NewTabPreloadTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let slot = Self.slot(services)
             let tap = FakeInputTap()
-            let clock = ManualClock()
-            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: clock)
+            let rig = MainDeadlineRig()
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, deadlines: rig.deadlines)
             pool.webKit.request = {}
             pool.webKit.probe {}
             await Self.turns { pool.webKit.state == .ready }
@@ -249,8 +242,7 @@ struct NewTabPreloadTests {
                 second.close()
             }
             pool.retarget(first)
-            try await clock.waitForSleeper()
-            clock.advance(by: NewTabPreload.launchDelay)
+            rig.fireAndRun() // the launch warm, 250 ms out
             await Self.turns { slot.count == 1 }
             let held = try #require(pool.spareView)
             #expect(held.window === first)

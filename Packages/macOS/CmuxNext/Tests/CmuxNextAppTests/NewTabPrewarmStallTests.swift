@@ -38,7 +38,7 @@ struct NewTabPrewarmStallTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-prewarm-wedged")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let pool = NewTabPreload(services: services, slot: PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines),
-                                     memory: services.memoryCoordinator, input: services.inputTap)
+                                     memory: services.memoryCoordinator, input: services.inputTap, deadlines: services.mainDeadlines)
             var made = 0
             pool.makeSpare = { _ in
                 made += 1

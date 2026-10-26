@@ -4,7 +4,6 @@ import CmuxNextDaemon
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import CmuxNextPages
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -20,7 +19,7 @@ struct NewTabSparePageLazinessTests {
             let tap = FakeInputTap()
             let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
             let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap,
-                                     clock: ManualClock(), preloadOnMakeVisible: true)
+                                     deadlines: MainDeadlineRig().deadlines, preloadOnMakeVisible: true)
             pool.webKit.markSlow() // the warm makes no web view: this test is about whether it is armed
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
