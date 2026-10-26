@@ -5,7 +5,8 @@ import Testing
 /// p13-webui-016: one spare Chromium window per store kind (the default profile's and the cmux
 /// pages profile's). A cmux page's key takes the pages spare instead of building a window on its
 /// key's turn (`window_built_on_key_turn` stays 0); an incognito window's or a remote machine's
-/// key never takes one; at most one untaken spare per kind. Driven against a spy shim that counts
+/// key never takes one; at most one untaken spare per kind; a spare that came up asks for the next
+/// missing kind. Driven against a spy shim that counts
 /// `cmux_shim_create_window`; each test has its own runtime, so its own spares.
 @MainActor @Suite(.serialized) struct CEFSpareWindowKindsTests {
     private let pages = BrowserProfileID(rawValue: UUID())
@@ -25,19 +26,84 @@ import Testing
         #expect(host.key == pageKey(pane: host.key.pane), "re-keyed to the page's pane, same store")
         #expect(!host.key.pane.rawValue.hasPrefix(CEFSpareWindow.panePrefix))
         #expect(spares.state(of: .pages) == .taken)
+
+        // The page's tab asks for its browser: it joins the spare's window, none is built for it.
+        build(host, runtime: runtime)
         #expect(SpareSpyShim.createWindowCalls == 1, "no window built for the page")
         #expect(spares.windowsBuiltOnKeyTurn == 0)
     }
 
+    /// The case the pages spare removes: with none ready, the page's tab builds a window on its turn.
+    @Test func aPageKeyWithNoPagesSpareBuildsAWindowOnItsTurn() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        spares.pagesProfile = pages
+        let host = runtime.host(for: pageKey())
+        #expect(!host.key.pane.rawValue.hasPrefix(CEFSpareWindow.panePrefix))
+
+        build(host, runtime: runtime)
+        #expect(SpareSpyShim.createWindowCalls == 1, "the page's own window")
+        #expect(spares.windowsBuiltOnKeyTurn == 1)
+    }
+
+    /// Live spares, so no window is being built: only the per-kind limit refuses a second spare.
     @Test func atMostOneUntakenSparePerKind() throws {
         let (runtime, root) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
         let spares = runtime.spareWindow
         spares.pagesProfile = pages
         #expect(spares.prepare(.pages, runtime: runtime))
+        try Self.comeUp(runtime, browser: 10)
+        #expect(spares.state(of: .pages) == .live)
+        #expect(!runtime.hosts.values.contains(where: \.isCreatingWindow), "no window is being built")
+
         #expect(!spares.prepare(.pages, runtime: runtime), "a second untaken pages spare")
-        #expect(!spares.prepare(.browser, runtime: runtime), "no spare is built beside a window being built")
         #expect(SpareSpyShim.createWindowCalls == 1)
+        #expect(spares.prepare(.browser, runtime: runtime), "the other kind still gets its spare")
+        #expect(SpareSpyShim.createWindowCalls == 2)
+        try Self.comeUp(runtime, browser: 11)
+        #expect(spares.state(of: .browser) == .live)
+        #expect(!spares.prepare(.browser, runtime: runtime), "a second untaken browser spare")
+        #expect(!spares.prepare(.pages, runtime: runtime))
+        #expect(SpareSpyShim.createWindowCalls == 2)
+    }
+
+    @Test func noSpareIsBuiltBesideAWindowBeingBuilt() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        spares.pagesProfile = pages
+        #expect(spares.prepare(.pages, runtime: runtime))
+        #expect(spares.state(of: .pages) == .creating)
+        #expect(!spares.prepare(.browser, runtime: runtime), "the pages spare's window is still being built")
+        #expect(SpareSpyShim.createWindowCalls == 1)
+    }
+
+    /// A spare's window came up while another wanted kind has none: it asks for the next spare
+    /// (`onNeeded`, the warmup's next idle step). Once every wanted kind has one, a window that
+    /// comes up asks for nothing.
+    @Test func aSpareThatCameUpAsksForTheNextKindUntilEachHasOne() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        spares.pagesProfile = pages
+        spares.setWantsPages(true, runtime: runtime)
+        let asked = Counter()
+        spares.onNeeded = { asked.value += 1 }
+
+        #expect(spares.prepareNext(runtime: runtime))
+        #expect(spares.state(of: .browser) == .creating)
+        try Self.comeUp(runtime, browser: 10)
+        #expect(spares.state(of: .browser) == .live)
+        #expect(asked.value == 1, "the pages spare is missing")
+
+        #expect(spares.prepareNext(runtime: runtime))
+        #expect(spares.state(of: .pages) == .creating)
+        try Self.comeUp(runtime, browser: 11)
+        #expect(spares.state(of: .pages) == .live)
+        #expect(asked.value == 1, "every wanted kind has a spare")
+        #expect(!spares.prepareNext(runtime: runtime))
     }
 
     @Test func incognitoAndRemoteKeysNeverTakeASpare() throws {
@@ -101,8 +167,13 @@ import Testing
         other.spareWindow.pagesProfile = pages
         other.spareWindow.setWantsPages(true, runtime: other)
         #expect(other.spareWindow.prepare(.pages, runtime: other))
+        let dropped = try #require(other.spareWindow.host(of: .pages))
+        // Pages left Chromium (`CEFEngine.dropPagesSpareWindow`, on a `browser.defaultEngine` switch).
         other.spareWindow.setWantsPages(false, runtime: other)
         #expect(other.spareWindow.host(of: .pages) == nil, "turning it off closes the untaken pages spare")
+        #expect(other.spareWindow.state(of: .pages) == .taken, "made once, none untaken")
+        #expect(dropped.placeholder == nil)
+        #expect(!other.hosts.values.contains { $0 === dropped }, "no host of it is left")
         #expect(other.spareWindow.wantedKinds == [.browser])
     }
 
@@ -125,11 +196,12 @@ import Testing
         #expect(runtime.hosts[host.key] === host)
     }
 
+    /// Only the engine's own profile: beginning it touches no process-wide Chromium state.
     @Test func theEnginesPagesProfileIsOneOffTheRecordProfile() {
         let stores = BrowserSharedStores.inMemory()
         let engine = CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks())
-        let profile = engine.pagesProfile
-        #expect(engine.pagesProfile == profile, "begun once")
+        let profile = engine.beginPagesProfile()
+        #expect(engine.beginPagesProfile() == profile, "begun once")
         #expect(stores.offTheRecord.isOffTheRecord(profile), "a page keeps nothing on disk")
         #expect(profile != .default)
     }
@@ -147,16 +219,29 @@ import Testing
 
     private static func pane() -> BrowserPaneID { BrowserPaneID(rawValue: UUID().uuidString) }
 
+    /// Chromium finished the one window being built: its OnAfterCreated, as `browser`.
+    private static func comeUp(_ runtime: CEFRuntime, browser: Int32) throws {
+        #expect(runtime.pendingWindows.count == 1)
+        let request = try #require(runtime.pendingWindows.keys.first)
+        runtime.handle(.afterCreated(browser: browser, request: request, window: browser))
+    }
+
+    /// A runtime that outlives the test: a window that came up shows itself at the end of the turn
+    /// (`CEFPaneHost.windowCreated`), after the test returned.
     private static func spyRuntime() throws -> (CEFRuntime, URL) {
         SpareSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-\(UUID().uuidString)", directoryHint: .isDirectory)
-        return (CEFRuntime(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root)), root)
+        let runtime = CEFRuntime(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root))
+        _ = Unmanaged.passRetained(runtime)
+        return (runtime, root)
     }
+
+    private final class Counter { var value = 0 }
 }
 
 /// Stand-in shim functions: `cmux_shim_create_window` counts its calls and reports the browser
-/// started (Chromium never finishes it, so a window stays `creating`); every other function does
-/// nothing and returns 0.
+/// started (a window stays `creating` until a test sends its OnAfterCreated, `comeUp`); every other
+/// function does nothing and returns 0.
 private nonisolated enum SpareSpyShim {
     nonisolated(unsafe) static var createWindowCalls = 0
 

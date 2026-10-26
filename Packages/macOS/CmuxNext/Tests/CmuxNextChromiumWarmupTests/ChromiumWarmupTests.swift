@@ -8,19 +8,28 @@ import Testing
 
 /// When the warm start skips, and what counts as an idle moment. An engine
 /// with no embedded runtime is unavailable, so nothing here maps or starts
-/// Chromium (the runtime is process-wide).
+/// Chromium (the runtime is process-wide); the spare steps run against a fake engine.
 @MainActor struct ChromiumWarmupTests {
     final class Clock { var now: TimeInterval = 100 }
-    final class Asked { var value = false }
+    final class Flag {
+        var value: Bool
+        init(_ value: Bool) { self.value = value }
+    }
 
     let clock = Clock()
     let input = FakeInputTap()
 
-    func warmup(trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
+    func warmup(engine: any ChromiumWarmupEngine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()),
+                trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let clock = clock
         // A manual clock nobody advances: no deadline fires, so a test's wait ends only when it says.
-        return ChromiumWarmup(engine: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), input: input,
-                              clock: ManualClock(), now: { clock.now }, isTrackingMenu: trackingMenu)
+        return ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { clock.now }, isTrackingMenu: trackingMenu)
+    }
+
+    /// The quiet period passed: the waiting step runs (`idleDeadline`, with no clock to advance).
+    func passIdleMoment(_ warmup: ChromiumWarmup) {
+        clock.now += 1
+        warmup.idleDeadline()
     }
 
     @Test func anUnavailableEngineNeverWarms() {
@@ -31,20 +40,54 @@ import Testing
         #expect(input.liveSubscriptions == 0, "no wait for an idle moment, no input subscription")
     }
 
-    /// p13-webui-016: the pages spare is a warm-start step; with no Chromium to start, nothing
-    /// asks whether to keep one, and no pages spare window is made.
-    @Test func anUnavailableEngineNeverAsksForThePagesSpare() {
-        let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
-        let clock = clock
-        let warmup = ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { clock.now })
-        let asked = Asked()
-        warmup.start(defaultIsChromium: { true }, pagesSpare: {
-            asked.value = true
-            return true
-        })
-        warmup.chromiumLikely(.launch)
-        #expect(!asked.value)
-        #expect(warmup.reason == nil, "no warm start, so no spare step")
+    /// p13-webui-016: a spare window came up while the pages kind has none (`CEFSpareWindow.windowCameUp`
+    /// reports `onSpareWindowNeeded`): the next idle moment, never the turn that asked, builds the next
+    /// spare with the pages switch read then. Read again at each step: off, the step keeps no pages spare.
+    @Test func eachSpareStepRunsAtAnIdleMomentAndReadsThePagesSwitchThen() {
+        let engine = FakeWarmupEngine()
+        let warmup = warmup(engine: engine)
+        let pages = Flag(true)
+        warmup.start(defaultIsChromium: { false }, pagesSpare: { pages.value })
+        // The browser spare's window came up; the pages spare is missing.
+        engine.onSpareWindowNeeded?()
+        #expect(engine.prepared.isEmpty, "nothing is built on the turn that asked")
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [true], "the pages spare is built at the idle moment")
+
+        // A page took it: the next one at the next idle moment, now with pages off.
+        pages.value = false
+        engine.onSpareWindowNeeded?()
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [true, false], "pages off: the step keeps no pages spare")
+        warmup.stop()
+    }
+
+    /// p13-webui-016: `browser.defaultEngine` left Chromium, so pages no longer use it: the untaken
+    /// pages spare closes at once; back on Chromium, the next idle moment builds it again. Before
+    /// Chromium runs, nothing happens (the first spare step reads the switch itself).
+    @Test func thePagesSpareFollowsTheSwitch() {
+        let engine = FakeWarmupEngine()
+        let warmup = warmup(engine: engine)
+        let pages = Flag(true)
+        warmup.start(defaultIsChromium: { false }, pagesSpare: { pages.value })
+
+        engine.isRunning = false
+        pages.value = false
+        warmup.pagesSpareChanged()
+        #expect(engine.droppedPages == 0 && engine.prepared.isEmpty, "no Chromium yet, no spare to drop")
+
+        engine.isRunning = true
+        warmup.pagesSpareChanged()
+        #expect(engine.droppedPages == 1, "pages left Chromium: the pages spare closes")
+        #expect(engine.prepared.isEmpty)
+
+        pages.value = true
+        warmup.pagesSpareChanged()
+        #expect(engine.prepared.isEmpty, "not on the switch's turn")
+        passIdleMoment(warmup)
+        #expect(engine.prepared == [true])
+        #expect(engine.droppedPages == 1)
+        warmup.stop()
     }
 
     /// A wait for an idle moment hears the input tap (p04-input-012): a key-down, click or left drag
@@ -110,4 +153,26 @@ import Testing
         #expect(policy.maxWait == .seconds(60))
         #expect(policy.recentUse == 7 * 24 * 60 * 60)
     }
+}
+
+/// Records the warmup's spare steps; runs nothing.
+@MainActor private final class FakeWarmupEngine: ChromiumWarmupEngine {
+    var availability: BrowserEngineAvailability = .available
+    var isRunning = true
+    /// The `pages` argument of each `prepareSpareWindow` call.
+    private(set) var prepared: [Bool] = []
+    private(set) var droppedPages = 0
+    var onSpareWindowNeeded: (@MainActor () -> Void)?
+
+    func usedRecently(within window: TimeInterval) async -> Bool { false }
+    func preload() {}
+    func libraryLoadEnded() async {}
+    func warmStart(reason: String) async {}
+
+    func prepareSpareWindow(pages: Bool) -> Bool {
+        prepared.append(pages)
+        return true
+    }
+
+    func dropPagesSpareWindow() { droppedPages += 1 }
 }

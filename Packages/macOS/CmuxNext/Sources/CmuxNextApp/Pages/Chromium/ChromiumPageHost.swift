@@ -9,7 +9,7 @@ import Foundation
 /// decides their engine as it does for browser tabs. Made once at the composition root
 /// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
 ///
-/// Every page shares one off-the-record profile (``CEFEngine/pagesProfile``): like the WebKit pages'
+/// Every page shares one off-the-record profile (``CEFEngine/beginPagesProfile()``): like the WebKit pages'
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
 /// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
@@ -50,7 +50,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: cef.pagesProfile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let configuration = BrowserTabConfiguration(profile: cef.beginPagesProfile(), pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif

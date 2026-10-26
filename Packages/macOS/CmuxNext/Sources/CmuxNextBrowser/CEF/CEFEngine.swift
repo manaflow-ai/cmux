@@ -158,30 +158,38 @@ public final class CEFEngine: BrowserEngine {
 
     /// Builds the next spare Chromium window (`CEFSpareWindow`) once Chromium runs and no other
     /// Chromium window is being built, so a pane's first tab skips building one: the default
-    /// profile's first, then, with `pages`, the cmux pages profile's (``pagesProfile``), so a
+    /// profile's first, then, with `pages`, the cmux pages profile's (``beginPagesProfile()``), so a
     /// cmux page's key joins a live window too. One spare per kind at a time; each later idle
     /// moment builds the next missing one (`onSpareWindowNeeded`). `pages` false closes an
     /// untaken pages spare. Call at an idle moment: building one holds the main thread. True
     /// when one started.
     @discardableResult
     public func prepareSpareWindow(pages: Bool = false) -> Bool {
+        if pages { _ = beginPagesProfile() }
         adoptStores()
         let spares = CEFRuntime.shared.spareWindow
-        if pages { _ = pagesProfile }
         spares.setWantsPages(pages, runtime: .shared)
         return spares.prepareNext(runtime: .shared)
     }
 
+    /// Stops keeping a spare window of the cmux pages profile and closes an untaken one: cmux
+    /// pages no longer use Chromium (`browser.defaultEngine` left Chromium). The next
+    /// `prepareSpareWindow(pages: true)` keeps one again. Call only while Chromium runs.
+    public func dropPagesSpareWindow() {
+        CEFRuntime.shared.spareWindow.setWantsPages(false, runtime: .shared)
+    }
+
     /// The one off-the-record profile every cmux page in Chromium uses (`ChromiumPageHost`):
     /// like the WebKit pages' non-persistent store, a page keeps nothing on disk, and no profile
-    /// of the person's (their extensions, cookies) touches a cmux page. Begun on the first read,
+    /// of the person's (their extensions, cookies) touches a cmux page. Begun by the first call,
     /// at the warm start that builds its spare window (``prepareSpareWindow(pages:)``) or at the
-    /// first page, whichever is first; never ended. Its keys take the pages spare window; an
-    /// incognito window's profile never does.
-    public var pagesProfile: BrowserProfileID {
-        let profile = pagesProfileID ?? stores.offTheRecord.begin()
+    /// first page, whichever is first; never ended; later calls return the same profile. The
+    /// runtime learns it when this engine adopts its stores (a spare step or a tab), so its keys
+    /// take the pages spare window; an incognito window's profile never does.
+    public func beginPagesProfile() -> BrowserProfileID {
+        if let pagesProfileID { return pagesProfileID }
+        let profile = stores.offTheRecord.begin()
         pagesProfileID = profile
-        CEFRuntime.shared.spareWindow.pagesProfile = profile
         return profile
     }
 
@@ -389,12 +397,14 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
     /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
     private func adoptStores() {
-        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        let runtime = CEFRuntime.shared
+        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
+        adoptStores()
         let runtime = CEFRuntime.shared
-        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))

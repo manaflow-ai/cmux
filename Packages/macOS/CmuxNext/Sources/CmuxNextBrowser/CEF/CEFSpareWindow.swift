@@ -11,9 +11,11 @@ import Foundation
 ///
 /// One spare per ``Kind``: `browser`, a host of the default profile's own
 /// store, and `pages`, a host of the cmux pages' in-memory profile
-/// (`pagesProfile`, `CEFEngine.pagesProfile`), so a cmux page's key takes a
-/// live window too (p13-webui-016). Chrome keeps its spare renderer per
-/// StoragePartition for the same reason: a spare of one store cannot serve
+/// (`pagesProfile`, `CEFEngine.beginPagesProfile()`), so a cmux page's key takes a
+/// live window too (p13-webui-016). One spare per kind is cmux's own choice
+/// (p13-webui design D), not Chrome's: Chrome keeps one spare renderer, of
+/// one BrowserContext's default StoragePartition, and a spare asked for
+/// another context replaces it, because a spare of one store cannot serve
 /// another (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
 /// Each spare holds an about:blank placeholder, in no pane (its window
 /// starts at the hidden-tab viewport). The first host a spare's store needs
@@ -52,7 +54,7 @@ final class CEFSpareWindow {
     private var hosts: [Kind: CEFPaneHost] = [:]
     /// The kinds a spare was made of in this process (`state` says `taken` after its take).
     private var made: Set<Kind> = []
-    /// The cmux pages' off-the-record profile (`CEFEngine.pagesProfile`): its keys take the
+    /// The cmux pages' off-the-record profile (`CEFEngine.beginPagesProfile()`): its keys take the
     /// `pages` spare. Nil until the engine makes it; no `pages` spare is made before.
     var pagesProfile: BrowserProfileID?
     /// Whether the warmup keeps a `pages` spare (cmux pages use Chromium and the

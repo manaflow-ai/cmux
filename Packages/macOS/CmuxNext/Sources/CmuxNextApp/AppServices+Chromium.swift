@@ -21,6 +21,15 @@ extension AppServices {
                              pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
+        if pagesSpare {
+            // Pages follow the default engine: switched away from Chromium, the untaken pages spare
+            // closes; switched back, the next idle moment builds it again. The current value is
+            // the one `start` already reads; only changes act.
+            let (_, engineChanges) = ObservationStream.current({ preference.defaultEngine == .chromium })
+            chromiumLikelyObservations.append(Task { [weak self] in
+                for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
+            })
+        }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
             // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the

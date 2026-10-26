@@ -30,10 +30,11 @@ public import Foundation
 ///   joins a live window instead of building one on the key's turn.
 ///   While cmux pages use Chromium (`pagesSpare`, the `pagesSpareWindow`
 ///   feature), the warm start's spare step also makes the pages profile
-///   (`CEFEngine.pagesProfile`), and the idle moment after the default
+///   (`CEFEngine.beginPagesProfile`), and the idle moment after the default
 ///   profile's spare comes up builds the pages spare, so a cmux page's key
 ///   joins a live window too (p13-webui-016). One spare per kind; each take
-///   asks for the next at the following idle moment.
+///   asks for the next at the following idle moment. When pages leave
+///   Chromium (`pagesSpareChanged`), the untaken pages spare closes.
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
@@ -62,7 +63,7 @@ public final class ChromiumWarmup {
         public init() {}
     }
 
-    private let engine: CEFEngine
+    private let engine: any ChromiumWarmupEngine
     private let policy: Policy
     private let now: @MainActor () -> TimeInterval
     private let isTrackingMenu: @MainActor () -> Bool
@@ -96,7 +97,7 @@ public final class ChromiumWarmup {
     ///   - input: The app's input tap; a wait for an idle moment observes its keys, clicks, drags,
     ///     scrolls and moves.
     public init(
-        engine: CEFEngine,
+        engine: any ChromiumWarmupEngine,
         input: any InputObserving,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
@@ -176,6 +177,16 @@ public final class ChromiumWarmup {
         }
     }
 
+    /// Whether cmux pages keep a Chromium spare changed (`pagesSpare`, read again now): kept, the
+    /// next idle moment builds the pages spare; no longer kept (pages left Chromium), the untaken
+    /// pages spare closes now. Nothing to do before Chromium runs: the first spare step reads
+    /// `pagesSpare` itself.
+    public func pagesSpareChanged() {
+        guard !stopped, engine.isRunning else { return }
+        if pagesSpare() { return spareNeeded() }
+        engine.dropPagesSpareWindow()
+    }
+
     /// Chromium runs: build the next missing spare window (CEFSpareWindow, the default
     /// profile's, then the pages profile's) at the next idle moment, a main-thread step of its
     /// own, so neither step lands in the first tab's or page's open.
@@ -224,8 +235,9 @@ public final class ChromiumWarmup {
     }
 
     /// The quiet period may have ended: warm up, or wait for the rest of it
-    /// (input came meanwhile) or for menu tracking to end.
-    private func idleDeadline() {
+    /// (input came meanwhile) or for menu tracking to end. Internal, not private: tests reach the
+    /// idle moment without advancing a clock.
+    func idleDeadline() {
         guard waiting else { return }
         if isTrackingMenu() {
             guard menuObserver == nil else { return }
@@ -282,3 +294,30 @@ public final class ChromiumWarmup {
         menuObserver = nil
     }
 }
+
+/// What ``ChromiumWarmup`` drives: Chromium's start steps and its spare windows. ``CEFEngine`` in the
+/// app; tests pass a fake that records the spare steps.
+@MainActor
+public protocol ChromiumWarmupEngine: AnyObject {
+    var availability: BrowserEngineAvailability { get }
+    /// Whether Chromium runs (`CefInitialize` finished).
+    var isRunning: Bool { get }
+    /// True when this app opened a Chromium tab within `window`.
+    func usedRecently(within window: TimeInterval) async -> Bool
+    /// Maps the framework on a background thread; no Chromium code runs.
+    func preload()
+    /// Returns once the framework load that `preload` started ended.
+    func libraryLoadEnded() async
+    /// Starts Chromium (`CefInitialize`) for `reason`.
+    func warmStart(reason: String) async
+    /// Builds the next missing spare window, the pages profile's too with `pages`; `pages` false
+    /// closes an untaken pages spare. True when one started.
+    @discardableResult
+    func prepareSpareWindow(pages: Bool) -> Bool
+    /// Stops keeping a pages spare window and closes an untaken one.
+    func dropPagesSpareWindow()
+    /// Runs when a wanted spare window is not ready, so the warmup makes one at an idle moment.
+    var onSpareWindowNeeded: (@MainActor () -> Void)? { get set }
+}
+
+extension CEFEngine: ChromiumWarmupEngine {}
