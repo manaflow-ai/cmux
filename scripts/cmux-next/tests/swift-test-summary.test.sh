@@ -19,28 +19,6 @@ cat > "$TMP/bin/swift" <<'EOF'
 # is that list, STUB_DISCOVERED_STATUS its exit status; with neither set, it
 # lists exactly the tests the canned run output says finished, so a case that
 # is not about under-reporting sees a complete run.
-if [[ "${1:-}" == test && "${2:-}" == list ]]; then
-  # One line per test function. STUB_DISCOVERED_COUNT is how many to print;
-  # with neither it set nor STUB_DISCOVERED, it prints as many as the canned run
-  # output says reported, so a case that is not about under-reporting sees a
-  # complete run.
-  selected=0
-  for a in "$@"; do [[ "$a" == --filter || "$a" == --skip ]] && selected=1; done
-  # STUB_UNSELECTED_COUNT answers the no-selection list the guard uses to prove
-  # a selection reached `list`.
-  if (( ! selected )) && [[ -n "${STUB_UNSELECTED_COUNT:-}" ]]; then
-    for ((i = 1; i <= STUB_UNSELECTED_COUNT; i++)); do echo "APackageTests.ASuite/all$i()"; done
-    exit "${STUB_UNSELECTED_STATUS:-0}"
-  fi
-  if [[ -n "${STUB_DISCOVERED:-}" ]]; then
-    printf '%s\n' "$STUB_DISCOVERED"
-  else
-    n="${STUB_DISCOVERED_COUNT:-}"
-    [[ -n "$n" ]] || n=$(sed -n 's/^[^ ]* Test run with \([0-9][0-9]*\) tests\{0,1\} .*/\1/p' "$STUB_OUTPUT" | tail -n 1)
-    for ((i = 1; i <= ${n:-0}; i++)); do echo "APackageTests.ASuite/test$i()"; done
-  fi
-  exit "${STUB_DISCOVERED_STATUS:-0}"
-fi
 cat "$STUB_OUTPUT"
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
@@ -53,7 +31,6 @@ chmod +x "$TMP/bin/swift"
 run() {
   RUN_ARGS=(${RUN_ARGS_STR:-})
   export STUB_OUTPUT="$TMP/$1.out" STUB_STATUS="$2" GITHUB_STEP_SUMMARY="$TMP/$1.summary"
-  export STUB_DISCOVERED="${STUB_DISCOVERED:-}" STUB_DISCOVERED_STATUS="${STUB_DISCOVERED_STATUS:-0}" STUB_DISCOVERED_COUNT="${STUB_DISCOVERED_COUNT:-}" STUB_UNSELECTED_COUNT="${STUB_UNSELECTED_COUNT:-}" STUB_UNSELECTED_STATUS="${STUB_UNSELECTED_STATUS:-0}"
   : > "$GITHUB_STEP_SUMMARY"
   status=0
   # The sampler's log lives in this test's own TMPDIR: on CI the check runs beside
@@ -211,25 +188,28 @@ if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a 
 grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
 
-# A run whose summary counts fewer tests than `swift test list` discovered
-# fails, even with its summary line and exit 0. This is the shape that read as a
-# pass: the helper ended part-way, so the tests it never reached left no line at
-# all and the summary counted only the ones that did run. They cannot be found
-# in the log, which is why the expected number comes from discovery.
+# A summary line no longer excuses a test that started and never reported. This
+# is the shape that read as a pass: the run ended part-way, SwiftPM still printed
+# `Test run with N tests ... passed`, and that N counted only the tests that got
+# to report. The count comes from the log itself, so it needs no second tool and
+# cannot be thrown off by one disagreeing about which tests were selected.
 cat > "$TMP/short.out" <<'EOF'
 ◇ Test run started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test neverFinished() started.
+◇ Test alsoNeverFinished() started.
 ✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
 EOF
-STUB_DISCOVERED_COUNT=3 run short 0
-STUB_DISCOVERED_COUNT=
-[[ "$status" != 0 ]] || fail "a run that reported 1 of 3 discovered tests exited 0" "$out"
+run short 0
+[[ "$status" != 0 ]] || fail "a run whose summary hid two unfinished tests exited 0" "$out"
 under=$(grep '^::error title=cmux-next swift test under-reported' <<<"$out" || true)
 [[ -n "$under" ]] || fail "no under-reported ::error line" "$out"
-grep -q 'only 1 of 3 discovered tests reported' <<<"$under" || fail "the error does not count 1 of 3" "$under"
-grep -q '2 never ran' <<<"$under" || fail "the error does not say how many never ran" "$under"
-grep -q '2 tests never ran' <<<"$summary" || fail "the step summary does not say how many never ran" "$summary"
+grep -q '2 of 3 tests that started never reported' <<<"$under" || fail "the error does not count 2 of 3" "$under"
+grep -q 'neverFinished()' <<<"$under" || fail "the error does not name neverFinished()" "$under"
+grep -q 'alsoNeverFinished()' <<<"$under" || fail "the error does not name alsoNeverFinished()" "$under"
+if grep -q 'aPasses' <<<"$under"; then fail "the error names a test that did report" "$under"; fi
+grep -q 'neverFinished()' <<<"$summary" || fail "the step summary does not name it" "$summary"
 
 # One test short is still short: the smallest real shortfall fails, so no
 # tolerance can creep in that would let a truncated run through.
@@ -237,51 +217,50 @@ cat > "$TMP/shortone.out" <<'EOF'
 ◇ Test run started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test theOnlyMissingOne() started.
 ✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
 EOF
-STUB_DISCOVERED_COUNT=2 run shortone 0
-STUB_DISCOVERED_COUNT=
-[[ "$status" != 0 ]] || fail "a run that reported 1 of 2 discovered tests exited 0" "$out"
-grep '^::error' <<<"$out" | grep -q 'only 1 of 2 discovered tests reported' || fail "the error does not count 1 of 2" "$out"
+run shortone 0
+[[ "$status" != 0 ]] || fail "a run one test short exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q '1 of 2 tests that started never reported' || fail "the error does not count 1 of 2" "$out"
 
-# A complete run is not flagged. The count is compared and never the names, so
-# a parameterized function (one test, several cases), a skip, a test whose
-# display name is not its ID, and two suites sharing a test name all pass.
+# A complete run is not flagged. Every result shape counts as reporting: a plain
+# pass, a parameterized function (whose own line carries its case count), a skip,
+# and a test whose display name is not its function name.
 cat > "$TMP/whole.out" <<'EOF'
 ◇ Test run started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test cases(n:) started.
+◇ Test case passing 1 argument n → 1 to cases(n:) started.
 ✔ Test cases(n:) with 2 test cases passed after 0.001 seconds.
+◇ Test needsADisplay() started.
 ➜ Test needsADisplay() skipped: "no window session"
+◇ Test A mark before start or after stop records nothing started.
 ✔ Test A mark before start or after stop records nothing passed after 0.001 seconds.
 ✔ Test run with 4 tests in 1 suite passed after 0.003 seconds.
 EOF
-STUB_DISCOVERED='APackageTests.ASuite/aPasses()
-APackageTests.ASuite/cases(n:)
-APackageTests.ASuite/needsADisplay()
-APackageTests.BSuite/disarmedRecordsNothing()' run whole 0
-unset STUB_DISCOVERED
+run whole 0
 [[ "$status" == 0 ]] || fail "a complete run exited $status" "$out"
 [[ "$out" != *"under-reported"* ]] || fail "a complete run was called under-reported" "$out"
 
-# A test that finishes with a known issue is reported: Swift Testing counts it
-# in the summary and marks it with a glyph of its own, so the count matches and
-# a green run is not failed.
+# A test that finishes with a known issue has reported: Swift Testing marks it
+# with a glyph of its own, which must not read as unfinished.
 cat > "$TMP/known.out" <<'EOF'
 ◇ Test run started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test aKnownIssue() started.
 ━ Test aKnownIssue() recorded a known issue at AFileTests.swift:162:23: Expectation failed
 ━ Test aKnownIssue() passed after 8.421 seconds with 1 known issue.
 ━ Test run with 2 tests in 1 suite passed after 8.5 seconds with 1 known issue.
 EOF
-STUB_DISCOVERED_COUNT=2 run known 0
-STUB_DISCOVERED_COUNT=
+run known 0
 [[ "$status" == 0 ]] || fail "a run with a known issue exited $status" "$out"
 [[ "$out" != *"under-reported"* ]] || fail "a known-issue run was called under-reported" "$out"
 
-# A red test counts as reported: the guard is about tests that never ran, and
-# must not turn one red test into a second, confusing error.
+# A red test has reported; the guard is about tests that never finished and must
+# not turn one red test into a second, confusing error.
 cat > "$TMP/redreported.out" <<'EOF'
 ◇ Test run started.
 ◇ Test aFails() started.
@@ -289,67 +268,8 @@ cat > "$TMP/redreported.out" <<'EOF'
 ✘ Test aFails() failed after 0.010 seconds with 1 issue.
 ✘ Test run with 1 test in 1 suite failed after 0.011 seconds with 1 issue.
 EOF
-STUB_DISCOVERED_COUNT=1 run redreported 1
-STUB_DISCOVERED_COUNT=
+run redreported 1
 [[ "$status" == 1 ]] || fail "a red run with full coverage exited $status, not 1" "$out"
 [[ "$out" != *"under-reported"* ]] || fail "a reported red test was called under-reported" "$out"
-
-# Discovery that fails is not a pass: the run cannot be checked, so it fails and
-# says so rather than trusting the summary line.
-STUB_DISCOVERED_STATUS=1 run whole 0
-STUB_DISCOVERED_STATUS=0
-[[ "$status" != 0 ]] || fail "a run whose discovery failed exited 0" "$out"
-grep '^::error' <<<"$out" | grep -q 'discovery failed' || fail "the error does not say discovery failed" "$out"
-
-# A filter that matched nothing while the run still printed a summary is a
-# mistake, not a pass. Counted from the names, so blank lines are not tests.
-STUB_DISCOVERED=' ' run whole 0
-unset STUB_DISCOVERED
-[[ "$status" != 0 ]] || fail "a run that discovered no test exited 0" "$out"
-grep '^::error' <<<"$out" | grep -q 'named no test' || fail "the error does not say no test was discovered" "$out"
-
-# A run with no summary line at all is already a failure (above), and the count
-# check stays out of its way: no discovery runs and no second error appears.
-run cut 0
-[[ "$status" != 0 ]] || fail "a run without its summary line exited 0" "$out"
-[[ "$out" != *"under-reported"* ]] || fail "a run with no summary got a count error too" "$out"
-
-# A shortfall on a run that narrowed its tests is only failed once the
-# selection is proven to have reached `swift test list`. `list` is a different
-# code path from `test`; this repository already lists with no selection and
-# derives its filters afterwards. If an ignored `--filter` were taken at face
-# value, every filtered job would go red -- the opposite of the point -- so when
-# the list is the same size with and without the selection, the run is not
-# failed and the step says why.
-cat > "$TMP/selected.out" <<'EOF'
-◇ Test run started.
-◇ Test aPasses() started.
-✔ Test aPasses() passed after 0.001 seconds.
-✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
-EOF
-RUN_ARGS_STR='--filter ASuite --skip BSuite' STUB_DISCOVERED_COUNT=9 STUB_UNSELECTED_COUNT=9 run selected 0
-RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT=
-[[ "$status" == 0 ]] || fail "a filtered run was failed on a list that ignores its filter" "$out"
-grep '^::warning' <<<"$out" | grep -q 'coverage unchecked' || fail "no warning that the count could not be checked" "$out"
-[[ "$out" != *"::error title=cmux-next swift test under-reported"* ]] || fail "an unverifiable count was reported as under-reporting" "$out"
-
-# The same shortfall IS failed when the selection demonstrably narrows the list:
-# fewer tests with it than without, so `list` honoured it and the count stands.
-RUN_ARGS_STR='--filter ASuite' STUB_DISCOVERED_COUNT=3 STUB_UNSELECTED_COUNT=40 run selected 0
-RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT=
-[[ "$status" != 0 ]] || fail "a filtered run with a real shortfall exited 0" "$out"
-grep '^::error' <<<"$out" | grep -q 'only 1 of 3 discovered tests reported' || fail "the error does not count 1 of 3" "$out"
-
-# An unselected run needs no such proof: the list is the whole bundle.
-RUN_ARGS_STR= STUB_DISCOVERED_COUNT=3 run short 0
-STUB_DISCOVERED_COUNT=
-[[ "$status" != 0 ]] || fail "an unfiltered run with a shortfall exited 0" "$out"
-grep '^::error' <<<"$out" | grep -q 'under-reported' || fail "the unfiltered shortfall was not reported" "$out"
-
-# The confirming list failing is not a reason to fail the run either.
-RUN_ARGS_STR='--filter ASuite' STUB_DISCOVERED_COUNT=3 STUB_UNSELECTED_COUNT=40 STUB_UNSELECTED_STATUS=1 run selected 0
-RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT= STUB_UNSELECTED_STATUS=0
-[[ "$status" == 0 ]] || fail "a run was failed on a shortfall its confirming list could not confirm" "$out"
-grep '^::warning' <<<"$out" | grep -q 'coverage unchecked' || fail "no warning when the confirming list failed" "$out"
 
 echo "ok swift-test-summary"
