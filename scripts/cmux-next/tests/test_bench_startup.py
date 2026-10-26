@@ -120,9 +120,10 @@ class ValueSummaryTests(unittest.TestCase):
         lines = bs.value_summary(runs, "cold")
         self.assertEqual(lines[0], "  launch.temperature: cold 8, warm 1 of 10 runs (1 without it); "
                                    "8 of 10 read cold as asked")
-        self.assertTrue(lines[1].startswith("  launch.pageins_first_frame: p50 4003  p95 4007  p99 4007  max 4007"),
-                        lines[1])
-        self.assertIn("n 9", lines[1])
+        self.assertEqual(lines[1], "  launch.pageins_run_loop_start: missing in all 10 runs")
+        self.assertTrue(lines[2].startswith("  launch.pageins_first_frame: p50 4003  p95 4007  p99 4007  max 4007"),
+                        lines[2])
+        self.assertIn("n 9", lines[2])
         self.assertIn("main cpu", " ".join(bs.run_values(runs[0])))
         self.assertEqual(lines[-1], "  launch.interrupted: runs 10 (1 of 10)")
 
@@ -130,6 +131,24 @@ class ValueSummaryTests(unittest.TestCase):
         lines = bs.value_summary([{"main_start": 1}] * 3, "cold")
         self.assertIn("missing in all 3 runs", lines[0])
         self.assertEqual(lines[-1], "  launch.interrupted: none of 3 runs")
+
+    def test_task_007_instant_temperature_marks_read_as_the_temperature(self):
+        # 007 sends `launch.temperature.<name> <ms>` at run_loop_start and the page-in counts as values.
+        runs = [{"main_start": 3.0, "launch.temperature.cold": 12.0, bs.PAGEINS_RUN_LOOP: 3900.0,
+                 bs.PAGEINS: 4100.0} for _ in range(8)]
+        runs += [{"launch.temperature.lukewarm": 11.0}, {"main_start": 3.0}]
+        self.assertEqual(bs.run_temperature(runs[0]), "cold")
+        self.assertIsNone(bs.run_temperature(runs[-1]))
+        self.assertEqual(bs.run_temperature({bs.TEMPERATURE: 0, "launch.temperature.warm": 4.0}), "cold",
+                         "the value mark wins over the instant mark")
+        lines = bs.value_summary(runs, "cold")
+        self.assertEqual(lines[0], "  launch.temperature: cold 8, lukewarm 1 of 10 runs (1 without it); "
+                                   "8 of 10 read cold as asked")
+        self.assertTrue(lines[1].startswith("  launch.pageins_run_loop_start: p50 3900"), lines[1])
+        self.assertEqual(bs.run_values(runs[0]), ["temperature cold", "page-ins at run loop 3900", "page-ins 4100"])
+        self.assertNotEqual(bs.value_summary([{"launch.temperature.warm": 4.0}]), [],
+                            "an instant temperature mark alone prints the summary")
+        self.assertIsNotNone(bs.parse_order("main_start<launch.temperature.cold"), "the instant mark is a time")
 
     def test_chrome_enum_values_and_interrupted_rule(self):
         self.assertEqual([bs.temperature_name(v) for v in (0, 1.0, 2, 3, 7, "COLD")],

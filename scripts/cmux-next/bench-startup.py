@@ -47,11 +47,12 @@ because without it "cold" only means "daemon stopped". --temperature warm
 purges nothing. Either way the summary counts the runs whose
 `launch.temperature` read each value.
 
-Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_first_frame`,
-`launch.main_cpu_ms` and `launch.interrupted` arrive on the same pipe as
-`<name> <value>` (a number, true/false, or a name). They are not times: no
-table row, gap or --order term. Each run's line and the summary print them
-when the build sends them.
+Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
+`launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
+arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
+They are not times: no table row, gap or --order term. Task 007 can also send
+the temperature as the instant mark `launch.temperature.<name>`; it reads the
+same. Each run's line and the summary print them when the build sends them.
 
 --require-optimized refuses (exit 2), before any launch, a build that is not
 optimized: the Info.plist's CMUXBuildConfiguration when the build stamps it,
@@ -158,10 +159,14 @@ LAUNCH_ORDER = [
 # Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
 # --order term.
 TEMPERATURE = "launch.temperature"
+# Task 007 sends the temperature as an instant time mark, `launch.temperature.<name> <ms>`, at run_loop_start.
+TEMPERATURE_INSTANT = TEMPERATURE + "."
+# The page-ins the temperature is classified from (run_loop_start), and the separate count at the first frame.
+PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
-VALUE_MARKS = (TEMPERATURE, PAGEINS, MAIN_CPU, INTERRUPTED)
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED)
 # A numeric temperature is Chrome's StartupTemperature enum
 # (components/startup_metric_utils/browser/startup_metric_utils.h).
 CHROME_TEMPERATURES = {0: "cold", 1: "warm", 2: "lukewarm", 3: "undetermined"}
@@ -211,6 +216,15 @@ def temperature_name(value):
     if is_number(value) and int(value) == value:
         return CHROME_TEMPERATURES.get(int(value), f"{value:g}")
     return str(value).lower()
+
+
+def run_temperature(marks):
+    """The run's temperature name: a `launch.temperature <value>` mark, else task 007's instant mark
+    `launch.temperature.<name>`; None when the build sends neither."""
+    if TEMPERATURE in marks:
+        return temperature_name(marks[TEMPERATURE])
+    names = sorted(name[len(TEMPERATURE_INSTANT):] for name in marks if name.startswith(TEMPERATURE_INSTANT))
+    return names[0].lower() if names else None
 
 
 def interrupted(run):
@@ -705,8 +719,11 @@ def table(runs):
 def run_values(marks):
     """The value marks a run carries, for its line: `temperature cold, page-ins 4100, interrupted`."""
     shown = []
-    if TEMPERATURE in marks:
-        shown.append(f"temperature {temperature_name(marks[TEMPERATURE])}")
+    temperature = run_temperature(marks)
+    if temperature is not None:
+        shown.append(f"temperature {temperature}")
+    if is_number(marks.get(PAGEINS_RUN_LOOP)):
+        shown.append(f"page-ins at run loop {marks[PAGEINS_RUN_LOOP]:.0f}")
     if is_number(marks.get(PAGEINS)):
         shown.append(f"page-ins {marks[PAGEINS]:.0f}")
     if is_number(marks.get(MAIN_CPU)):
@@ -719,10 +736,11 @@ def run_values(marks):
 def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
-    if not runs or (temperature is None and not any(mark in run for run in runs for mark in VALUE_MARKS)):
+    if not runs or (temperature is None and not any(
+            mark in VALUE_MARKS or mark.startswith(TEMPERATURE_INSTANT) for run in runs for mark in run)):
         return []
     total = len(runs)
-    read = [temperature_name(run[TEMPERATURE]) for run in runs if TEMPERATURE in run]
+    read = [name for name in map(run_temperature, runs) if name is not None]
     if read:
         counts = sorted(((read.count(name), name) for name in set(read)), key=lambda item: (-item[0], item[1]))
         line = f"  {TEMPERATURE}: " + ", ".join(f"{name} {count}" for count, name in counts) + f" of {total} runs"
@@ -733,7 +751,7 @@ def value_summary(runs, temperature=None):
     else:
         line = f"  {TEMPERATURE}: missing in all {total} runs (the build sends no task 007 marks)"
     lines = [line]
-    for mark, unit in ((PAGEINS, ""), (MAIN_CPU, " ms")):
+    for mark, unit in ((PAGEINS_RUN_LOOP, ""), (PAGEINS, ""), (MAIN_CPU, " ms")):
         values = [run[mark] for run in runs if is_number(run.get(mark))]
         if values:
             cells = "  ".join(f"{column} {value:.0f}{unit}" for column, value in spread(values).items())
