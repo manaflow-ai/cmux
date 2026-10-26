@@ -31,10 +31,13 @@ use sha2::{Digest, Sha256};
 
 use super::{ConversationStore, load_head, rejected};
 
+#[path = "conversation_attachment_closed.rs"]
+mod closed;
 #[path = "conversation_attachment_cloud.rs"]
 pub(crate) mod cloud;
 #[path = "conversation_attachment_links.rs"]
 pub(crate) mod links;
+pub(crate) use closed::ClosedUploads;
 
 /// The capability of the `conversation-attachment-*` commands.
 pub(crate) const LOCAL_ATTACHMENTS_CAPABILITY: &str = "local-attachments-v1";
@@ -349,19 +352,16 @@ impl Attachments {
         }
     }
 
-    /// Ends the uploads of a closed connection.
-    pub(crate) fn client_closed(&mut self, client: u64) {
+    /// Ends the uploads of a closed connection. Their partial files are the
+    /// caller's to remove once it released the store lock.
+    pub(crate) fn client_closed(&mut self, client: u64) -> ClosedUploads {
         let ids: Vec<String> = self
             .uploads
             .iter()
             .filter(|(_, upload)| upload.client == client)
             .map(|(id, _)| id.clone())
             .collect();
-        for id in ids {
-            if let Some(upload) = self.uploads.remove(&id) {
-                Self::drop_upload(upload);
-            }
-        }
+        ClosedUploads::new(ids.iter().filter_map(|id| self.uploads.remove(id)).collect())
     }
 }
 
@@ -852,9 +852,10 @@ impl ConversationStore {
         Ok(ReadReply { hash, mime_type, byte_count, offset, data, eof })
     }
 
-    /// Ends the uploads of a closed connection.
-    pub(crate) fn attachments_client_closed(&mut self, client: u64) {
-        self.attachments.client_closed(client);
+    /// Ends the uploads of a closed connection; the caller removes their
+    /// partial files after it releases the store lock.
+    pub(crate) fn attachments_client_closed(&mut self, client: u64) -> ClosedUploads {
+        self.attachments.client_closed(client)
     }
 
     fn add_uploader(

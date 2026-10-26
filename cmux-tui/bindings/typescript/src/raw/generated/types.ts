@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7df3a6386fdad25e1bd4b8d898d696a8c37a5d4880d1ef4d4cffc2f299c0d294. */
+/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1312,6 +1312,20 @@ export type ServerStatsLockStall = {
   "waiter": string;
 };
 
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1339,6 +1353,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;

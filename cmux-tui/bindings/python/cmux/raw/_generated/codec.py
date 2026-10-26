@@ -171,6 +171,8 @@ MODEL_BY_PATH = {
     'types/ServerStatsLockHolder': models.ServerStatsLockHolder,
     'types/ServerStatsLockSite': models.ServerStatsLockSite,
     'types/ServerStatsLockStall': models.ServerStatsLockStall,
+    'types/ServerStatsLockWait': models.ServerStatsLockWait,
+    'types/ServerStatsLockWaits': models.ServerStatsLockWaits,
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
     'types/ServerStatsRequestLatency': models.ServerStatsRequestLatency,
     'types/ServerStatsRequestPathIo': models.ServerStatsRequestPathIo,

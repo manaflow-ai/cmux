@@ -263,7 +263,7 @@ final class SettingsPageProvider: PageProvider {
             // The daemon's harness events reach the list only while a page shows it.
             agents.beginWatching()
             let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
-            return PageSubscription {
+            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
                 watch.cancel()
                 Task { @MainActor in agents.endWatching() }
             }
@@ -273,7 +273,7 @@ final class SettingsPageProvider: PageProvider {
             devicesWatching?(true)
             let watch = Self.watch(devicesState, onEvent: onEvent)
             let watching = devicesWatching
-            return PageSubscription {
+            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
                 watch.cancel()
                 Task { @MainActor in watching?(false) }
             }
@@ -308,11 +308,13 @@ final class SettingsPageProvider: PageProvider {
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event names only the keys that changed since the last one: a delta. After a drop the
+        // page gets `meta.gap`; SettingsStore then clears every refusal and re-reads every row.
+        return PageSubscription(frozenDelivery: .resync) { task.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
-    /// carries the new value.
+    /// carries the new value, so while the page is held only the newest one matters (`.latest`).
     private static func watch(_ read: @escaping @MainActor () -> JSONValue,
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
@@ -322,7 +324,7 @@ final class SettingsPageProvider: PageProvider {
                 onEvent(value)
             }
         }
-        return PageSubscription { task.cancel() }
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 
     // MARK: Reads

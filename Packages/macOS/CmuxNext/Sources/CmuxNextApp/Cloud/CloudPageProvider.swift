@@ -82,7 +82,9 @@ final class CloudPageProvider: PageProvider {
         _ = try await run("cloud.machine.watch", args: .object([:]), key: nil, context: context)
         let id = UUID()
         watchers[id] = onEvent
-        return PageSubscription { [weak self] in self?.watchers[id] = nil }
+        // Each event is one machine's upsert or removal, and the page applies them without a re-read
+        // on a gap (webviews pages/cloud/store.ts): none may drop. They come only from mutations.
+        return PageSubscription(frozenDelivery: .ordered) { [weak self] in self?.watchers[id] = nil }
     }
 
     private func run(_ server: String, args: CmuxNextSettings.JSONValue, key: String?,

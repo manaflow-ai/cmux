@@ -594,6 +594,12 @@
     },
     {
       "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p15-oracle-041: the oracle's windows facet (DEV and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS) subscribes through the app's AppEvents fan-out, the adapter the rule asks for, to WindowEvents.stateChanges (frame, full screen, miniaturize, key and main, screen, occlusion, display parameters), one site, made on the facet's first read and kept for the facet list's life. Each post only adds one to an observable count the facet's read touches, so a debug.oracle.wait_for on a frame or on full screen wakes: AppKit makes none of these values observable and the control snapshot does not publish on them. No WindowController delegate hook covers them all (no resize, miniaturize, main or display-parameter hook; a child page window's key change reaches no controller). Chrome's window waiters observe the widget the same way (views::test::WidgetBoundsChangeWaiter, ui/views/test/widget_test.h)."
+    },
+    {
+      "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 2,
       "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."

@@ -1882,6 +1882,24 @@ class ServerStatsLockStall:
 
 
 @dataclass(frozen=True)
+class ServerStatsLockWait:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockWait'
+    lock: str
+    site: str
+    waited_us: int
+    waiter: str
+    holder: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsLockWaits:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockWaits'
+    dropped: int
+    long_waits: int
+    recent: List[ServerStatsLockWait]
+
+
+@dataclass(frozen=True)
 class ServerStatsRegistryLock:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryLock'
     contended_acquisitions: int
@@ -1922,6 +1940,7 @@ class ServerStatsRequestPathIo:
     sleep: int
     sqlite: int
     lock_hold_over_1ms: Union[int, MissingType] = field(default=MISSING)
+    lock_waits: Union[ServerStatsLockWaits, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7102,6 +7121,8 @@ __all__ = [
     'ServerStatsLockHolder',
     'ServerStatsLockSite',
     'ServerStatsLockStall',
+    'ServerStatsLockWait',
+    'ServerStatsLockWaits',
     'ServerStatsRegistryLock',
     'ServerStatsRequestLatency',
     'ServerStatsRequestPathIo',

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7df3a6386fdad25e1bd4b8d898d696a8c37a5d4880d1ef4d4cffc2f299c0d294.
+// cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2135,6 +2135,25 @@ pub struct ServerStatsLockStall {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockWait {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub holder: Option<String>,
+    pub lock: String,
+    pub site: String,
+    pub waited_us: u64,
+    pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockWaits {
+    pub dropped: u64,
+    pub long_waits: u64,
+    pub recent: Vec<ServerStatsLockWait>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsRegistryLock {
     pub contended_acquisitions: u64,
     pub hold_us: ServerStatsHistogram,
@@ -2167,6 +2186,8 @@ pub struct ServerStatsRequestPathIo {
     pub journal_wait: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub lock_hold_over_1ms: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_waits: Option<ServerStatsLockWaits>,
     pub network: u64,
     pub proc_scan: u64,
     pub process_spawn: u64,

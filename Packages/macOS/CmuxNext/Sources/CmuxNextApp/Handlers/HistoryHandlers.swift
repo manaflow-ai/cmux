@@ -35,10 +35,10 @@ enum HistoryHandlers {
             ("history.commands", HistoryPalettePages.commands),
         ]
         for (id, make) in pages {
-            services.palette.sources.actionPages[id] = { [weak services] in services.map(make) }
+            services.palettes.sources.actionPages[id] = { [weak services] in services.map(make) }
             registry.bind(id, run: { _ in services.palette.show(page: make(services), relativeTo: context.activeWindow?.window) })
         }
-        services.palette.sources.actionPages["history.resumeAgentSession"] = { [weak services] in services.map(HistoryPalettePages.agents) }
+        services.palettes.sources.actionPages["history.resumeAgentSession"] = { [weak services] in services.map(HistoryPalettePages.agents) }
         registry.bind("history.resumeAgentSession", run: { invocation in
             guard let id = invocation["session"]?.stringValue, !id.isEmpty else {
                 services.palette.show(page: HistoryPalettePages.agents(services), relativeTo: context.activeWindow?.window)
