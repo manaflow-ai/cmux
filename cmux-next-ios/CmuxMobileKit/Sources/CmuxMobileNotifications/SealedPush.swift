@@ -126,7 +126,7 @@ public struct PushBanner: Equatable, Sendable {
         case .permission:
             // As the Mac's approval prompt (`ApprovalBanner`): the Mac is in the title, the request below.
             title = ApprovalBanner.title(agent: agent, mac: mac)
-            body = p.title ?? p.body ?? ""
+            body = ApprovalBanner.detail(p) ?? ""
         case .completed:
             title = String(localized: "\(agent) finished")
             body = last ?? p.body ?? ""
