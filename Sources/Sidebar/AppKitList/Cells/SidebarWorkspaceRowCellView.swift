@@ -24,6 +24,10 @@ final class SidebarWorkspaceRowSelectionChromeObserverStore {
         self.workspaceNotificationCenter = workspaceNotificationCenter
     }
 
+    deinit {
+        invalidate()
+    }
+
     func install(
         on window: NSWindow,
         repaint: @escaping @Sendable (Notification) -> Void
