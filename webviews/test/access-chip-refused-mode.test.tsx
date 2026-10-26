@@ -359,6 +359,38 @@ test("the managed mark is this Mac's: a peer's or another host's chat keeps its 
   }
 });
 
+test("an ask the host refused does not stop a shown chat from learning the managed mark", async () => {
+  // Review 42: a New Tab's ask outside the roots the host relays fails; a local chat shown next in
+  // the same connection still asks, and its menu says managed.
+  const startMode = await import("../src/agent-session/acpmux/startMode");
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const { AcpmuxRpcError } = await import("../src/agent-session/acpmux/handoff/protocol");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  let asked = 0;
+  (client as unknown as { request: () => Promise<unknown> }).request = () => {
+    asked += 1;
+    return asked === 1
+      ? Promise.reject(
+          new AcpmuxRpcError({
+            code: -32000,
+            message: "outside the roots",
+            data: { origin: "native", code: "transport.path_outside_roots", method: "_acpmux/start_mode" },
+          }),
+        )
+      : Promise.resolve({ harness: "claude", modeId: null, fullAccess: "managed" });
+  };
+  await act(async () => startMode.setStartModeSource((harness, cwd) => client.startMode(harness, cwd)));
+  await act(async () => void (await startMode.askStartMode("claude", "/Users/dev")));
+  expect(asked).toBe(1);
+  await render(reported("s1", "default"), () => undefined);
+  await flush();
+  expect(asked).toBe(2);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
 test("a new connection forgets the managed mark, and a late answer from the old one changes nothing", async () => {
   const startMode = await import("../src/agent-session/acpmux/startMode");
   const direct = await import("../src/agent-session/acpmux/direct");
