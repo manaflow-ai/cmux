@@ -3004,32 +3004,25 @@ struct WorkspaceProcessWideObserverRetirementTests {
         }
 
         await drainMainActorQueue()
-        var publicationCount = 0
-        workspace.sharedLiveAgentIndexChangeHandledForTesting = {
-            publicationCount += 1
-        }
-        defer { workspace.sharedLiveAgentIndexChangeHandledForTesting = nil }
-
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
-        await drainMainActorQueue()
-        #expect(publicationCount > 0)
+        #expect(workspace.sharedLiveAgentIndexObserver != nil)
 
         // Queue one final matching publication, then retire before its
-        // MainActor task can mutate the workspace.
+        // MainActor task runs.
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
             userInfo: ["workspaceId": workspace.id]
         )
         workspace.retireFromOwningTabManager()
-        let countAfterRetirement = publicationCount
-        await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
+        // Future publications reach no observer.
+        #expect(workspace.sharedLiveAgentIndexObserver == nil)
 
+        var publishesAfterRetirement = 0
+        let publication = workspace.objectWillChange.sink { _ in
+            publishesAfterRetirement += 1
+        }
+        defer { publication.cancel() }
+        await drainMainActorQueue()
         for _ in 0..<3 {
             NotificationCenter.default.post(
                 name: .sharedLiveAgentIndexDidChange,
@@ -3038,7 +3031,7 @@ struct WorkspaceProcessWideObserverRetirementTests {
             )
         }
         await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
+        #expect(publishesAfterRetirement == 0)
     }
 
     @Test("Retirement rejects queued and future feature flag publications")

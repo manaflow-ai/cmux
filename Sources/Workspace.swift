@@ -4624,50 +4624,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Reconcile restored agents that a shared agent-index refresh reports as
-        // finished. The Fork Conversation menu reads availability from its
-        // provider when it opens, so a refresh must not publish this workspace:
-        // a full reload posts without userInfo at most every 5 s while agent
-        // hooks write the hook store, and each publish re-rendered every pane
-        // (issue 22703).
+        // The Fork Conversation menu reads availability from its provider when
+        // it opens, so a refresh must not publish this workspace: a full reload
+        // posts without userInfo at most every 5 s while agent hooks write the
+        // hook store, and each publish re-rendered every pane (issue 22703).
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
             queue: nil
         ) { [weak self] notification in
             Task { @MainActor [weak self] in
-                guard let self, !self.isRetiredFromOwningTabManager else { return }
-                if let index = SharedLiveAgentIndex.shared.index {
-                    let completedPanelIds: [UUID]
-                    if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                        guard let changedPanelIds = panelIdsByWorkspaceId[self.id] else {
-                            return
-                        }
-                        completedPanelIds = changedPanelIds.filter { panelId in
-                            self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
-                        }
-                    } else if let changedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                              changedWorkspaceId != self.id {
-                        return
-                    } else if let changedPanelId = notification.userInfo?["panelId"] as? UUID {
-                        completedPanelIds = self.restoredAgentResumeStatesByPanelId[changedPanelId] == .completedAgentExit
-                            ? [changedPanelId]
-                            : []
-                    } else {
-                        completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
-                            state == .completedAgentExit ? panelId : nil
-                        }
-                    }
-                    for panelId in completedPanelIds {
-                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
-                            continue
-                        }
-                        self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-                    }
-                }
-                #if DEBUG
-                self.sharedLiveAgentIndexChangeHandledForTesting?()
-                #endif
+                self?.handleSharedLiveAgentIndexChange(userInfo: notification.userInfo)
             }
         }
         featureFlagsObserver = NotificationCenter.default.addObserver(
@@ -4696,11 +4663,41 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
-    #if DEBUG
-    /// Test seam: runs after this workspace handles a shared agent-index change.
-    var sharedLiveAgentIndexChangeHandledForTesting: (() -> Void)?
-    #endif
+    private(set) var sharedLiveAgentIndexObserver: NSObjectProtocol?
+
+    /// Reconciles restored agents that a shared agent-index change reports as
+    /// finished. It never publishes this workspace.
+    func handleSharedLiveAgentIndexChange(userInfo: [AnyHashable: Any]?) {
+        guard !isRetiredFromOwningTabManager else { return }
+        if let index = SharedLiveAgentIndex.shared.index {
+            let completedPanelIds: [UUID]
+            if let panelIdsByWorkspaceId = userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                guard let changedPanelIds = panelIdsByWorkspaceId[self.id] else {
+                    return
+                }
+                completedPanelIds = changedPanelIds.filter { panelId in
+                    self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
+                }
+            } else if let changedWorkspaceId = userInfo?["workspaceId"] as? UUID,
+                      changedWorkspaceId != self.id {
+                return
+            } else if let changedPanelId = userInfo?["panelId"] as? UUID {
+                completedPanelIds = self.restoredAgentResumeStatesByPanelId[changedPanelId] == .completedAgentExit
+                    ? [changedPanelId]
+                    : []
+            } else {
+                completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                    state == .completedAgentExit ? panelId : nil
+                }
+            }
+            for panelId in completedPanelIds {
+                guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
+                    continue
+                }
+                self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+            }
+        }
+    }
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
