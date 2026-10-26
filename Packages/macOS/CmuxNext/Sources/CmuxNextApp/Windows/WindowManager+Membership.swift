@@ -268,6 +268,7 @@ extension WindowManager {
         var reopened: String?
         transition { registry in
             reopened = registry.reopen()
+            if let reopened { closedDuringRestore.remove(reopened) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard let reopened, let controller = controller(for: reopened) else { return false }
@@ -288,6 +289,7 @@ extension WindowManager {
         var reopened = false
         transition { registry in
             reopened = registry.reopen(id: id)
+            if reopened { closedDuringRestore.remove(id) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard reopened, let controller = controller(for: id) else { return false }
