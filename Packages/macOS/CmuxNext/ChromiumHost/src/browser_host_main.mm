@@ -47,9 +47,20 @@
 #include "include/cef_application_mac.h"
 
 #include "chromium_host_control.h"
+#include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "shim_internal.h"
+
+// The wire's copies of CEF's event flags (chromium_host_wire.h, CefModifiersOf).
+static_assert(cmux_host::kCefCapsLockOn == EVENTFLAG_CAPS_LOCK_ON && cmux_host::kCefShiftDown == EVENTFLAG_SHIFT_DOWN,
+              "CEF's caps lock and shift flags");
+static_assert(cmux_host::kCefControlDown == EVENTFLAG_CONTROL_DOWN && cmux_host::kCefAltDown == EVENTFLAG_ALT_DOWN &&
+                  cmux_host::kCefCommandDown == EVENTFLAG_COMMAND_DOWN,
+              "CEF's control, option and command flags");
+static_assert(cmux_host::kCefPrecisionScrollingDelta == EVENTFLAG_PRECISION_SCROLLING_DELTA,
+              "CEF's precise wheel delta flag");
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
   BOOL _handlingSendEvent;
@@ -141,6 +152,40 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
     if (arg.rfind(prefix, 0) == 0) return arg.substr(prefix.size());
   }
   return std::string();
+}
+
+// A kWheel frame to its page (task p04-input-063), with its scroll phase,
+// momentum phase and precise flag through the fork's wheel call, so
+// Chromium's MouseWheelPhaseHandler latches the gesture and hands the
+// momentum to the page as Chrome does with the NSEvent. Both paths get pixel
+// deltas (WheelOf). A fork without the call (below API 30) gets
+// CefBrowserHost::SendMouseWheelEvent with whole pixels, the fraction carried
+// to the next frame, and no phases; a frame with no whole pixel (a phase edge)
+// is not sent there, as WebMouseWheelEventBuilder's note on zero-tick wheels
+// asks. UI thread.
+void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, const cmux_host::Header& frame) {
+  const int browser_id = host.Browser(cmux_host::BrowserOf(frame));
+  const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
+  if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
+                                   wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
+    return;
+  }
+  CefRefPtr<CefBrowser> browser = cmux_shim::BrowserById(browser_id);
+  const cmux_host::WheelPixels pixels = carry.Take(browser_id, frame);
+  if (!browser || (pixels.dx == 0 && pixels.dy == 0)) return;
+  CefMouseEvent event;
+  event.x = static_cast<int>(wheel.x);
+  event.y = static_cast<int>(wheel.y);
+  const int precise = wheel.precise ? cmux_host::kCefPrecisionScrollingDelta : 0;
+  event.modifiers = static_cast<uint32_t>(wheel.modifiers | precise);
+  browser->GetHost()->SendMouseWheelEvent(event, pixels.dx, pixels.dy);
+}
+
+// One input ring frame, in the ordered stream's order. Wheels go to
+// Chromium here; task p01-process-042 adds the other kinds with the ring's
+// reader, and until it starts the reader no frame comes.
+void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, const cmux_host::Header& frame) {
+  if (frame.kind == cmux_host::kWheel) SendWheel(host, carry, frame);
 }
 
 }  // namespace
@@ -359,8 +404,11 @@ int main(int argc, char* argv[]) {
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.
+  cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
+  ordered.AttachInput(
+      [&host, &wheel_carry](const cmux_host::Header& frame) { DispatchInput(host, wheel_carry, frame); });
   auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
     if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
   };
