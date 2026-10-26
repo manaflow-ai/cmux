@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import os
 
 private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
@@ -155,8 +155,6 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
-        // Still in its pane: the pane's trace takes it.
-        ChatOpenTrace.shared.mark(.loadingLeft, view: self)
         removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
@@ -186,6 +184,7 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        model.chatOpen?.mark(.paneMade)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
@@ -200,8 +199,10 @@ extension AgentPaneView {
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
         // The handshake's painted answer ends the loading state in the same turn.
-        ChatOpenTrace.shared.mark(.panePainted, view: self)
-        ChatOpenTrace.shared.mark(.loadingLeave, view: self)
+        chatMark(.panePainted)
+        chatMark(.loadingLeave)
+        // The cover's fade, if any, ends after this turn: the pane marks the cover gone once it left.
+        if loadingView.superview != nil { loadingView.whenRevealed { [weak self] in self?.chatMark(.loadingLeft) } }
         loadingView.leave(over: pageContent,
                           fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
                                                 fromKeptTail: model.paintedFromKeptTail))
@@ -217,6 +218,27 @@ extension AgentPaneView {
     /// as they did before.
     static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool) -> Bool {
         !hasNewTab && isVisible && !fromKeptTail
+    }
+
+    /// The agent chat open this pane shows, nil when none made it (``AgentPaneModel/chatOpen``).
+    public var chatOpen: ChatOpenStages? { model.chatOpen }
+
+    /// The agent chat open this pane shows (``AgentPaneModel/chatOpen``): its stages, and its page's from now on.
+    /// A pane that was made with no open (the prewarmed New Tab page) gets the open that adopts it: for that open,
+    /// this is when its pane was made.
+    public func join(_ chatOpen: ChatOpenStages) {
+        model.chatOpen = chatOpen
+        page.chatOpen = chatOpen
+        chatOpen.mark(.paneMade)
+    }
+
+    /// A stage of this pane's chat open, in every build (none without an open); DEBUG and bench builds also mark
+    /// the running `debug.chat_open_trace`.
+    func chatMark(_ stage: ChatOpenStage) {
+        model.chatOpen?.mark(stage)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        ChatOpenTrace.shared.mark(stage, view: self)
+        #endif
     }
 
     func themeLoadingState(_ tokens: ThemeTokens) {

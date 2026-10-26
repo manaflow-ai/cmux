@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -103,6 +104,9 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
+    /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
+    @ObservationIgnored public var chatOpen: ChatOpenStages?
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
     @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?

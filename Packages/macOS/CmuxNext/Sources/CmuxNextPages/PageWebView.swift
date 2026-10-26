@@ -292,9 +292,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
          processGroups: WebProcessGroups? = nil, startsAtFirstShow: Bool = false,
-         trace: any PageTraceSink = TraceRuntime.shared) {
+         trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
+        self.chatOpen = chatOpen
         self.descriptor = descriptor
         engineOptions = options
         isPooled = pooled
@@ -545,6 +546,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var openTracePending = false
     /// Where the `webui.open` slices go (``PageTraceSink``).
     let trace: any PageTraceSink
+    /// The agent chat open this page shows (its stages go there, ``traceMark(_:)``); nil for every other page and
+    /// for one made with no open (a prewarmed page gets the open that adopts it).
+    public var chatOpen: ChatOpenStages?
     /// A claimed spare painted while parked at its window's full size: it counts as painted again
     /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
     var repaintsAtNextLayout = false

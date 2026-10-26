@@ -76,6 +76,9 @@ public final class CreateTabTimings {
     /// The tabs waiting for their first frame.
     public var waitingTabs: Set<String> { Set(waiting.keys) }
 
+    /// The open interval of tab `key`, while it waits for its first frame.
+    public func interval(ofTab key: String) -> CreateTabInterval? { waiting[key]?.interval }
+
     /// The daemon surfaces waiting to be listed as a tab.
     public var waitingSurfaces: Set<UInt64> { Set(bySurface.keys) }
 

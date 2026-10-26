@@ -45,10 +45,13 @@ extension PageWebView {
         trace.asyncEnd(.webuiOpen, id: traceID, arg0: outcome.rawValue)
     }
 
-    /// A ``ChatOpenTrace`` mark of this page, when it is an agent chat's page: its `create.tab` instant carries
-    /// ``traceID``, so it lines up with this page's `webui.open`.
-    func traceMark(_ mark: ChatOpenTrace.Mark) {
-        guard descriptor.id == ChatOpenTrace.agentPageID else { return }
-        ChatOpenTrace.shared.mark(mark, page: self)
+    /// A stage of the agent chat open this page shows (``chatOpen``), in every build: a page with no open writes
+    /// nothing. DEBUG and bench builds also mark the running `debug.chat_open_trace`.
+    func traceMark(_ stage: ChatOpenStage) {
+        chatOpen?.mark(stage)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard ChatOpenTrace.shared.isArmed, descriptor.id == ChatOpenTrace.agentPageID else { return }
+        ChatOpenTrace.shared.mark(stage, page: self)
+        #endif
     }
 }

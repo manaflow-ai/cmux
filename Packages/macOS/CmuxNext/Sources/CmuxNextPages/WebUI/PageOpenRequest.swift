@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextWakeups
 public import Foundation
 import WebKit
 
@@ -23,10 +24,13 @@ public struct PageOpenRequest {
     public var surface: SurfaceKind?
     /// Answers the descriptor's dynamic prefixes (a 404 without one).
     public var dynamicResources: (any PageDynamicResourceSource)?
+    /// The agent chat open the page shows (``PageWebView/chatOpen``), known before its document starts.
+    public var chatOpen: ChatOpenStages?
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                chatOpen: ChatOpenStages? = nil) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -35,6 +39,7 @@ public struct PageOpenRequest {
         self.options = options
         self.surface = surface
         self.dynamicResources = dynamicResources
+        self.chatOpen = chatOpen
     }
 }
 
@@ -72,6 +77,7 @@ extension PageWebView {
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
-                  openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow)
+                  openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow,
+                  chatOpen: request.chatOpen)
     }
 }

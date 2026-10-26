@@ -386,6 +386,7 @@ final class AgentTabStore {
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
+        model.chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) // its open, while it waits for its first paint
         relaunchWake.hand(key, to: model)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).

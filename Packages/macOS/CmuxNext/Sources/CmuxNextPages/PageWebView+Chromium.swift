@@ -91,6 +91,7 @@ extension PageWebView {
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
+        let chatOpen = chatOpen
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = ChatOpenTrace.shared.isTraced(page: self)
         #endif
@@ -100,7 +101,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
