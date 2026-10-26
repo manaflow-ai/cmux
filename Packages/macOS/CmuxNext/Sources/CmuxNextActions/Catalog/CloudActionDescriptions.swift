@@ -9,9 +9,10 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a new workspace on the Cloud machine the focused window shows (else the only machine). \
-            With no connected machine it starts creating one and shows its progress in the window; a create \
-            an agent or script starts may ask the person first. Answers at once with no ids: \
+            Opens a new workspace on a Cloud machine: --target machine:<id>, else the one the focused window \
+            shows, else the only one. A machine that is not connected yet is connected (a paused one resumes) \
+            and its progress shows in the window; with no machine at all it creates one, which may ask the \
+            person first when an agent or script started it. Answers at once with no ids: \
             `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
             """,
         "newCloudMachine": """
@@ -63,8 +64,9 @@ nonisolated enum CloudActionDescriptions {
             Moves a chat tab of this Mac to a Cloud machine: copies the chat's folder (--path, else the \
             chat's own) to the machine (--machine machine:<id>, else a connected one, else any, else a new \
             one), moves the chat there and opens it, keeping its session and history. An agent can ask only \
-            for its own chat: its run shows the person a card in that chat (Move, Not now, Always), ignores \
-            --path and --machine, and moves nothing until the person clicks.
+            for its own chat, and its run ignores --path and --machine: it shows the person a card in that \
+            chat (Move, Not now, Always) and moves only when they click Move or Always, except that a chat \
+            in a folder the person already answered Always for moves at once.
             """,
         "cloudBringBack": """
             Brings a chat that a move from this Mac put on a Cloud machine back to this Mac: pulls its \
