@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextCompat
 import Foundation
 import CmuxNextDesign
@@ -52,19 +53,24 @@ final class TerminalThemeSetting {
     private let mainWork: MainWorkScheduler
     /// Where it hears of a day, time zone or clock change (the app's one observer per notice; tests post to their own).
     private let appEvents: AppEvents
+    /// Where it hears the Mac wake (`NSWorkspace`'s notices; tests post to their own).
+    private let workspaceEvents: AppEvents
 
     /// - Parameters:
     ///   - backdropScope: The scope whose backdrop, tint and tuning the settings set.
     ///   - deadlines: The app's deadline scheduler: the reload after a background drag and the shuffle's next
     ///     picture are deadlines on it, and a settings change applies as one `visible` task on its scheduler.
     ///   - appEvents: The app's one observer per app notice (`AppServices.appEvents`).
-    init(backdropScope: ThemeScope, deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
+    ///   - workspaceEvents: The app's one observer per `NSWorkspace` notice (`AppServices.workspaceEvents`).
+    init(backdropScope: ThemeScope, deadlines: MainDeadlineScheduler, appEvents: AppEvents, workspaceEvents: AppEvents) {
         self.backdropScope = backdropScope
         self.appEvents = appEvents
+        self.workspaceEvents = workspaceEvents
         mainWork = deadlines.work
         // `visible`: the terminals and the window repaint with the reload.
         reloadTimer = MainDeadline(owner: "terminal-theme.background-reload", workClass: .visible, scheduler: deadlines)
-        // `background`: hours ahead, and nobody waits on the turn to the next picture.
+        // `background`: up to a day ahead, and nobody waits on the turn to the next picture. Its uptime
+        // deadline does not count sleep, so a wake re-picks (`follow`).
         dailyTimer = MainDeadline(owner: "terminal-theme.daily-background", workClass: .background, scheduler: deadlines)
     }
 
@@ -77,13 +83,15 @@ final class TerminalThemeSetting {
     private let reloadTimer: MainDeadline
     /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
     var reloadDelay = TerminalThemeSetting.backgroundReloadDelay
-    /// Shuffle: turns the backdrop to its next picture when the period ends (``BackdropRotation``).
+    /// Shuffle: turns the backdrop to its next picture when the period ends (``BackdropRotation``), with a
+    /// wake re-picking what the stopped uptime missed.
     private let dailyTimer: MainDeadline
     /// The clock and calendar (read per pick, so a time zone change applies) a shuffle reads; tests pin both.
     var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
     /// The shuffle the background is, so a day, time zone or clock change re-picks its picture.
     private var shuffling: BackdropShuffle?
     private var dayChanges: [EventSubscription] = []
+    private var wake: EventSubscription?
     static let backgroundReloadDelay = Duration.milliseconds(60)
     private var observation: ServiceObservation<Followed>?
 
@@ -121,11 +129,19 @@ final class TerminalThemeSetting {
         }
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         dayChanges = [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
-            appEvents.subscribe(name, owner: "TerminalThemeSetting.dayChange") { [weak self] in
-                guard let self, shuffling != nil else { return }
-                showShuffledArt()
-            }
+            appEvents.subscribe(name, owner: "TerminalThemeSetting.dayChange") { [weak self] in self?.reshuffle() }
         }
+        // The shuffle's turn is wall time on an uptime deadline, which stops while the Mac sleeps: a wake re-picks
+        // and re-arms, as Chromium's WallClockTimer re-arms on PowerMonitor's resume (base/timer/wall_clock_timer.h).
+        wake = workspaceEvents.subscribe(NSWorkspace.didWakeNotification, owner: "TerminalThemeSetting.wake") { [weak self] in
+            self?.reshuffle()
+        }
+    }
+
+    /// The day, the time zone or the clock changed, or the Mac woke: a shuffle shows its picture of now.
+    private func reshuffle() {
+        guard shuffling != nil else { return }
+        showShuffledArt()
     }
 
     private func take(_ followed: Followed) {

@@ -106,4 +106,20 @@ import Testing
         })
         #expect(files == Set(names))
     }
+
+    /// The shuffle's turn is an uptime deadline, which stops while the Mac sleeps: a wake shows the picture of
+    /// now at once instead of when the stopped deadline's remaining uptime runs out.
+    @Test func aWakeRePicksAQuarterHourShuffleAtOnce() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        try await harness.write(#"{"appearance": {"background": "daily", "backgroundRotation": "15m"}}"#)
+        await settle { harness.scope.backdropSelection != nil }
+        let before = harness.scope.backdropSelection
+        let later = Self.today.addingTimeInterval(900)
+        harness.terminal.now = { later }
+        harness.center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        await settle { harness.scope.backdropSelection != before }
+        #expect(harness.scope.backdropSelection != nil)
+        #expect(harness.scope.backdropSelection != before, "the wake kept the picture of before the sleep")
+    }
 }

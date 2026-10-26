@@ -310,12 +310,21 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether `ready` holds, now or within 5 s, read again only when the store changes what it read
-    /// (recipe R-wait: a `visible` observation and a `MainDeadline`, Chromium's observer plus `OneShotTimer`).
-    /// The daemon's event normally lands within one turn.
+    /// Whether `ready` holds, now or within ``classicStoreWaitLimit``, read again only when the store changes
+    /// what it read. The daemon's event normally lands within one turn.
     private func awaitStore(_ ready: @escaping @MainActor () -> Bool) async -> Bool {
-        await ObservedCondition(owner: "ClassicMigration.awaitStore", .visible, on: services.mainWork)
-            .until(timeout: .seconds(5), deadlines: services.mainDeadlines, ready)
+        await Self.awaitStore(on: services.mainWork, deadlines: services.mainDeadlines, ready)
+    }
+
+    /// How long a migration step waits for the store to mirror what it created.
+    nonisolated static let classicStoreWaitLimit = Duration.seconds(5)
+
+    /// Whether `ready` holds, now or within ``classicStoreWaitLimit`` (recipe R-wait: a `visible` observation and a
+    /// `MainDeadline`, Chromium's observer plus `OneShotTimer`); a cancelled caller returns at once.
+    static func awaitStore(on mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                           _ ready: @escaping @MainActor () -> Bool) async -> Bool {
+        await ObservedCondition(owner: "ClassicMigration.awaitStore", .visible, on: mainWork)
+            .until(timeout: classicStoreWaitLimit, deadlines: deadlines, ready)
         return ready()
     }
 

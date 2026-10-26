@@ -11,7 +11,9 @@ import Observation
 /// absolute path to a theme file, which Ghostty also loads). Each theme's
 /// swatch strip (R98) is read from its file in a second pass on the lane and
 /// kept here, so pickers draw strips without reading files. Each pass lands
-/// as one `visible` task (Chrome's PostTaskAndReply, base/task/thread_pool.h).
+/// as one posted task in its caller's class (Chrome's PostTaskAndReply,
+/// base/task/thread_pool.h): `visible` at launch, `userBlocking` for a
+/// person's import or save, which the page answers only after it.
 @MainActor
 @Observable
 final class ThemeCatalog {
@@ -42,44 +44,58 @@ final class ThemeCatalog {
         self.mainWork = mainWork
     }
 
-    /// Lists and reads the themes once (the launch's pass).
+    /// Lists and reads the themes once (the launch's pass, `visible`: nobody waits on it).
     func load() {
         guard started == 0 else { return }
-        startPass()
+        startPass(.visible)
     }
 
     /// Lists and reads the themes again (a theme file saved or imported, cx-wqn5.1); returns once
     /// the names and colors include it.
-    func reload() async {
-        let pass = startPass()
+    ///
+    /// - Parameter workClass: The caller's class, which the lane reads and both replies run in:
+    ///   `userBlocking` for a person's save or import (p06-scheduler.md rule 2: an async completion a
+    ///   person waits on).
+    func reload(_ workClass: BudgetedWorkClass) async {
+        let pass = startPass(workClass)
         await withCheckedContinuation { waiting.append((pass, $0)) }
     }
 
     /// Starts a pass on the files lane: the names first, so pickers list themes first (a strip-less
     /// row draws its symbol until then), then the strips and colors.
     @discardableResult
-    private func startPass() -> UInt64 {
+    private func startPass(_ workClass: BudgetedWorkClass) -> UInt64 {
         started += 1
         let pass = started
-        work.run(.userVisible, mayBlock: .files) {
+        work.run(Self.lanePriority(workClass), mayBlock: .files) {
             Self.list(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
-        }.reply(on: mainWork, class: .visible, owner: "ThemeCatalog.names") { names in
-            self.namesListed(names, pass: pass)
+        }.reply(on: mainWork, class: workClass, owner: "ThemeCatalog.names") { names in
+            self.namesListed(names, pass: pass, workClass: workClass)
         }
         return pass
     }
 
-    private func namesListed(_ listed: [String], pass: UInt64) {
+    /// The files lane's priority for a pass of `workClass` (Chrome's TaskPriority for the same caller,
+    /// base/task/task_traits.h).
+    private static func lanePriority(_ workClass: BudgetedWorkClass) -> WorkPriority {
+        switch workClass {
+        case .userBlocking: .userBlocking
+        case .visible: .userVisible
+        case .automation, .background: .bestEffort
+        }
+    }
+
+    private func namesListed(_ listed: [String], pass: UInt64, workClass: BudgetedWorkClass) {
         if pass > namesLanded {
             namesLanded = pass
             names = listed
             known = Set(listed)
         }
-        work.run(.userVisible, mayBlock: .files) {
+        work.run(Self.lanePriority(workClass), mayBlock: .files) {
             Self.read(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
-        }.reply(on: mainWork, class: .visible, owner: "ThemeCatalog.colors") { read in
+        }.reply(on: mainWork, class: workClass, owner: "ThemeCatalog.colors") { read in
             self.colorsRead(read, pass: pass)
         }
     }

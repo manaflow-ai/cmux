@@ -145,12 +145,24 @@ extension AppOnboardingServices {
         return daemon
     }
 
-    /// Returns once every one of `daemons` has a connection, after the twenty-second SSH connect
-    /// limit, or when the caller is cancelled, whichever comes first (recipe R-wait: the condition is
-    /// read again only when a connection changes, as one `visible` task, beside a `MainDeadline`).
+    /// Returns once every one of `daemons` has a connection, after ``sshConnectLimit``, or when the
+    /// caller is cancelled, whichever comes first.
     func connected(_ daemons: [DaemonService]) async {
-        await ObservedCondition(owner: "ClassicImport.sshConnect", .visible, on: services.mainWork)
-            .until(timeout: .seconds(20), deadlines: services.mainDeadlines) { daemons.allSatisfy { $0.connection != nil } }
+        await Self.awaitConnections(on: services.mainWork, deadlines: services.mainDeadlines) {
+            daemons.allSatisfy { $0.connection != nil }
+        }
+    }
+
+    /// The SSH connect limit of an imported remote workspace.
+    nonisolated static let sshConnectLimit = Duration.seconds(20)
+
+    /// Returns once `allConnected` holds, after ``sshConnectLimit``, or when the caller is cancelled
+    /// (recipe R-wait: the condition is read again only when a connection changes, as one `visible`
+    /// task, beside a `MainDeadline`).
+    static func awaitConnections(on mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                                 _ allConnected: @escaping @MainActor () -> Bool) async {
+        await ObservedCondition(owner: "ClassicImport.sshConnect", .visible, on: mainWork)
+            .until(timeout: sshConnectLimit, deadlines: deadlines, allConnected)
     }
 
     /// Rebuilds the imported topology through the same daemon builder used by
