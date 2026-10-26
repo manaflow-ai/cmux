@@ -874,7 +874,7 @@ impl Hub {
 fn full_access_mode(m: &SessionMeta) -> Option<String> {
     let mode = crate::web_modes::mode_of(m)?;
     (m.mode_set_by_cmux.as_deref() == Some(mode.as_str())
-        && super::start_mode::is_full_access(&mode))
+        && super::start_mode::names_full_access(&mode))
     .then_some(mode)
 }
 
