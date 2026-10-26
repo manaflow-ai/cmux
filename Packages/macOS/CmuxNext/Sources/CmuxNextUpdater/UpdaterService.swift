@@ -209,6 +209,10 @@ public final class UpdaterService {
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
+        // The channel's default until the setting loads (``configure``): a launch check that wins
+        // the race never downloads on a channel where automatic downloads are opt-in.
+        downloadSetting = (identity.track.downloadsAutomaticallyByDefault, .deferLowData)
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
@@ -247,6 +251,7 @@ public final class UpdaterService {
             // `updates.downloadAutomatically` is on (``configure``, the channel's default until
             // the setting loads); the daemon preserves agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = identity.track.downloadsAutomaticallyByDefault
+            controller.downloadsUpdatesInBackground = identity.track.downloadsAutomaticallyByDefault
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

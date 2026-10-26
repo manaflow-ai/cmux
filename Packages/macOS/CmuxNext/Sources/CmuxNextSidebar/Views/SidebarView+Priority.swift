@@ -66,11 +66,16 @@ extension SidebarViewComponents {
     /// button, without one) and returns the row's leftmost minX. It never crosses `leading` (the
     /// traffic lights and the toolbar band's reserve): with no room for both, the update notice
     /// takes the bell's slot and the bell steps out of the row (the palette and its shortcut
-    /// still open the Priority view).
+    /// still open the Priority view); with no bell to replace, the button steps out (the palette's
+    /// Install Available Update still installs it).
     func layoutUpdateAvailableButton(before next: NSRect, minX: CGFloat, leading: CGFloat) -> CGFloat {
         guard !updateAvailableButton.isHidden else { return minX }
         var frame = NSRect(x: minX - Metrics.space1 - next.width, y: next.minY, width: next.width, height: next.height)
-        if frame.minX < leading, !priorityButton.isHidden {
+        if frame.minX < leading {
+            guard !priorityButton.isHidden else {
+                updateAvailableButton.frame = .zero
+                return minX
+            }
             frame = priorityButton.frame
             priorityButton.frame = .zero
         }

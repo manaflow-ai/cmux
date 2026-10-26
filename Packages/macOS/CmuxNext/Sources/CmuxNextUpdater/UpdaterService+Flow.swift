@@ -24,9 +24,10 @@ extension UpdaterService {
     /// The titlebar's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
     /// downloads and installs it (``installClicked()``). Nil otherwise, and for a version the
-    /// person closed or snoozed (``updateSnooze``).
+    /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
+    /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
-        guard case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
+        guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
         return UpdateAvailableButton(version: version)
     }
 
@@ -194,6 +195,9 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
         if let ring { follow(ring: ring) }
+        // Turning it on downloads an update a check already found (it waited for a click).
+        let turnedOn = downloadAutomatically && !downloadSetting.enabled
+        defer { if turnedOn { downloadFoundUpdate() } }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
@@ -249,6 +253,14 @@ extension UpdaterService {
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+    }
+
+    /// Downloads the found update that waits for a click, once automatic downloads are on; a
+    /// metered link still defers it (``applyDownloadPolicy()``).
+    func downloadFoundUpdate() {
+        guard case .available = flow.phase, controller?.downloadsUpdatesInBackground ?? true else { return }
+        log.append("automatic downloads turned on: downloading the found update")
+        acceptAvailable()
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).

@@ -103,6 +103,31 @@ import Testing
         #expect(updater.availableButton == nil, "the button stayed while the update downloads")
     }
 
+    /// Turning automatic downloads on downloads the update the button was waiting on ("On:
+    /// today's behaviour"); the person's own check shows the found update on the card only.
+    @Test func turningDownloadsOnDownloadsTheFoundUpdate() {
+        let updater = Self.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.debugIndicatorPhase = .available(version: "2.0")
+        #expect(accepted == 0, "the update downloaded with automatic downloads off")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
+        #expect(accepted == 1, "turning automatic downloads on left the found update waiting for a click")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
+        #expect(accepted == 1, "an unchanged setting downloaded again")
+    }
+
+    @Test func theUsersCheckShowsTheCardNotTheButton() {
+        let updater = Self.updater()
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.send(.checkRequested)
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .available(version: "2.0")
+        #expect(updater.card == .available(version: "2.0"))
+        #expect(updater.availableButton == nil, "the person's check showed both the card and the titlebar button")
+    }
+
     /// A version the person closed stays closed on the button too.
     @Test func aClosedVersionHidesTheButton() {
         let updater = Self.updater()
@@ -118,6 +143,14 @@ import Testing
         #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
         #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
         #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
+    }
+
+    /// Before the setting loads, the updater follows the channel's default: a launch check on an
+    /// opt-in channel finds an update without downloading it.
+    @Test func theChannelDefaultHoldsUntilTheSettingLoads() {
+        let updater = Self.updater()
+        #expect(updater.downloadSetting.enabled == updater.identity.track.downloadsAutomaticallyByDefault)
+        #expect(updater.automaticUpdates == updater.identity.track.downloadsAutomaticallyByDefault)
     }
 
     @Test func theUsersCheckStillShowsAFoundUpdate() {
