@@ -15,9 +15,11 @@ public final class DaemonUpdateBoard {
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
 
-    /// Shows a notice's toast in the front window, unless replaced (tests).
+    /// Shows a notice's toast in the front window, unless replaced (tests). A process with no
+    /// application (a test of the policy with a real board) shows nothing.
     @ObservationIgnored var showNotice: @MainActor (CmuxToast) -> Void = { toast in
-        guard let window = DaemonUpdateBoard.noticeWindow(key: NSApp.keyWindow, main: NSApp.mainWindow, ordered: NSApp.orderedWindows)
+        guard let app = NSApp as NSApplication?,
+              let window = DaemonUpdateBoard.noticeWindow(key: app.keyWindow, main: app.mainWindow, ordered: app.orderedWindows)
         else { return }
         _ = CmuxToastCenter.shared.show(toast, in: window)
     }
