@@ -1,0 +1,13 @@
+{
+  "about": "Sentry issues owned by another program. stability-health.py lists them in its other-owner row and does not count them against p10 done check 21. An entry matches by github_issue (a GitHub link on the Sentry issue), sentry_issues (short ids) or pattern (a regex over the title and culprit). Remove an entry when its owner lands the fix.",
+  "owners": [
+    {
+      "owner": "PL-cefhost",
+      "github_issue": 24913,
+      "eta": null,
+      "why": "10 s makeKeyWindow stall on macOS 14/15 needs CEF fork API 30 (p10-stability.md risk 13)",
+      "sentry_issues": [],
+      "pattern": "makeKeyWindow"
+    }
+  ]
+}
