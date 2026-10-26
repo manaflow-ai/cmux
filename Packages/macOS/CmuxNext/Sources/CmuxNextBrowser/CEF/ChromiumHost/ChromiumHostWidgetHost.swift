@@ -87,6 +87,11 @@ final class ChromiumHostWidgetHost {
     private var entries: [ChromiumHostWidgetID: Entry] = [:]
     private var slots: [SlotKey: Slot] = [:]
     private var nextSerial: UInt64 = 0
+    /// Widgets the person closed whose WIDGET_GONE has not come, with their owners: a WIDGET_CONTEXT
+    /// already on its way (an extension popup resizing to its content) must not show one again. Chrome
+    /// ignores updates to a widget it is closing the same way (`Widget::IsClosed` after `Widget::Close`,
+    /// ui/views/widget/widget.cc).
+    private var dismissed: [ChromiumHostWidgetID: Int32] = [:]
 
     init(wire: any ChromiumHostWidgetWire, ownerWindow: @escaping @MainActor (Int32) -> NSWindow?, seams: Seams = Seams()) {
         self.wire = wire
@@ -107,11 +112,12 @@ final class ChromiumHostWidgetHost {
     /// WIDGET_CONTEXT: shows the widget, or moves it to its new context or bounds. An
     /// unchanged context costs one comparison.
     func show(_ context: ChromiumHostWidgetContext) {
+        guard dismissed[context.widget] == nil else { return }
         if let entry = entries[context.widget] {
             guard entry.context != context else { return }
             guard entry.context.kind == context.kind, entry.context.owner == context.owner else {
                 // Another widget under a reused id: the old one is gone.
-                remove(context.widget)
+                takeDown(context.widget)
                 show(context)
                 return
             }
@@ -129,9 +135,15 @@ final class ChromiumHostWidgetHost {
         place(entry)
     }
 
-    /// WIDGET_GONE, or a person's close: the widget's view and window go, and an older widget
-    /// of the same container shows again.
+    /// WIDGET_GONE: the widget's view and window go, and an older widget of the same container
+    /// shows again. A context for its id after this is a new widget.
     func remove(_ widget: ChromiumHostWidgetID) {
+        dismissed[widget] = nil
+        takeDown(widget)
+    }
+
+    /// The widget's view and window go, and an older widget of the same container shows again.
+    private func takeDown(_ widget: ChromiumHostWidgetID) {
         guard let entry = entries.removeValue(forKey: widget) else { return }
         entry.view.onGeometry = nil
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -165,16 +177,18 @@ final class ChromiumHostWidgetHost {
     /// The owner's browser closed (BEFORE_CLOSE): its containers and widgets go.
     func ownerClosed(_ browser: Int32) {
         slots = slots.filter { $0.key.owner != browser }
+        dismissed = dismissed.filter { $0.value != browser }
         for widget in entries.values.filter({ $0.context.owner == browser }).map(\.context.widget) {
-            remove(widget)
+            takeDown(widget)
         }
     }
 
-    /// The host ended: every widget goes (a new host shows its own).
+    /// The host ended: every widget goes, and no WIDGET_GONE comes for them (a new host shows its own).
     func hostEnded() {
         slots.removeAll()
+        dismissed.removeAll()
         for widget in Array(entries.keys) {
-            remove(widget)
+            takeDown(widget)
         }
     }
 
@@ -191,8 +205,9 @@ final class ChromiumHostWidgetHost {
 
     /// The person closed the widget: it goes now and the host closes it.
     private func dismiss(_ widget: ChromiumHostWidgetID) {
-        guard entries[widget] != nil else { return }
-        remove(widget)
+        guard let entry = entries[widget] else { return }
+        dismissed[widget] = entry.context.owner
+        takeDown(widget)
         wire.dismiss(widget)
     }
 
@@ -285,15 +300,5 @@ final class ChromiumHostWidgetHost {
     static func orderIn(_ window: NSWindow, parent: NSWindow?, key: Bool) {
         if let parent, window.parent !== parent { parent.addChildWindow(window, ordered: .above) }
         if key { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
-    }
-}
-
-extension CEFRuntime {
-    /// Host mode with feature `chromiumHostWidgets`: shows the host's widgets over this
-    /// runtime's tabs, their input and geometry going to `wire`.
-    func showHostWidgets(on wire: any ChromiumHostWidgetWire) {
-        widgetHost = ChromiumHostWidgetHost(wire: wire, ownerWindow: { [weak self] browser in
-            self?.tabsByBrowser[browser]?.host.hostView.window
-        })
     }
 }

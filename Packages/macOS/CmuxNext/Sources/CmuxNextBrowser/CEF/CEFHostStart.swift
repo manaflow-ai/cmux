@@ -6,11 +6,18 @@ import Foundation
 /// no `CEFLoadedLibrary` and starts no pump: Chromium's message loop runs in the host, as the GPU
 /// process runs its own (content/gpu/gpu_main.cc) and the browser only holds a channel to it.
 ///
-/// One attach per runtime: every concurrent first start awaits the same one.
+/// One attach per runtime: every concurrent first start awaits the same one. After the start it
+/// keeps host mode's view of the host: its widgets in cmux (``widgetHost``), which go when the
+/// supervisor reports the host's end.
 final class CEFHostStart {
     /// Opens the remote dylib (off the main thread); ``CEFRemoteShim/open(_:)`` in the app.
     typealias Open = @Sendable (ChromiumHostAttachment) -> Result<CEFRemoteShim, CEFRuntime.BootError>
 
+    /// The host's widgets show in cmux (feature `chromiumHostWidgets`, ``CEFRuntimeSource/showsHostWidgets``).
+    let showsWidgets: Bool
+    /// The host's widgets in cmux panels and panes, from the start on when ``showsWidgets``
+    /// (`CEFRuntime.showHostWidgets(_:)`); nil otherwise.
+    var widgetHost: ChromiumHostWidgetHost?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -19,12 +26,15 @@ final class CEFHostStart {
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium).
-    init(supervisor: any ChromiumHostSupervising, open: @escaping Open = { CEFRemoteShim.open($0) },
+    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        self.showsWidgets = showsWidgets
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
+        // A dead host sends no WIDGET_GONE: its panels, panes and windows go when it ends.
+        supervisor.observeHostEnds { [weak self] in self?.widgetHost?.hostEnded() }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.

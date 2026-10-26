@@ -56,6 +56,18 @@ nonisolated enum ChromiumHostWidgetKind: Int32, Sendable, CaseIterable {
         }
     }
 
+    /// The kind's name in `debug.cef` `host_widgets` (chromium-host-bench.py `--native-ui`).
+    var name: String {
+        switch self {
+        case .extensionPopup: "extension_popup"
+        case .sidePanel: "side_panel"
+        case .devTools: "devtools"
+        case .devToolsWindow: "devtools_window"
+        case .popupWindow: "popup_window"
+        case .pagePopup: "page_popup"
+        }
+    }
+
     var placement: Placement {
         switch self {
         case .extensionPopup: .anchored(takesKey: true)

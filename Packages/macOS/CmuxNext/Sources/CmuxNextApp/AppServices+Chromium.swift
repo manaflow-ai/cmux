@@ -58,6 +58,8 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
+        // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
+        chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput] stores, deadlines, source in
                                       CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,

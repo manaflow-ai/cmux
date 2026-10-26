@@ -51,6 +51,10 @@ Per mode:
            the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
 
+--native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
+popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
 
@@ -62,6 +66,7 @@ import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, t
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+import chromium_host_native_ui  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -72,6 +77,7 @@ parser.add_argument("--json", help="also write the result here (a fleet measure 
 parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
 parser.add_argument("--pump-seconds", type=float, default=10.0)
 parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -348,6 +354,11 @@ def main():
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.native_ui:
+        native = os.path.join(opts.out, "native-ui.html")
+        open(native, "w").write(chromium_host_native_ui.PAGE)
+        url = pathlib.Path(native).as_uri()
+        env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -362,7 +373,9 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = opts.modes.split(",")
+        modes = [] if opts.native_ui else opts.modes.split(",")
+        if opts.native_ui:
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script), url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)

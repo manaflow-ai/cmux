@@ -164,8 +164,11 @@ enum Op : uint16_t {
   kOpTabSetColorScheme = 152,  // optional
   kOpPageSchemeSetGroup = 153,  // optional
   kOpTabDiscard = 154,  // optional
+  kOpWidgetSetGeometry = 155,  // optional
+  kOpWidgetDismiss = 156,  // optional
+  kOpWidgetSendInput = 157,  // optional
 };
-inline constexpr uint16_t kOpCount = 154;
+inline constexpr uint16_t kOpCount = 157;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -173,7 +176,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 52;
 inline constexpr char kShimAbiID[] = "f22dd3ee8df39363195ba2c50ef4e737ba462320c20c4c2e079cce6e49d44e24";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "bdde5844ef637bd3349661b89fa43726168dd1b41d914f553b9c86d47b0b7c50";
+inline constexpr char kWireID[] = "a120b6b1bb9826ed0f22fb3ee189dbf39e146960b32d982f751f09d67fef6a81";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -189,6 +192,9 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpTabSetColorScheme, "cmux_shim_tab_set_color_scheme"},
     {kOpPageSchemeSetGroup, "cmux_shim_page_scheme_set_group"},
     {kOpTabDiscard, "cmux_shim_tab_discard"},
+    {kOpWidgetSetGeometry, "cmux_shim_widget_set_geometry"},
+    {kOpWidgetDismiss, "cmux_shim_widget_dismiss"},
+    {kOpWidgetSendInput, "cmux_shim_widget_send_input"},
 };
 }  // namespace cmux_remote
 
@@ -1553,6 +1559,40 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_discard(int arg_browser_id) {
   const uint32_t op_token = NextToken();
   const bool op_sent = PostForReply(kOpTabDiscard, op_token, op_w);
   return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT void cmux_shim_widget_set_geometry(int arg_widget_id, int arg_x, int arg_y, int arg_width, int arg_height, int arg_scale_milli) {
+  TlvWriter op_w;
+  op_w.I32(arg_widget_id);
+  op_w.I32(arg_x);
+  op_w.I32(arg_y);
+  op_w.I32(arg_width);
+  op_w.I32(arg_height);
+  op_w.I32(arg_scale_milli);
+  (void)Post(kOpWidgetSetGeometry, 0, op_w);
+}
+
+CMUX_SHIM_EXPORT void cmux_shim_widget_dismiss(int arg_widget_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_widget_id);
+  (void)Post(kOpWidgetDismiss, 0, op_w);
+}
+
+CMUX_SHIM_EXPORT void cmux_shim_widget_send_input(int arg_widget_id, int arg_kind, int arg_v0, int arg_v1, int arg_v2, int arg_v3, int arg_v4, int arg_v5, int64_t arg_flags, int64_t arg_time_ns, int arg_ch, int arg_unmod) {
+  TlvWriter op_w;
+  op_w.I32(arg_widget_id);
+  op_w.I32(arg_kind);
+  op_w.I32(arg_v0);
+  op_w.I32(arg_v1);
+  op_w.I32(arg_v2);
+  op_w.I32(arg_v3);
+  op_w.I32(arg_v4);
+  op_w.I32(arg_v5);
+  op_w.I64(arg_flags);
+  op_w.I64(arg_time_ns);
+  op_w.I32(arg_ch);
+  op_w.I32(arg_unmod);
+  (void)PostInput(kOpWidgetSendInput, 0, op_w);
 }
 
 }  // extern "C"

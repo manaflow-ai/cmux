@@ -126,8 +126,7 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
-    /// Hides or closes top-level Chromium windows that slip through (see
-    /// `ChromiumWindowGuard`).
+    /// Hides or closes top-level Chromium windows that slip through (see `ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
@@ -154,10 +153,6 @@ final class CEFRuntime {
     var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { CEFRuntime.loadLibrary($0) }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
     var hostStart: CEFHostStart?
-    /// Host mode: the host's widgets (extension popups, side panel, DevTools, popup windows,
-    /// page popups) in cmux panels and panes (``showHostWidgets(on:)``, feature `chromiumHostWidgets`);
-    /// nil in process.
-    var widgetHost: ChromiumHostWidgetHost?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -185,12 +180,12 @@ final class CEFRuntime {
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
-    /// same stores.
+    /// puts a runtime that has not started in host mode (with the host's widgets in cmux when `hostWidgets`).
+    /// Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on the queue
+    /// adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
-        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false) {
+        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor, showsWidgets: hostWidgets) }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
@@ -424,6 +419,7 @@ final class CEFRuntime {
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
+        if case .host = library { showHostWidgets(shim) }
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             let forkAPI = shim.forkAPIVersion()

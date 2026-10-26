@@ -201,6 +201,8 @@ private final class UnaskedSupervisor: ChromiumHostSupervising {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not used in CEFPaneHostTests")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim: window creates return `started` and closes are recorded; every other function does

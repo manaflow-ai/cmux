@@ -162,6 +162,52 @@ import Testing
         #expect(wire.dismissed.count == 1)
     }
 
+    /// A context already on its way when the person clicked away (the popup resizing to its
+    /// content) does not bring the popup back or take the keys; after the host's WIDGET_GONE the
+    /// id is a new widget's.
+    @Test func aDismissedPopupStaysDownUntilItsGone() throws {
+        let wire = RecordingWire()
+        let recorder = Recorder()
+        let host = makeHost(wire, recorder)
+        host.show(context(2, .extensionPopup))
+        try #require(recorder.panels.first).resignKey()
+        host.show(context(2, .extensionPopup, bounds: CGRect(x: 10, y: 20, width: 320, height: 240)))
+        #expect(host.diagnostics.isEmpty)
+        #expect(recorder.panels.count == 1 && recorder.ordered.count == 1)
+        host.remove(ChromiumHostWidgetID(rawValue: 2))
+        host.show(context(2, .extensionPopup))
+        #expect(host.diagnostics.map(\.widget) == [ChromiumHostWidgetID(rawValue: 2)])
+        #expect(recorder.panels.count == 2)
+        #expect(wire.dismissed == [ChromiumHostWidgetID(rawValue: 2)])
+    }
+
+    /// An undocked DevTools closed while a title change was on its way stays closed; its owner's
+    /// close and the host's end forget what the person dismissed, as WIDGET_GONE does.
+    @Test func aClosedDevToolsWindowIgnoresItsLateTitle() throws {
+        let wire = RecordingWire()
+        let recorder = Recorder()
+        let host = makeHost(wire, recorder) { seams in
+            seams.makeWindow = { frame, owner in
+                let window = CEFDevToolsWindow(frame: frame, owner: owner)
+                recorder.devToolsWindows.append(window)
+                return window
+            }
+        }
+        host.show(context(7, .devToolsWindow, title: "DevTools - example.com"))
+        try #require(recorder.devToolsWindows.first).performClose(nil)
+        host.show(context(7, .devToolsWindow, title: "DevTools - other.com"))
+        #expect(recorder.devToolsWindows.count == 1)
+        #expect(host.diagnostics.isEmpty)
+        host.ownerClosed(owner)
+        host.show(context(7, .devToolsWindow))
+        #expect(recorder.devToolsWindows.count == 2)
+        try #require(recorder.devToolsWindows.last).performClose(nil)
+        host.hostEnded()
+        host.show(context(7, .devToolsWindow))
+        #expect(recorder.devToolsWindows.count == 3)
+        host.hostEnded()
+    }
+
     // MARK: Panes
 
     /// A docked DevTools fills the container cmux names, whenever its context and the container
