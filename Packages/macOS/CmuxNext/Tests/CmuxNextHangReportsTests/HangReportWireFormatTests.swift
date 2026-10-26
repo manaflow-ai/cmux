@@ -20,4 +20,37 @@ struct HangReportWireFormatTests {
         #expect(report.intervals.allSatisfy { HangReportSignposts.allows(category: $0.category, name: $0.name) })
         #expect(HangReportSignposts.categories == ["action", "motion", "key", "switch", "create", "cef", "launch"])
     }
+
+    /// One detector sample, as schema 3 writes it (first in `hangs`).
+    static let blockingSample = #"{"blocking":{"context":"main","kind":"file-io"},"durationMs":0,"frames":[{"image":"cmux NEXT Nightly","offset":768,"uuid":"3F0C9E43-7A61-3C8E-9C1A-2B7F5D0E9A11"},{"image":"other"}],"kind":"blocking","source":"detector"}"#
+
+    /// Schema 3: schema 2's golden with a blocking sample (hang-reports-DESIGN.md section 4).
+    static let golden3 = golden.replacingOccurrences(of: #""hangs":["#, with: #""hangs":["# + blockingSample + ",")
+        .replacingOccurrences(of: #""schema":2"#, with: #""schema":3"#)
+
+    @Test func theSchema3GoldenRoundTripsToTheSameBytes() throws {
+        let report = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden3.utf8))
+        let encoded = try HangReport.encoder.encode(report)
+
+        #expect(report.schema == HangReport.WireSchema.v3.rawValue)
+        #expect(report.hangs.first?.blocking == HangSample.Blocking(kind: .fileIO, context: .main))
+        #expect(String(decoding: encoded, as: UTF8.self) == Self.golden3)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: encoded).isEmpty)
+    }
+
+    /// Both goldens pass the server's key and literal rules, and a blocking sample under schema 2 does
+    /// not: the case that made the deployed server refuse (and the client drop) the whole report.
+    @Test func theGoldensPassTheServerRulesAndABlockingSampleNeedsSchema3() {
+        #expect(HangReportServerRules.violations(in: Data(Self.golden.utf8)).isEmpty)
+        #expect(HangReportServerRules.violations(in: Data(Self.golden3.utf8)).isEmpty)
+        let blockingInSchema2 = Self.golden3.replacingOccurrences(of: #""schema":3"#, with: #""schema":2"#)
+        #expect(HangReportServerRules.violations(in: Data(blockingInSchema2.utf8)).count == 3)
+    }
+
+    @Test func anUnknownBlockingKindOrContextIsADecodingError() {
+        for bad in [#""kind":"file-io""#: #""kind":"disk""#, #""context":"main""#: #""context":"gpu""#] {
+            let body = Self.golden3.replacingOccurrences(of: bad.key, with: bad.value)
+            #expect(throws: DecodingError.self) { try JSONDecoder().decode(HangReport.self, from: Data(body.utf8)) }
+        }
+    }
 }
