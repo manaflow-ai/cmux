@@ -144,7 +144,7 @@ struct CloudMachineCreateFlow {
         if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         do {
             return try await create()
-        } catch CloudAPIError.http(let status, _, _) where status == 402 {
+        } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
             throw Failure.upgradeRequired
         }

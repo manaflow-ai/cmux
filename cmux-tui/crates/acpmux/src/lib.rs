@@ -12,6 +12,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
@@ -21,6 +22,8 @@ pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_tools;
+pub mod attach;
+pub mod author;
 pub mod beads;
 pub mod byo_endpoint;
 pub mod capabilities;
@@ -36,6 +39,7 @@ pub mod complete;
 pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
+pub mod cwd_pin;
 pub mod daemon;
 pub mod deliver;
 pub mod forum;
@@ -52,6 +56,8 @@ pub mod hub;
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux_sandbox;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
@@ -76,6 +82,7 @@ pub mod prompt_provenance;
 pub mod protected_folders;
 pub mod protocol;
 pub mod question_answer;
+pub mod recovery;
 pub mod registry;
 pub mod route_account;
 mod route_probe;

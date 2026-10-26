@@ -115,8 +115,9 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
-            now.step.remove(&prompt_id)
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
@@ -131,12 +132,14 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
-                // A send-now (`interrupt`) still goes next.
+                // A send-now (`interrupt`) still goes next, but the turn it was for has ended:
+                // it stops no other.
                 let opts = PromptOptions {
                     prompt_id: Some(prompt_id),
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
+                    interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
                     agent: opts.agent,
                     // Queued under its key, so a later correction still replaces it.

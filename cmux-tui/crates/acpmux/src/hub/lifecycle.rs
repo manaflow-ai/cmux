@@ -27,10 +27,19 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
+            starter,
             route,
             subsession,
             disallowed_tools,
+            checked_cwd,
         } = req;
+        // The proven agent session that asked for this one, as it is now; never for a remote
+        // chat, and never one a remote connection started (`remote_origin`).
+        let starter = starter
+            .filter(|_| !remote)
+            .and_then(|id| self.resolve(&id).ok().filter(|s| s.id == id))
+            .filter(|s| !s.meta().remote_origin)
+            .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -44,7 +53,17 @@ impl Hub {
             return Err(terminal_harness_refusal(agent));
         }
         let family = crate::config::derive_family(agent, &profile);
-        let policy = policy.or(defaults.policy);
+        // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
+        // own (`start_mode.rs`, "Inherit").
+        let inherits_policy = policy.is_none() && starter.is_some();
+        let policy = match (policy, starter.as_deref()) {
+            (Some(asked), _) => Some(asked),
+            (None, Some(id)) => {
+                let daemon = self.config.read().await.permission_policy;
+                super::start_mode::inherited_policy(defaults.policy, self.own_policy(id), daemon)
+            }
+            (None, None) => defaults.policy,
+        };
         // `${model}` in argv or env: the model is a spawn parameter, not a
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
@@ -135,13 +154,16 @@ impl Hub {
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
-        // A pooled session of exactly this shape (`pool/`) gives the session
-        // its id; `ensure_child` then takes it instead of starting cold.
-        // A pooled harness started without this session's env: never claimed.
+        // A pooled session of exactly this shape (`pool/`) gives the session its id; `ensure_child`
+        // then takes it instead of starting cold. Never with this session's own env, route or
+        // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
+        // wherever the path led.
         let pooled = match &adopt {
-            // A pooled harness was started without this chat's route or its
-            // disallowed tools: never claimed.
-            None if meta.session_env.is_empty() && route.is_none() && meta.tools.off.is_empty() => {
+            None if meta.session_env.is_empty()
+                && route.is_none()
+                && meta.tools.off.is_empty()
+                && checked_cwd.is_none() =>
+            {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -195,9 +217,12 @@ impl Hub {
             let session = self.make_session(meta);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
+            // Read before the session is published: a stop from then on ends its first start.
+            let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
-            session
+            (session, stops)
         };
+        let (session, created_stops) = session;
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             return Err(RpcError::internal(e.to_string()));
@@ -213,6 +238,8 @@ impl Hub {
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
+        // No `git` record exists yet; retain that baseline even if the chat grows before attach.
+        self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
@@ -228,13 +255,16 @@ impl Hub {
             return Ok(self.begin_watch(&session, &family, file.clone()));
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Ok(spawn) => {
+                let checked = checked_cwd.as_ref();
+                self.ensure_checked_child(&session, &spawn, checked, created_stops).await
+            }
             Err(e) => Err(e),
         };
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
-            let _ = self.kill(&session, true).await;
+            self.discard_failed_creation(&session, created_stops).await;
             return Err(e);
         }
         // An agent that started fresh instead of resuming fails creation.
@@ -252,7 +282,10 @@ impl Hub {
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
         // silently runs another model.
-        let applied: Result<(), RpcError> = async {
+        // Each step reaches the agent through `child_for`, under the creation's stop count: a
+        // stop meanwhile fails the step and starts nothing again (`REQUEST_STOPS`).
+        let request = (session.id.clone(), created_stops);
+        let applied: Result<(), RpcError> = REQUEST_STOPS.scope(request, async {
             if let Some(m) = &model
                 && !spawn_model {
                     // `opencode/big-pickle` was written as `-m opencode/big-pickle`:
@@ -293,28 +326,84 @@ impl Hub {
             }
             // The permission mode a new chat starts in (start_mode.rs): full
             // access unless the person picked or set otherwise. Soft.
-            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
-            if let Some(mode) = start_mode
-                && let Err(err) = self.set_mode(&session, &mode).await
-            {
-                tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
-                self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+            // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
+            let start_mode = if mode_eligible {
+                // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
+                Box::pin(self.start_mode_for(&session, starter.as_deref())).await
+            } else {
+                None
+            };
+            if let Some(mode) = start_mode {
+                match self.set_mode(&session, &mode).await {
+                    Ok(_) => {
+                        let starter = starter.as_deref();
+                        self.inherited_full_access_is_cmux_only_if_theirs(&session, starter);
+                    }
+                    Err(err) => {
+                        tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
+                        self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+                    }
+                }
             }
+            // Never asking less than the starter as it is now (it may have narrowed or left full
+            // access meanwhile, or the child's family has no mode that asks): an inherited policy
+            // is narrowed to the starter's, and the harness moved, else refused.
+            let starter = starter.as_deref();
+            Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
+                .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
             self.note_unenforced_policy(&session, default);
             Ok(())
-        }
+        })
         .await;
         if let Err(e) = applied {
             // Never leave a half-configured session behind.
-            let _ = self.kill(&session, true).await;
+            self.discard_failed_creation(&session, created_stops).await;
             return Err(e);
         }
         if adopt.is_none() {
             self.pool_note_used(&session);
         }
         Ok(session)
+    }
+
+    /// A chat `starter` started, held to it as it is now (`start_mode.rs`, "Inherit"): an
+    /// inherited policy (`inherits_policy`) laxer than the starter's is narrowed to it, and a
+    /// harness whose mode the inheritance chose (`mode_eligible`) moved, else refused. The
+    /// starter is read again after each round: one that changed meanwhile is held to again, and
+    /// one that keeps changing refuses the start.
+    async fn hold_to_starter(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        starter: Option<&str>,
+        inherits_policy: bool,
+        mode_eligible: bool,
+    ) -> Result<(), RpcError> {
+        const ROUNDS: usize = 4;
+        let live = || {
+            let theirs = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
+            theirs.map(|s| s.meta())
+        };
+        let level = |m: &SessionMeta| (m.permission_policy.clone(), crate::web_modes::mode_of(m));
+        for _ in 0..ROUNDS {
+            let Some(theirs) = live() else { return Ok(()) };
+            if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
+                let narrowed = self.effective_policy(&theirs).await;
+                self.set_policy(session, narrowed).await;
+            }
+            if mode_eligible {
+                self.hold_mode(&theirs, session).await?;
+            }
+            if live().is_none_or(|now| level(&now) == level(&theirs)) {
+                return Ok(());
+            }
+        }
+        Err(super::subsession_guard::refusal(
+            "start.starter_changing",
+            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            json!({"starter": starter}),
+        ))
     }
 
     /// Every model id a profile can run: declared in config, then reported
@@ -347,30 +436,110 @@ impl Hub {
         unique_name_among(&self.sessions.lock().unwrap(), agent)
     }
 
+    /// The session's agent, for a request that came when the session had been stopped `stops`
+    /// times ([`Session::stops`]): a stopped session reopens for it, and a stop since then ends
+    /// the agent it started (`acpmux session stop` must leave it closed, ergo-walk2).
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
         profile: &super::spawn::Spawn,
+        stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        // Stopped since the request: it starts nothing and touches no agent. One a later request
+        // started after the stop is that request's (it reopened the session).
+        if session.stops.load(Ordering::SeqCst) != stops {
+            return Err(stopped_while_starting());
+        }
+        // Boxed: a start is a deep future, and the stack a caller polls it on is not.
+        let child = Box::pin(self.reach_or_start(session, profile, stops)).await?;
+        // Stopped while this agent started (no other start can run while this one holds the
+        // spawn lock): the stop found no agent to end yet, or the start went on after it. The
+        // agent is ended here and the session stays closed.
+        if session.stops.load(Ordering::SeqCst) != stops
+            || session.status() == SessionStatus::Closed
+        {
+            if let Some(started) = session.child.lock().await.take() {
+                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+            }
+            if Self::host_record_live(&session.id) {
+                self.end_unadopted_host(session).await;
+            }
+            child.kill().await;
+            session.loading.store(false, Ordering::SeqCst);
+            // As `kill` left it: a start above may have cleared it.
+            session.closing.store(true, Ordering::SeqCst);
+            self.append(session, "mux", "stopped_while_starting", json!({}));
+            return Err(stopped_while_starting());
+        }
+        Ok(child)
+    }
+
+    /// A creation that failed (`new_session`) leaves no session behind, unless a stop came
+    /// during it and a request after that stop reopened the session: that one is the later
+    /// request's, and its agent keeps running. The spawn lock, which every reopen holds
+    /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
+    pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
+        let _spawning = session.spawn_lock.lock().await;
+        let reopened_since = session.stops.load(Ordering::SeqCst) != created_stops
+            && session.status() != SessionStatus::Closed;
+        if !reopened_since {
+            let _ = self.kill(session, true).await;
+        }
+    }
+
+    /// A stopped session reopens for a request that came after its last stop (`ensure_child`);
+    /// one stopped since refuses the start.
+    pub(super) fn reopen_to_start(&self, session: &Session, stops: u64) -> Result<(), RpcError> {
+        if session.status() == SessionStatus::Closed && !self.reopen(session, stops) {
+            return Err(stopped_while_starting());
+        }
+        Ok(())
+    }
+
+    /// Before an agent start: a start under way ends `closing`, unless a stop came since the
+    /// start's request (it stays set for that stop, `ensure_child`).
+    fn starting(session: &Session, stops: u64) {
+        if session.stops.load(Ordering::SeqCst) == stops {
+            session.closing.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// `ensure_child` under `spawn_lock`: the live agent, the agent host reached again, a pooled
+    /// session or a cold start.
+    async fn reach_or_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &super::spawn::Spawn,
+        stops: u64,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
-        if let Some(child) = session.child.lock().await.as_ref()
+        let live = session.child.lock().await.clone();
+        if let Some(child) = live
             && child.is_alive().await
         {
-            return Ok(child.clone());
+            // A closed session with a live agent: a host the daemon adopted at its start that
+            // outlived the stop. It reopens for this request, ready.
+            if session.status() == SessionStatus::Closed {
+                self.reopen_to_start(session, stops)?;
+                self.set_status(session, SessionStatus::Ready);
+            }
+            return Ok(child);
         }
         // A running agent host for this session is reached again, never
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
+            Self::starting(session, stops);
+            // A stopped session whose host outlived the stop reopens, as a cold start does.
+            self.reopen_to_start(session, stops)?;
             match self.readopt(session).await {
                 Some(child) if child.is_alive().await => {
                     // Reached again, not started: no start below decides its Ctrl-B.
                     self.note_host_kind(session, &child, Some(profile.kind)).await;
-                    session.closing.store(false, Ordering::SeqCst);
                     return Ok(child);
                 }
                 // The host ended meanwhile: start a fresh agent below.
@@ -392,14 +561,20 @@ impl Hub {
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile);
-        session.closing.store(false, Ordering::SeqCst);
+        Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
+            // Reopened before it is taken, so the pooled start's Ready lands on an open session.
+            if let Err(e) = self.reopen_to_start(session, stops) {
+                super::pool::end_pooled(pooled).await;
+                return Err(e);
+            }
             match self.adopt_pooled(session, pooled).await {
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
@@ -432,7 +607,7 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
+        match tokio::time::timeout(budget, self.cold_start(session, profile, stops)).await {
             Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
@@ -475,9 +650,10 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         profile: &HarnessProfile,
+        stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
-        self.ready_to_start(session).await?;
+        self.ready_to_start(session, stops).await?;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -604,6 +780,7 @@ impl Hub {
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
+                let program = plan.program.clone();
                 ChildAgent::spawn_with(
                     &meta.harness,
                     &profile,
@@ -616,7 +793,9 @@ impl Hub {
                 )
                 .await
                 .map_err(|e| {
-                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                    crate::launch_policy::spawn_error(e, |e| {
+                        crate::recovery::spawn_failed(&e, &meta.harness, &program, &meta.cwd)
+                    })
                 })?
             }
         } else if self.agent_hosts_enabled() {
@@ -634,7 +813,10 @@ impl Hub {
             )
             .await
             .map_err(|e| {
-                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                crate::launch_policy::spawn_error(e, |e| {
+                    let program = profile.argv.first().map(String::as_str).unwrap_or_default();
+                    crate::recovery::spawn_failed(&e, &meta.harness, program, &meta.cwd)
+                })
             })?
         };
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
@@ -765,6 +947,9 @@ impl Hub {
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
                         self.note_load_failed(session, &e);
+                        if meta.harness == "cmux-harness" {
+                            return Err(Self::explain_start_failure(session, e).await);
+                        }
                         false
                     }
                 }
@@ -890,6 +1075,12 @@ impl Hub {
                 Ok(res) => {
                     if let Some(o) = res.get("configOptions") {
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
+                    }
+                    // A mode that is its `mode` option is cmux's again once this agent runs it.
+                    if id == "mode"
+                        && let Some(mode) = value.as_str()
+                    {
+                        self.restore_mode_mark(session, mode);
                     }
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
@@ -1090,6 +1281,22 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A step of a request that read the count earlier (`REQUEST_STOPS`), else now.
+        let stops = REQUEST_STOPS
+            .try_with(|(id, stops)| (*id == session.id).then_some(*stops))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| session.stops.load(Ordering::SeqCst));
+        self.child_for_since(session, stops).await
+    }
+
+    /// `child_for` for a request that came when the session had been stopped `stops` times
+    /// ([`Session::stops`], `ensure_child`).
+    pub(super) async fn child_for_since(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        stops: u64,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
         // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
         if session.meta().watching.is_some() {
             return Err(super::watch::read_only());
@@ -1098,7 +1305,10 @@ impl Hub {
         // `session/load` answer (the inbound loop needs it to answer the
         // agent's own requests meanwhile). A live child is ready only while
         // no start holds the spawn lock; otherwise wait for that start below.
-        if let Ok(_idle) = session.spawn_lock.try_lock()
+        // A closed session, or one stopped since the request, goes through `ensure_child`.
+        if session.status() != SessionStatus::Closed
+            && session.stops.load(Ordering::SeqCst) == stops
+            && let Ok(_idle) = session.spawn_lock.try_lock()
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -1115,6 +1325,22 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
-        self.ensure_child(session, &spawn).await
+        self.ensure_child(session, &spawn, stops).await
     }
 }
+
+tokio::task_local! {
+    /// The session a request is for and its stop count ([`Session::stops`]) when the request
+    /// came, for the request's later steps (`new_session` sets the defaults a new chat starts
+    /// with through `set_model`, `set_config`, `set_mode`): `child_for` fences them with it.
+    pub(super) static REQUEST_STOPS: (String, u64);
+}
+
+/// An agent start that a stop (`acpmux session stop`) came after the request for.
+fn stopped_while_starting() -> RpcError {
+    RpcError::invalid_params("the session was stopped while its agent started")
+}
+
+#[cfg(test)]
+#[path = "stop_fence_tests.rs"]
+mod stop_fence_tests;

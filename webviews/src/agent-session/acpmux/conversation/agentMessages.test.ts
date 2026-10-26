@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
 // Tool calls that message another agent draw as message cards (agentMessages.ts): Claude Code's
 // SendMessage, and the cmux-sessions MCP server's send_to_session (#21858) under the names a
-// harness gives MCP tools.
+// harness gives MCP tools, and the acpmux MCP server's acpmux_send (acpmux_mcp.rs).
 import { expect, test } from "bun:test";
 import { agentMessage } from "./agentMessages";
 
@@ -31,6 +31,24 @@ test("send_to_session, as Claude Code and other harnesses name MCP tools", () =>
   expect(agentMessage(call("mcp__gmail__send_to_session_log", { session: "x", text: "y" }))).toBeUndefined();
   // No recipient: an ordinary tool row.
   expect(agentMessage(call("mcp__cmux-sessions__send_to_session", { text: "y" }))).toBeUndefined();
+});
+
+test("acpmux_send, as harnesses name it behind the cmux server or on its own", () => {
+  for (const title of ["mcp__cmux__acpmux_send", "mcp__acpmux__send", "acpmux_send", "cmux.acpmux_send"])
+    expect(agentMessage(call(title, { to: "build-box/lane-a", text: "Rebase on main." }))).toEqual({
+      channel: "agent",
+      to: "build-box/lane-a",
+      text: "Rebase on main.",
+    });
+  // Codex nests an MCP call's arguments under {server, tool, arguments}.
+  expect(
+    agentMessage(
+      call("cmux", { server: "cmux", tool: "acpmux_send", arguments: { to: "lane-b", text: "Done.", steer: false } }),
+    ),
+  ).toEqual({ channel: "agent", to: "lane-b", text: "Done." });
+  // Another server's send, or no recipient: an ordinary tool row.
+  expect(agentMessage(call("mcp__gmail__send", { to: "x", text: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__cmux__acpmux_send", { text: "y" }))).toBeUndefined();
 });
 
 test("a send's delivery: sending, sent, queued, delivered or failed, from its state and result", async () => {

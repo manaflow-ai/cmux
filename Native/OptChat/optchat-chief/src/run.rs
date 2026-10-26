@@ -628,6 +628,7 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "transcript" => "Reading the chat as you see it".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
+            "remember" => "Saving a preference".to_owned(),
             "control" => control_line(input),
             "peers" => "Looking up the other machines".to_owned(),
             "escalate_auth" => "Asking you to sign in".to_owned(),

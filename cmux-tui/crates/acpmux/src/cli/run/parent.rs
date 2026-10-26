@@ -57,6 +57,7 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
     if let Some(why) = refused_flags(&args) {
         return Err(errors::AppError::usage(why).into());
     }
+    let tags = orchestrate::parse_tags(&args.tags)?;
     let launch = Launch::prepare(&args)?;
     let Some(prompt) = launch.first_prompt(&args, &Value::Null) else {
         return Err(errors::AppError::usage(
@@ -71,6 +72,9 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         .await?;
     let id = started["sessionId"].as_str().unwrap_or_default().to_owned();
     let name = started["name"].as_str().unwrap_or(&id).to_owned();
+    if !args.tags.is_empty() {
+        client.request(method::MUX_TAG, json!({"sessionId": id, "set": tags})).await?;
+    }
     if args.detach {
         if json_out {
             print_json(&started);

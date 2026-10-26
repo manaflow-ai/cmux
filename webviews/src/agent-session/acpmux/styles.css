@@ -303,6 +303,9 @@
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
+/* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-project-browse:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
@@ -581,6 +584,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-status-failure) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-status-failure) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:6px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
+.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:8px}
+.acpmux-host-error-card button[data-secondary]{background:transparent;color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 /* The forum's current rules (RulesNotice.tsx), on the harness notice's card. */
 .acpmux-rules-head{display:flex;align-items:center;gap:6px}.acpmux-rules-title{font-weight:600;color:var(--agent-text)}.acpmux-rules-count{color:var(--agent-muted);font-size:var(--text-detail)}.acpmux-rules-notice .acpmux-rules-head button{margin:0 0 0 auto;padding:2px 6px;background:transparent;color:var(--agent-muted)}.acpmux-rules-newest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-rules-key{font-family:var(--font-mono);font-size:var(--text-caption);color:var(--agent-muted)}.acpmux-rules-list{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;max-height:min(40vh,240px);overflow-y:auto;overscroll-behavior:contain}
@@ -728,8 +733,9 @@ fieldset.acpmux-question[hidden]{display:none}
 
 /* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card
    (.ui-glass, src/ui/glass/glass.css) with the tool's glyph and what the call does, the command in
-   mono clamped to two lines (Show full command opens it in a scrolling block), and one row of short
-   buttons of one size (equal cells, a full row only when it cannot hold them all): Allow once filled with the accent, Always allow, Deny and any other option
+   mono clamped to two lines (Show full command opens it in a scrolling block), and a row of compact
+   buttons sized to their labels, grouped at the leading edge (they wrap only when the card is too
+   narrow), each with its shortcut as a light hint after the label: Allow once filled with the accent, Always allow, Deny and any other option
    quiet. What they cover is one muted line under them, cut with an ellipsis (its title has it whole). */
 .acpmux-permission-card.acpmux-permission-ask{border:0;border-radius:12px;padding:12px;background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
 .acpmux-permission-request{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -745,18 +751,22 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-ask .acpmux-permission-buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10em),1fr));max-width:calc(var(--permission-answers,3)*10.5em);align-items:center;gap:6px;margin-top:10px}
-.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
+.acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:baseline;flex:none;max-width:100%;min-height:24px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 12px;white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0;opacity:1}
+/* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
+   the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
+.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:baseline;margin:0 0 0 6px;padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-permission-ask .acpmux-permission-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* An option beyond the three answers keeps a short label: a long agent name is cut, so one option never widens them all. */
 .acpmux-permission-ask .acpmux-permission-other .acpmux-permission-action-label{max-width:14ch}
 /* Read by screen readers only: clipped to nothing, still in the accessibility tree. */
 .acpmux-permission-sr-only{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
+.acpmux-permission-ask .acpmux-permission-refused{margin:6px 0 0;color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3}
 .acpmux-permission-ask .acpmux-permission-scope{margin:6px 0 0;font-size:var(--text-caption);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
 .acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
