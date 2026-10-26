@@ -7,7 +7,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "newCloudWorkspace",
                 title: String(localized: "action.newCloudWorkspace", defaultValue: "New Cloud Workspace", bundle: .module),
                 keywords: ["vm", "remote", "create"], defaultShortcut: Shortcut("y", modifiers: [.command, .shift]),
-                category: .cloud, symbol: "cloud", surfaces: [.keyboard, .menu, .contextMenu],
+                category: .cloud, symbol: "cloud", surfaces: [.keyboard, .menu, .contextMenu], targets: [.machine],
                 cliName: "cloud new-workspace", mainMenu: .file
             ),
             ActionDescriptor(
@@ -296,6 +296,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
             "cloudSetupGitHub",
+            // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
+            // caller hears a failure instead of OK, and can name the result in the next command.
+            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
+            "cloudResizeMachine",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
