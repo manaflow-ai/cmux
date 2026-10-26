@@ -12,6 +12,15 @@ extension CEFTab: BrowserProcessReporting {
         return .chromiumRendererClients(Array(ids.prefix(Int(count))))
     }
 
+    /// The pid of the renderer that hosts this tab's main frame (the fork's
+    /// `cmux_cef_browser_renderer_pid`, p14-energy-124); same-site tabs can share it. Nil before the
+    /// browser exists, while it has no renderer, on a fork without the call and in host mode.
+    public var rendererPID: pid_t? {
+        guard let browserID, let shim = runtime.shim else { return nil }
+        let pid = shim.rendererPID(browserID)
+        return pid > 0 ? pid : nil
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The renderer client ids of ``contentProcesses``; empty before the browser exists or
     /// without Chromium (`debug.webui`).

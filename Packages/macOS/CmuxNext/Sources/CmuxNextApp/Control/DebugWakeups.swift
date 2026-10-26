@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextEnergy
 import CmuxNextSettings
@@ -94,13 +95,24 @@ nonisolated enum AppProcesses {
         return "cef-helper"
     }
 
-    /// Chromium helpers for the busy watchdog. Which tab a renderer serves
-    /// is not known here (Chromium assigns renderers per site), so the label
-    /// is the helper kind.
+    /// Chromium helpers for the busy watchdog, labeled with their kind. Chromium assigns renderers per
+    /// site, so the tabs a busy renderer serves come from ``tabRenderers(_:)`` (the watchdog's tab source).
     static func chromiumHelpers() -> [BusyWatchdog.Helper] {
         ProcessUsage.children(of: getpid()).compactMap { pid in
             guard let path = ProcessUsage.path(of: pid), let kind = helperKind(path) else { return nil }
             return BusyWatchdog.Helper(pid: pid, label: kind)
+        }
+    }
+
+    /// Every Chromium tab with what it reports about its renderers (p14-energy-124): its main frame's
+    /// renderer pid from the fork, and the renderer client ids of all its frames. Two shim calls per
+    /// tab, no system call: the pids are matched to processes off the main actor.
+    @MainActor
+    static func tabRenderers(_ services: AppServices) -> [ProcessUsage.TabRenderers] {
+        services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry -> ProcessUsage.TabRenderers? in
+            guard let tab = entry.tab as? CEFTab else { return nil }
+            let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
+            return ProcessUsage.TabRenderers(tab: id, title: tab.state.title ?? "", pid: tab.rendererPID, rendererClients: clients)
         }
     }
 
@@ -154,7 +166,8 @@ extension EnergyReport {
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
             // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
             cef: CEF(saver: .unsupported, earlyPasses: nil),
-            idle: services.energy.idle.stats
+            idle: services.energy.idle.stats,
+            tabs: AppProcesses.tabRenderers(services)
         )
     }
 }

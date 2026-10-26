@@ -160,38 +160,39 @@ enum Op : uint16_t {
   kOpCertificateProceed = 148,
   kOpFreeOwned = 149,
   kOpRendererClientIds = 150,
-  kOpSetContextProxy = 151,
-  kOpSetContextProxyServer = 152,
-  kOpContextProxyState = 153,
-  kOpReleaseContext = 154,
-  kOpSetNavigationGuard = 155,
-  kOpSetAuthCallback = 156,
-  kOpPrefGet = 157,
-  kOpPrefSetBool = 158,
-  kOpPrefWatch = 159,
-  kOpBookmarksSync = 160,
-  kOpPageSchemeAdd = 161,
-  kOpPageSchemeAddFirstParty = 162,
-  kOpPageSchemeAddFirstPartyDynamic = 163,
-  kOpPageResourceRespond = 164,
-  kOpAddDocumentScript = 165,  // optional
-  kOpAddPageChannel = 166,  // optional
-  kOpTabEvaluate = 167,  // optional
-  kOpTabSetFrozen = 168,  // optional
-  kOpTabSendClick = 169,  // optional
-  kOpTabSetColorScheme = 170,  // optional
-  kOpPageSchemeSetGroup = 171,  // optional
-  kOpTabDiscard = 172,  // optional
+  kOpRendererPid = 151,
+  kOpSetContextProxy = 152,
+  kOpSetContextProxyServer = 153,
+  kOpContextProxyState = 154,
+  kOpReleaseContext = 155,
+  kOpSetNavigationGuard = 156,
+  kOpSetAuthCallback = 157,
+  kOpPrefGet = 158,
+  kOpPrefSetBool = 159,
+  kOpPrefWatch = 160,
+  kOpBookmarksSync = 161,
+  kOpPageSchemeAdd = 162,
+  kOpPageSchemeAddFirstParty = 163,
+  kOpPageSchemeAddFirstPartyDynamic = 164,
+  kOpPageResourceRespond = 165,
+  kOpAddDocumentScript = 166,  // optional
+  kOpAddPageChannel = 167,  // optional
+  kOpTabEvaluate = 168,  // optional
+  kOpTabSetFrozen = 169,  // optional
+  kOpTabSendClick = 170,  // optional
+  kOpTabSetColorScheme = 171,  // optional
+  kOpPageSchemeSetGroup = 172,  // optional
+  kOpTabDiscard = 173,  // optional
 };
-inline constexpr uint16_t kOpCount = 172;
+inline constexpr uint16_t kOpCount = 173;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 51;
-inline constexpr char kShimAbiID[] = "192f414ca60f253863c9ac73f6cf59e8466c8d62209b6a1a91094252bec43b91";
+inline constexpr char kShimAbiID[] = "78d3cd52a9697ac558707eed8274479b5c670bc76525f06c012eb84b17bde591";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "1c3508b244e4edb58899bbeb6d062e7fc804cdcd76868d1bb8cdd3b6682e6d52";
+inline constexpr char kWireID[] = "244db7257b9ba8d1f83070ea61aea499c95706bfad98660ef0507af8343fa846";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {

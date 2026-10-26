@@ -70,6 +70,52 @@ import Testing
         #expect(log.summary.count == 0)
     }
 
+    /// p14-energy-124: a busy renderer's record names every tab it serves. This process stands in for
+    /// the renderer: two tabs report it as their main frame's renderer (same-site tabs share one), a
+    /// third has another one and is not named.
+    @Test func aBusyRendererNamesEveryTabItServes() async throws {
+        let log = HangLog()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
+        let me = getpid()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-renderer")] }
+        watchdog.setTabSource {
+            [
+                ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: me, rendererClients: []),
+                ProcessUsage.TabRenderers(tab: "b", title: "Docs 2", pid: me, rendererClients: []),
+                ProcessUsage.TabRenderers(tab: "c", title: "Other", pid: me &+ 1, rendererClients: []),
+            ]
+        }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(400))
+        running.value.store(false, ordering: .relaxed)
+        let helper = try #require(log.records().first { $0.kind == .busy && $0.details["scope"] == "helper" })
+        #expect(helper.details["serves"] == "cef-renderer")
+        let named = helper.details["tabs"]?.arrayValue?.compactMap { $0["tab"]?.stringValue }
+        #expect(named == ["a", "b"])
+        #expect(helper.details["tabs"]?.arrayValue?.first?["title"]?.stringValue == "Docs")
+    }
+
+    /// Without a tab source a busy helper's record is as before: its kind, no tabs.
+    @Test func withoutATabSourceABusyHelperNamesNoTabs() async throws {
+        let log = HangLog()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
+        let me = getpid()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-renderer")] }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(400))
+        running.value.store(false, ordering: .relaxed)
+        let helper = try #require(log.records().first { $0.kind == .busy && $0.details["scope"] == "helper" })
+        #expect(helper.details["tabs"] == nil)
+    }
+
     @Test func cpuDuringInputIsExpected() async throws {
         let log = HangLog()
         let activity = ExpectedActivity()

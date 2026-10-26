@@ -747,6 +747,12 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
   return 0;
 }
 
+// A tab's renderer is the host's child, not attributed to app tabs yet: no pid.
+CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
+  (void)browser_id;
+  return 0;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

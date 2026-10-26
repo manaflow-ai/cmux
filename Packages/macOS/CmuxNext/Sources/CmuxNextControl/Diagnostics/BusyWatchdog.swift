@@ -10,7 +10,9 @@ import CmuxNextCompat
 /// a threshold for a whole window (default 10 s) while nothing explains it:
 /// no input, no animation frame, no terminal output
 /// (plans/cmux-next/idle-wakeups.md). The record carries a main-thread stack
-/// sample and the busiest WakeupLedger owners.
+/// sample and the busiest WakeupLedger owners. A busy helper's record names
+/// the browser tabs it serves (``setTabSource(_:)``): every tab whose main
+/// frame or any frame it hosts, so same-site tabs on one renderer are all named.
 ///
 /// It is demand-driven: a window opens when the main run loop wakes
 /// (``noteAwake()``) and ends with one ``DemandTimer`` deadline; a new window
@@ -64,6 +66,8 @@ public final class BusyWatchdog: Sendable {
     /// writing back the function, accumulating a thunk on every read.
     private struct HelperSource: Sendable {
         let list: @Sendable () -> [Helper]
+        /// The browser tabs and their renderers (p14-energy-124); nil until the App sets it.
+        let tabs: (@MainActor @Sendable () -> [ProcessUsage.TabRenderers])?
     }
 
     struct Window {
@@ -80,7 +84,7 @@ public final class BusyWatchdog: Sendable {
         self.log = log
         self.ledger = ledger
         self.activity = activity
-        self.helpers = Mutex(HelperSource(list: { [] }))
+        self.helpers = Mutex(HelperSource(list: { [] }, tabs: nil))
         self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
     }
 
@@ -93,12 +97,24 @@ public final class BusyWatchdog: Sendable {
 
     /// Supplies the helper processes to watch (the App lists Chromium helpers).
     public func setHelperSource(_ source: @escaping @Sendable () -> [Helper]) {
-        helpers.withLock { $0 = HelperSource(list: source) }
+        helpers.withLock { $0 = HelperSource(list: source, tabs: $0.tabs) }
+    }
+
+    /// Supplies the browser tabs with their renderers, read on the main actor only when a helper was
+    /// busy, so a busy renderer's record names every tab it serves (p14-energy-124).
+    public func setTabSource(_ source: @escaping @MainActor @Sendable () -> [ProcessUsage.TabRenderers]) {
+        helpers.withLock { $0 = HelperSource(list: $0.list, tabs: source) }
     }
 
     /// Snapshots the callback under the lock, for invocation after releasing it.
     func helperSource() -> @Sendable () -> [Helper] {
         helpers.withLock { $0.list }
+    }
+
+    /// The tabs the tab source lists, in one main-actor turn; [] without a source.
+    func sourceTabs() async -> [ProcessUsage.TabRenderers] {
+        guard let source = helpers.withLock({ $0.tabs }) else { return [] }
+        return await MainActor.run { source() }
     }
 
     /// The main run loop woke. Cheap: one atomic store, plus opening a
@@ -119,10 +135,10 @@ public final class BusyWatchdog: Sendable {
         let start = Window(process: ProcessUsage.sample(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
                            helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         window.withLock { $0 = start }
-        timer.schedule(after: configuration.window) { [weak self] in self?.closeWindow() }
+        timer.schedule(after: configuration.window) { [weak self] in await self?.closeWindow() }
     }
 
-    func closeWindow() {
+    func closeWindow() async {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let wall = Double(max(now &- start.startNanos, 1))
@@ -135,14 +151,21 @@ public final class BusyWatchdog: Sendable {
                 let addresses = sampler.withLock { $0?.sample() } ?? []
                 record(scope: mainShare > configuration.mainThreadThreshold ? "main-thread" : "process",
                        pid: getpid(), name: process?.name ?? "app", label: nil, share: max(mainShare, processShare),
-                       wall: wall, addresses: addresses)
+                       wall: wall, end: now, addresses: addresses)
             }
+            var busy: [(pid: pid_t, name: String, label: String, share: Double)] = []
             for (pid, entry) in start.helpers {
                 guard let usage = ProcessUsage.sample(pid) else { continue }
                 let share = usage.cpuShare(since: entry.usage)
-                if share > configuration.helperThreshold {
-                    record(scope: "helper", pid: pid, name: usage.name, label: entry.label, share: share, wall: wall, addresses: [])
-                }
+                if share > configuration.helperThreshold { busy.append((pid, usage.name, entry.label, share)) }
+            }
+            // Same-site tabs share a renderer: the record names every tab it serves.
+            var tabs: [ProcessUsage.TabRenderers] = []
+            if !busy.isEmpty { tabs = await sourceTabs() }
+            for helper in busy {
+                let served = tabs.isEmpty ? [] : ProcessUsage.tabs(tabs, servedBy: .identify(helper.pid))
+                record(scope: "helper", pid: helper.pid, name: helper.name, label: helper.label, tabs: served,
+                       share: helper.share, wall: wall, end: now, addresses: [])
             }
         }
         // Keep watching only while the app stays awake.
@@ -153,7 +176,10 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
-    private func record(scope: String, pid: pid_t, name: String, label: String?, share: Double, wall: Double, addresses: [UInt]) {
+    /// A busy entry for the window of `wall` ns that ended at uptime `end`. `tabs` are the browser tabs a
+    /// busy renderer serves (`tabs`: `{tab, title}` each).
+    private func record(scope: String, pid: pid_t, name: String, label: String?, tabs: [ProcessUsage.TabRenderers] = [],
+                        share: Double, wall: Double, end: UInt64, addresses: [UInt]) {
         let top = ledger.snapshot().prefix(8).map { entry -> JSONValue in
             ["owner": .string(entry.owner), "reason": .string(entry.reason), "per_second": .number(entry.perSecond)]
         }
@@ -162,11 +188,14 @@ public final class BusyWatchdog: Sendable {
             "cpu_share": .number(share), "wakeups": .array(top),
         ]
         if let label { details["serves"] = .string(label) }
+        if !tabs.isEmpty {
+            details["tabs"] = .array(tabs.map { ["tab": .string($0.tab), "title": .string($0.title)] })
+        }
         let duration = Duration.nanoseconds(wall.saturatedInteger(Int64.self) ?? 0)
-        let record = log.append(startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- (wall.saturatedInteger(UInt64.self) ?? 0), duration: duration,
+        let record = log.append(startUptimeNanos: end &- (wall.saturatedInteger(UInt64.self) ?? 0), duration: duration,
                                 cpu: .nanoseconds((share * wall).saturatedInteger(Int64.self) ?? 0), addresses: addresses, kind: .busy, details: details)
         if configuration.logBusy {
-            logger.error("busy \(scope, privacy: .public) \(name, privacy: .public) at \(share * 100, format: .fixed(precision: 0))% CPU for \(wall / 1e9, format: .fixed(precision: 1)) s with no input, animation or output (hang \(record.sequence); see debug.hangs)")
+            logger.error("busy \(scope, privacy: .public) \(name, privacy: .public) (\(tabs.count) tabs) at \(share * 100, format: .fixed(precision: 0))% CPU for \(wall / 1e9, format: .fixed(precision: 1)) s with no input, animation or output (hang \(record.sequence); see debug.hangs)")
         }
     }
 
