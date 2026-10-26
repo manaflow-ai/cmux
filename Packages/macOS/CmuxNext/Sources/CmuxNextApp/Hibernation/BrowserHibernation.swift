@@ -172,15 +172,14 @@ final class BrowserHibernation {
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
+    /// Chromium tabs take their visibility from their tab's node, before the freeze (feature `chromiumTabVisibility`).
+    let tabVisibility: BrowserVisibilityFollowers
     /// Energy Saver's one change to the freeze delay: a hidden page busy at Chrome's high-CPU proportion freezes early
     /// (`SaverCPUFreeze`). `measureCPU` reads the pages' renderer CPU time off the main actor (injected by the App).
     var saverCPU = SaverCPUFreeze(), measureCPU: (([String], @escaping @MainActor @Sendable (SaverCPUFreeze.Reading) -> Void) -> Void)?
 
-    /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
-    private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
-    /// Seconds of focus history a tab's ranking counts.
-    static let focusWindow: Double = 3_600
-    static let focusLimit = 64
+    /// When the person showed each tab lately, for its ranking.
+    private(set) var focusHistory = TabFocusHistory()
     /// Tabs whose browser lease an agent holds now (`noteLease`).
     private(set) var leased: Set<String> = []
     /// A download tab `key` started still runs; injected by the App.
@@ -218,8 +217,9 @@ final class BrowserHibernation {
     ///   deadlines, the hover dwell and the frozen pages' one-shot reading are `background` deadlines on
     ///   it (nobody sees a discard or a reading), and the probes' answers land on its scheduler.
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
-         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil) {
+         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil, followsTabVisibility: Bool = false) {
         self.cache = cache
+        tabVisibility = BrowserVisibilityFollowers(isEnabled: followsTabVisibility)
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         deadline = MainDeadline(owner: "BrowserHibernation", workClass: .background, scheduler: deadlines)
         freezeDeadline = MainDeadline(owner: "BrowserFreeze", workClass: .background, scheduler: deadlines)
@@ -376,20 +376,18 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         activity.forget(key)
-        noteFocus(key, at: now())
+        focusHistory.note(key, at: now())
     }
 
-    /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
-    func noteFocus(_ key: String, at now: ContinuousClock.Instant) {
-        var times = focusedAt[key, default: []].filter { (now - $0).seconds < Self.focusWindow }
-        times.append(now)
-        if times.count > Self.focusLimit { times.removeFirst(times.count - Self.focusLimit) }
-        focusedAt[key] = times
-    }
-
-    /// Shows of tab `key` within `focusWindow` of `now`.
-    func recentFocusCount(_ key: String, now: ContinuousClock.Instant) -> Int {
-        focusedAt[key]?.filter { (now - $0).seconds < Self.focusWindow }.count ?? 0
+    /// Chromium hears tab `key`'s node from its mount on (``tabVisibility``), its hide before the freeze. A capture thaws
+    /// the page; the engine refuses a freeze while it lasts, so the page freezes again `freezeSeconds` after it ends.
+    func followVisibility(_ key: String, _ page: any BrowserTab) {
+        tabVisibility.follow(key, page, node: self.cache?.node(for: key)) { [weak self] in
+            guard let self else { return }
+            thaw(key)
+            freezeKeptAt[key] = now()
+            replan()
+        }
     }
 
     /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
@@ -417,13 +415,14 @@ final class BrowserHibernation {
         askedBeforeUnload.remove(key)
         exemptions[key] = nil
         frozen.remove(key)
+        tabVisibility.forget(key)
         untrackGrowth(key)
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil
         probeHistory.forget(key)
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
-        focusedAt[key] = nil
+        focusHistory.forget(key)
         leased.remove(key)
         offScreenShown.remove(key)
         memoryReadings.forget(key)

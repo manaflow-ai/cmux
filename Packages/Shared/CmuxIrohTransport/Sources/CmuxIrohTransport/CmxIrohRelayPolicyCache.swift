@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Securely caches the latest root-verified relay policy with rollback protection.
@@ -32,7 +33,7 @@ public actor CmxIrohRelayPolicyCache {
     private let secureStore: any CmxIrohSecureCredentialStoring
     private let verifier: CmxIrohRelayPolicyVerifier
     private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     /// Creates an isolated relay-policy cache.
     ///
@@ -62,7 +63,7 @@ public actor CmxIrohRelayPolicyCache {
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date
     ) async throws -> CmxIrohManagedRelayPolicy {
-        await acquire()
+        try await acquire()
         defer { release() }
         let policy = try verifier.verify(signedPolicy, trustRoot: trustRoot, now: now)
         let existing = try await storedRecord()
@@ -103,7 +104,7 @@ public actor CmxIrohRelayPolicyCache {
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date
     ) async throws -> CmxIrohManagedRelayPolicy? {
-        await acquire()
+        try await acquire()
         defer { release() }
         guard let record = try await storedRecord() else { return nil }
         let policy = try verifier.verify(record.signedPolicy, trustRoot: trustRoot, now: now)
@@ -116,17 +117,17 @@ public actor CmxIrohRelayPolicyCache {
 
     /// Removes every cached relay-policy record.
     public func deactivate() async throws {
-        await acquire()
+        try await acquire()
         defer { release() }
         try await secureStore.deleteAll()
     }
 
-    private func acquire() async {
+    private func acquire() async throws(OnceContinuationError) {
         guard busy else {
             busy = true
             return
         }
-        await withCheckedContinuation { continuation in
+        try await withOnceContinuation { continuation in
             waiters.append(continuation)
         }
     }
@@ -136,7 +137,7 @@ public actor CmxIrohRelayPolicyCache {
             busy = false
             return
         }
-        waiters.removeFirst().resume()
+        waiters.removeFirst().resume(returning: ())
     }
 
     private func storedRecord() async throws -> Record? {

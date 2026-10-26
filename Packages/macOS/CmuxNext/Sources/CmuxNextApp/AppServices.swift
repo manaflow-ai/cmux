@@ -559,6 +559,9 @@ final class AppServices {
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, mainWork: mainWork) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     var lifetimeFollowers: [AnyObject] = []  // the launch's app-lifetime followers (scheduled observations, subscriptions)
+    /// Feeds every window's occlusion family with `windowOcclusionFamily` (`startHibernationMeasurements`); the window
+    /// manager reports each order to it (`WindowManager.windowDidOrder`), since an order without a key change posts nothing.
+    var windowOcclusionFamilies: WindowOcclusionChecker?
     /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
     var pagesSpareWatch: ServiceObservation<Bool>?
     /// Repaints on `appearance.borders` changes (`observeBorders`).
@@ -649,6 +652,8 @@ final class AppServices {
     let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    /// Numeric launch values (the sidebar's launch rows, p08-startup-064): `debug.startup`'s counters, and the startup bench's pipe.
+    let launchValues = LaunchValueMarks { LaunchMarkSink.shared.writeValue(name: $0, value: $1) }
     /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
     var tabSwitch = TabSwitchSignpost()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.

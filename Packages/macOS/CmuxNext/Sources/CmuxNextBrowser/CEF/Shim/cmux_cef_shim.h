@@ -543,6 +543,25 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_send_locked_mouse_move(int browser_id, do
 // refresh rate. display_id 0 follows the parent view's window again.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_display(int browser_id, unsigned int display_id, double screen_x,
                                                         double screen_y);
+// What the app shows of a detached page (cmux_browser_set_page_visibility),
+// as Chrome's WebContentsViewCocoa gives its WebContents its visibility
+// (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm). It applies to
+// browser_id's Chromium window, every tab of it.
+typedef enum {
+  // Shown: the page draws.
+  CMUX_SHIM_PAGE_VISIBLE = 0,
+  // Not shown (its pane or workspace hidden, its view out of a window, its
+  // window minimized, the app hidden): visibilityState "hidden", no frames.
+  CMUX_SHIM_PAGE_HIDDEN = 1,
+  // On screen but covered: Chromium's Visibility::OCCLUDED, one second later
+  // as Chrome coalesces occlusion.
+  CMUX_SHIM_PAGE_OCCLUDED = 2,
+} cmux_shim_page_visibility_t;
+// visibility is a cmux_shim_page_visibility_t. The fork takes it only while
+// the page window is detached and makes the page visible again when it stops
+// being detached. Returns 1, or 0 for a page that is not detached, an unknown
+// value, or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_visibility(int browser_id, int visibility);
 // Page state per history entry: entry `index`'s encoded page state (freed
 // with cmux_shim_free; NULL for an unknown browser or index); a watch that
 // calls fn(context, browser_id, index) when an entry commits or its page state
@@ -1164,6 +1183,50 @@ CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 // cmux shows both). 0 (the default): Chromium shows them over its page
 // window. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
+// Fork API 37 (cmux_tab_set_visibility; cmux p06-scheduler-212): the app
+// gives browser_id's WebContents the visibility of its tab in cmux's
+// visibility tree (window, workspace, pane, selected tab), as Chrome's tab
+// strip hides a background tab (WebContentsImpl::UpdateWebContentsVisibility,
+// content/public/browser/visibility.h). The value caps what the page window
+// and its view ask for (the lower of the two applies), so Blink's hidden-page
+// throttling and document.visibilityState follow the tab in the call's turn.
+typedef enum {
+  // No cap: the page window and its view decide (the default).
+  CMUX_SHIM_TAB_VISIBILITY_VIEW = 0,
+  CMUX_SHIM_TAB_VISIBILITY_VISIBLE = 1,
+  // Occluded: the page draws no frames (Chrome's covered window).
+  CMUX_SHIM_TAB_VISIBILITY_OCCLUDED = 2,
+  // Hidden: the page is hidden (document.visibilityState 'hidden').
+  CMUX_SHIM_TAB_VISIBILITY_HIDDEN = 3,
+} cmux_shim_tab_visibility_t;
+// A capture of the tab while cmux shows it nowhere, as
+// WebContents::IncrementCapturerCount(stay_hidden): a screenshot, a
+// screencast, the phone's browser host, screen share.
+typedef enum {
+  CMUX_SHIM_TAB_CAPTURE_NONE = 0,
+  // The page keeps painting and stays hidden to script (kHiddenButPainting).
+  CMUX_SHIM_TAB_CAPTURE_HIDDEN = 1,
+  // The page paints and reads visible (a capturer that does not stay hidden).
+  CMUX_SHIM_TAB_CAPTURE_VISIBLE = 2,
+} cmux_shim_tab_capture_t;
+// visibility is a cmux_shim_tab_visibility_t, capture a
+// cmux_shim_tab_capture_t; the fork holds one capture per browser and
+// replaces it on each call. Returns 1, or 0 for an unknown value or browser
+// or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture);
+// 1 when the fork loads built-in extensions at a profile's first tab
+// (cmux_ext_load_command_line_async, p13-webui-055); ask before
+// cmux_shim_initialize decides --load-extension.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
+// Loads the unpacked extension at `path` into the persistent profile of
+// profile_cache_path as --load-extension does (command-line location, not
+// loaded again at the next start), with the folder read off the UI thread;
+// creates the context when no tab opened it yet. Replies once with
+// CMUX_SHIM_REPLY (`reply`, a = 1: installed, its background page through its
+// first load; 0: failed), never inside this call. Main thread, after
+// cmux_shim_initialize. Returns 1 when the load started, 0 for an
+// off-the-record key, an empty path or a fork without the call (no reply).
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

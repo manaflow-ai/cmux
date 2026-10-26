@@ -77,7 +77,7 @@ void* HostPageViews::Open(uint64_t token) {
   [view release];
   // Never ordered in: the page window under the view is detached once its
   // layers are hosted (HostContext::HandleLayerHosting), and cmux gives the
-  // page its visibility (set_embedder_visibility), so no window of the host
+  // page its visibility (set_page_visibility), so no window of the host
   // is ever on screen. The window only carries the page's place and screen
   // (Place), as Chrome's browser process keeps a window's bounds in
   // NativeWidgetMacNSWindowHost while the app shim shows the window

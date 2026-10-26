@@ -56,12 +56,18 @@ public final class LaunchWindowBuild {
     public nonisolated static let focusedPane: StaticString = "LaunchWindow.focusedPane"
     public nonisolated static let visiblePane: StaticString = "LaunchWindow.visiblePane"
     public nonisolated static let live: StaticString = "LaunchWindow.live"
+    /// The strips and the focused pane run early for a key or a click on the picture (``raise()``).
+    public nonisolated static let raised: StaticString = "LaunchWindow.raised"
 
     private weak var window: (any LaunchBuiltWindow)?
     private weak var regions: LaunchPictureRegions?
     private let reveal: LaunchReveal
     private let post: Post
+    private let urgent: Post
     private var done: (@MainActor () -> Void)?
+    private var stripsMounted = false
+    private var shown: Set<Int> = []
+    private var isRaised = false
     private var panes: [any LaunchWindowPane] = []
     private var parts: [LaunchPictureRegions.Part] = []
     /// The panes' first-content waits still running.
@@ -75,19 +81,33 @@ public final class LaunchWindowBuild {
     ///   - regions: The picture's regions (``LaunchPicturePhase/adopt(root:reveal:)``).
     ///   - reveal: The launch's regions: a pane's part waits for its strip and content views to show.
     ///   - post: Posts one slice.
+    ///   - urgent: Posts the raised slice (``raise()``) as input-class main work for the next frame; nil, as `post`.
     ///   - done: Runs once, after the last slice.
     public init(window: any LaunchBuiltWindow, regions: LaunchPictureRegions, reveal: LaunchReveal, post: @escaping Post,
-                done: @escaping @MainActor () -> Void) {
+                urgent: Post? = nil, done: @escaping @MainActor () -> Void) {
         self.window = window
         self.regions = regions
         self.reveal = reveal
         self.post = post
+        self.urgent = urgent ?? post
         self.done = done
     }
 
     /// Posts the first slice. A slice keeps the build until it runs.
     public func start() {
         post(Self.tabStrips) { [self] in mountStrips() }
+    }
+
+    /// A key or a click waits on the picture (p08-startup-061, ``LaunchPictureInput``): the tab strips and the focused
+    /// pane are built in one `urgent` post, never in the input's turn, ahead of the frame-budgeted slices; each slice
+    /// still runs once. Later calls do nothing.
+    public func raise() {
+        guard !isDone, !isRaised else { return }
+        isRaised = true
+        urgent(Self.raised) { [self] in
+            mountStrips()
+            show(0)
+        }
     }
 
     /// The picture left (the bound, its window closed or resized): the panes' waits end. Slices still posted run.
@@ -98,6 +118,8 @@ public final class LaunchWindowBuild {
     }
 
     private func mountStrips() {
+        guard !stripsMounted else { return }
+        stripsMounted = true
         guard !isDone, let window, let regions else { return goLive() }
         panes = window.mountLaunchStrips()
         parts = panes.map { pane in
@@ -110,7 +132,7 @@ public final class LaunchWindowBuild {
     }
 
     private func show(_ index: Int) {
-        guard !isDone, window != nil, panes.indices.contains(index) else { return }
+        guard !isDone, window != nil, panes.indices.contains(index), shown.insert(index).inserted else { return }
         let pane = panes[index], part = parts[index], reveal = reveal, regions = regions
         pane.showForLaunch()
         // The part leaves at the pane's own first content, never over a strip or content the reveal still holds clear.

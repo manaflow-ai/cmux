@@ -5,6 +5,9 @@ import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The feed bridge for agent permission prompts (cx-aocz, D11 on
 /// manaflow-ai/cmux#13742): the person answers an acpmux prompt on the phone,
@@ -85,7 +88,7 @@ final class AcpmuxPermissionFeedBridge {
     private let work: BackgroundWork
     private var nextID = 10
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
-    private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
+    private var replies: [Int: OnceContinuation<Data?, OnceContinuationError>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
@@ -172,7 +175,8 @@ final class AcpmuxPermissionFeedBridge {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         data.append(0x0A)
-        let reply: Data? = await withCheckedContinuation { waiter in
+        // A waiter dropped unanswered (the bridge went away) gets no reply, as a lost connection does.
+        let reply = try? await withOnceContinuation { (waiter: OnceContinuation<Data?, OnceContinuationError>) in
             replies[id] = waiter
             connection.send(data)
         }

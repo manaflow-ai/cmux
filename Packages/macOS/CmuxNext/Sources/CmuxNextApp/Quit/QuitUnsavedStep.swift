@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The quit's unsaved-changes step (R96 quit hook), before the terminals
 /// question. An interactive or explicit quit asks "Save changes before
@@ -77,7 +80,8 @@ enum QuitUnsavedStep {
         let progress = CmuxDialogSpec(title: QuitStrings.unsavedTitle,
                                       lines: participants.map { QuitStrings.unsavedSaving($0.quitTitle) },
                                       buttons: [.cancel(ConfirmationStrings.cancel)], identifier: "cmux.dialog.quitUnsavedSaving")
-        return await withCheckedContinuation { (continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) in
+        // A race dropped unanswered ends the wait abandoned: the quit stops, as on Cancel.
+        return try? await withOnceContinuation { (continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>) in
             let race = SaveRace(continuation)
             race.dialogID = center.present(progress, in: scope) { _ in race.finish(nil) }
             // The participants are main-actor documents, so the save's body stays on main.
@@ -91,10 +95,10 @@ enum QuitUnsavedStep {
     /// The save against the person's Cancel: the first one answers.
     @MainActor
     final class SaveRace {
-        private var continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>?
+        private var continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>?
         var dialogID: Int?
 
-        init(_ continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) {
+        init(_ continuation: OnceContinuation<[QuitFlushOutcome]?, OnceContinuationError>) {
             self.continuation = continuation
         }
 

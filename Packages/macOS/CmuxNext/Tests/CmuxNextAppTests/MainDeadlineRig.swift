@@ -10,7 +10,8 @@ final class MainDeadlineRig {
     private let timer: HandFiredWakeUpTimer
     private let uptime: RigUptime
     private let queue: MainWakeUpQueue
-    private let work: MainWorkScheduler
+    /// The rig's scheduler: its posted work runs at ``frame()``.
+    let work: MainWorkScheduler
     private let budgetClock: RigUptime
     private let keeper: FrameClient
     private var frames: Double = 0
