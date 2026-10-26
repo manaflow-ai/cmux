@@ -190,14 +190,12 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
       }
     });
 
-  // claude-sr2, 2026-10-22 (relaying Leo): over the in-pane diff the Inspector was "again a full-height
-  // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
-  // than any pane, so the card always reached the pane's foot. However tall its sections, the card
-  // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
-  // its body scrolls: it never reads as a column, over the chat or over a diff. Pushing the chat
-  // aside (a 700px pane), it is the same card: its column below the card is the chat's page.
+  // Leo, 2026-10-26: "you still haven't done the full-length thing. It's still just this constrained
+  // height for, like, no reason at all." A busy chat's card uses all the room under the header, less
+  // its inset at the foot, and only then does its body scroll: no 560px or 80% cap with room left. It is
+  // still a floating card (its own inset at the foot, never the pane's edge), over the chat or pushing.
   for (const name of browsers.keys())
-    test(`${name}: floating or pushing, the Inspector never runs the pane's height, however tall its sections`, async () => {
+    test(`${name}: floating or pushing, a busy Inspector uses the full room under the header, then scrolls`, async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
@@ -209,16 +207,17 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             const { panel } = await openInspector(page, 0, placement);
             // A busy chat: every section taller than the pane.
             await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
-            const { top, bottom, scrolls } = await panel.evaluate((node) => {
+            const { bottom, scrolls } = await panel.evaluate((node) => {
               const box = node.getBoundingClientRect();
               const body = node.querySelector(".acpmux-chat-inspector__body")!;
               return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
             });
-            const room = height - top;
-            expect({ width, height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+            // The card's inset at the foot (inspector.css --acpmux-inspector-inset).
+            const inset = 8;
+            expect({ width, height, foot: Math.round(height - inset - bottom), scrolls }).toEqual({
               width,
               height,
-              short: true,
+              foot: 0,
               scrolls: true,
             });
           } finally {
@@ -228,7 +227,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     });
 
   // Leo, 2026-10-22: "the card should just end when there's no more content to show". The ceiling
-  // (560px, 80% of the room under the header) is only a maximum: below it the card's height is its
+  // (the room under the header less its inset) is only a maximum: below it the card's height is its
   // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
   // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
   // the card with it, so no fixed or minimum height holds it open either.
@@ -294,7 +293,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           cards: cards.map(({ height, top, card, endsAtContent, scrolls }) => ({
             placement,
             height,
-            belowCeiling: card < Math.min(560, (height - top) * 0.8),
+            belowCeiling: card < height - top - 8,
             sameAsTallestPane: Math.abs(card - first!.card) < 0.5,
             endsAtContent,
             scrolls,

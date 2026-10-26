@@ -75,12 +75,13 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean, icon = "view.list") =>
+const panelToggle = (shown: boolean, icon = "view.list", pressedLook?: "ink" | "accent" | "dot") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
     shown,
     icon,
+    pressedLook,
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
@@ -359,8 +360,20 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      note: 'Chosen. Session Info is open: its toggle, first of the icons, shows a soft fill on its 24px square, so it reads as toggled (Leo, 2026-10-26: "why is the button not toggled?"). No other icon draws a box.',
       props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-open-ink": {
+      note: "Before, for comparison: the open panel's toggle only takes the text's ink, which did not read as toggled.",
+      props: { ...base, summary: panelToggle(true, "view.list", "ink") },
+    },
+    "panel-open-accent": {
+      note: "Alternative: the open panel's toggle in the accent color, no fill (the default accent is the text color, so it reads like the ink look).",
+      props: { ...base, summary: panelToggle(true, "view.list", "accent") },
+    },
+    "panel-open-dot": {
+      note: "Alternative: a small dot under the open panel's toggle, no fill.",
+      props: { ...base, summary: panelToggle(true, "view.list", "dot") },
     },
     "panel-icon-list": {
       note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
