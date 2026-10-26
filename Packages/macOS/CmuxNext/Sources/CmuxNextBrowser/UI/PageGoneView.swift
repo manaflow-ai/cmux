@@ -44,7 +44,7 @@ final class PageGoneView: NSView {
             symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)

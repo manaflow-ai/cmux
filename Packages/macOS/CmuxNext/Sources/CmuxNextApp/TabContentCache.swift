@@ -401,7 +401,7 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = chromium.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID))
+                                 history: incognito?.history ?? history(for: page.profileID), mainWork: mainWork, node: node(for: key))
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         mount(entry, as: key)
         return entry

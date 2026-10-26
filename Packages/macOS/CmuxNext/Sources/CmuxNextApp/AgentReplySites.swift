@@ -20,8 +20,8 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
-        links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
-        links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
+        links.pullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url) }
+        links.registerPullRequests = { [replies = services.pullRequests.replies] urls in replies.register(urls) }
         links.useResolver(SystemRemoteResolver(runner: services.work))
     }
 
