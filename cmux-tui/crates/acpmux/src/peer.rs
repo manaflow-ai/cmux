@@ -313,10 +313,12 @@ impl Peer {
     /// Why an `ssh://` connection the remote served as Web should connect
     /// again: the remote has a peer token now that this connection did not
     /// present (it restarted between the token read and the handshake, or
-    /// had not written its token yet). One read per such connection; None
-    /// when it was served as a peer, when the read fails, or when the remote
-    /// still has no token or the same one (it serves this daemon as Web for
-    /// another reason, and reconnecting would not change that).
+    /// had not written its token yet). One read per such connection, and
+    /// rereads (`TOKEN_REREADS`) while the token it presented is gone and no
+    /// new one is written yet (the remote is restarting); None when it was
+    /// served as a peer, when a read fails, or when the remote still has no
+    /// token or the same one (it serves this daemon as Web for another
+    /// reason, and reconnecting would not change that).
     async fn stale_token(&self) -> Option<String> {
         self.ssh_parts()?;
         let served_as_web =
@@ -325,7 +327,16 @@ impl Peer {
             return None;
         }
         let presented = self.presented.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let (_, now) = self.remote_tokens().await.ok()?;
+        let (_, mut now) = self.remote_tokens().await.ok()?;
+        if presented.is_some() {
+            for wait in TOKEN_REREADS {
+                if now.is_some() || self.stop.load(Ordering::SeqCst) {
+                    break;
+                }
+                tokio::time::sleep(wait).await;
+                now = self.remote_tokens().await.ok()?.1;
+            }
+        }
         (now.is_some() && now != presented).then(|| {
             "the peer served this daemon as remote, and it has a new peer token; reconnecting"
                 .to_owned()
@@ -758,7 +769,7 @@ impl Peer {
 }
 
 /// The waits before each reread of a remote that has no peer token yet
-/// (`Peer::remote_tokens_settled`).
+/// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 

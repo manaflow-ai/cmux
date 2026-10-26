@@ -101,6 +101,10 @@ enum Reads {
     /// The previous run's token on the first read, the real one after: the
     /// remote restarted between the read and the handshake.
     Stale,
+    /// The previous run's token on the first read, none on the second, the
+    /// real one after: the remote restarted between the read and the
+    /// handshake and had not written its new token when it was read again.
+    Gap,
     /// Never a token: a remote too old to make one.
     Never,
 }
@@ -137,10 +141,10 @@ n = int(open(count).read()) if os.path.exists(count) else 0
 open(count, "w").write(str(n + 1))
 mode = {mode}
 out = open(os.path.join(home, "config.json"), "rb").read() + b"\0"
-if mode == "never" or (mode == "late" and n == 0):
+if mode == "never" or (mode == "late" and n == 0) or (mode == "gap" and n == 1):
     os.write(1, out)
     sys.exit(1)
-if mode == "stale" and n == 0:
+if mode in ("stale", "gap") and n == 0:
     out += b"0" * 64
 else:
     out += open(os.path.join(home, "run", "peer.token"), "rb").read()
@@ -151,6 +155,7 @@ os.write(1, out)
         mode = match reads {
             Reads::Late => "\"late\"",
             Reads::Stale => "\"stale\"",
+            Reads::Gap => "\"gap\"",
             Reads::Never => "\"never\"",
         },
     );
@@ -227,6 +232,12 @@ fn a_peer_that_read_no_token_connects_as_a_peer_once_the_remote_has_one() {
 #[test]
 fn a_peer_that_presented_a_stale_token_reconnects_as_a_peer() {
     let pair = Pair::start("stale", Reads::Stale);
+    pair.wait_served_as("peer");
+}
+
+#[test]
+fn a_peer_whose_stale_token_vanished_reconnects_once_the_new_one_is_written() {
+    let pair = Pair::start("gap", Reads::Gap);
     pair.wait_served_as("peer");
 }
 
