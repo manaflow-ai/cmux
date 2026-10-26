@@ -464,11 +464,14 @@ def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=()):
                "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
                "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
                "TIP_BASE_URL": "https://files.cmux.com/nightly-next/tip", "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
-               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload, "GITHUB_OUTPUT": str(tmp / "output")}
         result = subprocess.run(["bash", "-e", "-c", tip_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
         written = sorted(tmp.glob("written*.xml"))
         last = [e["build"] for e in tip_feed.items(str(written[-1]))] if written else None
+        output = (tmp / "output").read_text() if (tmp / "output").exists() else ""
+        if result.returncode == 0 and written and log.count("r2 put") and "r2 delete" not in log:
+            check("written=true" in output and "run_tag=r7-1" in output, f"tip says it wrote the feed ({output!r})")
         return result.returncode, log, last, result.stderr
 rc, log, last, err = run_tip([(100, 99), (101, 100, 99)], conflicts=(1,))
 check(rc == 0 and last == [102, 101, 100] and "r2 delete" not in log,
