@@ -650,9 +650,15 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     // The opt-out stops the timer and writes nothing.
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
-    let (calls, _) = install_units(&home);
+    let (calls, off) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     assert!(!units.exists());
+    assert!(off.is_empty(), "an opt-out is no reason to report: {off}");
+    // Review: nor is one whose units could not be staged.
+    std::fs::write(home.join("cat-cut"), "").unwrap();
+    let (_, off) = install_units(&home);
+    assert!(off.is_empty(), "{off}");
+    std::fs::remove_file(home.join("cat-cut")).unwrap();
 
     // Review of #24232: the opt-out stops only acpmux's timer, never one
     // someone else wrote.
