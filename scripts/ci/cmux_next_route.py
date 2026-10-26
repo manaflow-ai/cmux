@@ -184,6 +184,13 @@ CI_ONLY = (
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
 
+# These suites already have dedicated workflow steps after the broad package
+# pass. Running them in the priority shard would execute the same coverage
+# twice and make the job more likely to hit its total deadline.
+ISOLATED_PRIORITY_SUITES = frozenset((
+    "CmuxNextControlTests", "BranchStateResourcesTests", "CloudBringBackTests", "CLISurfaceParityTests",
+))
+
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
@@ -294,7 +301,10 @@ def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
             continue
         stem = Path(path).stem
         candidate = stem if stem.endswith("Tests") else stem + "Tests"
-        if any((directory / f"{candidate}.swift").is_file() for directory in test_dirs):
+        if candidate in ISOLATED_PRIORITY_SUITES:
+            continue
+        if any((directory / f"{candidate}.swift").is_file() or
+               any(directory.rglob(f"{candidate}.swift")) for directory in test_dirs):
             names.add(candidate)
     return names
 
