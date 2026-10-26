@@ -76,3 +76,26 @@ test("a config without a location leaves the cursor alone; a malformed one is ig
   streams.get(EDITOR_REVEAL)?.({ line: "x" });
   expect(reveals).toEqual([]);
 });
+
+test("a recovered draft does not take the cursor off the config's location", async () => {
+  const { store, view, reveals } = harness({ ...file, recoveredText: "one\ntwo\nthree\nfour\n", location: { line: 3 } });
+  const steps: string[] = [];
+  const recording: CodeView = {
+    ...view,
+    load(document) {
+      steps.push("load");
+      view.load(document);
+    },
+    replaceText() {
+      steps.push("replace");
+    },
+    reveal(location) {
+      steps.push("reveal");
+      view.reveal?.(location);
+    },
+  };
+  store.attachView(recording);
+  await store.start();
+  expect(steps).toEqual(["load", "replace", "reveal"]);
+  expect(reveals.at(-1)).toEqual({ line: 3 });
+});
