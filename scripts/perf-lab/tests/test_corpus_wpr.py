@@ -12,6 +12,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -61,20 +62,46 @@ RSA_CERT = textwrap.dedent("""\
 """)
 RSA_SPKI = "8YcLe1GmDetH8qYI6AXbMTqtJ4BUmN0VD3Zk9CHAPQ8="
 
+
+def slog(level: str, msg: str, **attrs: str) -> str:
+    """A line of the pinned wpr's log (log.go: slog.NewTextHandler; a value with a space, `=` or `"` in Go quotes)."""
+    def value(text: str) -> str:
+        return json.dumps(text) if not text or any(c in text for c in ' ="\\') else text
+    pairs = [f"time=2026-10-26T00:00:00.000Z level={level} msg={value(msg)}"]
+    pairs += [f"{key}={value(text)}" for key, text in attrs.items()]
+    return " ".join(pairs)
+
+
+def hit(url: str, status: str = "200") -> str:
+    return slog("INFO", "Proxy: SERVING response", url=url, status=status)
+
+
+def miss(url: str) -> str:
+    return slog("WARN", "Proxy: FAILED to find request", url=url,
+                error="could not find a matching request for " + url)
+
+
+# The pinned wpr: urfave/cli v2 flags with hyphens (an underscore name is "flag provided but not defined"), the
+# "Starting server on" lines from fmt.Printf, everything else through slog on stderr.
 FAKE_WPR = textwrap.dedent("""\
     import signal, sys, time
     mode, archive = sys.argv[1], sys.argv[-1]
+    flags = {arg.split("=", 1)[0] for arg in sys.argv[2:-1]}
+    known = {"--host", "--http-port", "--https-port", "--https-cert-file", "--https-key-file", "--inject-scripts"}
+    if flags - known:
+        print(f"Incorrect Usage: flag provided but not defined: {sorted(flags - known)[0]}", file=sys.stderr)
+        sys.exit(1)
     stopped = []
     signal.signal(signal.SIGINT, lambda *_: stopped.append(1))
-    print("2026/10/26 00:00:00 Loading cert from wpr_cert.pem", flush=True)
-    print("2026/10/26 00:00:00 Starting server on http://127.0.0.1:41001", flush=True)
-    print("2026/10/26 00:00:00 Starting server on https://127.0.0.1:41002", flush=True)
+    print('time=2026-10-26T00:00:00.000Z level=INFO msg="Opened archive" path=' + archive, file=sys.stderr, flush=True)
+    print("Starting server on http://127.0.0.1:41001", flush=True)
+    print("Starting server on https://127.0.0.1:41002", flush=True)
     while not stopped:
         time.sleep(0.01)
     if mode == "record":
         open(archive, "wb").write(b"archive")
     for line in open(archive + ".log").read().splitlines() if mode == "replay" else []:
-        print(line, flush=True)
+        print(line, file=sys.stderr, flush=True)
 """)
 
 
@@ -187,15 +214,28 @@ class PublicUrlTests(unittest.TestCase):
 class LogTests(unittest.TestCase):
     def test_hits_misses_and_tls_errors(self):
         log = wpr.parse_log("\n".join([
-            "2026/10/26 Starting server on http://127.0.0.1:41001",
-            "2026/10/26 ServeHTTP(https://a.org/): serving 200 response",
-            "2026/10/26 ServeHTTP(https://a.org/app.js): serving 304 response",
-            "2026/10/26 ServeHTTP(https://ads.example/x.js): couldn't find matching request: not found",
-            "2026/10/26 http: TLS handshake error from 127.0.0.1:5000: remote error: tls: bad certificate",
+            "Starting server on http://127.0.0.1:41001",
+            slog("DEBUG", "Proxy: Handling request", method="GET", url="https://a.org/"),
+            hit("https://a.org/"),
+            hit("https://a.org/app.js?v=2", "304"),
+            miss("https://ads.example/x.js?id=\"q\" 1"),
+            miss("https://cdn.example/font.woff2"),
+            slog("INFO", "translating Content-Encoding", url="https://a.org/", origin="gzip", client="br"),
+            "2026/10/26 00:00:01 http: TLS handshake error from 127.0.0.1:5000: remote error: tls: bad certificate",
         ]))
         self.assertEqual(log.served, 2)
-        self.assertEqual(log.misses, ["https://ads.example/x.js"])
+        self.assertEqual(log.misses, ["https://ads.example/x.js?id=\"q\" 1", "https://cdn.example/font.woff2"])
         self.assertEqual(len(log.tls_errors), 1)
+
+    def test_the_old_catapult_lines_count_for_nothing(self):
+        # The pinned wpr never prints these; a parser that reads them would not see a real replay.
+        log = wpr.parse_log("2026/10/26 ServeHTTP(https://a.org/): serving 200 response\n"
+                            "2026/10/26 ServeHTTP(https://b.org/): couldn't find matching request\n")
+        self.assertEqual((log.served, log.misses), (0, []))
+
+    def test_slog_attrs(self):
+        self.assertEqual(wpr.slog_attrs('time=t level=WARN msg="a b" url="https://x/?a=b" error="say \\"no\\""'),
+                         {"time": "t", "level": "WARN", "msg": "a b", "url": "https://x/?a=b", "error": 'say "no"'})
 
     def test_verdict(self):
         good = {"label": "replay-1", "tabs": 2, "loaded": 2, "pages": [], "served": 9, "misses": 0, "miss_urls": [],
@@ -232,6 +272,13 @@ class ServerAndRunTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="wpr-test-"))
         self.addCleanup(shutil.rmtree, self.root, True)
         self.wpr_dir = make_wpr_dir(self.root)
+        self.chromium = wpr.chromium_root("com.cmuxterm.app.debug.wpr", self.root / "home")
+
+    def test_wpr_flags_are_the_pinned_builds(self):
+        argv = wpr.wpr_argv(self.wpr_dir, "replay", self.root / "a.wprgo")
+        self.assertEqual([arg.split("=", 1)[0] for arg in argv[2:-1]],
+                         ["--host", "--http-port", "--https-port", "--https-cert-file", "--https-key-file",
+                          "--inject-scripts"])
 
     def test_checked_wpr_dir(self):
         self.assertEqual(wpr.checked_wpr_dir(self.wpr_dir, "c" * 40), self.wpr_dir)
@@ -251,7 +298,7 @@ class ServerAndRunTests(unittest.TestCase):
     def test_verify_twice_with_the_same_page_count(self):
         archive = self.root / "story.wprgo"
         archive.write_bytes(b"archive")
-        Path(f"{archive}.log").write_text("ServeHTTP(https://a.org/): serving 200 response\n", encoding="utf-8")
+        Path(f"{archive}.log").write_text(hit("https://a.org/") + "\n", encoding="utf-8")
         apps = []
 
         def launch(env, _out):
@@ -259,9 +306,10 @@ class ServerAndRunTests(unittest.TestCase):
             return apps[-1]
 
         plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/", "https://b.org/"], 3, wpr.spki_of_pem(CERT),
-                           self.root / "out", settle_s=0)
+                           self.root / "out", self.chromium, settle_s=0)
         runs = [wpr.run_once(plan, "replay", archive, f"replay-{n}", launch) for n in (1, 2)]
         self.assertEqual(wpr.verify_problems(runs), [])
+        self.assertEqual([run["served"] for run in runs], [1, 1])
         self.assertEqual([run["loaded"] for run in runs], [3, 3])
         self.assertTrue(all(app.stopped for app in apps))
         switches = apps[0].launched_env[wpr.BENCH_SWITCHES_ENV]
@@ -271,10 +319,10 @@ class ServerAndRunTests(unittest.TestCase):
     def test_a_miss_or_a_refused_certificate_fails_verify(self):
         archive = self.root / "story.wprgo"
         archive.write_bytes(b"archive")
-        Path(f"{archive}.log").write_text("ServeHTTP(https://a.org/): serving 200 response\n"
-                                          "ServeHTTP(https://b.org/x): couldn't find matching request\n", encoding="utf-8")
+        Path(f"{archive}.log").write_text(hit("https://a.org/") + "\n" + miss("https://b.org/x") + "\n",
+                                          encoding="utf-8")
         plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/", "https://b.org/"], 2, "s", self.root / "out",
-                           settle_s=0)
+                           self.chromium, settle_s=0)
         runs = [wpr.run_once(plan, "replay", archive, f"replay-{n}",
                              lambda env, _out: FakeApp(env, failing={"https://b.org/"})) for n in (1, 2)]
         problems = wpr.verify_problems(runs)
@@ -285,7 +333,8 @@ class ServerAndRunTests(unittest.TestCase):
         archive = self.root / "story.wprgo"
         archive.write_bytes(b"archive")
         Path(f"{archive}.log").write_text("", encoding="utf-8")
-        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 2, "s", self.root / "out", settle_s=0)
+        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 2, "s", self.root / "out", self.chromium,
+                           settle_s=0)
         app = FakeApp({}, cef={"unavailable": {"reason": "missing"}})
 
         def launch(env, _out):
@@ -300,11 +349,52 @@ class ServerAndRunTests(unittest.TestCase):
         archive = self.root / "story.wprgo"
         archive.write_bytes(b"archive")
         Path(f"{archive}.log").write_text("", encoding="utf-8")
-        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 1, "s", self.root / "out", settle_s=0)
+        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 1, "s", self.root / "out", self.chromium,
+                           settle_s=0)
         app = FakeApp({})
         with self.assertRaises(wpr.WprError):
             wpr.run_once(plan, "replay", archive, "replay-1", lambda _env, _out: app)
         self.assertTrue(app.stopped)
+
+    def test_every_launch_gets_an_empty_chromium_root(self):
+        # A warm HTTP cache would answer subresources itself: record would leave them out of the archive and a
+        # second replay would not go through wpr.
+        self.assertEqual(self.chromium, self.root / "home" / "Library" / "Application Support"
+                         / "com.cmuxterm.app.debug.wpr" / "Chromium")
+        cache = self.chromium / "Profile-1" / "Cache" / "earlier-use"
+        cache.parent.mkdir(parents=True)
+        cache.write_text("cached", encoding="utf-8")
+        archive = self.root / "story.wprgo"
+        launched_with = []
+
+        def launch(env, _out):
+            launched_with.append(sorted(str(p.relative_to(self.chromium)) for p in self.chromium.rglob("*"))
+                                 if self.chromium.exists() else None)
+            filled = self.chromium / "Profile-1" / "Cache" / f"run-{len(launched_with)}"
+            filled.parent.mkdir(parents=True, exist_ok=True)
+            filled.write_text("cached", encoding="utf-8")  # the app fills its cache during the run
+            return FakeApp(env)
+
+        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 1, "s", self.root / "out", self.chromium,
+                           settle_s=0)
+        wpr.run_once(plan, "record", archive, "record", launch)
+        Path(f"{archive}.log").write_text(hit("https://a.org/") + "\n", encoding="utf-8")
+        runs = [wpr.run_once(plan, "replay", archive, f"replay-{n}", launch) for n in (1, 2)]
+        self.assertEqual(launched_with, [None, None, None])
+        self.assertEqual([run["chromium_root"] for run in runs], [str(self.chromium)] * 2)
+        # One earlier root is kept beside it, as BenchApp.start_fresh keeps one earlier tag state.
+        prev = self.chromium.with_name("Chromium.wpr-prev")
+        self.assertEqual(sorted(p.name for p in (prev / "Profile-1" / "Cache").iterdir()), ["run-2"])
+
+    def test_a_root_that_cannot_move_aside_stops_the_run(self):
+        self.chromium.mkdir(parents=True)
+        plan = wpr.RunPlan(self.wpr_dir, "app", ["https://a.org/"], 1, "s", self.root / "out", self.chromium,
+                           settle_s=0)
+        launched = []
+        with unittest.mock.patch.object(wpr.os, "rename", side_effect=PermissionError("denied")):
+            with self.assertRaises(OSError):
+                wpr.run_once(plan, "record", self.root / "a.wprgo", "record", lambda env, _out: launched.append(env))
+        self.assertEqual(launched, [])
 
     def test_spki_command(self):
         out = subprocess.run([sys.executable, "-I", str(HERE.parent / "corpus" / "wpr.py"), "spki", "--wpr",

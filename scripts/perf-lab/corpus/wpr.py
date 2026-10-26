@@ -22,10 +22,12 @@ record   (a lab host in pool.json only) `wpr record` while a fresh bench app ope
          manifest's `web_archive` ({wprgo: blob ref in the corpus cache, spki}); `manifest.py --upload` puts the blob
          in R2.
 verify   `wpr replay` of the archive (a manifest's web_archive, fetched into the cache, or --archive), RUNS times: each
-         run launches a fresh bench app, checks debug.cef (Chromium is available), opens TABS tabs round-robin over
-         URLS.txt and waits for each page (browser.page.wait, then debug.browser.page_status: no error page,
-         certificate warning or sad tab). It passes when every run served from the archive with 0 network misses and
-         0 TLS handshake errors and every run loaded the same number of pages, all of them.
+         run launches a fresh bench app with an empty Chromium root (no HTTP cache), checks debug.cef (Chromium is
+         available), opens TABS tabs round-robin over URLS.txt and waits for each page (browser.page.wait, then
+         debug.browser.page_status: no error page, certificate warning or sad tab). It passes when every run served
+         from the archive with 0 network misses and 0 TLS handshake errors and every run loaded the same number of
+         pages, all of them. A record launch starts with an empty Chromium root too, so no cached subresource is
+         left out of the archive.
 
 wpr is the build host-setup.sh makes, at pool.json's commit, in ~/Library/Application Support/cmux-perf-lab/wpr/<commit>
 (--wpr DIR for another). Prints WPR-* lines; --out DIR gets the wpr logs, the app logs and wpr-<mode>.json.
@@ -36,6 +38,7 @@ Stdlib only. Tests: python3 -m unittest scripts/perf-lab/tests/test_corpus_wpr.p
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import dataclasses
 import hashlib
@@ -43,7 +46,9 @@ import importlib.util
 import ipaddress
 import json
 import os
+import pwd
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -72,9 +77,15 @@ PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".test", ".example", ".
 # Hibernation and freezing off, so every opened tab keeps its page and its requests during the run.
 APP_CONFIG = {"browser": {"hibernation": "off", "freezeHiddenTabs": "off", "keepNeighborTabsAwake": 0}}
 
+# wpr.go logServeStarted prints this with fmt.Printf ("parsed by downstream tools like catapult and crossbench").
 STARTING = re.compile(r"Starting server on (?P<scheme>https?)://(?P<host>[^\s:]*):(?P<port>\d+)")
-SERVED = re.compile(r"ServeHTTP\((?P<url>.+)\): serving (?P<status>\d+) response")
-MISSED = re.compile(r"ServeHTTP\((?P<url>.+)\): couldn't find matching request")
+# Every other wpr line is log/slog text (src/webpagereplay/log.go makeHandler): `key=value` pairs, a value in Go
+# quotes when it has a space, `=`, `"` or a control character. proxy.go logs each request with its `url` attribute
+# (makeLogger) and one of these messages.
+SLOG_ATTR = re.compile(r'(?:^|(?<=\s))(?P<key>[^\s="]+)=(?P<value>"(?:[^"\\]|\\.)*"|[^\s"]*)')
+SERVED_MSG = "Proxy: SERVING response"
+MISSED_MSG = "Proxy: FAILED to find request"
+# net/http's server error log (the standard log package, not slog): the app refused the certificate.
 TLS_ERROR = re.compile(r"TLS handshake error")
 
 
@@ -301,26 +312,44 @@ class ReplayLog:
                 "tls_errors": len(self.tls_errors), "tls_error_lines": self.tls_errors[:20]}
 
 
+def slog_attrs(line: str) -> dict[str, str]:
+    """The `key=value` pairs of one slog text line, quoted values unquoted (Go's escapes are Python's)."""
+    attrs = {}
+    for match in SLOG_ATTR.finditer(line):
+        value = match.group("value")
+        if value.startswith('"'):
+            try:
+                value = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                value = value[1:-1]
+        attrs.setdefault(match.group("key"), value)
+    return attrs
+
+
 def parse_log(text: str) -> ReplayLog:
-    """What a `wpr replay` log says about the requests it answered: `ServeHTTP(URL): serving N response` (a hit),
-    `ServeHTTP(URL): couldn't find matching request` (a miss: the page asked for what the archive does not hold) and
-    the TLS handshake errors of its HTTPS server (the app refused the certificate)."""
+    """What a `wpr replay` log says about the requests it answered (proxy.go ReplayingProxy.ServeHTTP):
+    msg="Proxy: SERVING response" (a hit), msg="Proxy: FAILED to find request" (a miss: the page asked for what the
+    archive does not hold), each with the request's url=, and the TLS handshake errors of its HTTPS server (the app
+    refused the certificate)."""
     served, misses, tls = 0, [], []
     for line in text.splitlines():
-        if SERVED.search(line):
-            served += 1
-        elif match := MISSED.search(line):
-            misses.append(match.group("url"))
-        elif TLS_ERROR.search(line):
+        if TLS_ERROR.search(line):
             tls.append(line.strip())
+            continue
+        attrs = slog_attrs(line)
+        if attrs.get("msg") == SERVED_MSG:
+            served += 1
+        elif attrs.get("msg") == MISSED_MSG:
+            misses.append(attrs.get("url") or "(no url)")
     return ReplayLog(served, misses, tls)
 
 
 def wpr_argv(directory: Path, mode: str, archive: Path) -> list[str]:
-    """wpr on free loopback ports, with the build's certificate, key and deterministic.js, as Telemetry runs it."""
-    return [str(directory / "wpr"), mode, "--host=127.0.0.1", "--http_port=0", "--https_port=0",
-            f"--https_cert_file={directory / 'wpr_cert.pem'}", f"--https_key_file={directory / 'wpr_key.pem'}",
-            f"--inject_scripts={directory / 'deterministic.js'}", str(archive)]
+    """wpr on free loopback ports, with the build's certificate, key and deterministic.js, as Telemetry runs it. The
+    pinned wpr.go takes urfave/cli v2 flags, whose names have hyphens (CommonConfig.Flags)."""
+    return [str(directory / "wpr"), mode, "--host=127.0.0.1", "--http-port=0", "--https-port=0",
+            f"--https-cert-file={directory / 'wpr_cert.pem'}", f"--https-key-file={directory / 'wpr_key.pem'}",
+            f"--inject-scripts={directory / 'deterministic.js'}", str(archive)]
 
 
 class WprServer:
@@ -484,6 +513,35 @@ def load_pages(pages: Any, urls: list[str], tabs: int, timeout_ms: int) -> list[
     return rows
 
 
+# ---------------------------------------------------------------- the app's Chromium storage
+
+def account_home() -> Path:
+    """The home the app resolves (bench_launch.account_home): the password database's."""
+    try:
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        return Path.home()
+
+
+def chromium_root(bundle: str, home: Path | None = None) -> Path:
+    """CEFProfileStorage.forApplication's root_cache_path of BUNDLE: `<Application Support>/<bundle id>/Chromium`,
+    which holds every profile's HTTP cache, cookies and service workers. BenchApp.start_fresh does not reach it."""
+    return (home or account_home()) / "Library" / "Application Support" / bundle / "Chromium"
+
+
+def empty_chromium_root(root: Path) -> None:
+    """Moves ROOT aside to `<root>.wpr-prev` (the older one removed), as start_fresh does with the tag state, so the
+    next launch has no HTTP cache: a cached subresource would never reach `wpr record` (the archive would lack it)
+    or `wpr replay` (a second run would not go through wpr)."""
+    if os.path.lexists(root):
+        prev = root.with_name(root.name + ".wpr-prev")
+        if os.path.lexists(prev):
+            shutil.rmtree(prev, ignore_errors=True)
+        os.rename(root, prev)
+    if os.path.lexists(root):
+        raise WprError(f"{root}: could not move the Chromium storage aside")
+
+
 # ---------------------------------------------------------------- one run and the verdict
 
 @dataclasses.dataclass
@@ -494,16 +552,20 @@ class RunPlan:
     tabs: int
     spki: str
     out: Path
+    chromium_root: Path  # the bench app's Chromium storage, emptied before each launch (empty_chromium_root)
     load_timeout_ms: int = 60_000
     settle_s: float = 5.0
 
 
 def run_once(plan: RunPlan, mode: str, archive: Path, label: str, launch: Callable[[dict[str, str], Path], Any],
              server_factory: Callable[..., WprServer] = WprServer) -> dict[str, Any]:
-    """wpr in MODE, a fresh bench app with the switches (`launch(env, out)` returns a started app with `rpc`,
-    `launched_env` and `stop`), the pages, then the app and wpr stop. Returns the run's report."""
+    """wpr in MODE, a fresh bench app with the switches and an empty Chromium root (`launch(env, out)` returns a
+    started app with `rpc`, `launched_env` and `stop`), the pages, then the app and wpr stop. Returns the run's
+    report."""
     log_path = plan.out / f"wpr-{label}.log"
-    report: dict[str, Any] = {"label": label, "mode": mode, "wpr_log": str(log_path), "tabs": plan.tabs}
+    report: dict[str, Any] = {"label": label, "mode": mode, "wpr_log": str(log_path), "tabs": plan.tabs,
+                              "chromium_root": str(plan.chromium_root)}
+    empty_chromium_root(plan.chromium_root)
     with server_factory(plan.wpr_dir, mode, archive, log_path) as server:
         switches = bench_switches(server.http_port, server.https_port, plan.spki)
         report["ports"] = dict(server.ports)
@@ -640,7 +702,8 @@ def main(argv: list[str] | None = None) -> int:
             raise WprError(f"wpr.py {args.mode} launches the app: run it on a lab Mac")
         refuse_leaked_switches()
         bench_launch = _load(BENCH_LAUNCH, "perf_lab_bench_launch")
-        problem = bench_bundle_problem(bench_launch.bundle_id(args.app))
+        bundle = bench_launch.bundle_id(args.app)
+        problem = bench_bundle_problem(bundle)
         if problem:
             raise WprError(problem)
         urls = read_urls(args.urls.read_text(encoding="utf-8"))
@@ -648,14 +711,14 @@ def main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         launch = bench_launcher(args.app, args.build_config)
         if args.mode == "record":
-            return record(args, wpr_dir, spki, urls, out, launch)
-        return verify(args, wpr_dir, spki, urls, out, launch)
+            return record(args, wpr_dir, spki, urls, out, chromium_root(bundle), launch)
+        return verify(args, wpr_dir, spki, urls, out, chromium_root(bundle), launch)
     except (WprError, OSError, ValueError, KeyError) as error:
         print(f"WPR-ERROR {error}", file=sys.stderr)
         return 1
 
 
-def record(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, launch) -> int:
+def record(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, root: Path, launch) -> int:
     problems = [problem for problem in [lab_host_problem(host_names())] + [public_url_problem(url) for url in urls]
                 if problem]
     if problems:
@@ -663,7 +726,7 @@ def record(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, launch) -
     archive = args.archive.resolve()
     if archive.exists():
         raise WprError(f"{archive} exists; record into a new file")
-    plan = RunPlan(wpr_dir, args.app, urls, len(urls), spki, out, args.load_timeout_ms, args.settle)
+    plan = RunPlan(wpr_dir, args.app, urls, len(urls), spki, out, root, args.load_timeout_ms, args.settle)
     run = run_once(plan, "record", archive, "record", launch)
     problems = record_problems(run, archive)
     report = {"run": run, "problems": problems}
@@ -682,12 +745,12 @@ def record(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, launch) -
     return 0
 
 
-def verify(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, launch) -> int:
+def verify(args, wpr_dir: Path, spki: str, urls: list[str], out: Path, root: Path, launch) -> int:
     archive, story_spki = archive_of(args)
     if story_spki is not None and story_spki != spki:
         raise WprError(f"the story's spki {story_spki} is not this wpr build's certificate {spki}: its archive was "
                        "recorded with another wpr commit; record it again")
-    plan = RunPlan(wpr_dir, args.app, urls, args.tabs, spki, out, args.load_timeout_ms, args.settle)
+    plan = RunPlan(wpr_dir, args.app, urls, args.tabs, spki, out, root, args.load_timeout_ms, args.settle)
     runs = []
     for index in range(args.runs):
         run = run_once(plan, "replay", archive, f"replay-{index + 1}", launch)

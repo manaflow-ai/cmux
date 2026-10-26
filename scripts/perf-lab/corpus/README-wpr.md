@@ -63,6 +63,10 @@ the corpus blob cache and prints `WPR-RECORD ok ... web_archive={...}`. To use t
 times (default 2). Each run does these steps:
 
 1. Launch a fresh bench app. Hibernation and freezing are off, so each tab keeps its page.
+   Before the launch, `wpr.py` moves the app's Chromium storage
+   (`~/Library/Application Support/<bundle id>/Chromium`) to `Chromium.wpr-prev`. Thus each run
+   starts with no HTTP cache, cookies or service workers, and every request goes to wpr.
+   `record` does the same, so that no cached file is left out of the archive.
 2. Check `debug.cef`: Chromium is available, and no tab fell back to WebKit.
 3. Open `--tabs` tabs (default 30), round-robin over the URL list.
 4. Wait for each tab with `browser.page.wait` (`load_state: complete`).
@@ -72,7 +76,9 @@ times (default 2). Each run does these steps:
 The verify passes only when all of these are true:
 
 - every run loads all its tabs, and the runs load the same number of pages
-- wpr logged 0 `couldn't find matching request` lines (network misses)
+- wpr logged 0 `msg="Proxy: FAILED to find request"` lines (network misses). wpr logs with
+  Go's `log/slog` text format; a hit is `msg="Proxy: SERVING response"`, and each request line
+  has its `url=` attribute
 - wpr logged 0 TLS handshake errors
 - wpr served at least one response, which proves that the resolver rules applied
 
