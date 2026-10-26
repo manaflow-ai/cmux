@@ -37,7 +37,7 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.automaticClient = automaticClient
-        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil, allowsLegacyTailscale: automaticClient == nil)
+        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil)
         self.routeSelector = routeSelector
         transportFactory = CmxNetworkByteTransportFactory(supportedKinds: routeSelector.supportedKinds.filter { $0 != .iroh })
         independentEventByteStreamProvider = nil
@@ -55,11 +55,13 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         automaticFactory: any CmxByteTransportFactory,
         fallbackFactory: any CmxByteTransportFactory
     ) throws -> CmxRouteTransportFactory {
-        _ = routeSelector
-        _ = fallbackFactory
-        return try CmxRouteTransportFactory([
-            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: automaticFactory),
-        ])
+        let registrations = routeSelector.supportedKinds.map { kind in
+            CmxRouteTransportFactoryRegistration(
+                kind: kind,
+                factory: kind == .iroh ? automaticFactory : fallbackFactory
+            )
+        }
+        return try CmxRouteTransportFactory(registrations)
     }
 
     func forPeer(_ instance: SurfaceDeviceInstanceID) throws -> DeviceLinkRuntime {
