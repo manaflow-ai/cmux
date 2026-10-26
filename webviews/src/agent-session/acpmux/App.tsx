@@ -3920,6 +3920,7 @@ export function VirtualTranscript({
           foot={height - dockSpace}
           width={width}
           scrolls={layout.totalHeight - height > 0.5}
+          change={rowsChange.current}
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>

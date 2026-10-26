@@ -64,12 +64,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    color-mix(in srgb, var(--agent-text) 24%, transparent),
-    transparent
-  );
+  background: linear-gradient(transparent, color-mix(in srgb, var(--agent-text) 24%, transparent), transparent);
   transform: translateY(-100%);
   animation: acpmux-chat-minimap-shimmer 1.6s ease-in-out infinite;
 }

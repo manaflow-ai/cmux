@@ -47,10 +47,7 @@ const replacements: Record<string, unknown> = {
   Node: dom.window.Node,
   MutationObserver: dom.window.MutationObserver,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-  matchMedia: (query: string) => ({
-    matches: query.includes("reduce"),
-    media: query,
-  }),
+  matchMedia: (media: string) => ({ matches: media.includes("reduce"), media }), // prettier-ignore
   IntersectionObserver: Inert,
   ResizeObserver: Inert,
   requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
@@ -67,14 +64,9 @@ Object.assign(scope, replacements);
 
 // jsdom has no layout: a 600 px viewport in a 1040 px pane, and a scroll offset.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", {
-  configurable: true,
-  get: () => VIEWPORT,
-});
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
-  configurable: true,
-  get: () => 1040,
-});
+const proto = dom.window.HTMLElement.prototype;
+Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => VIEWPORT }); // prettier-ignore
+Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 1040 }); // prettier-ignore
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -87,25 +79,15 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 // jsdom has no canvas: a 2D context that counts the rectangles it is given.
 const painted = { rects: 0 };
 const none = () => {};
+// prettier-ignore
 dom.window.HTMLCanvasElement.prototype.getContext = (() => ({
-  ...{
-    setTransform: none,
-    clearRect: none,
-    beginPath: none,
-    fill: none,
-    fillStyle: "",
-    globalAlpha: 1,
-  },
+  ...{ setTransform: none, clearRect: none, beginPath: none, fill: none, fillStyle: "", globalAlpha: 1 },
   rect: () => void (painted.rects += 1),
 })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
-const strings = globalThis as {
-  __cmuxPaneStrings?: Record<string, Record<string, string>>;
-};
+const strings = globalThis as { __cmuxPaneStrings?: Record<string, Record<string, string>> }; // prettier-ignore
 const stringsBefore = strings.__cmuxPaneStrings;
-strings.__cmuxPaneStrings = {
-  en: { "chatMinimap.label": "Chat minimap", "minimap.label": "Thread map" },
-};
+strings.__cmuxPaneStrings = { en: { "chatMinimap.label": "Chat minimap", "minimap.label": "Thread map" } }; // prettier-ignore
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -113,10 +95,8 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
 const { REDRAW_MS } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
-setBookmarkTransport({
-  get: async (sessionId) => ({ sessionId, bookmarks: [] }),
-  set: async (sessionId) => ({ sessionId, bookmarks: [] }),
-});
+const noBookmarks = async (sessionId: string) => ({ sessionId, bookmarks: [] });
+setBookmarkTransport({ get: noBookmarks, set: noBookmarks });
 
 afterAll(() => {
   setChatDisplay({});
@@ -131,13 +111,7 @@ afterAll(() => {
 });
 
 const document = dom.window.document;
-const row = (id: string, kind: string, text?: string): AcpmuxRow => ({
-  id,
-  kind,
-  text,
-  version: 1,
-  at: 1,
-});
+const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 }); // prettier-ignore
 const PROMPTS = 300;
 const chat = (reply: string) =>
   Array.from({ length: PROMPTS }, (_, index) => [
@@ -145,7 +119,20 @@ const chat = (reply: string) =>
     row(`t${index}-answer`, "assistant", index === PROMPTS - 1 ? reply : `Answer ${index}.\n\nA second paragraph.`),
   ]).flat();
 
-async function mount() {
+/// Gives `scroller` a scrollHeight (jsdom has none): the content's height, which the test grows.
+function content(scroller: HTMLElement, height: number) {
+  const state = { height };
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.height });
+  return state;
+}
+/// One scroll event at `top`, as the browser sends it.
+const scrollTo = (scroller: HTMLElement, top: number) =>
+  act(async () => {
+    scroller.scrollTop = top;
+    scroller.dispatchEvent(new dom.window.Event("scroll"));
+  });
+
+async function mount(after: AcpmuxRow[] = []) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -158,6 +145,7 @@ async function mount() {
       version: reply.length,
       streaming,
     };
+    rows.push(...after);
     return act(async () =>
       root.render(
         <VirtualTranscript
@@ -221,13 +209,18 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     expect(placeholder).not.toBeNull();
     const size = placeholder.style.cssText;
     const atStart = pane.draws();
+    // The view is at the end, following the reply.
+    const page = content(scroller, 60_000);
+    await scrollTo(scroller, page.height - VIEWPORT);
     const boxAtStart = box.style.transform;
     for (let token = 0; token < 200; token += 1) {
       reply += token % 20 ? ` word${token}` : `\n\nParagraph ${token}.`;
       await pane.render(reply, true);
-      // The transcript follows the reply down: no person's input, so the box stays.
-      scroller.scrollTop = 1000 + token * 10;
-      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      // The transcript follows the reply down, right after the person touched the wheel too: that
+      // follow is the transcript's own, so the box stays.
+      if (token === 100) scroller.dispatchEvent(new dom.window.Event("wheel"));
+      page.height += 20;
+      await scrollTo(scroller, page.height - VIEWPORT);
       await act(async () => flushFrames());
     }
     await act(async () => new Promise((resolve) => setTimeout(resolve, REDRAW_MS + 20)));
@@ -236,12 +229,9 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     expect(box.style.transform).toBe(boxAtStart);
     expect(placeholder.style.cssText).toBe(size);
 
-    // The person scrolls during the stream: the box follows, still with no draw.
-    await act(async () => {
-      scroller.dispatchEvent(new dom.window.Event("wheel"));
-      scroller.scrollTop = 4000;
-      scroller.dispatchEvent(new dom.window.Event("scroll"));
-    });
+    // The person scrolls up during the stream (by trackpad, scrollbar or Find: any scroll away from
+    // the end): the box follows, still with no draw.
+    await scrollTo(scroller, 4000);
     expect(box.style.transform).not.toBe(boxAtStart);
     expect(pane.draws()).toBe(atStart);
 
@@ -284,6 +274,50 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
       );
     });
     expect(scroller.scrollTop).toBeGreaterThan(10_000);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("a streaming reply with many rows after it (queued prompts, notes) still freezes the minimap", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  // Twelve queued prompts after the live reply: past any fixed look-back window.
+  const queued = Array.from({ length: 12 }, (_, index) => row(`queued-${index}`, "user", `Later ${index}`));
+  const pane = await mount(queued);
+  try {
+    let reply = "Streaming";
+    await pane.render(reply, true);
+    await act(async () => flushFrames());
+    const minimap = pane.host.querySelector(".acpmux-chat-minimap")!;
+    expect(minimap.querySelector(".acpmux-chat-minimap__placeholder")).not.toBeNull();
+    const atStart = pane.draws();
+    for (let token = 0; token < 40; token += 1) {
+      reply += `\n\nParagraph ${token}.`;
+      await pane.render(reply, true);
+      await act(async () => flushFrames());
+    }
+    await act(async () => new Promise((resolve) => setTimeout(resolve, REDRAW_MS + 20)));
+    await act(async () => flushFrames());
+    expect(pane.draws()).toBe(atStart);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("Full Width or a column too wide for the right gutter: no minimap over the text", async () => {
+  const pane = await mount();
+  try {
+    setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    expect(pane.host.querySelector(".acpmux-chat-minimap")).not.toBeNull();
+    for (const look of [{ "agentPane.display.fullWidth": true }, { "agentPane.display.width": 1000 }]) {
+      await act(async () => setChatDisplay({ "agentPane.display.vscodeMinimap": true, ...look }));
+      await pane.render("Done.");
+      expect(pane.host.querySelector(".acpmux-chat-minimap")).toBeNull();
+    }
   } finally {
     await pane.done();
     setChatDisplay({});

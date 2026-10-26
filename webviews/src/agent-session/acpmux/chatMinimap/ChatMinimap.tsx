@@ -5,11 +5,13 @@
 // in a task posted after a frame. While a reply streams it is frozen (Leo, 2026-10-26: "Just don't have
 // it do anything when a reply is streaming"): the rows above the reply draw once, the reply's place is
 // a placeholder with a shimmer (chatMinimap.css), and it draws once when the reply ends. The box then
-// follows only the person's own scrolling. Every listener, observer and timer goes on unmount.
+// moves only for the person's own scrolling, never for the transcript following the reply. Every listener, observer and timer goes on unmount.
 import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
-import { useChatMinimap } from "../chatDisplay";
+import { useChatDisplay, useChatMinimap } from "../chatDisplay";
+import { chatColumnOf, useChatWidth } from "../chatWidth";
+import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 import {
@@ -21,6 +23,7 @@ import {
   minimapScale,
   minimapView,
   paintMinimap,
+  streamingRow,
   type MinimapColors,
 } from "./paint";
 import "./chatMinimap.css";
@@ -30,16 +33,14 @@ export const REDRAW_MS = 250;
 /// A scroll rests this long before rows measured while it moved draw (at most SCROLL_MAX_WAIT_MS late).
 const SCROLL_REST_MS = 150;
 const SCROLL_MAX_WAIT_MS = 1000;
-/// While a reply streams, a scroll this soon after the person's own input is theirs; others follow the reply.
-const INPUT_MS = 600;
+/// The transcript follows the reply when it sits this close to its end (App.tsx keeps 4 px).
+const LATEST_PX = 8;
 /// The placeholder is never thinner than this, so a reply that just started still shows.
 const MIN_PLACEHOLDER = 12;
 const KEY_STEP = 40;
 const PAGE_OVERLAP = 40;
 /// A view too short for a useful map (a tiny pane) draws none.
 const MIN_TRACK = 64;
-/// How far back from the last row a streaming reply is looked for.
-const STREAM_TAIL = 8;
 
 type Props = {
   rows: readonly AcpmuxRow[];
@@ -52,28 +53,27 @@ type Props = {
   /// The pane's width, for the right gutter.
   width: number;
   scrolls: boolean;
+  /// Where these rows first differ from the last render's (App.tsx rowsChange), if the transcript knows.
+  change?: RowsChange;
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: ConversationLayout };
-
-/// The streaming reply's row, or -1: a look at the last few rows, not all of them.
-export function streamingRow(rows: readonly AcpmuxRow[]): number {
-  for (let index = rows.length - 1; index >= Math.max(0, rows.length - STREAM_TAIL); index -= 1)
-    if (rows[index]!.streaming && rows[index]!.kind === "assistant") return index;
-  return -1;
-}
 
 /// Draws nothing unless the setting is on and the right gutter has room for it.
 export function ChatMinimap(props: Props) {
   const on = useChatMinimap();
   const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
-  const room = transcriptColumn(props.width).inset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE;
+  // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
+  const column = chatColumnOf(useChatWidth(), useChatDisplay());
+  const room = transcriptColumn(props.width, column).inset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE;
   // The rows reach the map through a ref: a token renders nothing in it.
   const source = useRef<Source>({ rows: props.rows, layout: props.layout });
   source.current = { rows: props.rows, layout: props.layout };
   const changed = useRef<(() => void) | undefined>(undefined);
   const { rows, layout } = props;
   useEffect(() => changed.current?.(), [rows, layout]);
-  const streaming = streamingRow(rows);
+  const found = useRef<{ rows: readonly AcpmuxRow[]; index: number } | undefined>(undefined);
+  const streaming = streamingRow(rows, found.current, props.change);
+  found.current = { rows, index: streaming };
   if (!on || !room || !props.scrolls || track < MIN_TRACK) return null;
   return (
     <Minimap
@@ -90,11 +90,7 @@ export function ChatMinimap(props: Props) {
 /// The theme's inks: the canvas's computed colors, which chatMinimap.css maps to the chat's tokens.
 function readColors(canvas: HTMLCanvasElement): MinimapColors {
   const style = getComputedStyle(canvas);
-  return {
-    reply: style.color,
-    prompt: style.borderTopColor,
-    tool: style.borderBottomColor,
-  };
+  return { reply: style.color, prompt: style.borderTopColor, tool: style.borderBottomColor }; // prettier-ignore
 }
 
 const Minimap = memo(function Minimap({
@@ -121,23 +117,14 @@ const Minimap = memo(function Minimap({
   const [hold, setHold] = useState<{ top: number; height: number } | undefined>(undefined);
   const live = useRef({ viewportHeight, track, streaming });
   live.current = { viewportHeight, track, streaming };
+  // What is drawn; `atLatest`: while a reply streams, whether the view box was last put at the end.
+  // prettier-ignore
   const drawn = useRef({
-    scale: 0,
-    draws: 0,
-    at: -Infinity,
-    colors: undefined as MinimapColors | undefined,
-    painted: undefined as Source | undefined,
-    boxHeight: "",
-    transform: "",
-    scrolledAt: -Infinity,
-    inputAt: -Infinity,
+    scale: 0, draws: 0, at: -Infinity, colors: undefined as MinimapColors | undefined,
+    painted: undefined as Source | undefined, boxHeight: "", transform: "", scrolledAt: -Infinity, atLatest: false,
   });
-  const pending = useRef({
-    frame: 0,
-    timer: 0 as ReturnType<typeof setTimeout> | 0,
-    post: 0 as ReturnType<typeof setTimeout> | 0,
-    sized: false,
-  });
+  type Timer = ReturnType<typeof setTimeout> | 0;
+  const pending = useRef({ frame: 0, timer: 0 as Timer, post: 0 as Timer, sized: false });
 
   // The view box follows the scroll by transform alone, written only when its rounded value changes.
   const [placeView] = useState(() => () => {
@@ -277,14 +264,17 @@ const Minimap = memo(function Minimap({
       schedule(true);
     };
     const resize = () => schedule(false);
-    const input = () => {
-      drawn.current.inputAt = performance.now();
-    };
     const scrolled = () => {
-      const now = performance.now();
-      // While a reply streams, only the person's own scrolling moves the box.
-      if (live.current.streaming >= 0 && now - drawn.current.inputAt > INPUT_MS) return;
-      drawn.current.scrolledAt = now;
+      const record = drawn.current;
+      // While a reply streams, the transcript following it (its end, as the reply grows) leaves the box
+      // where it was put when it reached the end; a scroll away from the end is the person's own, as
+      // the transcript scrolls by itself only while it follows.
+      if (live.current.streaming >= 0 && node) {
+        const atLatest = node.scrollHeight - node.clientHeight - node.scrollTop <= LATEST_PX;
+        if (atLatest && record.atLatest) return;
+        record.atLatest = atLatest;
+      } else record.atLatest = false;
+      record.scrolledAt = performance.now();
       placeView();
     };
     const theme = new MutationObserver(recolor);
@@ -293,13 +283,10 @@ const Minimap = memo(function Minimap({
       attributeFilter: ["class", "style", "data-theme"],
     });
     window.addEventListener("resize", resize);
-    const inputs = ["wheel", "keydown", "touchstart", "pointerdown"] as const;
-    for (const kind of inputs) node?.addEventListener(kind, input, { passive: true });
     node?.addEventListener("scroll", scrolled, { passive: true });
     return () => {
       theme.disconnect();
       window.removeEventListener("resize", resize);
-      for (const kind of inputs) node?.removeEventListener(kind, input);
       node?.removeEventListener("scroll", scrolled);
       if (state.frame) cancelAnimationFrame(state.frame);
       if (state.timer) clearTimeout(state.timer);
@@ -316,7 +303,6 @@ const Minimap = memo(function Minimap({
     const scale = drawn.current.scale;
     if (!node || scale <= 0) return;
     stopScroll(node);
-    drawn.current.inputAt = performance.now();
     node.scrollTop = Math.max(0, y / scale - grab);
   };
   const press = useRef<{ pointer: number; grab: number } | undefined>(undefined);
@@ -385,7 +371,6 @@ const Minimap = memo(function Minimap({
           if (delta === undefined) return;
           event.preventDefault();
           stopScroll(node);
-          drawn.current.inputAt = performance.now();
           node.scrollTop = Math.max(0, node.scrollTop + delta);
         }}
       >
