@@ -189,10 +189,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func observe() {
         // One mapping now (the first frame), tracked; the observation brings the later ones, each
-        // with the cause of its changes. `applyCurrent` applies outside it too; `apply` compares
-        // with what it applied.
-        let observation = LayoutTreeObservation(workspace, causes: services.mainWork.causes,
-                                                raisesCause: layoutModel.automationBurst != nil) { [weak self] result, cause in
+        // with the cause of its changes, as a task in that cause's class (an agent's tree change
+        // in the automation class). `applyCurrent` applies outside it too; `apply` compares with
+        // what it applied.
+        let observation = LayoutTreeObservation(workspace, on: services.mainWork) { [weak self] result, cause in
             self?.apply(result, cause: cause)
         }
         self.observation = observation
