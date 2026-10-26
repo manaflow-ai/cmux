@@ -5,8 +5,9 @@ import Testing
 /// ``AsyncMemoryConsumerRegistration`` (a port of Chrome's
 /// base/memory_coordinator/async_memory_consumer_registration.h): a consumer on its own actor gets
 /// the registry's calls on that actor, a registration dropped before the hop runs is never called,
-/// and the main actor pays one enqueue per slice whatever the registry calls in it.
-@MainActor @Suite struct AsyncMemoryConsumerRegistrationTests {
+/// and the main actor pays one enqueue per slice whatever the registry calls in it. The time limit
+/// turns a lost delivery into a failure instead of a hung `for await`.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct AsyncMemoryConsumerRegistrationTests {
     @Test func aConsumerOnItsOwnActorGetsBothCallsOnThatActor() async {
         let registry = RecordingRegistry(limit: MemoryLimit(percent: 50))
         let consumer = QueueActorConsumer(entries: 10)
@@ -84,8 +85,63 @@ import Testing
         consumer = nil
 
         #expect(weakConsumer == nil, "the registration kept its consumer alive")
+        #expect(registration?.entry.isLive == false, "a gone consumer's entry stayed live")
         await hops.runAll()
         #expect(registration?.entry.liveConsumer?.memoryUsage == nil)
+    }
+
+    @Test func aConsumerThatWentAfterItsFirstCallIsNoLongerLiveOrReported() async {
+        let hops = HopRecorder()
+        let registry = RecordingRegistry(limit: .default)
+        var consumer: MutexConsumer? = MutexConsumer(entries: 8)
+        weak let weakConsumer = consumer
+        let registration = consumer.map { Self.register($0, in: registry, hop: hops.hop) }
+        await hops.runAll()
+        #expect(registration?.entry.liveConsumer?.memoryUsage == MemoryUsage(footprintBytes: 8 * 1024, entries: 8))
+
+        consumer = nil
+        #expect(weakConsumer == nil, "the registration kept its consumer alive")
+        #expect(registration?.entry.isLive == false, "a gone consumer's entry stayed live")
+        #expect(registration?.entry.liveConsumer?.memoryUsage == nil, "a gone consumer still reported its last usage")
+        #expect(registry.live.isEmpty, "the registry kept a gone consumer's entry")
+        registry.push(.criticalThreshold)
+        #expect(hops.pending == 0, "a gone consumer still got a delivery")
+        withExtendedLifetime(registration) {}
+    }
+
+    @Test func aCancelDuringACallDropsThePendingCallAndTheCallsResult() async {
+        let hops = HopRecorder()
+        let registry = RecordingRegistry(limit: MemoryLimit(percent: 50))
+        let consumer = GatedConsumer()
+        let registration = Self.register(consumer, in: registry, hop: hops.hop)
+        let delivery = Task { await hops.runAll() }
+        for await _ in consumer.entered { break }
+
+        _ = registration.entry.liveConsumer?.releaseMemory(within: Self.slice(.criticalThreshold))
+        #expect(hops.pending == 0, "a call during a delivery posted a second one")
+        registration.cancel()
+        await consumer.open()
+        await delivery.value
+
+        #expect(await consumer.calls == [.update(MemoryLimit(percent: 50))], "a pending call reached a cancelled consumer")
+        #expect(registration.entry.liveConsumer == nil)
+        registry.push(.default)
+        #expect(hops.pending == 0, "a cancelled registration still posted a delivery")
+    }
+
+    @Test func aRegistrationReleasedOffTheMainThreadIsNoLongerCalled() async {
+        let hops = HopRecorder()
+        let registry = RecordingRegistry(limit: .default)
+        let consumer = MutexConsumer(entries: 4)
+        let box = AsyncRegistrationBox(Self.register(consumer, in: registry, hop: hops.hop))
+        let entry = box.entry
+        await Task.detached(priority: .utility) { box.release() }.value
+
+        #expect(entry.isLive == false)
+        await hops.runAll()
+        registry.push(.criticalThreshold)
+        #expect(consumer.calls.isEmpty, "a consumer released off main still got a call")
+        #expect(hops.pending == 0, "a consumer released off main still got a delivery")
     }
 
     @Test func aMainSliceCostsOneEnqueueAndTheConsumerGetsTheNewestLimitInOrder() async {
@@ -205,6 +261,53 @@ nonisolated final class MutexConsumer: AsyncMemoryConsumer {
             state.entries = min(state.entries, limit.scale(full))
             return MemoryUsage(footprintBytes: state.entries * 1024, entries: state.entries)
         }
+    }
+}
+
+/// An actor whose first update waits inside the call until the test opens it.
+private actor GatedConsumer: AsyncMemoryConsumer {
+    nonisolated let entered: AsyncStream<Void>
+    private let enteredContinuation: AsyncStream<Void>.Continuation
+    private var gate: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    private(set) var calls: [MutexConsumer.Call] = []
+
+    init() {
+        (entered, enteredContinuation) = AsyncStream.makeStream(of: Void.self)
+    }
+
+    func updateMemoryLimit(_ limit: MemoryLimit) async -> MemoryUsage? {
+        calls.append(.update(limit))
+        enteredContinuation.yield()
+        if !isOpen { await withCheckedContinuation { gate = $0 } }
+        return MemoryUsage(footprintBytes: 1024, entries: 1)
+    }
+
+    func releaseMemory(downTo limit: MemoryLimit) async -> MemoryUsage? {
+        calls.append(.release(limit))
+        return MemoryUsage(footprintBytes: 0, entries: 0)
+    }
+
+    /// Lets the waiting call (and every later one) return.
+    func open() {
+        isOpen = true
+        gate?.resume()
+        gate = nil
+    }
+}
+
+/// Holds the only reference to an async registration so another thread can release it.
+nonisolated final class AsyncRegistrationBox: Sendable {
+    private let registration: Mutex<AsyncMemoryConsumerRegistration?>
+    let entry: MemoryConsumerEntry
+
+    @MainActor init(_ registration: AsyncMemoryConsumerRegistration) {
+        entry = registration.entry
+        self.registration = Mutex(registration)
+    }
+
+    func release() {
+        registration.withLock { $0 = nil }
     }
 }
 

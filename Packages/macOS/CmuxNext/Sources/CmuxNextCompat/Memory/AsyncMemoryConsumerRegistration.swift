@@ -11,7 +11,9 @@
 ///
 /// The registration holds the consumer weakly and takes a strong reference only for the length of
 /// one call. Cancelling or releasing it, on any thread, stops the registry's calls and drops every
-/// delivery not yet handed to the consumer.
+/// pending call; a call a running delivery already took may still reach the consumer once, and its
+/// result is not kept (Chrome cancels on the consumer's own sequence; here cancel runs on any
+/// thread). When the consumer itself goes, its entry stops being live and leaves the report.
 ///
 /// ```swift
 /// thumbnailsRegistration = AsyncMemoryConsumerRegistration(
@@ -40,9 +42,12 @@ public final class AsyncMemoryConsumerRegistration {
         registry: any MemoryConsumerRegistry,
         hop: AsyncMemoryConsumerHop = .task
     ) {
-        link = AsyncMemoryConsumerLink(consumer: consumer, hop: hop)
-        forwarder = AsyncMemoryConsumerForwarder(link: link)
-        entry = MemoryConsumerEntry(name: name, traits: traits, consumer: forwarder)
+        let link = AsyncMemoryConsumerLink(consumer: consumer, hop: hop)
+        let forwarder = AsyncMemoryConsumerForwarder(link: link)
+        self.link = link
+        self.forwarder = forwarder
+        entry = MemoryConsumerEntry(
+            name: name, traits: traits, consumer: forwarder, reachable: { link.isConsumerAlive })
         registry.addMemoryConsumer(entry)
     }
 

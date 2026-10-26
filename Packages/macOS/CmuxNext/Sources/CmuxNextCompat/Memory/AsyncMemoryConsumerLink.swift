@@ -66,6 +66,7 @@ final class AsyncMemoryConsumerLink: Sendable {
                 pendingUpdate = false
                 pendingRelease = false
                 delivering = false
+                if self.consumer == nil { lastUsage = nil }
                 return nil
             }
             if pendingUpdate {
@@ -74,6 +75,16 @@ final class AsyncMemoryConsumerLink: Sendable {
             }
             pendingRelease = false
             return .release(consumer, limit)
+        }
+
+        /// Keeps what a call returned, unless the consumer was cancelled or went during the call.
+        mutating func record(_ usage: MemoryUsage?) {
+            lastUsage = consumer == nil ? nil : usage
+        }
+
+        /// What the consumer last returned, or nil when it is gone.
+        var currentUsage: MemoryUsage? {
+            consumer == nil ? nil : lastUsage
         }
     }
 
@@ -91,14 +102,25 @@ final class AsyncMemoryConsumerLink: Sendable {
         if start { hop { await self.deliver() } }
     }
 
-    /// What the consumer returned from its last call, or nil before its first.
+    /// What the consumer returned from its last call, or nil before its first and once it is gone
+    /// (cancelled or deallocated), so a dead consumer never reports its old footprint.
     var lastUsage: MemoryUsage? {
-        state.withLock { $0.lastUsage }
+        state.withLock { $0.currentUsage }
     }
 
-    /// Forgets the consumer: no call starts after this returns.
+    /// Whether the consumer still exists and the link was not cancelled.
+    var isConsumerAlive: Bool {
+        state.withLock { $0.consumer != nil }
+    }
+
+    /// Forgets the consumer and its last usage. Every pending call is dropped; a call a running
+    /// delivery already took may still reach the consumer once (it holds the consumer strongly for
+    /// that call), and its result is not kept.
     func cancel() {
-        state.withLock { $0.consumer = nil }
+        state.withLock { state in
+            state.consumer = nil
+            state.lastUsage = nil
+        }
     }
 
     private func deliver() async {
@@ -108,7 +130,7 @@ final class AsyncMemoryConsumerLink: Sendable {
             case .update(let consumer, let limit): usage = await consumer.updateMemoryLimit(limit)
             case .release(let consumer, let limit): usage = await consumer.releaseMemory(downTo: limit)
             }
-            state.withLock { $0.lastUsage = usage }
+            state.withLock { $0.record(usage) }
         }
     }
 }
