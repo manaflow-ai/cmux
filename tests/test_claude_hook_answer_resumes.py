@@ -52,10 +52,36 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
         self.assertEqual(stored_lifecycle(self.state, self.session), "running")
 
     def invoke(self, command, **fields):
+        start = len(self.server.commands)
         run_claude_hook(
             self.cli, self.server.socket_path, command,
             {**self.payload, **fields}, self.env,
         )
+        self.server.drain()
+        self.last_commands = self.server.commands[start:]
+
+    def feed_events(self):
+        """Return app Feed events emitted by the most recent hook invocation."""
+        requests = [json.loads(line) for line in self.last_commands if line.startswith("{")]
+        return [request["params"]["event"] for request in requests
+                if request.get("method") == "feed.push"]
+
+    def assert_no_completion_effects(self):
+        self.assertEqual(self.feed_events(), [])
+        self.assertFalse(any(line.startswith(("agent_journal_append ", "set_status ",
+                                              "clear_notifications "))
+                             for line in self.last_commands), self.last_commands)
+
+    def assert_completion_effects(self):
+        events = self.feed_events()
+        self.assertEqual(len(events), 1, events)
+        self.assertEqual(events[0]["hook_event_name"], "PostToolUse")
+        journals = [json.loads(line.removeprefix("agent_journal_append "))
+                    for line in self.last_commands if line.startswith("agent_journal_append ")]
+        self.assertTrue(any(event.get("native_event") == "PostToolUse"
+                            and event.get("declared_phase") == "running" for event in journals), journals)
+        self.assertTrue(any(line.startswith("set_status claude_code ")
+                            and "--icon=bolt.fill" in line for line in self.last_commands), self.last_commands)
 
     def block(self, tool):
         self.invoke(
@@ -71,11 +97,13 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
         self.block("AskUserQuestion")
         self.complete("AskUserQuestion")
         self.assertEqual(stored_lifecycle(self.state, self.session), "running")
+        self.assert_completion_effects()
 
     def test_plan_completion_resumes(self):
         self.block("ExitPlanMode")
         self.complete("ExitPlanMode")
         self.assertEqual(stored_lifecycle(self.state, self.session), "running")
+        self.assert_completion_effects()
 
     def test_unrelated_completion_preserves_waiting(self):
         self.block("AskUserQuestion")
@@ -83,6 +111,7 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
         self.complete("Read")
         self.assertEqual(stored_lifecycle(self.state, self.session), "needsInput")
         self.assertEqual(self.state.read_bytes(), before)
+        self.assert_no_completion_effects()
 
     def test_late_completion_does_not_reopen_stopped_turn(self):
         for tool in ("AskUserQuestion", "ExitPlanMode"):
@@ -96,6 +125,7 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
                 before = self.state.read_bytes()
                 self.complete(tool)
                 self.assertEqual(self.state.read_bytes(), before)
+                self.assert_no_completion_effects()
 
     def test_stale_turn_completion_preserves_waiting(self):
         self.block("AskUserQuestion")
@@ -105,6 +135,7 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
             tool_name="AskUserQuestion", turn_id="superseded-turn",
         )
         self.assertEqual(self.state.read_bytes(), before)
+        self.assert_no_completion_effects()
         self.complete("AskUserQuestion")
         self.assertEqual(stored_lifecycle(self.state, self.session), "running")
 
@@ -114,6 +145,20 @@ class ClaudeHookAnswerResumesTests(unittest.TestCase):
         self.env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
         self.complete("AskUserQuestion")
         self.assertEqual(self.state.read_bytes(), before)
+        self.assert_no_completion_effects()
+
+    def test_superseded_session_completion_preserves_waiting(self):
+        old_session = self.session
+        self.session = str(uuid.uuid4())
+        self.payload["session_id"] = self.session
+        self.invoke("session-start", source="clear")
+        self.invoke("prompt-submit")
+        self.block("AskUserQuestion")
+        before = self.state.read_bytes()
+        self.invoke("post-tool-use", hook_event_name="PostToolUse",
+                    tool_name="AskUserQuestion", session_id=old_session)
+        self.assertEqual(self.state.read_bytes(), before)
+        self.assert_no_completion_effects()
 
     def test_generated_settings_register_queued_completions(self):
         result = subprocess.run(
