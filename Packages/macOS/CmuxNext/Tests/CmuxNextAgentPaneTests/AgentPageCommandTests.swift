@@ -2,8 +2,8 @@ import CmuxNextActions
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The chat header's toggles in the palette (``AgentPageCommand``): available only where the page
-/// lists them, honest about why not, and never run by automation that did not ask for focus.
+/// The chat header's toggles in the palette (``AgentPageCommand``): run only where the target chat's
+/// page lists them, honest about why not, and never run by automation that did not ask for focus.
 @Suite(.serialized)
 @MainActor
 struct AgentPageCommandTests {
@@ -26,20 +26,27 @@ struct AgentPageCommandTests {
         for command in AgentPageCommand.allCases {
             #expect(registry.descriptor(for: ActionID(command)) != nil, "\(command)")
         }
-        let bound = registry.bindAgentPageCommands(available: { [] }, run: { _, _ in })
+        let bound = registry.bindAgentPageCommands(available: { _ in [] }, run: { _, _ in })
         #expect(bound)
     }
 
-    @Test func aCommandThePageDoesNotOfferIsUnavailableWithItsReason() {
+    @Test func aCommandTheTargetPageDoesNotOfferRefusesWithItsReason() {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         var ran: [AgentPageCommand] = []
-        registry.bindAgentPageCommands(available: { ["toggleSideTabs"] }, run: { command, _ in ran.append(command) })
-        #expect(registry.unavailableReason(for: "agentPane.toggleFiles") == "Toggle Files Beside Chat isn't available in this chat.")
-        #expect(registry.unavailableReason(for: "agentPane.toggleSideTabs") == nil)
-        registry.perform("agentPane.toggleFiles", invocation: ActionInvocation(origin: .cli, focusRequested: true))
+        // Pane "b" offers the side tabs; the focused pane (no target) offers nothing.
+        registry.bindAgentPageCommands(available: { invocation in
+            invocation.target?.id == "b" ? ["toggleSideTabs"] : []
+        }, run: { command, _ in ran.append(command) })
+        let focused = ActionInvocation(origin: .cli, focusRequested: true)
+        let paneB = ActionInvocation(target: ActionTargetRef(kind: .pane, id: "b"), origin: .cli, focusRequested: true)
+        #expect(ActionTargetReasons.reason(for: "agentPane.toggleFiles", invocation: paneB, in: registry)
+            == "Toggle Files Beside Chat isn't available in this chat.")
+        #expect(ActionTargetReasons.reason(for: "agentPane.toggleSideTabs", invocation: paneB, in: registry) == nil)
+        let refusal = registry.capturingRefusal { registry.perform("agentPane.toggleSideTabs", invocation: focused) }
+        #expect(refusal == "Toggle Tabs Beside Chat isn't available in this chat.")
         #expect(ran.isEmpty)
-        registry.perform("agentPane.toggleSideTabs", invocation: ActionInvocation(origin: .cli, focusRequested: true))
+        registry.perform("agentPane.toggleSideTabs", invocation: paneB)
         #expect(ran == [.toggleSideTabs])
     }
 
@@ -47,7 +54,7 @@ struct AgentPageCommandTests {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         var ran: [AgentPageCommand] = []
-        registry.bindAgentPageCommands(available: { Set(AgentPageCommand.allCases.map(\.rawValue)) }, run: { command, _ in ran.append(command) })
+        registry.bindAgentPageCommands(available: { _ in Set(AgentPageCommand.allCases.map(\.rawValue)) }, run: { command, _ in ran.append(command) })
         let refusal = registry.capturingRefusal {
             registry.perform("agentPane.togglePreview", invocation: ActionInvocation(origin: .cli))
         }

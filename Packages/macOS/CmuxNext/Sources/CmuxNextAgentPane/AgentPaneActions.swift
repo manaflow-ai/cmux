@@ -35,24 +35,29 @@ public enum AgentPageCommand: String, CaseIterable, Sendable {
 }
 
 extension ActionRegistry {
-    /// Binds every ``AgentPageCommand``. `available` is the focused agent chat's page commands (nil
-    /// when no agent chat has the keyboard: `run` refuses then); a command the page does not list is
-    /// unavailable, with the reason, and one run by automation without a focus request refuses.
+    /// Binds every ``AgentPageCommand``. `available` is the page commands of the agent chat the
+    /// invocation resolves to (its target, else the focused pane; nil when it is no agent chat: `run`
+    /// refuses then). A command that page does not list refuses with the reason, checked for the
+    /// run's own target (``ActionTargetReasons``), and one run by automation without a focus request
+    /// refuses too.
     @discardableResult
     public func bindAgentPageCommands(
-        available: @escaping @MainActor () -> Set<String>?,
+        available: @escaping @MainActor (ActionInvocation) -> Set<String>?,
         run: @escaping @MainActor (AgentPageCommand, ActionInvocation) -> Void
     ) -> Bool {
         AgentPageCommand.allCases.map { command in
-            let title = descriptor(for: ActionID(command))?.title ?? command.rawValue
-            return bindEffect(ActionID(command), unavailable: {
-                guard let commands = available(), !commands.contains(command.rawValue) else { return nil }
-                return AgentPaneView.pageCommandUnavailable(title)
-            }, effect: { invocation in
+            let id = ActionID(command)
+            let title = descriptor(for: id)?.title ?? command.rawValue
+            let bound = bindEffect(id, effect: { invocation in
                 guard ActionRunScope.viewChangeAllowed() else { return .refused(AgentPaneView.pageCommandNeedsFocus(title)) }
                 run(command, invocation)
                 return .done
             })
+            ActionTargetReasons.set(id, in: self) { invocation in
+                guard let commands = available(invocation), !commands.contains(command.rawValue) else { return nil }
+                return AgentPaneView.pageCommandUnavailable(title)
+            }
+            return bound
         }.allSatisfy(\.self)
     }
 

@@ -8376,10 +8376,12 @@ function AcpmuxPane() {
     commands.togglePreview = () => togglePreview(previewUrl);
   paletteCommands.current = commands;
   const commandNames = Object.keys(commands).sort().join(" ");
+  // Again on every connection: the host's handshake (a reconnect's too) forgets the list.
   useEffect(() => {
+    if (!connected) return;
     const available = commandNames ? commandNames.split(" ") : [];
     void callNative("pane.commandAvailability", { commands: available }).catch(() => undefined);
-  }, [commandNames, snapshot.sessionId]);
+  }, [commandNames, snapshot.sessionId, connected]);
   diffBeside.current = async (rowId, path) => {
     // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
     if (quick || !localCwd) return false;

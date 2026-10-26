@@ -107,11 +107,13 @@ enum AgentHandlers {
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
-        registry.bindAgentPageCommands(available: {
+        registry.bindAgentPageCommands(available: { invocation in
             // Read only: no refusal while the palette asks whether a row is enabled.
-            let scope = context.scope()
-            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey else { return nil }
-            return context.services.agentTabs.existingView(key)?.model.pageCommands
+            let scope = context.scope(invocation)
+            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey,
+                  let model = context.services.agentTabs.existingView(key)?.model else { return nil }
+            // The New Tab page runs none of the chat's controls.
+            return model.newTab == nil ? model.pageCommands : []
         }, run: { command, invocation in
             focusedAgentView(context, invocation)?.run(command)
         })
