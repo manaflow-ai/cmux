@@ -192,7 +192,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "publish" and not args.expect_asset and args.expect_count is None:
         parser.error("publish needs --expect-asset or --expect-count")
-    client = publisher.GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
+    # GH_APP_TOKEN first when the step passes one, GH_TOKEN as its fallback.
+    client = publisher.client_from_env(args.repo)
     (publish if args.command == "publish" else download)(client, args)
     return 0
 
