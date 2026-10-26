@@ -1310,11 +1310,14 @@ repositories.
   and released after false; a sink with input in the last 1 s is not throttled; a renderer's leeway is 32 ms in saver.
 - Test phase: fork CI build (136); idle-budget energy-saver: anim page rAF <= 31/s; D8 Chromium scroll at 120 Hz.
 - Size M. Queue fork.
-- Fork ref: manaflow-ai/cef `cp/p14-energy-029` (d4a57ab4, on 124's `cp/p14-energy-124`), with no API number (136
+- Fork ref: manaflow-ai/cef `cp/p14-energy-029` (11649d01, on 124's `cp/p14-energy-124`), with no API number (136
   numbers it). Files follow the fork layout: `libcef/browser/cmux/cmux_energy_saver.{h,cc}`, the BUILD.gn entry, and
   one call in `CefBrowserContentsDelegate::ObserveWebContents` that watches every CEF page. Throttling is per page
   (`UpdateThrottlingFrameSinks` on the primary main frame; viz throttles the sinks embedded in it, so input in any
-  widget of a page releases the whole page). Embedder test: `scripts/test-cmux-embedder.sh energy-saver`.
+  widget of a page releases the whole page). `cmux_battery_saver_embedder_owned.patch` gives Chrome's
+  `BatterySaverModeManager` no provider, so Chrome's battery saver never turns on and cmux's saver is the only writer of
+  the frame sink throttle, the wake-up leeway and the child process mode. Embedder test:
+  `scripts/test-cmux-embedder.sh energy-saver`, run with Chrome's battery saver pref set to always on.
 
 #### p14-energy-030 Shim and Swift binding for the saver fork API
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/shim_process.mm`,
