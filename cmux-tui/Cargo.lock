@@ -1552,6 +1552,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-panic-log",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -1629,6 +1630,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-wg",
  "getrandom 0.3.4",
@@ -1666,6 +1668,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "tokio",
 ]
 
 [[package]]

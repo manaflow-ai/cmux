@@ -209,8 +209,14 @@ fn remote_runtime_worker_count() -> usize {
 }
 
 fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Runtime> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder.worker_threads(remote_runtime_worker_count()).thread_name(thread_name).enable_all();
+    // Remote clients' terminal traffic and requests run here: the person
+    // waits on them.
+    let mut builder = cmux_threads::tokio::builder(
+        thread_name,
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    );
+    builder.worker_threads(remote_runtime_worker_count());
     crate::owner_start::poll_watch_lab::instrument(&mut builder);
     builder.build().context("could not start remote Tokio runtime")
 }
@@ -646,7 +652,8 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            let result =
+                cmux_threads::tokio::block_on(&runtime, run_client(options, shutdown_rx, ready_tx));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
@@ -2053,16 +2060,19 @@ fn start_daemon_runtime_with_timeout(
             // every return path including a failed runtime build.
             let _finished = FinishedSignal(thread_finished);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
-            let result = runtime.block_on(run_daemon(
-                mux_socket,
-                options,
-                state_dir,
-                link_socket,
-                admin_socket,
-                shutdown_rx,
-                owner_shutdown,
-                ready_tx,
-            ));
+            let result = cmux_threads::tokio::block_on(
+                &runtime,
+                run_daemon(
+                    mux_socket,
+                    options,
+                    state_dir,
+                    link_socket,
+                    admin_socket,
+                    shutdown_rx,
+                    owner_shutdown,
+                    ready_tx,
+                ),
+            );
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             result
         })

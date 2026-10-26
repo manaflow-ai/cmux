@@ -19,6 +19,6 @@ cmux-stability = []
 
 [dependencies]
 cmux-panic-log.workspace = true
-cmux-threads.workspace = true
+cmux-threads = { workspace = true, features = ["tokio"] }
 serde_json.workspace = true
 tokio.workspace = true

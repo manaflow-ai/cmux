@@ -5,8 +5,13 @@ use std::time::Duration;
 
 use cmux_threads::blocking::{AllowReason, BlockingCheck, allow_blocking, is_blocking_disallowed};
 
+use cmux_threads::ThreadQos;
+
 use super::*;
 use crate::runtime::ThreadHooks;
+
+/// The thread name of the runtimes these tests build.
+const TEST_RUNTIME: &str = "cmux-blocking-test";
 
 thread_local! {
     /// `Some(false)` lets one test thread exercise the counting path; the
@@ -91,8 +96,10 @@ fn one_parked_worker() -> tokio::runtime::Runtime {
     let hooks = ThreadHooks::new().on_thread_park(move || {
         let _ = parked_tx.try_send(());
     });
-    let runtime =
-        runtime::multi_thread_with(hooks).worker_threads(1).build().expect("build runtime");
+    let runtime = runtime::multi_thread_with(TEST_RUNTIME, ThreadQos::Utility, hooks)
+        .worker_threads(1)
+        .build()
+        .expect("build runtime");
     parked_rx.recv_timeout(Duration::from_secs(10)).expect("the worker parks and the hook runs");
     runtime
 }
@@ -161,7 +168,10 @@ fn compensated_call_marks_nested_wrappers_may_block_then_unconfirms_the_worker()
 
 #[test]
 fn raw_spawn_blocking_is_not_a_worker_and_is_not_counted_compensated() {
-    let runtime = runtime::multi_thread().worker_threads(1).build().expect("build runtime");
+    let runtime = runtime::multi_thread(TEST_RUNTIME, ThreadQos::Utility)
+        .worker_threads(1)
+        .build()
+        .expect("build runtime");
     let (role, routed) = runtime.block_on(async {
         tokio::task::spawn_blocking(|| {
             let role = current_role();
@@ -180,7 +190,10 @@ fn raw_spawn_blocking_is_not_a_worker_and_is_not_counted_compensated() {
 fn multi_thread_driver_stalls_instead_of_compensating() {
     collector();
     let _lenient = Lenient::enter();
-    let runtime = runtime::multi_thread().worker_threads(1).build().expect("build runtime");
+    let runtime = runtime::multi_thread(TEST_RUNTIME, ThreadQos::Utility)
+        .worker_threads(1)
+        .build()
+        .expect("build runtime");
     let before = counts();
     let (sleep_line, role, disallowed) = runtime::block_on(&runtime, async {
         let sleep_line = line!() + 1;
@@ -201,7 +214,10 @@ fn multi_thread_driver_stalls_instead_of_compensating() {
 fn local_set_on_a_multi_thread_driver_records_stalls_and_never_panics() {
     collector();
     let _lenient = Lenient::enter();
-    let runtime = runtime::multi_thread().worker_threads(1).build().expect("build runtime");
+    let runtime = runtime::multi_thread(TEST_RUNTIME, ThreadQos::Utility)
+        .worker_threads(1)
+        .build()
+        .expect("build runtime");
     let local = tokio::task::LocalSet::new();
     let (direct_line, local_task_line) = runtime::block_on(
         &runtime,
@@ -224,7 +240,8 @@ fn local_set_on_a_multi_thread_driver_records_stalls_and_never_panics() {
 
 #[test]
 fn current_thread_stall_panics_in_strict_mode_and_restores_the_thread() {
-    let runtime = runtime::current_thread().build().expect("build runtime");
+    let runtime =
+        runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runtime::block_on(&runtime, async { thread::sleep(Duration::from_millis(1)) });
     }));
@@ -241,7 +258,8 @@ fn current_thread_stall_is_counted_and_recorded_once_per_site() {
     let _lenient = Lenient::enter();
     let path = scratch_file("stall");
     let before = counts();
-    let runtime = runtime::current_thread().build().expect("build runtime");
+    let runtime =
+        runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
     let (read_line, metadata_line, reads) = runtime::block_on(&runtime, async {
         assert_eq!(current_role(), Role::Driver);
         let mut reads = Vec::new();
@@ -273,7 +291,8 @@ fn current_thread_stall_is_counted_and_recorded_once_per_site() {
 #[test]
 fn shutdown_allowance_lets_a_driver_block_without_a_stall() {
     collector();
-    let runtime = runtime::current_thread().build().expect("build runtime");
+    let runtime =
+        runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
     let before = counts();
     // Strict: a stall here would panic.
     let line = runtime::block_on(&runtime, async {
@@ -290,7 +309,8 @@ fn shutdown_allowance_lets_a_driver_block_without_a_stall() {
 
 #[test]
 fn spawn_blocking_may_block_inside_a_current_thread_runtime() {
-    let runtime = runtime::current_thread().build().expect("build runtime");
+    let runtime =
+        runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
     let before = counts();
     let role = runtime::block_on(&runtime, async {
         spawn_blocking(|| {

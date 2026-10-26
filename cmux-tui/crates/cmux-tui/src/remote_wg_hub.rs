@@ -94,7 +94,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     }
     let flags = parse_wg_hub_flags(&args[1..])?;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
-    let async_runtime = tokio_runtime()?;
+    let async_runtime = wg_hub_runtime()?;
     let (net, paths) = start_wireguard_hub_tunnel(
         &async_runtime,
         &flags.config,
@@ -104,25 +104,27 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         },
         WIREGUARD_HUB_START_TIMEOUT,
     )?;
-    async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
-        |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
-    )?;
-    let hub = async_runtime
-        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(Arc::clone(&net), flags.socket))
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-        })?;
+    cmux_threads::tokio::block_on(
+        &async_runtime,
+        net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT),
+    )
+    .map_err(|error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())))?;
+    let hub = cmux_threads::tokio::block_on(
+        &async_runtime,
+        cmux_remote::wireguard_hub::serve_wireguard_hub(Arc::clone(&net), flags.socket),
+    )
+    .map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
+    })?;
     let control = match flags.control {
         Some(path) => Some(
-            async_runtime
-                .block_on(cmux_remote::wireguard_hub_control::serve_hub_control(
-                    net,
-                    Some(paths),
-                    path,
-                ))
-                .map_err(|error| {
-                    anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-                })?,
+            cmux_threads::tokio::block_on(
+                &async_runtime,
+                cmux_remote::wireguard_hub_control::serve_hub_control(net, Some(paths), path),
+            )
+            .map_err(|error| {
+                anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
+            })?,
         ),
         None => None,
     };
@@ -136,23 +138,23 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     }
     println!("{}", serde_json::to_string(&ready)?);
     let _ = io::stdout().flush();
-    async_runtime
-        .block_on(async {
-            if let Some(owner) = owner {
-                tokio::select! {
-                    result = crate::wait_for_shutdown_signal_async() => result,
-                    _ = wait_for_parent_exit(owner) => Ok(()),
-                }
-            } else {
-                crate::wait_for_shutdown_signal_async().await
+    cmux_threads::tokio::block_on(&async_runtime, async {
+        if let Some(owner) = owner {
+            tokio::select! {
+                result = crate::wait_for_shutdown_signal_async() => result,
+                _ = wait_for_parent_exit(owner) => Ok(()),
             }
-        })
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
-        })?;
+        } else {
+            crate::wait_for_shutdown_signal_async().await
+        }
+    })
+    .map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
+    })?;
     // Stop both even when the first fails; report the first failure.
-    let control = control.map(|control| async_runtime.block_on(control.shutdown()));
-    let hub = async_runtime.block_on(hub.shutdown());
+    let control =
+        control.map(|control| cmux_threads::tokio::block_on(&async_runtime, control.shutdown()));
+    let hub = cmux_threads::tokio::block_on(&async_runtime, hub.shutdown());
     for result in [control.unwrap_or(Ok(())), hub] {
         result.map_err(|error| {
             anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
@@ -168,6 +170,18 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
 /// default), so there the effective upper bound is usually lower.
 const SEND_BUFFER_RANGE: std::ops::RangeInclusive<usize> =
     cmux_wg::MIN_SEND_BUFFER..=4 * 1024 * 1024;
+
+/// The hub's runtime: it carries every sidecar's tunnel traffic, which the
+/// person waits on.
+fn wg_hub_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    cmux_threads::tokio::builder(
+        "cmux-wg-hub",
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::CurrentThread,
+    )
+    .build()
+    .context("could not start Tokio runtime")
+}
 
 /// How the hub's tunnel is started.
 #[derive(Clone, Copy, Default)]
@@ -206,15 +220,12 @@ fn start_wireguard_hub_tunnel(
     // The timeout future must be built inside the runtime: `tokio::time::timeout`
     // registers its sleep with the current reactor at construction, and there is
     // none on this thread, so building it as `block_on`'s argument panics.
-    let (net, paths) = runtime
-        .block_on(async move {
-            let start = cmux_wg::WgNet::start_single_path(config, kind, probes, send_buffer);
-            tokio::time::timeout(timeout, start).await
-        })
-        .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
-        })?;
+    let (net, paths) = cmux_threads::tokio::block_on(runtime, async move {
+        let start = cmux_wg::WgNet::start_single_path(config, kind, probes, send_buffer);
+        tokio::time::timeout(timeout, start).await
+    })
+    .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
+    .map_err(|error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())))?;
     Ok((Arc::new(net), paths))
 }
 
@@ -279,7 +290,7 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
-        let runtime = tokio_runtime().unwrap();
+        let runtime = wg_hub_runtime().unwrap();
         let started = start_wireguard_hub_tunnel(
             &runtime,
             &config,

@@ -31,6 +31,10 @@
 //! receive on a higher-QoS thread records a `priority-inversion` site.
 //! Release sends the plain value.
 //!
+//! Tokio runtimes are built with [`tokio::builder`] (feature `tokio`): their
+//! threads are named, registered and set to the runtime's QoS, and
+//! [`tokio::block_on`] is a checked `BlockOn` call.
+//!
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
 //! [`process`].
@@ -44,6 +48,8 @@ pub mod qos;
 pub mod registry;
 pub mod spawn;
 pub mod sync;
+#[cfg(feature = "tokio")]
+pub mod tokio;
 pub mod work;
 
 pub use blocking::{

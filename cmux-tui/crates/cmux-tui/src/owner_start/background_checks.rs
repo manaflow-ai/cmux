@@ -100,16 +100,19 @@ fn update_check() -> String {
 fn get(url: &str) -> Result<Vec<u8>, String> {
     // reqwest's rustls-no-provider build needs the workspace's ring provider.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| format!("runtime: {error}"))?;
+    let runtime = cmux_threads::tokio::builder(
+        "background-checks",
+        cmux_threads::ThreadQos::Background,
+        cmux_threads::tokio::Flavor::CurrentThread,
+    )
+    .build()
+    .map_err(|error| format!("runtime: {error}"))?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("http client: {error}"))?;
-    runtime.block_on(async {
+    cmux_threads::tokio::block_on(&runtime, async {
         let response = client.get(url).send().await.map_err(|error| error.to_string())?;
         if !response.status().is_success() {
             return Err(format!("HTTP {}", response.status()));

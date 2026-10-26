@@ -41,7 +41,7 @@ cmux-ipc.workspace = true
 cmux-process.workspace = true
 cmux-features.workspace = true
 cmux-flow-trace.workspace = true
-cmux-threads.workspace = true
+cmux-threads = { workspace = true, features = ["tokio"] }
 # wake::deadline, EnergyMode and the MaintenanceClock (re-exported as `wake`).
 cmux-wake.workspace = true
 cmux-trace.workspace = true

@@ -321,8 +321,9 @@ mod tests {
         assert_eq!(row(NAME), None);
     }
 
-    /// libc is the one dependency every user builds; crossbeam-channel is
-    /// optional, only for crates that enable the `crossbeam` feature.
+    /// libc is the one dependency every user builds; crossbeam-channel and
+    /// tokio are optional, only for crates that enable the `crossbeam` or
+    /// `tokio` feature.
     #[test]
     fn crate_depends_on_libc_only() {
         let manifest = include_str!("../Cargo.toml");
@@ -337,7 +338,11 @@ mod tests {
             .collect();
         assert_eq!(
             dependency_lines,
-            ["libc.workspace = true", "crossbeam-channel = { workspace = true, optional = true }"]
+            [
+                "libc.workspace = true",
+                "crossbeam-channel = { workspace = true, optional = true }",
+                "tokio = { workspace = true, optional = true }",
+            ]
         );
     }
 }
