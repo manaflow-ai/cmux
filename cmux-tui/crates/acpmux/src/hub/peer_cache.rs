@@ -98,6 +98,8 @@ impl Hub {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
             let _ = std::fs::remove_file(path);
         }
+        // And its sessions' event snapshots (`peer_snapshot.rs`).
+        self.peer_snapshots.forget_peer(peer);
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and
