@@ -85,6 +85,12 @@ public final class TerminalSession {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
     }
 
+    /// Outside the keep-alive band (the App's surface ledger): paused, the surface lets its GPU memory
+    /// go (``TerminalGPUResidencyGate``); in the band it keeps it, so scrolling back reallocates nothing.
+    public var releasesGPUWhilePaused = false {
+        didSet { surfaceView.releasesGPUWhilePaused = releasesGPUWhilePaused }
+    }
+
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
     /// the live surface in place (`ghostty_surface_update_config`: palette,
@@ -120,10 +126,13 @@ public final class TerminalSession {
     private let modifiers: TerminalModifierWatch?
     /// Passed to each surface view this session makes: the windows' frame-aligned pointer input.
     private let pointerFrames: FrameInputCoalescers?
+    /// Passed to each surface view this session makes: their GPU memory release while away.
+    private let gpuResidency: (any TerminalGPUResidency)?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
@@ -157,12 +166,15 @@ public final class TerminalSession {
     ///     first event and once more at its frame (``TerminalPointerFrames``). Nil: every event at once.
     ///   - mainWork: The app's main-thread scheduler, and `node` the tab's node (`TabContentCache.node(for:)`; nil: no
     ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows.
+    ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
+    ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-                mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
+                mainWork: MainWorkScheduler, node: VisibilityNode? = nil,
+                gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -170,6 +182,7 @@ public final class TerminalSession {
         self.secureInput = secureInput
         self.modifiers = modifiers
         self.pointerFrames = pointerFrames
+        self.gpuResidency = gpuResidency
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
@@ -178,7 +191,8 @@ public final class TerminalSession {
 
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
-                                          secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
+                                          secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
+                                          gpuResidency: gpuResidency)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -209,9 +223,7 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
-        #endif
+        traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -235,61 +247,6 @@ public final class TerminalSession {
     public private(set) var linkCheck: TerminalLinkCheck? {
         didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
     }
-
-    #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
-    /// `flags` held (live checks): the view's own mouse-move path.
-    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseMoved(with: event)
-    }
-
-    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
-    /// view's own press and release handlers (live checks).
-    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// A left press on one cell, a drag to another and the release there, with `flags`
-    /// held throughout (live checks).
-    public func dragForTesting(from: (column: Int, row: Int), to: (column: Int, row: Int), flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: from.column, row: from.row, flags: flags),
-              let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
-        surfaceView.mouseDragged(with: drag)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// Modifier keys went down or up with the pointer still (live checks): the key path
-    /// when this terminal has focus, the app-wide watcher's either way.
-    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
-        surfaceView.linkPointer.testFlags = flags
-        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
-        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
-        key?.type = .flagsChanged
-        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
-            surfaceView.flagsChanged(with: event)
-        }
-        surfaceView.linkPointer.modifiersChanged(flags)
-    }
-
-    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
-    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
-        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
-    }
-    #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
     @discardableResult
@@ -463,14 +420,17 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
-                                        secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
+                                        secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
+                                        gpuResidency: gpuResidency)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
-        fresh.isRenderingSuspended = isRenderingSuspended
+        // The draw demand first: a fresh surface a live mirror draws is never released, even for one turn.
         fresh.mirrorDemand = mirrorDemand
+        fresh.isRenderingSuspended = isRenderingSuspended
+        fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
         surfaceView = fresh
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
@@ -524,6 +484,7 @@ public final class TerminalSession {
     /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        if final { traceFinalGrid(grid) } // a new tab's create.tab final_grid stage while it waits (NewTerminalTrace)
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
         if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }

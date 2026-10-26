@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "ipcMethodLatencyFieldData",
+  "owner": "Performance Lead",
+  "description": "Release builds keep the per-method daemon send-to-reply histograms and wire counters that Debug and bench builds always keep, as opt-in field data; off, a release build keeps none and its daemon connections count nothing.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

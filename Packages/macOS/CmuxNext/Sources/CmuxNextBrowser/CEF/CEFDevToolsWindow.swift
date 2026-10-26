@@ -51,6 +51,14 @@ final class CEFDevToolsWindow: NSPanel {
         onClose?()
     }
 
+    /// The fork adds the DevTools page window as a child ordered above
+    /// everything, the overlay host's panel (a context menu over DevTools)
+    /// included: the panel goes back above it in the same call.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
     /// Where the window opens: over the cmux window, inset (AppKit screen
     /// coordinates), or a default size on the main screen.
     static func frame(near window: NSWindow?) -> CGRect {

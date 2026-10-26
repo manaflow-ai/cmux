@@ -89,6 +89,12 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private(set) var lastOcclusionVisible: Bool?
+    /// When the paused surface lets its GPU memory go (``TerminalGPUResidencyGate``).
+    private(set) var gpu: TerminalGPUResidencyGate
+    /// Away, outside the keep-alive band: paused, the surface lets its GPU memory go.
+    var releasesGPUWhilePaused = false {
+        didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
+    }
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
@@ -136,7 +142,8 @@ public final class TerminalSurfaceView: NSView {
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
-         modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil) {
+         modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
+         gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage)
         self.bridge = Unmanaged.passRetained(bridge)
@@ -145,6 +152,7 @@ public final class TerminalSurfaceView: NSView {
         self.secureInput = secureInput
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
+        gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
@@ -445,18 +453,6 @@ public final class TerminalSurfaceView: NSView {
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
     }
 
-    /// A rough app-side memory cost of this surface for the resource hover
-    /// card: its drawable (three BGRA buffers) plus the GPU cell buffers
-    /// (about 64 bytes per cell). Ghostty does not report its own
-    /// allocations (font atlas, parser state), so this is a lower bound. Nil before attach or after free.
-    public var memoryEstimateBytes: UInt64? {
-        guard let surface else { return nil }
-        let size = ghostty_surface_size(surface)
-        let pixels = UInt64(size.width_px) * UInt64(size.height_px)
-        let cells = UInt64(size.columns) * UInt64(size.rows)
-        return pixels * 4 * 3 + cells * 64
-    }
-
     /// The grid the surface renders now: the locked grid, or what fits the
     /// view before a lock.
     var currentGrid: TerminalGridSize? {
@@ -478,10 +474,14 @@ public final class TerminalSurfaceView: NSView {
     // MARK: Occlusion
 
     /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
-    /// keep parsing output; Ghostty draws the current content on its `.visible` message.
+    /// keep parsing output; Ghostty draws the current content on its `.visible` message. GPU memory
+    /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``).
     func updateOcclusion() {
         guard let surface else { return }
         pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
+        let releases = pause != nil && releasesGPUWhilePaused
+        gpu.acquire(releases: releases)?.setResident(true, of: self)
+        defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
         holdPresentedFrame(volatile: pause != nil)

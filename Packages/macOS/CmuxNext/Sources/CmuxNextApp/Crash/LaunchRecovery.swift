@@ -79,6 +79,19 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
         return !previous.survived
     }
 
+    /// Whether the previous run adds one to the feature safe-mode crash
+    /// streak (`FeatureSafeMode.launch`): it ended without a clean exit and
+    /// no quit was asked for. Chrome counts every session whose clean-exit
+    /// beacon was not written (components/metrics/clean_exit_beacon.cc)
+    /// toward `variations_crash_streak`
+    /// (components/variations/service/safe_seed_manager.cc). A run killed
+    /// with no handler running counts too: Force Quit of a hang at launch
+    /// records no signal.
+    static func countsTowardCrashStreak(previous: PreviousRun?) -> Bool {
+        guard let previous else { return false }
+        return !previous.endedAsAsked
+    }
+
     var previous: PreviousRun? {
         switch self {
         case .clean: nil

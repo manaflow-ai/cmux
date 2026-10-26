@@ -219,7 +219,7 @@ extension CEFTab {
         case .apply(let update):
             machine.apply(.titleChanged(update.title))
         case .later(let until):
-            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+            titleTimer.scheduleOnMainIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
                 self.machine.apply(.titleChanged(update.title))

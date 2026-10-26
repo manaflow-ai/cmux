@@ -8,6 +8,7 @@ import Foundation
 /// or take locks the target might hold (malloc, the Swift runtime): it
 /// writes into a preallocated buffer and reads memory with
 /// `vm_read_overwrite`, which fails safely on a bad pointer.
+// crash-allow: the buffer is written only while the target thread is suspended and read only after the sample is published; no lock may be taken while the target is suspended
 final class ThreadStackSampler: @unchecked Sendable {
     let thread: thread_act_t
     let maxFrames: Int

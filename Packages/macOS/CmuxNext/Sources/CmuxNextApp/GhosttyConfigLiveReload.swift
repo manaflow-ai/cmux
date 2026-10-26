@@ -65,7 +65,7 @@ final class GhosttyConfigLiveReload {
         guard started, !reloadTimer.isScheduled else { return }
         // Atomic saves touch the file and its include directory. Coalesce the
         // burst, then let libghostty resolve the complete latest file graph.
-        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { @MainActor [weak self] in
+        reloadTimer.scheduleOnMainIfIdle(after: .milliseconds(75)) { [weak self] in
             guard let self, self.started else { return }
             self.reload()
         }

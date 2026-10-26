@@ -50,7 +50,7 @@ public struct FirstWorkspaceLanding: Sendable {
         if let id = listed() { return id }
         let expired = DeadlineFlag()
         let timer = DemandTimer(owner: "first-workspace.home")
-        timer.schedule(after: deadline) { @MainActor in expired.passed = true }
+        timer.scheduleOnMain(after: deadline) { expired.passed = true }
         defer { timer.cancel() }
         for await (id, passed) in ObservationStream({ (listed(), expired.passed) }) {
             if let id { return id }

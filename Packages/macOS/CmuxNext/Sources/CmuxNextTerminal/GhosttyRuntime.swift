@@ -401,9 +401,9 @@ public final class GhosttyRuntime {
     }
 }
 
-/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any
-/// thread) into one main-actor tick and points back at the runtime.
-nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
+/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any thread, which touches
+/// only the atomic flag) into one main-actor tick and points back at the runtime (main-actor only).
+nonisolated final class RuntimeCallbackContext: Sendable {
     let pending = Atomic<Bool>(false)
     @MainActor weak var runtime: GhosttyRuntime?
 

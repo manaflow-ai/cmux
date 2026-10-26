@@ -89,6 +89,7 @@ import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../s
 import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
+import { inputAt } from "./inputAt";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -112,8 +113,9 @@ export type NewTabScreenActions = {
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
-  /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
-  onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
+  /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7). `at`: the click or Return
+  /// that picked it (`inputAt`), so the host's switch reports that input's age.
+  onJump(target: "tab" | "workspace" | "here" | "closed", id: string, at?: number): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -696,7 +698,7 @@ export function NewTabScreen(props: Props) {
     };
   }, [inputToken, focusOnShow]);
 
-  const activate = (row: ScreenRow) => {
+  const activate = (row: ScreenRow, at?: number) => {
     switch (row.type) {
       case "search":
         return props.onSearch(row.text);
@@ -705,9 +707,9 @@ export function NewTabScreen(props: Props) {
       case "history":
         return props.onOpen(row.url);
       case "tab":
-        return props.onJump("tab", row.id);
+        return props.onJump("tab", row.id, at);
       case "workspace":
-        return props.onJump("workspace", row.id);
+        return props.onJump("workspace", row.id, at);
       case "ask":
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
@@ -727,7 +729,8 @@ export function NewTabScreen(props: Props) {
     setText(next);
     setSelected(undefined);
   };
-  const submit = () => {
+  // `at`: the Return that submits (`inputAt`); none when the submit waited for an attachment.
+  const submit = (at?: number) => {
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
@@ -738,7 +741,7 @@ export function NewTabScreen(props: Props) {
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
-    if (row && keeps) return activate(row);
+    if (row && keeps) return activate(row, at);
     const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
@@ -925,7 +928,7 @@ export function NewTabScreen(props: Props) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
-      submit();
+      submit(inputAt(event));
     } else if (event.key === "Escape") {
       // The first Escape closes the suggestions, the next leaves the field; the text stays.
       event.preventDefault();
@@ -1487,7 +1490,7 @@ export function NewTabScreen(props: Props) {
                     }}
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      activate(row);
+                      activate(row, inputAt(event));
                     }}
                   >
                     {rowFavicon(row) ? (
@@ -1526,7 +1529,7 @@ export function NewTabScreen(props: Props) {
                         }}
                         onMouseDown={(event) => {
                           event.preventDefault();
-                          activate(row);
+                          activate(row, inputAt(event));
                         }}
                       >
                         <RowGlyph kind={rowGlyph(row)} />
