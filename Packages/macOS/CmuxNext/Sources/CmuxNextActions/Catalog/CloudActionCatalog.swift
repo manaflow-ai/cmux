@@ -239,6 +239,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
+            // `cmux cloud enroll-machine --target machine:<id> --name lane-vm-1`: ssh from this Mac
+            // through the app's tunnel, and an acpmux peer (CloudMachineEnrollment).
+            ActionDescriptor(
+                id: "cloudEnrollMachine",
+                title: String(localized: "action.cloudEnrollMachine", defaultValue: "Enroll Machine as Agent Host", bundle: .module),
+                keywords: ["vm", "cloud", "ssh", "acpmux", "agent", "host", "peer", "lane", "enroll"], category: .cloud,
+                symbol: "server.rack", surfaces: [.palette], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
+                cliName: "cloud enroll-machine"
+            ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
                 title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
@@ -295,7 +305,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
-            "cloudSetupGitHub",
+            "cloudSetupGitHub", "cloudEnrollMachine",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
