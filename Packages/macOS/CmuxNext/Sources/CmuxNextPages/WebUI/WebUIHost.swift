@@ -32,10 +32,11 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
-    /// The crash budget of each renderer group (p13-webui.md 3.C). A page opened while ``lifecycle``
-    /// is set uses its group's and reloads a crash it had while hidden when it shows
-    /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once.
-    package let crashGroups = PageCrashGroups()
+    /// The crash budgets of the pages that share a renderer (p13-webui.md 3.C). A page opened while
+    /// ``lifecycle`` is set uses them and loads after a crash it had while hidden when it shows
+    /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once. The
+    /// composition root sets them with the lifecycle: Chromium's grouping and how to read a renderer.
+    package var crashGroups = PageCrashGroups()
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -78,6 +79,8 @@ public final class WebUIHost {
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         if lifecycle != nil { view.crash.groups = crashGroups }
+        // The view joined processGroups (PageWebView(request:...) passes them on these terms).
+        view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)

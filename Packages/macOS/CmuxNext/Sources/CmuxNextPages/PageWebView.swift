@@ -130,9 +130,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var externalLinkModifiers: NSEvent.ModifierFlags = []
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
-    /// The page's web content crashed (or, ``PageCrashRecovery``, crashed hidden and shows). `reloading` is
-    /// false once its crash budget ran out: the page is not reloaded, and the host shows its notice
-    /// (with a button that calls ``reloadAfterCrashes()``).
+    /// The page's web content crashed (or crashed hidden and shows, ``PageCrashRecovery``). `reloading` is false
+    /// once its crash budget ran out: the page is not reloaded, and the host shows its notice (with a button
+    /// that calls ``reloadAfterCrashes()``). Setting it lets the page share its renderer group's budget.
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
     /// A main-frame document finished loading, in either engine (WebKit's `didFinish`, Chromium's
     /// load end): after the page's scripts ran, and again after each reload.

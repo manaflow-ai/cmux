@@ -71,14 +71,17 @@ extension PageWebView {
         #endif
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it.
+    /// Loads `url` (a document of this page) in whichever engine shows it; a page waiting to show after a
+    /// crash loads it as it shows (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
+        guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it.
+    /// Reloads the document in whichever engine shows it (after its show, for a page waiting after a crash).
     func reloadPage() {
+        guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }

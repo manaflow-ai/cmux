@@ -46,14 +46,11 @@ extension PageWebView {
     /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now,
     /// when it shows, or not at all once it keeps crashing.
     func contentProcessTerminated() {
-        loaded = false
-        router.reset()
         crash.crashed(self)
     }
 
     /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash notice's Reload button).
     public func reloadAfterCrashes() {
-        crash.forgive(self)
-        reloadPage()
+        crash.reloadAfterCrashes(self)
     }
 }

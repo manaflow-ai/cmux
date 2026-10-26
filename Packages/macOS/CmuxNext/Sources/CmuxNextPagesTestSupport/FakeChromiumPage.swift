@@ -32,6 +32,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     /// Every URL the host loaded, in order.
     public private(set) var loaded: [URL] = []
+    /// How many times the host reloaded the document.
+    public private(set) var reloads = 0
     /// The last zoom the host set; nil before any.
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
@@ -117,8 +119,11 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
-    /// Ends a discard (the reload brings the page back).
-    public func reload() { isDiscarded = false }
+    /// Counts in ``reloads`` and ends a discard (the reload brings the page back).
+    public func reload() {
+        reloads += 1
+        isDiscarded = false
+    }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.

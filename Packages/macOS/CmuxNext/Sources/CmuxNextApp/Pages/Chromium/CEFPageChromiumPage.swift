@@ -34,6 +34,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The tab's own page window (`CEFTab.isPageWindow(_:)`).
     func isPageWindow(_ window: NSWindow) -> Bool { tab.isPageWindow(window) }
 
+    /// The one renderer that runs the page's frames, the page's renderer for its crash budget
+    /// (`PageCrashGroups`); nil before the browser exists or while frames run in more than one.
+    var soleRendererClientID: Int32? {
+        guard case .chromiumRendererClients(let clients) = tab.contentProcesses, clients.count == 1 else { return nil }
+        return clients[0]
+    }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
