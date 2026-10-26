@@ -22,6 +22,7 @@ import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
+import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
   cardOffset,
@@ -134,9 +135,11 @@ export function ThreadMinimap({
   change?: RowsChange;
 }) {
   const t = useT();
-  /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
-  /// none (`off`: the turn steps below still run), read once per pane.
-  const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
+  /// steps below still run), read once per pane. The Chat Minimap setting
+  /// (`agentPane.display.minimap`) wins when set, live.
+  const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const arm = useThreadMinimapArm() ?? experiment;
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
