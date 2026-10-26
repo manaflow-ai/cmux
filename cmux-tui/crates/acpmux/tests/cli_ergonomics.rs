@@ -1,8 +1,7 @@
-//! Two rough edges of the acpmux CLI, from the gui-push coordinator driving remote lanes
-//! (2026-10-20), word for word: "(1) acpmux wait --print after a turn that failed (capacity)
-//! prints the previous turn's reply, not the error, so a failed turn reads as done; (2) acpmux
-//! send --no-wait --prompt-file FILE gives a bare usage line without saying --prompt-file isn't a
-//! send flag."
+//! `acpmux wait --print` after a failed turn, against a real daemon. The gui-push coordinator
+//! driving remote lanes (2026-10-20), word for word: "(1) acpmux wait --print after a turn that
+//! failed (capacity) prints the previous turn's reply, not the error, so a failed turn reads as
+//! done".
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -96,42 +95,4 @@ fn wait_print_after_a_failed_turn_prints_its_error_and_retry_not_the_reply_befor
     assert_eq!(row["retry"]["of"], 1, "{v}");
     assert!(row["retry"]["nextAt"].as_u64().is_some(), "{v}");
     assert_ne!(row["reply"], "echo: the answer before", "{v}");
-}
-
-/// `send --prompt-file` names the flag send does not take, the command that takes it, and what
-/// send does instead, in text and as `data.reason` and `data.try` under `--json`. It is refused
-/// before a daemon is asked anything.
-#[test]
-fn send_prompt_file_says_send_reads_stdin_and_which_command_takes_the_flag() {
-    let dir = scratch("f");
-    let _shutdown = Shutdown(&dir);
-    fs::write(dir.join("p/brief.md"), "do it\n").unwrap();
-    let listing = || {
-        let mut names: Vec<_> =
-            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
-        names.sort();
-        names
-    };
-    let before = listing();
-    let sent = cli(&dir, &["send", "--no-wait", "--prompt-file", "brief.md", "lane"]);
-    let err = String::from_utf8_lossy(&sent.stderr);
-    assert_eq!(sent.status.code(), Some(2), "{}", text(&sent));
-    assert!(err.contains("send takes no --prompt-file"), "{}", text(&sent));
-    assert!(err.contains("`new`"), "the command that takes it: {}", text(&sent));
-    assert!(err.contains("acpmux send --no-wait lane - < brief.md"), "{}", text(&sent));
-    assert!(!err.contains("--prompt-id"), "a misleading suggestion: {}", text(&sent));
-
-    let json = cli(&dir, &["--json", "send", "lane", "--prompt-file=brief.md"]);
-    assert_eq!(json.status.code(), Some(2), "{}", text(&json));
-    let line = String::from_utf8_lossy(&json.stderr);
-    let v: Value = serde_json::from_str(line.trim())
-        .unwrap_or_else(|e| panic!("not JSON ({e}): {}", text(&json)));
-    let data = &v["error"]["data"];
-    assert_eq!(v["error"]["code"], "usage", "{v}");
-    assert_eq!(data["reason"], "usage.unknown_flag", "{v}");
-    assert_eq!(data["flag"], "--prompt-file", "{v}");
-    assert_eq!(data["command"], "send", "{v}");
-    assert_eq!(data["takenBy"], json!(["new"]), "{v}");
-    assert_eq!(data["try"], "acpmux send lane - < brief.md", "{v}");
-    assert_eq!(before, listing(), "a daemon was started");
 }

@@ -41,5 +41,4 @@ pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
 pub mod uniichat_agent;
-pub(crate) mod unknown_flag;
 pub mod worktree;
