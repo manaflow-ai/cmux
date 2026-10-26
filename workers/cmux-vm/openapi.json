@@ -9556,6 +9556,2229 @@
           "required": true
         }
       }
+    },
+    "/v1/domains": {
+      "get": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.listDomains",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DomainList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List your verified domains. Requires the domain:read scope. Also names your managed hostname suffix. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.",
+        "summary": "List your verified domains"
+      }
+    },
+    "/v1/domains/{domainId}": {
+      "get": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.getDomain",
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A custom domain your team proved it controls. TLS rules may route it and one label below it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a verified domain. Requires the domain:read scope.",
+        "summary": "Read a verified domain"
+      },
+      "delete": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.deleteDomain",
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Release a verified domain. Requires the domain:write scope. Refused (409) while a TLS rule of yours routes a name under it. Another team may then verify it with its own challenge.",
+        "summary": "Release a verified domain"
+      }
+    },
+    "/v1/domains/{domainId}/wildcard-certificate": {
+      "post": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.requestWildcardCertificate",
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Certificate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Certificate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Request an ongoing wildcard certificate for a verified domain. Requires the domain:write scope. Delegate `_acme-challenge.<domain>` first (see the domain's dns.wildcardCertificate); wildcards can only be proven over DNS.",
+        "summary": "Request an ongoing wildcard certificate for a verified domain"
+      }
+    },
+    "/v1/certificates": {
+      "get": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.listCertificates",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CertificateList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List certificates for your verified domains. Requires the domain:read scope. Only certificates for names under domains your team verified (the most specific verified domain decides).",
+        "summary": "List certificates for your verified domains"
+      }
+    },
+    "/v1/domain-verifications": {
+      "post": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.createDomainVerification",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "One ownership challenge. Only the team that created it can see it or complete it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainVerification"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses after 7 days). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.",
+        "summary": "Start proving you control a domain",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDomainVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "get": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.listDomainVerifications",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "verified"
+              ]
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DomainVerificationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainVerificationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List your domain verifications. Requires the domain:read scope.",
+        "summary": "List your domain verifications"
+      }
+    },
+    "/v1/domain-verifications/{verificationId}": {
+      "get": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.getDomainVerification",
+        "parameters": [
+          {
+            "name": "verificationId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One ownership challenge. Only the team that created it can see it or complete it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainVerification"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a domain verification. Requires the domain:read scope.",
+        "summary": "Read a domain verification"
+      },
+      "delete": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.deleteDomainVerification",
+        "parameters": [
+          {
+            "name": "verificationId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Withdraw a pending domain verification. Requires the domain:write scope. A completed verification is a permanent record (409); release the domain instead.",
+        "summary": "Withdraw a pending domain verification"
+      }
+    },
+    "/v1/domain-verifications/{verificationId}/verify": {
+      "post": {
+        "tags": [
+          "domains"
+        ],
+        "operationId": "domains.verifyDomain",
+        "parameters": [
+          {
+            "name": "verificationId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A custom domain your team proved it controls. TLS rules may route it and one label below it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Check the TXT record and verify the domain. Requires the domain:write scope. Only this challenge's own code counts. 400 while the record is not visible yet; retrying after success returns the domain.",
+        "summary": "Check the TXT record and verify the domain"
+      }
+    },
+    "/v1/tls-rules": {
+      "get": {
+        "tags": [
+          "tlsRules"
+        ],
+        "operationId": "tlsRules.listTlsRules",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "vmId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 64 character(s) long",
+              "title": "maxLength(64)",
+              "maxLength": 64
+            },
+            "required": false,
+            "description": "a string at most 64 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TlsRuleList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsRuleList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List your TLS rules, newest first. Requires the domain:read scope. Only rules whose VMs you can reach; filter by one VM with vmId.",
+        "summary": "List your TLS rules, newest first"
+      },
+      "post": {
+        "tags": [
+          "tlsRules"
+        ],
+        "operationId": "tlsRules.createTlsRule",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a TLS rule. Requires the domain:write scope. Also requires vm:network; every VM it names must be yours. Ingress (source public) routes a managed hostname or a verified domain of yours to one of your VMs; egress (source one of your VMs) reaches only HTTPS origins the deployment approved. Private networks, socks5 and credential transforms other than headers are not offered. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.",
+        "summary": "Create a TLS rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TlsRuleRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/tls-rules/{ruleId}": {
+      "get": {
+        "tags": [
+          "tlsRules"
+        ],
+        "operationId": "tlsRules.getTlsRule",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a TLS rule. Requires the domain:read scope. Header values are never returned.",
+        "summary": "Read a TLS rule"
+      },
+      "put": {
+        "tags": [
+          "tlsRules"
+        ],
+        "operationId": "tlsRules.updateTlsRule",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace a TLS rule in place. Requires the domain:write scope. The body is a whole rule, checked like a create (also requires vm:network). Rotates header secrets without dropping traffic; omitted headers clear them.",
+        "summary": "Replace a TLS rule in place",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TlsRuleRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "delete": {
+        "tags": [
+          "tlsRules"
+        ],
+        "operationId": "tlsRules.deleteTlsRule",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a TLS rule. Requires the domain:write scope. The VMs it named are untouched.",
+        "summary": "Delete a TLS rule"
+      }
+    },
+    "/v1/tls-forward-auths": {
+      "get": {
+        "tags": [
+          "tlsForwardAuth"
+        ],
+        "operationId": "tlsForwardAuth.listTlsForwardAuths",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TlsForwardAuthList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsForwardAuthList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List your forward-auth checks, newest first. Requires the domain:read scope.",
+        "summary": "List your forward-auth checks, newest first"
+      },
+      "post": {
+        "tags": [
+          "tlsForwardAuth"
+        ],
+        "operationId": "tlsForwardAuth.createTlsForwardAuth",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "A reusable authorization check for public HTTP ingress. Header values are write-only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsForwardAuth"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a forward-auth check. Requires the domain:write scope. The edge sends a bodyless GET to the URL before forwarding a protected request to your VM. Header values are write-only. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.",
+        "summary": "Create a forward-auth check",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TlsForwardAuthRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/tls-forward-auths/{forwardAuthId}": {
+      "get": {
+        "tags": [
+          "tlsForwardAuth"
+        ],
+        "operationId": "tlsForwardAuth.getTlsForwardAuth",
+        "parameters": [
+          {
+            "name": "forwardAuthId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A reusable authorization check for public HTTP ingress. Header values are write-only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsForwardAuth"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a forward-auth check. Requires the domain:read scope. Header values are never returned.",
+        "summary": "Read a forward-auth check"
+      },
+      "put": {
+        "tags": [
+          "tlsForwardAuth"
+        ],
+        "operationId": "tlsForwardAuth.updateTlsForwardAuth",
+        "parameters": [
+          {
+            "name": "forwardAuthId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A reusable authorization check for public HTTP ingress. Header values are write-only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsForwardAuth"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace a forward-auth check in place. Requires the domain:write scope. Rules keep referencing the same id; omitted headers clear them.",
+        "summary": "Replace a forward-auth check in place",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TlsForwardAuthRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "delete": {
+        "tags": [
+          "tlsForwardAuth"
+        ],
+        "operationId": "tlsForwardAuth.deleteTlsForwardAuth",
+        "parameters": [
+          {
+            "name": "forwardAuthId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete an unused forward-auth check. Requires the domain:write scope. Refused (409) while a TLS rule uses it.",
+        "summary": "Delete an unused forward-auth check"
+      }
     }
   },
   "components": {
@@ -9746,6 +11969,8 @@
               "snapshot:read",
               "snapshot:write",
               "domain:*",
+              "domain:read",
+              "domain:write",
               "deploy:*",
               "git:*",
               "mesh:read",
@@ -11560,6 +13785,8 @@
                 "snapshot:read",
                 "snapshot:write",
                 "domain:*",
+                "domain:read",
+                "domain:write",
                 "deploy:*",
                 "git:*",
                 "mesh:read",
@@ -11641,6 +13868,8 @@
                 "snapshot:read",
                 "snapshot:write",
                 "domain:*",
+                "domain:read",
+                "domain:write",
                 "deploy:*",
                 "git:*",
                 "mesh:read",
@@ -11735,6 +13964,8 @@
                 "snapshot:read",
                 "snapshot:write",
                 "domain:*",
+                "domain:read",
+                "domain:write",
                 "deploy:*",
                 "git:*",
                 "mesh:read",
@@ -11816,6 +14047,8 @@
                 "snapshot:read",
                 "snapshot:write",
                 "domain:*",
+                "domain:read",
+                "domain:write",
                 "deploy:*",
                 "git:*",
                 "mesh:read",
@@ -11895,6 +14128,8 @@
                 "snapshot:read",
                 "snapshot:write",
                 "domain:*",
+                "domain:read",
+                "domain:write",
                 "deploy:*",
                 "git:*",
                 "mesh:read",
@@ -13152,6 +15387,704 @@
           }
         },
         "additionalProperties": false
+      },
+      "DomainList": {
+        "type": "object",
+        "required": [
+          "items",
+          "managedSuffix"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Domain"
+            }
+          },
+          "managedSuffix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Managed hostnames of your team are one label ending in this suffix (for example `app` + suffix); they need no verification. Null when the deployment has no managed zone."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Domain": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "verifiedAt",
+          "dns"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dom_[0-9abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "type": "string"
+          },
+          "dns": {
+            "$ref": "#/components/schemas/DomainDns"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A custom domain your team proved it controls. TLS rules may route it and one label below it."
+      },
+      "DomainDns": {
+        "type": "object",
+        "required": [
+          "routing",
+          "wildcardCertificate"
+        ],
+        "properties": {
+          "routing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DnsRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Point names under the domain at the edge (a CNAME for subdomains; the apex needs ALIAS/ANAME or CNAME flattening to the same value). Null when the deployment publishes no edge host."
+          },
+          "wildcardCertificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DnsRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Delegate `_acme-challenge.<domain>` before requesting a wildcard certificate. Null when the deployment publishes no certificate nameserver."
+          }
+        },
+        "additionalProperties": false
+      },
+      "DnsRecord": {
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "TXT",
+              "CNAME",
+              "NS"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "One DNS record to publish at your DNS host."
+      },
+      "Certificate": {
+        "type": "object",
+        "required": [
+          "domain",
+          "wildcard",
+          "active",
+          "notAfter",
+          "generation"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "wildcard": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notAfter": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CertificateList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Certificate"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateDomainVerificationRequest": {
+        "type": "object",
+        "required": [
+          "domain"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "a string at most 253 character(s) long",
+            "title": "maxLength(253)",
+            "minLength": 1,
+            "maxLength": 253
+          }
+        },
+        "additionalProperties": false
+      },
+      "DomainVerification": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "state",
+          "record",
+          "createdAt",
+          "verifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dvr_[0-9abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "verified"
+            ]
+          },
+          "record": {
+            "type": "object",
+            "required": [
+              "name",
+              "type",
+              "value"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "TXT",
+                  "CNAME",
+                  "NS"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Publish this TXT record, then call verify."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "One ownership challenge. Only the team that created it can see it or complete it."
+      },
+      "DomainVerificationList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainVerification"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TlsRuleList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TlsRule"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TlsRule": {
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "protocol",
+          "direction",
+          "source",
+          "destination",
+          "forwardAuthId",
+          "match",
+          "headerNames",
+          "description",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^tlsr_[0-9abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/TlsProtocol"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "ingress",
+              "egress"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "vmId": {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              "public": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "destination": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "vmId": {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              "port": {
+                "$ref": "#/components/schemas/Int"
+              },
+              "host": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "forwardAuthId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "match": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HttpRequestMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headerNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of the headers the rule sets; values are never returned."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A named session over a hostname to or from your own VMs. Deleting a VM it names deletes the rule."
+      },
+      "TlsProtocol": {
+        "type": "string",
+        "enum": [
+          "http",
+          "tcp",
+          "postgres",
+          "minecraft",
+          "imap",
+          "imaps"
+        ],
+        "description": "http (443, terminated), tcp (443, SNI splice to your VM's own certificate), postgres (5432, terminated), minecraft (25565), imap (993 terminated) or imaps (993 spliced). Egress rules are http only."
+      },
+      "HttpRequestMatch": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "method": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string matching the pattern ^[A-Z]{1,16}$",
+              "pattern": "^[A-Z]{1,16}$"
+            },
+            "description": "an array of at most 16 item(s)",
+            "title": "maxItems(16)",
+            "maxItems": 16
+          },
+          "path": {
+            "type": "object",
+            "required": [
+              "exact"
+            ],
+            "properties": {
+              "exact": {
+                "type": "string",
+                "description": "a string matching the pattern ^\\/",
+                "title": "maxLength(2048)",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^\\/"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "description": "Egress only: which requests get the header transform (methods ORed, path exact). Others pass through unchanged."
+      },
+      "TlsRuleRequest": {
+        "type": "object",
+        "required": [
+          "domain",
+          "source",
+          "destination"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The name the session is addressed to: one hostname, or `*.` plus a verified domain you own (ingress only).",
+            "title": "maxLength(255)",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "protocol": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TlsProtocol"
+              }
+            ],
+            "description": "Defaults to http."
+          },
+          "source": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "vmId": {
+                "type": "string",
+                "description": "a string at most 64 character(s) long",
+                "title": "maxLength(64)",
+                "maxLength": 64
+              },
+              "public": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "description": "Exactly one: `public: true` (ingress from the Internet) or one of your VMs (egress)."
+          },
+          "destination": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "vmId": {
+                "type": "string",
+                "description": "a string at most 64 character(s) long",
+                "title": "maxLength(64)",
+                "maxLength": 64
+              },
+              "port": {
+                "$ref": "#/components/schemas/Int",
+                "description": "a number between 1 and 65535",
+                "title": "between(1, 65535)",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "host": {
+                "type": "string",
+                "description": "a string at most 253 character(s) long",
+                "title": "maxLength(253)",
+                "maxLength": 253
+              },
+              "public": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "description": "Ingress: one of your VMs plus a port. Egress: `public: true` or `host` + `port`, which must be an HTTPS origin the deployment approved."
+          },
+          "forwardAuthId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string at most 64 character(s) long",
+                "title": "maxLength(64)",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ingress http only: run this forward-auth check of yours before each request reaches the VM."
+          },
+          "match": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HttpRequestMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SecretHeaders"
+              }
+            ],
+            "description": "http only: headers set on each request. Write-only."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string at most 1024 character(s) long",
+                "title": "maxLength(1024)",
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SecretHeaders": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "maxProperties": 16,
+        "writeOnly": true
+      },
+      "TlsForwardAuthList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TlsForwardAuth"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TlsForwardAuth": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "headerNames",
+          "authResponseHeaders",
+          "protectedCookies",
+          "timeoutMs",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^fwa_[0-9abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "url": {
+            "type": "string"
+          },
+          "headerNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authResponseHeaders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "protectedCookies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeoutMs": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A reusable authorization check for public HTTP ingress. Header values are write-only."
+      },
+      "TlsForwardAuthRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Absolute HTTPS URL that receives a bodyless GET before each protected request.",
+            "title": "maxLength(2048)",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "headers": {
+            "$ref": "#/components/schemas/SecretHeaders"
+          },
+          "authResponseHeaders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "maxLength": 128
+            },
+            "description": "Headers copied from a successful check onto the request to the VM.",
+            "title": "maxItems(16)",
+            "maxItems": 16
+          },
+          "protectedCookies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "maxLength": 128
+            },
+            "description": "Cookie names the check sees but the VM never receives.",
+            "title": "maxItems(16)",
+            "maxItems": 16
+          },
+          "timeoutMs": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Int",
+                "description": "a number between 100 and 5000",
+                "title": "between(100, 5000)",
+                "minimum": 100,
+                "maximum": 5000
+              }
+            ],
+            "description": "Per-check deadline; defaults to 1500."
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -13205,6 +16138,15 @@
     },
     {
       "name": "overlayServerDevice"
+    },
+    {
+      "name": "domains"
+    },
+    {
+      "name": "tlsRules"
+    },
+    {
+      "name": "tlsForwardAuth"
     }
   ],
   "servers": [

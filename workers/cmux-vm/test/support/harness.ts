@@ -27,6 +27,7 @@ import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
+import { makeDomainFakes } from "./domain-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -54,6 +55,8 @@ export interface HarnessOptions {
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: string;
+  /** Domains (cx-b4h.6): the managed zone, edge host and certificate nameserver the deployment publishes. */
+  readonly domains?: { readonly managedZone?: string; readonly edgeHost?: string; readonly certificateNameserver?: string };
 }
 
 /** One audit row as a test sees it. */
@@ -231,8 +234,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const s3a = makeS3aFakes(resources, upstream);
   /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
   const mesh = makeMeshFakes(upstream, options.mesh);
+  /** Domain and TLS routes (cx-b4h.6) are served by domain-fakes.ts first. */
+  const domains = makeDomainFakes(upstream, options.domains ?? {});
   const upstreamFetch = async (request: Request): Promise<Response> =>
-    (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
+    (await domains.upstream(request)) ?? (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
   let configuredImages = parseVmImages(options.bootImages).images;
   const services = Layer.mergeAll(
@@ -276,6 +281,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     webhookDeliveries.layer,
     s3a.layer(upstreamFetch),
     mesh.layer(upstreamFetch),
+    domains.layer(upstreamFetch),
     Layer.succeed(AgentStore, {
       findAgentKey: (tenantId, id) =>
         Effect.sync(() => {
@@ -407,6 +413,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     s3a,
     /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
     mesh,
+    /** Domains and TLS (cx-b4h.6): cmux tables, provider challenges, DNS records and certificates. */
+    domains,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(
       tenant: string,

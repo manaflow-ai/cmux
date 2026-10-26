@@ -14,19 +14,16 @@
       "reason": "Transport detail of the provider client: a request is backgrounded only when the caller sends the background-after header, which cmux VM never does, and background request ids are account-wide, so they cannot be scoped to a tenant."
     },
     "list_certificates": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listCertificates"]
     },
     "request_wildcard": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.requestWildcardCertificate"]
     },
     "list_domains": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listDomains", "domains.getDomain", "domains.deleteDomain"]
     },
     "delete_placeholder_branding": {
       "status": "denied",
@@ -166,55 +163,43 @@
     },
     "list_tls_rules": {
       "status": "wrapped",
-      "by": [
-        "vms.replaceVmHttpsProxy"
-      ]
+      "by": ["vms.replaceVmHttpsProxy", "tlsRules.listTlsRules"]
     },
     "create_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.createTlsRule"]
     },
     "list_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.listTlsForwardAuths"]
     },
     "create_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.createTlsForwardAuth"]
     },
     "delete_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.deleteTlsForwardAuth"]
     },
     "get_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.getTlsForwardAuth"]
     },
     "update_tls_forward_auth": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsForwardAuth.updateTlsForwardAuth"]
     },
     "delete_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.deleteTlsRule"]
     },
     "get_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["tlsRules.getTlsRule"]
     },
     "update_tls_rule": {
       "status": "wrapped",
-      "by": [
-        "vms.replaceVmHttpsProxy"
-      ]
+      "by": ["vms.replaceVmHttpsProxy", "tlsRules.updateTlsRule"]
     },
     "list_tunnels": {
       "status": "planned",
@@ -264,29 +249,24 @@
       "reason": "planned in cx-0op"
     },
     "list_verifications": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.listDomainVerifications"]
     },
     "create_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.createDomainVerification"]
     },
     "delete_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.deleteDomainVerification"]
     },
     "get_verification": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.getDomainVerification"]
     },
     "verify_domain": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["domains.verifyDomain"]
     },
     "list_vms": {
       "status": "wrapped",

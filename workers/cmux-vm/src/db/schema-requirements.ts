@@ -59,6 +59,11 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.api_keys", column: "agent_cleaned_at", migration: "0016" },
   { table: "cmux_vm.vm_client_sessions", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0016" },
   { table: "cmux_vm.vm_client_sessions_vm_idx", migration: "0017" },
+  // Domains, verifications, TLS rules and forward-auth checks (cx-b4h.6).
+  { table: "cmux_vm.domains", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"], migration: "0018" },
+  { table: "cmux_vm.domain_verifications", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"], migration: "0018" },
+  { table: "cmux_vm.tls_forward_auths", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"], migration: "0018" },
+  { table: "cmux_vm.tls_rules", privileges: ["SELECT", "INSERT", "UPDATE", "DELETE"], migration: "0018" },
 ];
 
 /** The highest migration this build's requirements name. */
