@@ -135,7 +135,7 @@ public final class ChromiumWarmup {
     private var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
     /// Memory pressure rose above normal: the untaken spares close, and a spare's pending idle wait
-    /// ends now with its input subscription and timers (as `NewTabSparePool.dropForPressure` cancels
+    /// ends now with its input subscription and timers (as `NewTabPreload.dropForPressure` cancels
     /// its armed warm), instead of waking the main thread for up to `maxWait` for a spare that cannot
     /// be made. A `CefInitialize` wait goes on: it builds no spare.
     private func sparesHeld() {
