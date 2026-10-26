@@ -36,6 +36,12 @@ impl Mux {
         removed
     }
 
+    /// The registry a browser surface wakes when it dies (see
+    /// [`BrowserProviderRegistry::wake_waiters`]).
+    pub(crate) fn browser_provider_registry(&self) -> Arc<BrowserProviderRegistry> {
+        self.browser_providers.clone()
+    }
+
     pub(crate) fn browser_provider_snapshot(&self) -> Option<BrowserProviderSnapshot> {
         self.browser_providers.snapshot()
     }
