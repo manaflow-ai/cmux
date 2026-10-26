@@ -79,6 +79,11 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         blocking.count < Self.maxSamples && !blocking.contains(sample)
     }
 
+    /// Forgets the blocking samples (a saved aggregate a build without them reads).
+    public mutating func dropBlocking() {
+        blocking = []
+    }
+
     private mutating func keepBlocking(_ sample: HangSample) {
         guard wantsBlockingSample(sample) else { return }
         blocking.append(sample)

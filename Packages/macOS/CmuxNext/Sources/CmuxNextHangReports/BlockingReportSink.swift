@@ -1,14 +1,16 @@
 public import CmuxNextCompat
 public import Foundation
 
-/// Where the main-thread blocking detector's new call sites go (the app's `WatchdogReporting` installs
-/// it once): each site to opt-in hang reports as one ``HangSample/Kind/blocking`` sample, and, only
-/// while crash reporting runs (the person's crash-report consent), to Sentry as one non-fatal
-/// ``NonFatalEvent`` within ``BlockingReportBudget`` (5 per launch, 1 per site per 24 h).
+/// Where the blocking detector's new call sites go (the app's `WatchdogReporting` installs it once):
+/// each site to opt-in hang reports as one ``HangSample/Kind/blocking`` sample (once their wire schema
+/// carries them, ``HangReport/WireSchema/carriesBlocking``), and, only while crash reporting runs (the
+/// person's crash-report consent), to Sentry as one non-fatal ``NonFatalEvent`` within
+/// ``BlockingReportBudget`` (5 per launch, 1 per site per 24 h).
 ///
 /// ``record(_:)`` runs on the detector's drain queue (`com.cmuxterm.app.next.blocking-drain`, utility),
-/// never on the thread that blocked. Nothing it sends holds a path, file name or symbol: the kind,
-/// the context and image UUID + offset frames only.
+/// never on the thread that blocked. Nothing it sends holds a path, file name or symbol: the kind, the
+/// violation's ``BlockingContext`` (the main thread or a shared pool thread) and image UUID + offset
+/// frames only.
 ///
 /// ```swift
 /// services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
@@ -21,7 +23,7 @@ public final class BlockingReportSink: BlockingViolationSink {
 
     /// One non-fatal crash-report event: one issue per site.
     public struct NonFatalEvent: Sendable, Equatable {
-        /// The event's message (the kind only).
+        /// The event's message (the thread and the kind only).
         public var message: String
         /// The exception type.
         public var type: String
@@ -32,14 +34,26 @@ public final class BlockingReportSink: BlockingViolationSink {
         /// The frames as `UUID+0xoffset` lines, for symbolication.
         public var extra: [String: String]
 
-        /// The event of `violation` at `site` (``BlockingReportBudget/site(of:)``).
-        public init(violation: BlockingViolation, site: String, context: HangSample.Blocking.Context) {
-            message = "main-thread blocking: \(violation.kind.rawValue)"
-            type = "MainThreadBlocking"
-            fingerprint = ["main-thread-blocking", site]
-            tags = ["blocking_kind": violation.kind.rawValue, "blocking_context": context.rawValue]
+        /// The event of `violation` at `site` (``BlockingReportBudget/site(of:)``): its message, type and
+        /// fingerprint name the thread it ran on (`main-thread blocking: file-io`, `pool-thread blocking: sync-wait`).
+        public init(violation: BlockingViolation, site: String) {
+            let thread = Self.thread(violation.context)
+            message = "\(thread.label) blocking: \(violation.kind.rawValue)"
+            type = "\(thread.type)Blocking"
+            fingerprint = ["\(thread.label)-blocking", site]
+            tags = ["blocking_kind": violation.kind.rawValue, "blocking_context": violation.context.rawValue]
             extra = ["frames": violation.frames.map { "\($0.imageUUID.uuidString)+0x\(String($0.offset, radix: 16))" }
                 .joined(separator: "\n")]
+        }
+
+        /// The thread's name in the message and fingerprint, and in the type.
+        private static func thread(_ context: BlockingContext) -> (label: String, type: String) {
+            switch context {
+            case .main: ("main-thread", "MainThread")
+            case .pool: ("pool-thread", "PoolThread")
+            case .lane: ("lane", "Lane")
+            case .dedicated: ("dedicated-thread", "DedicatedThread")
+            }
         }
     }
 
@@ -101,9 +115,7 @@ public final class BlockingReportSink: BlockingViolationSink {
 
     /// Takes one new site (the detector's drain queue).
     public func record(_ violation: BlockingViolation) {
-        // The detector checks the main thread only, so every site it reports ran there.
-        let context = HangSample.Blocking.Context.main
-        collector?.noteBlocking(violation, context: context)
+        collector?.noteBlocking(violation)
         guard nonFatal.consented() else { return }
         let site = BlockingReportBudget.site(of: violation)
         let store = store
@@ -116,6 +128,6 @@ public final class BlockingReportSink: BlockingViolationSink {
         }
         guard let admitted else { return }
         store.save(admitted)
-        nonFatal.send(NonFatalEvent(violation: violation, site: site, context: context))
+        nonFatal.send(NonFatalEvent(violation: violation, site: site))
     }
 }

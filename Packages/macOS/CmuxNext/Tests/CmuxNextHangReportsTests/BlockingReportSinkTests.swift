@@ -62,13 +62,33 @@ struct BlockingReportSinkTests {
         #expect(event.message == "main-thread blocking: sync-wait")
         #expect(event.tags == ["blocking_kind": "sync-wait", "blocking_context": "main"])
         #expect(event.extra == ["frames": "\(HangReportFixtures.appUUID)+0x1f0"])
+        #expect(event.type == "MainThreadBlocking")
         #expect(event.fingerprint.first == "main-thread-blocking")
+    }
+
+    /// A pool thread's site (p02-threads-005's context) is reported as one, in the sample and the event.
+    @Test func aPoolSiteIsTaggedPool() throws {
+        let (sink, recorder) = Self.sink(consented: true)
+        let pool = BlockingViolation(kind: .fileIO, context: .pool, frames: [BlockingFrame(imageUUID: Self.image, offset: 0x2A)])
+        sink.record(pool)
+
+        let sample = try #require(recorder.collector.snapshot().blocking.first)
+        #expect(sample.blocking == HangSample.Blocking(kind: .fileIO, context: .pool))
+        let event = try #require(recorder.sent.first)
+        #expect(event.message == "pool-thread blocking: file-io")
+        #expect(event.type == "PoolThreadBlocking")
+        #expect(event.tags["blocking_context"] == "pool")
+        #expect(event.fingerprint.first == "pool-thread-blocking")
+        // The same stack on the main thread is another site.
+        var main = pool
+        main.context = .main
+        #expect(BlockingReportBudget.site(of: main) != BlockingReportBudget.site(of: pool))
     }
 }
 
 /// What the sink sent and saved, and the collector it fed.
 private final class BlockingSinkRecorder: Sendable {
-    let collector = HangReportCollector(resolve: { _ in [] }, schedule: { $0() })
+    let collector = HangReportCollector(resolve: { _ in [] }, resolveBlocking: { $0.map { _ in .other } }, schedule: { $0() })
     private let sends = Mutex<[BlockingReportSink.NonFatalEvent]>([])
     private let saves = Mutex<[[String: Date]]>([])
 

@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 
 /// One hang, stall or blocking call in a report: where it came from, how long it took and its
-/// main-thread stack.
+/// stack (the main thread's; for a ``Kind/blocking`` sample, the stack of the thread that blocked).
 public nonisolated struct HangSample: Codable, Sendable, Equatable {
     /// Who measured it.
     public enum Source: String, Codable, Sendable {
@@ -9,8 +9,8 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         case metrickit
         /// cmux's `MainThreadWatchdog`.
         case watchdog
-        /// cmux's main-thread blocking detector (``BlockingViolation``, the copy of Chrome's
-        /// `base::ScopedBlockingCall`).
+        /// cmux's blocking detector (``BlockingViolation``, the copy of Chrome's
+        /// `base::ScopedBlockingCall`; wire schema 3 only).
         case detector
     }
 
@@ -20,34 +20,52 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         case hang
         /// 250 ms to 2 s (watchdog).
         case stall
-        /// A call that may block (file, socket, process, wait) made on the main thread, reported
-        /// once per call site whatever it took (detector); ``HangSample/blocking`` says which.
+        /// A call that may block (file, socket, process, wait) made where blocking is not allowed
+        /// (the main thread, a shared pool thread), reported once per call site whatever it took
+        /// (detector, wire schema 3 only); ``HangSample/blocking`` says which.
         case blocking
     }
 
-    /// What a ``Kind/blocking`` sample waited on and where it ran.
+    /// What a ``Kind/blocking`` sample waited on and where it ran: the detector's own closed sets,
+    /// written as their raw values (`file-io`, `main`, ...), which never change.
     public struct Blocking: Codable, Sendable, Hashable {
-        /// The thread or pool the call ran on (the detector's context, plans/cmux-next/threading-model.md).
-        public enum Context: String, Codable, Sendable {
-            /// The main thread.
-            case main
-            /// The Swift cooperative pool or a GCD root queue.
-            case pool
-            /// A `BackgroundWork` lane that may block.
-            case lane
-            /// A dedicated named queue or thread.
-            case dedicated
+        /// What the call waited on.
+        public var kind: BlockingKind
+        /// Where the call ran (plans/cmux-next/threading-model.md).
+        public var context: BlockingContext
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, context
         }
 
-        /// ``BlockingKind/rawValue`` (`file-io`, `sync-wait`, ...).
-        public var kind: String
-        /// Where the call ran.
-        public var context: Context
-
         /// Makes the value from its parts.
-        public init(kind: BlockingKind, context: Context) {
-            self.kind = kind.rawValue
+        public init(kind: BlockingKind, context: BlockingContext) {
+            self.kind = kind
             self.context = context
+        }
+
+        /// The kind and context of `violation`.
+        public init(_ violation: BlockingViolation) {
+            self.init(kind: violation.kind, context: violation.context)
+        }
+
+        /// Reads a saved sample; a kind or context this build does not know is a decoding error.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guard let kind = BlockingKind(rawValue: try container.decode(String.self, forKey: .kind)) else {
+                throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown blocking kind")
+            }
+            guard let context = BlockingContext(rawValue: try container.decode(String.self, forKey: .context)) else {
+                throw DecodingError.dataCorruptedError(forKey: .context, in: container, debugDescription: "unknown blocking context")
+            }
+            self.init(kind: kind, context: context)
+        }
+
+        /// Writes the raw values.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(kind.rawValue, forKey: .kind)
+            try container.encode(context.rawValue, forKey: .context)
         }
     }
 

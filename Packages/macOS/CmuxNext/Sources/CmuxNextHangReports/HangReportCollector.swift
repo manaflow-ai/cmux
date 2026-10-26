@@ -30,16 +30,18 @@ public final class HangReportCollector: Sendable {
     // end; an actor would add a Task and a hop per stall.
     private let aggregate = Mutex(StallAggregate())
     private let resolve: Resolve
-    private let resolveBlocking: ResolveBlocking
+    /// Nil when the report's wire schema has no blocking samples: then none is kept.
+    private let resolveBlocking: ResolveBlocking?
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
     /// Makes the value from its parts.
     ///
-    /// - Parameter resolveBlocking: The default names no image (every frame ``HangReportFrame/other``);
-    ///   the app passes ``HangReportBuilder/frames(blocking:)``.
+    /// - Parameter resolveBlocking: Nil (the default) keeps no blocking site, for a report whose wire
+    ///   schema has none (``HangReport/WireSchema/carriesBlocking``); the app passes
+    ///   ``HangReportBuilder/frames(blocking:)`` when its builder's schema carries them.
     public init(resolve: @escaping Resolve,
-                resolveBlocking: @escaping ResolveBlocking = { $0.map { _ in .other } },
+                resolveBlocking: ResolveBlocking? = nil,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
@@ -59,13 +61,12 @@ public final class HangReportCollector: Sendable {
         if !on { _ = drain() }
     }
 
-    /// One new main-thread blocking call site (the detector's drain queue, from the app's
-    /// `BlockingReportSink`): kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and
-    /// frames; a site already kept adds nothing.
-    public func noteBlocking(_ violation: BlockingViolation, context: HangSample.Blocking.Context) {
-        guard acceptsBlocking else { return }
-        let sample = HangSample.blockingSite(HangSample.Blocking(kind: violation.kind, context: context),
-                                         frames: resolveBlocking(violation.frames))
+    /// One new blocking call site (the detector's drain queue, from the app's `BlockingReportSink`):
+    /// kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and frames; a site
+    /// already kept adds nothing, and nothing is kept when the wire schema has no blocking samples.
+    public func noteBlocking(_ violation: BlockingViolation) {
+        guard let resolveBlocking, acceptsBlocking else { return }
+        let sample = HangSample.blockingSite(HangSample.Blocking(violation), frames: resolveBlocking(violation.frames))
         // Checked again under the lock the drop of setEnabled(false) takes: a site resolved while
         // reports turned off is not kept after the drop.
         aggregate.withLock { aggregate in
@@ -112,6 +113,9 @@ public final class HangReportCollector: Sendable {
 
     /// Adds a saved aggregate (the previous launch's) to what is recorded now.
     public func merge(_ saved: StallAggregate) {
+        var saved = saved
+        // A build whose schema had blocking samples saved them; this one cannot send them.
+        if resolveBlocking == nil { saved.dropBlocking() }
         guard isEnabled, !saved.isEmpty else { return }
         aggregate.withLock { $0.merge(saved) }
     }

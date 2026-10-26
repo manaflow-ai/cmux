@@ -118,7 +118,7 @@ URLs, host names, tokens and environment text, and check that no planted string 
 encoded report, that third-party frames lose their name, UUID and offset, and that the scanner
 refuses a report that carries one.
 
-## 4. Wire format (schema 2)
+## 4. Wire format (schema 2; schema 3 adds blocking sites)
 
 `POST https://cmux.com/api/hang-reports`, `content-type: application/json`, body at most 64 KiB,
 user agent `cmux-hang-reports/1`. Answers: `204` stored (or a duplicate `reportId`), `400`
@@ -165,6 +165,33 @@ so a report that an older NIGHTLY queued under the old image rules is never stor
 endpoint opens. The client also drops a queued body whose schema or app is not its own.
 `hardware.chip` is a closed set (`Apple M<n>[ Pro| Max| Ultra]`, `Intel`, `other`) and
 `hardware.memoryGB` one of the sizes in `HardwareClass.memorySizesGB`, on both sides.
+
+**Schema 3 (blocking call sites, p02-threads-008).** Schema 3 is schema 2 plus the blocking
+detector's call sites (`base::ScopedBlockingCall`'s copy, plans/cmux-next/threading-model.md).
+A site is one entry of `hangs`, before the timed ones (so the 64 KiB cut, which drops from the
+end, takes the shortest stall first), at most 8 per report:
+
+```json
+{"source": "detector", "kind": "blocking", "durationMs": 0,
+ "blocking": {"kind": "file-io", "context": "main"},
+ "frames": [{"image": "cmux NEXT Nightly", "uuid": "3F0C...", "offset": 768}, {"image": "other"}]}
+```
+
+`source` adds `detector` and `kind` adds `blocking`; `blocking` is present exactly when the source
+is `detector` and the kind `blocking`, and then `durationMs` is 0 (the detector reports the site,
+not its time). `blocking.kind` is a `BlockingKind` raw value (`file-io`, `socket-read`,
+`socket-write`, `sync-wait`, `ipc-reply`, `process-wait`, `process-spawn`, `lock-wait`,
+`system-call`, ...: the Swift enum is the list) and `blocking.context` a `BlockingContext` raw value
+(`main`, `pool`, `lane`, `dedicated`), both closed sets with no other keys. The detector's frames
+are at most 8, image UUID + offset, classified as every other frame.
+
+Order of the change: the server accepts schema 2 and 3 first (`web/services/hangReports/wireSchema.ts`,
+its schema 3 fixture next to `hang-report-schema2.json`), is deployed, and only then does the client's
+`HangReport.WireSchema.deployed` move from `v2` to `v3`. Until then the client keeps no blocking site
+for hang reports (the collector drops them and the builder writes schema 2), because the deployed
+server refuses unknown keys and literals with a `400` and the client then drops the whole report.
+`HangReportServerRules` (CmuxNextHangReportsTests) is the client's copy of these key and literal
+sets; the goldens of both schemas pass it.
 
 ## 5. Server
 

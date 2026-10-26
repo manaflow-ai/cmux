@@ -40,8 +40,8 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
         return true
     }
 
-    /// The site's identity: its kind and every frame (image UUID + offset), as 16 hex digits of a
-    /// 64-bit FNV-1a hash. The seam frame alone would merge every caller of one seam.
+    /// The site's identity: its kind, its context and every frame (image UUID + offset), as 16 hex
+    /// digits of a 64-bit FNV-1a hash. The seam frame alone would merge every caller of one seam.
     public static func site(of violation: BlockingViolation) -> String {
         var hash: UInt64 = 0xCBF2_9CE4_8422_2325
         func mix(_ byte: UInt8) {
@@ -49,6 +49,8 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
             hash = hash &* 0x0000_0100_0000_01B3
         }
         violation.kind.rawValue.utf8.forEach(mix)
+        mix(0)  // separates the kind from the context
+        violation.context.rawValue.utf8.forEach(mix)
         for frame in violation.frames {
             withUnsafeBytes(of: frame.imageUUID.uuid) { $0.forEach(mix) }
             withUnsafeBytes(of: frame.offset.littleEndian) { $0.forEach(mix) }

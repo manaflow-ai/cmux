@@ -240,7 +240,7 @@ public actor HangReportService {
 
     /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
     private func isSendable(_ body: Data) -> Bool {
-        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == HangReport.schemaVersion,
+        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == builder.schema.rawValue,
               report.app == HangReportBuilder.safeApp(environment.app) else { return false }
         return scanner.findings(in: body).isEmpty
     }
@@ -263,8 +263,8 @@ public actor HangReportService {
         return builder.build(context: context, watchdog: watchdog, metricKit: metricKit)
     }
 
-    /// `report` shrunk until it encodes under the body cap: the shortest hangs, then CPU
-    /// exceptions, then intervals go first.
+    /// `report` shrunk until it encodes under the body cap: the shortest hangs (the blocking
+    /// samples, first in the list, after every timed one), then CPU exceptions, then intervals go first.
     static func fitted(_ report: HangReport) -> HangReport {
         var report = report
         while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {

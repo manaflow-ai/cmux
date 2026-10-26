@@ -43,12 +43,15 @@ public nonisolated struct HangReportBuilder: Sendable {
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
+    /// The wire schema it writes; blocking samples go into a report only when it carries them.
+    public let schema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
     /// Makes the value from its parts.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving) {
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, schema: HangReport.WireSchema = .deployed) {
         self.classifier = classifier
         self.resolver = resolver
+        self.schema = schema
     }
 
     /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
@@ -56,14 +59,15 @@ public nonisolated struct HangReportBuilder: Sendable {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: context.counts)
+        report.schema = schema.rawValue
         let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
             HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
         }
-        // Blocking samples have no duration, so they get their own slots instead of losing every
-        // longest-first cut.
-        let blocking = Array(watchdog.blocking.prefix(StallAggregate.maxSamples))
-        report.hangs = Array((metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-            .prefix(HangReport.maxHangs - blocking.count)) + blocking
+        // Blocking samples have no duration: they take their own slots first, so neither the
+        // longest-first cut nor the body cap (which drops from the end) pushes them out.
+        let blocking = schema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
+        let timed = (metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
+        report.hangs = blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
             .prefix(HangReport.maxCPUExceptions)
             .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })

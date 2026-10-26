@@ -1,6 +1,6 @@
 public import Foundation
 
-/// One opt-in hang report, wire schema 2 (plans/cmux-next/hang-reports-DESIGN.md section 4).
+/// One opt-in hang report, wire schema 2 or 3 (plans/cmux-next/hang-reports-DESIGN.md section 4).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
 /// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
@@ -11,11 +11,30 @@ public import Foundation
 /// let body = try HangReport.encoder.encode(report)
 /// ```
 public nonisolated struct HangReport: Codable, Sendable, Equatable {
-    /// The wire schema this type writes. 2 has the same fields as 1; it marks a report built with
-    /// review 1 and 2's privacy fixes (Data-volume and `..` image paths are `other`, no redirects,
-    /// per-Mac consent), and the server refuses schema 1, so a report an older NIGHTLY queued is
-    /// refused (and dropped from its outbox) once the endpoint opens.
-    public static let schemaVersion = 2
+    /// A wire schema the client can write. The server decodes strictly (unknown keys and values are a
+    /// `400`, which drops the report from the outbox), so a client writes only a schema the deployed
+    /// server accepts: ``deployed``.
+    public enum WireSchema: Int, Codable, Sendable, CaseIterable {
+        /// The same fields as 1; it marks a report built with review 1 and 2's privacy fixes
+        /// (Data-volume and `..` image paths are `other`, no redirects, per-Mac consent). The server
+        /// refuses schema 1, so a report an older NIGHTLY queued is refused (and dropped from its
+        /// outbox) once the endpoint opens.
+        case v2 = 2
+        /// Schema 2 plus the blocking detector's call sites: `hangs[]` may hold
+        /// `{"source": "detector", "kind": "blocking", "durationMs": 0, "blocking": {"kind", "context"}}`
+        /// samples (``HangSample/blockingSite(_:frames:)``).
+        case v3 = 3
+
+        /// The newest schema cmux.com's `web/services/hangReports/wireSchema.ts` accepts. It moves to
+        /// ``v3`` only after that server change is deployed.
+        public static let deployed = WireSchema.v2
+
+        /// Whether the schema has blocking samples.
+        public var carriesBlocking: Bool { self == .v3 }
+    }
+
+    /// The schema the deployed server accepts (``WireSchema/deployed``).
+    public static let schemaVersion = WireSchema.deployed.rawValue
     /// The most hangs and stalls one report carries.
     public static let maxHangs = 20
     /// The most CPU exceptions one report carries.
@@ -97,7 +116,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var hardware: HardwareClass
     /// Rounded counts of what was open.
     public var counts: CoarseCounts
-    /// MetricKit hangs and the watchdog's hangs and stalls, longest first.
+    /// MetricKit hangs and the watchdog's hangs and stalls, longest first; in schema 3, the
+    /// detector's blocking samples (no duration) come before them, so the body cap
+    /// (``HangReportService``'s `fitted`, which drops from the end) takes the shortest stall first.
     public var hangs: [HangSample] = []
     /// MetricKit CPU exceptions, heaviest first.
     public var cpuExceptions: [CPUExceptionSample] = []
