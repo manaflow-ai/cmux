@@ -79,6 +79,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
+    /// Chromium Host: the page did not handle the Command or Control chord whose key frame had
+    /// input seq `seq` (KEY_UNHANDLED with b bit 1, p01-process-030); cmux runs the action it held
+    /// for the page or re-dispatches the key to its menus.
+    case keyUnhandledChord(browser: Int32, seq: UInt32)
     /// An extension install or permission prompt (fork API 12); prompt 0
     /// is the "installed" notice.
     case installPrompt(browser: Int32, promptID: Int32, json: String)
@@ -150,6 +154,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 26: self = .chromeCommand(browser: browser, command: request)
         case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
         case 37: self = .authCallback(browser: browser, url: s1)
+        case 28 where b & 2 != 0: self = .keyUnhandledChord(browser: browser, seq: UInt32(bitPattern: request))
         case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a), shift: b & 1 != 0)
         case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
         case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
