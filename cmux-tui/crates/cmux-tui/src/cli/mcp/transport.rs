@@ -532,3 +532,7 @@ mod tests {
         assert!(!is_partial_id("ws_XY", "ws"));
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "transport_capabilities_tests.rs"]
+mod capabilities_tests;
