@@ -5,7 +5,7 @@ GitHub fixes a self-hosted runner's labels at registration, and a mini holds no 
 rule change in glaeda (glaeda_fleet_labels.py) reached a runner only when someone ran `fleet runner relabel
 HOST --apply`. This reconciler runs on a schedule (runner-label-reconcile.yml) with the route App's
 organization runner-label permission. For every organization runner carrying glaeda's `glaeda-mini` label it
-sets the custom labels to glaeda_fleet_labels.widened_labels() of the current ones, through the labels API.
+adds the labels missing from glaeda_fleet_labels.widened_labels() of the current ones, through the labels API.
 The rule lives only in glaeda (loaded from its checkout, GLAEDA_LABELS); nothing here restates it.
 
 It only adds labels the rule issues (widened_labels never removes one), touches no runner whose labels
@@ -79,8 +79,8 @@ class GitHub:
     def runner(self, runner_id: int) -> Mapping[str, Any]:
         return self._call("GET", f"/orgs/{self.org}/actions/runners/{int(runner_id)}")
 
-    def set_labels(self, runner_id: int, labels: Sequence[str]) -> None:
-        self._call("PUT", f"/orgs/{self.org}/actions/runners/{int(runner_id)}/labels", {"labels": list(labels)})
+    def add_labels(self, runner_id: int, labels: Sequence[str]) -> None:
+        self._call("POST", f"/orgs/{self.org}/actions/runners/{int(runner_id)}/labels", {"labels": list(labels)})
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ, api: Any = None) -> int:
@@ -99,17 +99,19 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ,
     failed = changed = 0
     for runner, current, wanted in todo:
         added = [label for label in wanted if label not in current]
-        print(f"{runner.get('name')}: {'set' if args.apply else 'would add'} {' '.join(added)}")
+        print(f"{runner.get('name')}: {'add' if args.apply else 'would add'} {' '.join(added)}")
         if not args.apply:
             continue
         try:
             # Re-read just before writing: a relabel may have re-registered it since the listing.
             fresh = custom_labels(api.runner(runner["id"]))
-            if fresh != current:
-                wanted = widen(fresh)
-                if set(wanted) == set(fresh):
-                    continue
-            api.set_labels(runner["id"], wanted)
+            if MINI_LABEL not in fresh:
+                continue
+            added = [label for label in widen(fresh) if label not in fresh]
+            if not added:
+                continue
+            # Add only missing labels: a full replacement could undo a concurrent relabel.
+            api.add_labels(runner["id"], added)
             changed += 1
         except urllib.error.HTTPError as error:
             if error.code == 404:

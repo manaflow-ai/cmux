@@ -47,12 +47,13 @@ class FakeApi:
             raise reconcile.urllib.error.HTTPError("u", 404, "Not Found", {}, None)
         return found
 
-    def set_labels(self, rid, labels):
+    def add_labels(self, rid, labels):
         self.calls.append((rid, list(labels)))
         for item in self.list:
             if item["id"] == rid:
-                item["labels"] = [label for label in item["labels"] if label["type"] != "custom"] + [
-                    {"name": label, "type": "custom"} for label in labels]
+                existing = {label["name"] for label in item["labels"]}
+                item["labels"].extend({"name": label, "type": "custom"}
+                                      for label in labels if label not in existing)
 
 
 class Reconcile(unittest.TestCase):
@@ -81,8 +82,7 @@ class Reconcile(unittest.TestCase):
         self.run_main(api, "--apply")
         # Only custom labels are sent; a busy runner is relabelled too (labels never interrupt a job), and a
         # runner without glaeda-mini is never touched.
-        self.assertEqual(api.calls, [(1, ["glaeda-mini", "glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6",
-                                          "glaeda-side-light-xcode-26.6"])])
+        self.assertEqual(api.calls, [(1, ["glaeda-side-light-xcode-26.6"])])
         self.assertIn("0 runner(s) relabelled", self.run_main(api, "--apply"))
         self.assertEqual(len(api.calls), 1)
 
@@ -135,7 +135,7 @@ class Reconcile(unittest.TestCase):
 
         def refuse(rid, labels):
             raise reconcile.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
-        api.set_labels = refuse
+        api.add_labels = refuse
         with tempfile.TemporaryDirectory() as tmp:
             rules = Path(tmp) / "rules.py"
             rules.write_text(RULES)
