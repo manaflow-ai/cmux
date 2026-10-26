@@ -387,3 +387,60 @@ test("a disconnected peer is not shown connected just because the local transpor
     connected: false,
   });
 });
+
+for (const connected of [true, false]) {
+  test(`Environment connection accessible name includes its ${connected ? "connected" : "disconnected"} state`, async () => {
+    const host = installDom();
+    const label = translate(connected ? "composer.envConnected" : "header.disconnected");
+    await act(async () => {
+      root = createRoot(host);
+      root.render(<ChatInspector environmentControls={{ connection: { connected, label } }} />);
+    });
+    const row = host.querySelector(".acpmux-environment-status")!.closest("li")!;
+    expect(row.getAttribute("aria-label")).toBe(`${translate("inspector.connection")}: ${label}`);
+  });
+}
+
+for (const canChoose of [true, false]) {
+  test(`compact Environment shows the primary folder once ${canChoose ? "with" : "without"} folder choice`, async () => {
+    const host = installDom();
+    const opened: string[] = [];
+    let choices = 0;
+    await act(async () => {
+      root = createRoot(host);
+      root.render(
+        <ChatInspector
+          summary={{ ...chat([]).summary!, cwd: `${HOME}/Projects/primary-env-folder`, branch: undefined }}
+          rows={[activity([read(`${HOME}/Projects/secondary-env-folder/file.ts`)], 1)]}
+          machineName="Studio"
+          environmentLook="compact"
+          environmentControls={{
+            chooseFolder: canChoose
+              ? () => {
+                  choices++;
+                }
+              : undefined,
+            connection: { label: translate("composer.envConnected"), connected: true },
+          }}
+          onOpenFolder={(path) => opened.push(path)}
+        />,
+      );
+    });
+    const environment = host.querySelector('[data-section="environment"]')!;
+    expect(environment.textContent!.match(/primary-env-folder/g)).toHaveLength(1);
+    expect(environment.querySelector("[data-machine]")!.textContent).toContain("primary-env-folder");
+    expect(environment.querySelectorAll(":scope > li")).toHaveLength(canChoose ? 3 : 2);
+    const choose = environment.querySelector<HTMLButtonElement>(
+      `[aria-label="${translate("chatInspector.environment.chooseFolderNewChat")}"]`,
+    );
+    if (canChoose) {
+      await act(async () => choose!.click());
+      expect(choices).toBe(1);
+    } else expect(choose).toBeNull();
+    const secondary = environment.querySelector<HTMLButtonElement>(
+      `button[title="${HOME}/Projects/secondary-env-folder"]`,
+    )!;
+    await act(async () => secondary.click());
+    expect(opened).toEqual([`${HOME}/Projects/secondary-env-folder`]);
+  });
+}
