@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { readRetry, type RetryState } from "./subagents/retryState";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -83,6 +84,8 @@ export type AcpmuxSessionEntry = {
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
    *  it (acpmux tag `trust.pending:<name>`, hub/trust_wait.rs): the row says "Needs trust". */
   trustPending?: string;
+  /** acpmux's retry of its failed turn while one waits (session/list `retry`, subagents/retryState.ts). */
+  retry?: RetryState;
 };
 
 export type LifecycleReceipt = {
@@ -238,6 +241,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
+    retry: readRetry(session.retry) ?? undefined,
   };
 }
 

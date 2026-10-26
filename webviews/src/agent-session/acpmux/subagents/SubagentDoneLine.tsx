@@ -7,15 +7,24 @@
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
 // hover row's buttons (conversation/MessageActions.tsx).
-import { useContext } from "react";
+//
+// While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
+// error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
+// it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
+// A refusal leaves a short note after the line until the row next changes.
+import { createContext, useContext, useState } from "react";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { formatDuration } from "../conversation/turns";
-import { Retry } from "../conversation/icons";
+import { Retry, Spinner } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
+import { retryActionOf, retrying, retryLabel, type RetryAction, type RetryNote } from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
+import { useSubsessionInfo } from "./subsessions";
+import type { Subagent } from "./subagentFold";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -24,45 +33,119 @@ const DONE_LABEL: Record<string, StringKey> = {
   disconnected: "subagents.ended.disconnected",
 };
 
+/// Where a failed line's Retry sits: an inline button (the default), a link after the line's
+/// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
+export type RetryAffordance = "button" | "link" | "menu";
+export const RetryAffordanceContext = createContext<RetryAffordance>("button");
+
+const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
+
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
-  const { restartSubagent } = useContext(TurnActionsContext);
-  const open = pane ?? nav;
+  const affordance = useContext(RetryAffordanceContext);
+  const { restartSubagent, retryAgent } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
+  // A sub-session's retry is on its own session row.
+  const child = useSubsessionInfo(agent?.child);
+  // A refusal's note, and the Retry in flight, last until the row changes.
+  const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
+  const open = pane ?? nav;
   if (!agent) return null;
+  const live: Subagent = child?.retry && !agent.retry ? { ...agent, retry: child.retry } : agent;
+  const waiting = retrying(live);
+  const action = retryAgent ? retryActionOf(live) : undefined;
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   const restart = restartSubagent && canRestart(agent) ? restartSubagent : undefined;
+  const parts = waiting
+    ? [agent.name, retryLabel(t, waiting)]
+    : [
+        label,
+        ...(reasonKey ? [t(reasonKey)] : []),
+        ...(agent.retriedOut ? [t("retry.retriedOut", { of: agent.retriedOut.of })] : []),
+        time,
+      ];
+  const shown = note?.version === row.version ? note : undefined;
+  const run = (how: RetryAction) => {
+    if (!retryAgent || shown?.busy) return;
+    setNote({ version: row.version, busy: true });
+    void retryAgent(live, how).then(
+      (key) => setNote({ version: row.version, ...(key && { key }) }),
+      () => setNote({ version: row.version, key: "retry.failed" }),
+    );
+  };
+  const inline = action && affordance !== "menu" && (
+    <button
+      type="button"
+      className={affordance === "link" ? "cv-subagent-retry-link" : "cv-subagent-retry"}
+      disabled={shown?.busy}
+      onClick={() => run(action)}
+    >
+      {affordance === "button" && <Retry size={12} />}
+      {t(ACTION_LABEL[action])}
+    </button>
+  );
   return (
     <div className="cv-tools cv-subagent-done-row">
       <button
         type="button"
         className="cv-tool cv-bgtask cv-subagent-done"
-        data-state={agent.state}
+        data-state={waiting ? "retrying" : agent.state}
         {...(agent.stopReason && { "data-reason": agent.stopReason })}
         disabled={!open}
         onClick={() => open?.(agent.id)}
       >
         <span className="cv-tool__icon">
-          <Icon name="agent.session" size={16} />
+          {waiting ? <Spinner size={16} loading /> : <Icon name="agent.session" size={16} />}
         </span>
-        <span className="cv-tool__text">{[label, ...(reasonKey ? [t(reasonKey)] : []), time].join(" · ")}</span>
+        <span className="cv-tool__text">{parts.join(" · ")}</span>
       </button>
-      {restart && (
+      {inline}
+      {shown?.key && (
+        <span className="cv-subagent-done__note" role="status">
+          {t(shown.key)}
+        </span>
+      )}
+      {(restart || action) && (
         <span className="cv-subagent-done__actions">
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-            aria-label={t("subagents.restart")}
-            title={t("subagents.restart")}
-            data-tooltip-detail={t("subagents.restartDetail")}
-            onClick={() => restart(agent)}
-          >
-            <Retry size={14} />
-          </button>
+          {restart && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+              aria-label={t("subagents.restart")}
+              title={t("subagents.restart")}
+              data-tooltip-detail={t("subagents.restartDetail")}
+              onClick={() => restart(agent)}
+            >
+              <Retry size={14} />
+            </button>
+          )}
+          {action && (
+            <Menu>
+              <MenuButton
+                className="cv-iconbtn cv-iconbtn--compact"
+                data-menu="subagent-done"
+                label={t("retry.menu")}
+                title={t("retry.menu")}
+                aria-haspopup="menu"
+              >
+                <Icon name="action.more" size={14} />
+              </MenuButton>
+              <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
+                {action === "daemon" && (
+                  <MenuItem className="acpmux-quick-item" onSelect={() => run("daemon")}>
+                    {t("retry.action")}
+                  </MenuItem>
+                )}
+                <MenuItem className="acpmux-quick-item" onSelect={() => run("ask")}>
+                  {t("retry.askParent")}
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          )}
         </span>
       )}
     </div>

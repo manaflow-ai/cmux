@@ -10,7 +10,9 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
-import { ChevronRight, Envelope, Spinner } from "./icons";
+import { retryLabel, type RetryNote } from "../subagents/retryState";
+import { ChevronRight, Envelope, Retry, Spinner } from "./icons";
+import { TurnActionsContext } from "./turnActions";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
@@ -64,20 +66,45 @@ function SessionCard({
   const live = useSubsessionInfo(sessionId);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  const state = live?.state ?? fallback?.state;
+  const retryAgent = useContext(TurnActionsContext).retryAgent;
+  // A Retry refused leaves its note until the card's state changes.
+  const [note, setNote] = useState<{ state?: string; key?: RetryNote; busy?: boolean }>();
+  // While acpmux waits to retry its failed turn, the card works, and its state says so.
+  const retry = live?.retry;
+  const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
   const doing = waiting ? waitingLine(t, waiting) : live?.doing;
+  const shown = note?.state === state ? note : undefined;
+  const target = sessionId ? { id: sessionId, parent: null, name: live?.name ?? name, state: "failed", child: sessionId } : undefined;
+  const run = () => {
+    if (!retryAgent || !target || shown?.busy) return;
+    setNote({ state, busy: true });
+    void retryAgent(target).then(
+      (key) => setNote({ state, ...(key && { key }) }),
+      () => setNote({ state, key: "retry.failed" }),
+    );
+  };
   return (
     <AgentCard
       name={live?.name ?? name}
       harness={listed ?? harness}
       model={live?.model ?? model}
       state={state}
+      {...(retry && { stateLabel: retryLabel(t, retry) })}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
+      {state === "failed" && retryAgent && target && (
+        <div className="cv-subsession__retry">
+          <button type="button" className="cv-subagent-retry" disabled={shown?.busy} onClick={run}>
+            <Retry size={12} />
+            {t("retry.action")}
+          </button>
+          {shown?.key && <span role="status">{t(shown.key)}</span>}
+        </div>
+      )}
       {children}
     </AgentCard>
   );

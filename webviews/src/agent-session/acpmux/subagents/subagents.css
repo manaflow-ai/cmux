@@ -618,3 +618,59 @@ button.cv-subagent > :last-child {
 .cv-subagent-done__actions:focus-within {
   opacity: 1;
 }
+/* A retry acpmux waits to run (retryState.ts): the line in the dim text, its ring turning. */
+.cv-subagent-done[data-state="retrying"] {
+  color: var(--cv-text-dim);
+}
+/* A failed line's Retry (SubagentDoneLine.tsx): always shown, a small outlined button in the
+   accent, or as a link after the line; a refusal's note after it, dim. */
+.cv-subagent-retry,
+.cv-subagent-retry-link {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-inline-start: 6px;
+  color: var(--agent-accent);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+}
+.cv-subagent-retry {
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border-radius: 6px;
+}
+.cv-subagent-retry:hover {
+  background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
+}
+.cv-subagent-retry-link:hover {
+  text-decoration: underline;
+}
+.cv-subagent-retry:focus-visible,
+.cv-subagent-retry-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-subagent-retry:disabled,
+.cv-subagent-retry-link:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.cv-subagent-done__note,
+.cv-subsession__retry > [role="status"] {
+  flex: none;
+  margin-inline-start: 6px;
+  color: var(--cv-text-dim);
+  font-size: 12px;
+}
+.cv-subsession__retry {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+.cv-subsession__retry > .cv-subagent-retry {
+  margin-inline-start: 0;
+}

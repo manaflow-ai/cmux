@@ -1,6 +1,7 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
+import { applyRetry, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -84,6 +85,11 @@ export type Subagent = {
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
+  /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
+  /// (retryState.ts).
+  retry?: RetryState;
+  retryable?: boolean;
+  retriedOut?: RetryState;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -597,6 +603,7 @@ export class SubagentFold {
       change.workflowAgentsFull === true,
     );
     if (change.reason === "paused") agent.paused = true;
+    applyRetry(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.

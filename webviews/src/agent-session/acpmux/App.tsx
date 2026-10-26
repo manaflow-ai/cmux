@@ -172,6 +172,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import { runRetry, type RetryAction, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -5391,6 +5392,15 @@ function AcpmuxPane() {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)) return;
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        })(restartChat),
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
+        retryAgent: ((owner: string) => (agent: RetryTarget, how?: RetryAction) => {
+          const client = directClient.current;
+          if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))
+            return Promise.resolve(undefined);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          const send = (text: string) => callNative("chat.send", { text });
+          return runRetry(agent, owner, { request, send }, translate, how);
         })(restartChat),
       }),
       ...(connected &&
