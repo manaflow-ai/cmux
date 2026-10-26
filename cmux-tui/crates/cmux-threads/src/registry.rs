@@ -124,6 +124,12 @@ impl QosSlot {
         ThreadQos::from_u8(self.0.desired.load(Ordering::Relaxed))
     }
 
+    /// The QoS the thread was registered with: its own class, whatever it
+    /// was asked for since.
+    pub fn declared(&self) -> ThreadQos {
+        self.0.declared
+    }
+
     /// The owning thread's name.
     pub fn name(&self) -> &str {
         &self.0.name
