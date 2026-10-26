@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 498,
+  "count": 499,
   "sections": [
     {
       "id": "general",
@@ -110,6 +110,14 @@
           "key": "agentPane.spellChecking",
           "title": "Check Spelling While Typing",
           "help": "Underlines misspellings and offers system suggestions in the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.subagentPanes",
+          "title": "Open Subagents in Panes",
+          "help": "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat.",
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
