@@ -14,19 +14,24 @@ Cases (each `--only` name, its engine):
   gpucrash_url  chromium  chrome://gpucrash typed into the omnibar: as gpu.
   network       chromium  SIGKILL the network service utility (--utility-sub-type=network.mojom.NetworkService):
                           Chromium starts a new one and a navigation of the tab loads over it.
-  host          chromium  with cefHelperHost on: SIGKILL the Chromium browser host (`debug.chromium_host`); it starts
-                          again and the tab still answers.
-  browser_check chromium  chrome://inducebrowsercrashforrealz: while Chromium's browser process is the app itself
-                          (in process, until F2 moves it to the host) a browser CHECK ends cmux, so the case is
-                          reported EXPECTED-FAIL and is not run.
+  host          chromium  with cefHelperHost on: SIGKILL the Chromium browser host that serves the tab (the one
+                          parent of the tab's renderers, a process of the app's tree that is not the app); a host
+                          starts again and the same tab answers. No such host: NOT-MEASURABLE.
+  browser_check chromium  chrome://inducebrowsercrashforrealz, run only on proof that Chromium's browser process is
+                          not the app (cefHelperHost on and the tab's renderers all under one host). Without that
+                          proof (in process until F2, or no renderer to read) a browser CHECK would end cmux, so the
+                          case is EXPECTED-FAIL and the URL is never typed.
   webkit        webkit    SIGKILL the WebContent process of a WebKit tab (`page_status` page_pid): as renderer.
   agent         webkit    SIGKILL the WebContent process of an agent page (`debug.agent_pane` pid): the page reloads
                           in a new process by itself; one that keeps crashing shows the crash notice with Reload.
 
 Every kill names an exact pid that belongs to this app: a process of the app's own process tree (a Chromium child
 found by its --type, or the host), or a WebKit WebContent process that the app reports for its page and whose
-responsible process is the app. A pid it cannot prove is the app's is never signalled: that case is NOT-MEASURABLE.
-A case whose debug method the build lacks is NOT-MEASURABLE too. Neither counts in the total.
+responsible process is the app (or the app's own responsible process: a launch from a shell leaves the launcher
+responsible for the app and so for its XPC services). A pid it cannot prove is the app's is never signalled: that
+case is NOT-MEASURABLE (in check mode a pid the app reported and the proof refuses is a FAIL). A case whose debug
+method the build lacks is NOT-MEASURABLE too. A NOT-MEASURABLE case counts as not survived, so only a run that
+measured every case can reach the target; `.measured` says how many were.
 
 Two modes:
 
@@ -35,9 +40,11 @@ Two modes:
   after kGpuFallbackCrashCount GPU crashes, content/browser/gpu/gpu_process_host.cc, so runs never share one), with
   the typing probe on, and per `--host-arms` arm (cefHelperHost off, on). It types one key at a time into a terminal
   beside the page through each kill window and writes cmux-perf-result/v1 through BenchApp.record:
-    crash_survival.<engine>                  ratio  survived/total of the run (target crash-survival.<engine>: 1.0)
+    crash_survival.<engine>                  ratio  survived/cases of the run, EXPECTED-FAIL left out (target
+                                                    crash-survival.<engine>: 1.0)
+    crash_survival.<engine>.measured         ratio  measured (survived or died)/cases of the run
     crash_survival.<engine>.<case>.recover   ms     the kill to the page answering again
-    crash_survival.<engine>.<case>.key_to_frame  ms  each terminal key to the frame that showed it, over the window
+    crash_survival.<engine>.<case>.key_to_frame  ms  each terminal key drawn after the kill, to its frame
   A case survives when the app still runs, the page comes back, and (typing on) the terminal drew at least one key
   after the kill. An arm whose app does not report cefHelperHost on is NOT-MEASURABLE (nothing recorded). Exit 1 only
   when nothing could be measured; a case that died is a FAIL line and a ratio under 1.
@@ -47,7 +54,7 @@ Two modes:
 
   child-crash-e2e.py --app "cmux DEV <tag>.app" --tag TAG --out DIR [--engine chromium|webkit|all]
       [--host-arms off,on] [--runs 3] [--only ...] [--build-config bench] [--session light]
-  child-crash-e2e.py --socket PATH [--app-pid PID] [--only renderer,gpu,webkit,agent]
+  child-crash-e2e.py --socket PATH [--app-pid PID] [--only renderer,gpu,webkit,agent]  (that set is the default)
 """
 import argparse, dataclasses, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -64,6 +71,8 @@ CASES = {
     "webkit": "webkit", "agent": "webkit",
 }
 STORIES = {"chromium": "crash-survival", "webkit": "crash-survival-webkit"}
+# Check mode's cases unless --only names others: the capture slot's set from before the story.
+CHECK_CASES = ("renderer", "gpu", "webkit", "agent")
 # The feature that moves Chromium's browser process into the Chromium Host app (task p12-perf-process-101), and the
 # variable that turns a feature on at launch (FeatureOverrides.enableVariable).
 HOST_FEATURE = "cefHelperHost"
@@ -128,9 +137,15 @@ def chromium_children(table, app_pid, kind, sub_type=None):
                   and (sub_type is None or switch_value(p.command, "utility-sub-type") == sub_type))
 
 
-def in_process_chromium(table, app_pid, renderers):
-    """True when a Chromium renderer of the tab is the app's own child: the app is Chromium's browser process."""
-    return any(table.get(pid) is not None and table[pid].ppid == app_pid for pid in renderers)
+def serving_host(table, app_pid, renderers):
+    """The Chromium browser host that runs `renderers`: their one parent, a process of the app's tree that is not the
+    app. None without that proof: no renderer runs, one is the app's own child (Chromium in process), or they run
+    under different parents."""
+    parents = {table[pid].ppid for pid in renderers if pid in table}
+    if len(parents) != 1:
+        return None
+    (parent,) = parents
+    return parent if parent != app_pid and parent in descendants(table, app_pid) else None
 
 
 def responsible_pid(pid):
@@ -148,7 +163,11 @@ def responsible_pid(pid):
 
 
 class Ownership:
-    """Proves a pid is this app's before anything signals it. `read_table` and `responsible` are seams (tests)."""
+    """Proves a pid is this app's before anything signals it. `read_table` and `responsible` are seams (tests).
+
+    A WebContent's responsible process is the app's own: the app when it owns its responsibility (launched by
+    launchd), else the launcher it inherited it from (a BenchApp Popen from a shell), since launchd gives an XPC
+    service its client's responsible pid."""
 
     def __init__(self, app_pid, read_table=read_ps, responsible=responsible_pid):
         self.app_pid, self.read_table, self.responsible = app_pid, read_table, responsible
@@ -169,9 +188,10 @@ class Ownership:
         owner = self.responsible(pid)
         if owner is None:
             return False, f"pid {pid}: its responsible process cannot be read"
-        if owner != self.app_pid:
-            return False, f"pid {pid}'s responsible process is {owner}, not the app {self.app_pid}"
-        return True, "WebContent the app reports, the app responsible for it"
+        apps = {self.app_pid} | {p for p in (self.responsible(self.app_pid),) if p is not None and p > 1}
+        if owner not in apps:
+            return False, f"pid {pid}'s responsible process is {owner}, not the app's ({', '.join(map(str, sorted(apps)))})"
+        return True, "WebContent the app reports, responsible process the app's"
 
 
 # ---------------------------------------------------------------- results (pure)
@@ -190,10 +210,22 @@ class CaseResult:
         return out
 
 
+def counted(results, engine):
+    """`engine`'s cases of one run that count: every one but EXPECTED-FAIL."""
+    return [r for r in results if r.engine == engine and r.outcome != EXPECTED_FAIL]
+
+
 def survival(results, engine):
-    """survived/total of `engine`'s measured cases (NOT-MEASURABLE and EXPECTED-FAIL left out); None for none."""
-    counted = [r for r in results if r.engine == engine and r.outcome in (SURVIVED, DIED)]
-    return sum(r.outcome == SURVIVED for r in counted) / len(counted) if counted else None
+    """survived/cases of `engine` (a NOT-MEASURABLE case counts as not survived, so a partial run never reaches the
+    target); None when the run has no case of `engine`."""
+    cases = counted(results, engine)
+    return sum(r.outcome == SURVIVED for r in cases) / len(cases) if cases else None
+
+
+def measured(results, engine):
+    """measured (survived or died)/cases of `engine`; None when the run has no case of `engine`."""
+    cases = counted(results, engine)
+    return sum(r.outcome in (SURVIVED, DIED) for r in cases) / len(cases) if cases else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -208,8 +240,8 @@ class Series:
 
 
 def series(runs, engines):
-    """The result-v1 series of `runs` (one list of CaseResult per launch) for each engine: one survival sample per
-    run, the recover times and every key->frame sample per case."""
+    """The result-v1 series of `runs` (one list of CaseResult per launch) for each engine: one survival and one
+    measured sample per run, the recover times and the key->frame samples of the measured cases."""
     out = []
     for engine in engines:
         story = STORIES[engine]
@@ -217,12 +249,14 @@ def series(runs, engines):
         if ratios:
             out.append(Series(story, f"crash_survival.{engine}", "ratio", tuple(ratios), "higher", engine,
                               f"crash-survival.{engine}"))
+            covered = tuple(measured(results, engine) for results in runs if counted(results, engine))
+            out.append(Series(story, f"crash_survival.{engine}.measured", "ratio", covered, "higher", engine))
         for case in (c for c, e in CASES.items() if e == engine):
             done = [r for results in runs for r in results if r.name == case and r.engine == engine]
             recover = tuple(r.recover_ms for r in done if r.outcome == SURVIVED and r.recover_ms is not None)
             if recover:
                 out.append(Series(story, f"crash_survival.{engine}.{case}.recover", "ms", recover, "lower", engine))
-            keys = tuple(v for r in done for v in r.key_to_frame)
+            keys = tuple(v for r in done if r.outcome in (SURVIVED, DIED) for v in r.key_to_frame)
             if keys:
                 out.append(Series(story, f"crash_survival.{engine}.{case}.key_to_frame", "ms", keys, "lower", engine))
     return out
@@ -328,14 +362,16 @@ class Typist:
 
 class Driver:
     """Runs the cases on one running app. `rpc(method, params, timeout)` is the app's socket; `probe` its typing
-    probe CSV (None: no typing); `check` prints and counts PASS/FAIL lines."""
+    probe CSV (None: no typing); `check` prints and counts PASS/FAIL lines. `strict` (check mode): a pid the app
+    reports that the ownership proof refuses is a FAIL, not only NOT-MEASURABLE."""
 
     def __init__(self, rpc, app_pid, url, probe=None, cli=None, socket_path=None, key_interval=0.1,
-                 ownership=None, host_on=False):
+                 ownership=None, host_on=False, strict=False):
         self.rpc, self.app_pid, self.url, self.probe = rpc, app_pid, url, probe
         self.cli, self.socket_path, self.key_interval = cli, socket_path, key_interval
         self.ownership = ownership or Ownership(app_pid)
-        self.host_on = host_on
+        self.host_on, self.strict = host_on, strict
+        self.kill_row = None  # the probe row count when the case's crash was sent (None: not sent, or no probe)
         self.failures, self.checks = [], 0
         self.layout = None  # {"terminal_pane", "terminal_tab", "browser_pane", "tab"} of the engine under test
         self.navigations = 0
@@ -368,12 +404,20 @@ class Driver:
     def answers(self, tab):
         return self.js(tab, "document.getElementById('alive')?.textContent") == "alive"
 
+    def crash_sent(self):
+        """Marks the crash of the running case: the probe rows written from now on are the terminal after it."""
+        self.kill_row = len(probe_rows(self.probe)) if self.probe else None
+
     def kill(self, name, pid, reported_by_app=False):
         """SIGKILL `pid` once Ownership proves it is the app's; the monotonic kill time, or None (not signalled)."""
         owned, why = self.ownership.proof(pid, reported_by_app)
         if not owned:
-            print(f"NOT-MEASURABLE {name}: refused to signal {pid}: {why}", flush=True)
+            if self.strict and reported_by_app:
+                self.check(f"{name}: the pid the app reports is proved the app's", False, f"{pid}: {why}")
+            else:
+                print(f"NOT-MEASURABLE {name}: refused to signal {pid}: {why}", flush=True)
             return None
+        self.crash_sent()
         os.kill(int(pid), signal.SIGKILL)
         print(f"killed {name} {pid} ({why})", flush=True)
         return time.monotonic()
@@ -450,7 +494,7 @@ class Driver:
         """Runs `run()` (the crash and its recovery: (outcome, detail, recover_ms)) while the terminal is typed into,
         and makes the CaseResult. A died case also needs the app running and the terminal drawing after the kill."""
         typing = bool(self.probe and self.layout)
-        start = len(probe_rows(self.probe)) if typing else 0
+        self.kill_row = None
         if typing:
             with Typist(self.rpc, self.key_interval):
                 time.sleep(0.5)  # test harness: keys before the crash, the window's baseline
@@ -461,11 +505,14 @@ class Driver:
             self.action("terminal.sendText", {"text": "\x15"}, target=f"tab:{terminal}" if terminal else None, focus=False)  # Ctrl-U
         else:
             outcome, detail, recover = run()
-        keys = window_samples(probe_rows(self.probe), start) if typing else []
+        # Only the keys drawn after the crash, and only for a case that crashed something: the keys before it, and a
+        # case that returned before any crash, measure a quiet terminal.
+        sent = typing and self.kill_row is not None and outcome in (SURVIVED, DIED)
+        keys = window_samples(probe_rows(self.probe), self.kill_row) if sent else []
         if outcome == SURVIVED and not alive(self.app_pid):
             outcome, detail = DIED, "the app ended"
         if outcome == SURVIVED and typing and not keys:
-            outcome, detail = DIED, "the terminal drew no key in the kill window"
+            outcome, detail = DIED, "the terminal drew no key after the kill"
         result = CaseResult(name, engine, outcome, detail, recover, keys)
         if outcome in (SURVIVED, DIED):
             self.check(f"{name}: survived", outcome == SURVIVED, detail or f"recover {recover} ms, {len(keys)} keys")
@@ -501,6 +548,7 @@ class Driver:
         params = {"text": text, "commit": True}
         if self.layout:
             params["pane"] = self.layout["browser_pane"]
+        self.crash_sent()
         reply = self.call("debug.omnibar_type", params)
         at = time.monotonic()
         self.focus_terminal()  # the omnibar took the keyboard; the typed keys go back to the terminal
@@ -514,6 +562,12 @@ class Driver:
     def chromium_cases(self, tab, only):
         results = []
         renderers = lambda: chromium_children(self.ownership.read_table(), self.app_pid, "renderer")
+
+        def tab_host():
+            """The host that runs the tab's renderers (those that did not run before the tab opened), or None."""
+            table = self.ownership.read_table()
+            tab_renderers = set(chromium_children(table, self.app_pid, "renderer")) - self.baseline_renderers
+            return serving_host(table, self.app_pid, tab_renderers)
 
         def renderer_run(name):
             def run():
@@ -570,55 +624,50 @@ class Driver:
             recover = round((time.monotonic() - killed[0]) * 1000, 1)
             return (SURVIVED, "", recover) if ok else (DIED, "the page does not load after the network service crash", None)
 
-        def running_host(other_than=None):
-            """The `debug.chromium_host` report once a host other than `other_than` runs, else None."""
-            report = self.call("debug.chromium_host", {"op": "report"})
-            pid = report.get("pid")
-            return report if pid and pid != other_than and report.get("phase") == "running" else None
-
         def host_run():
-            report = self.call("debug.chromium_host", {"op": "report"})
-            if missing_method(report):
-                return NOT_MEASURABLE, "this build has no debug.chromium_host", None
-            if not report.get("pid"):
-                params = {"op": "open", "url": self.url, "focus": False}
-                if self.layout:
-                    params["pane"] = self.layout["browser_pane"]
-                opened = self.call("debug.chromium_host", params)
-                report = wait(running_host, 30) or opened
-            pid = report.get("pid")
-            if not pid:
-                return DIED, f"the Chromium host does not run: {report.get('error') or report.get('phase')}", None
-            try:
-                at = self.kill("host", pid)
-                if at is None:
-                    return NOT_MEASURABLE, f"host pid {pid} not proved the app's", None
-                if not wait(lambda: running_host(other_than=pid), 30):
-                    return DIED, "the Chromium host did not start again", None
-                return self.page_answers_after("host", tab, at)
-            finally:
-                self.focus_terminal()
-                self.call("debug.chromium_host", {"op": "close"})
+            host = tab_host()
+            if host is None:
+                return NOT_MEASURABLE, "no Chromium host runs the tab's renderers (in process, or none runs)", None
+            at = self.kill("host", host)
+            if at is None:
+                return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
+            outcome, detail, recover = self.page_answers_after("host", tab, at)
+            if outcome != SURVIVED:
+                return outcome, detail, recover
+            fresh = tab_host()
+            if fresh is None or fresh == host:
+                return DIED, f"the tab answers, but not from a new Chromium host (host {fresh})", None
+            print(f"host: the tab runs under a new host {fresh}", flush=True)
+            return outcome, detail, recover
 
         def browser_check_run():
-            if in_process_chromium(self.ownership.read_table(), self.app_pid, renderers()):
-                return EXPECTED_FAIL, "Chromium's browser process is the app (in process until F2): a browser CHECK ends cmux", None
+            if not self.host_on or tab_host() is None:
+                return EXPECTED_FAIL, ("no proof Chromium's browser process runs outside the app (in process until F2, "
+                                       "or no renderer of the tab to read): a browser CHECK would end cmux"), None
             at, why = self.omnibar("browser_check", "chrome://inducebrowsercrashforrealz")
             if at is None:
                 return NOT_MEASURABLE, why, None
             return self.page_answers_after("browser_check", tab, at)
 
-        plan = [("renderer", renderer_run("renderer")), ("crash_url", renderer_run("crash_url")), ("gpu", gpu_run("gpu")),
-                ("gpucrash_url", gpu_run("gpucrash_url")), ("network", network_run)]
-        if self.host_on:
-            plan.append(("host", host_run))
-        elif "host" in only:
-            print(f"NOT-MEASURABLE host: {HOST_FEATURE} is off in this app", flush=True)
-        plan.append(("browser_check", browser_check_run))
-        for name, run in plan:
-            if name in only:
-                results.append(self.window(name, "chromium", run))
+        runs = {"renderer": renderer_run("renderer"), "crash_url": renderer_run("crash_url"), "gpu": gpu_run("gpu"),
+                "gpucrash_url": gpu_run("gpucrash_url"), "network": network_run, "host": host_run,
+                "browser_check": browser_check_run}
+        for name in self.chromium_plan(only):
+            results.append(self.window(name, "chromium", runs[name]))
         return results
+
+    def chromium_plan(self, only):
+        """The Chromium cases this app runs, in order: the host case only with cefHelperHost on (the off arm has no
+        host to kill)."""
+        if "host" in only and not self.host_on:
+            print(f"NOT-MEASURABLE host: {HOST_FEATURE} is off in this app", flush=True)
+        return [c for c, e in CASES.items() if e == "chromium" and c in only and (c != "host" or self.host_on)]
+
+    def unopened(self, engine, names):
+        """The cases of a tab that did not open: NOT-MEASURABLE, so they count against the run's survival (the
+        browser CHECK stays EXPECTED-FAIL without its proof, as it would with the tab)."""
+        return [CaseResult(n, engine, EXPECTED_FAIL if n == "browser_check" and not self.host_on else NOT_MEASURABLE,
+                           f"the {engine} tab did not open") for n in names]
 
     def webkit_case(self, tab):
         def run():
@@ -696,13 +745,11 @@ class Driver:
         if "chromium" in engines and only & {c for c, e in CASES.items() if e == "chromium"}:
             self.baseline_renderers = set(chromium_children(self.ownership.read_table(), self.app_pid, "renderer"))
             tab = self.open_layout("chromium")
-            if tab:
-                results.extend(self.chromium_cases(tab, only))
+            results.extend(self.chromium_cases(tab, only) if tab else self.unopened("chromium", self.chromium_plan(only)))
         if "webkit" in engines and "webkit" in only:
             self.layout = None
             tab = self.open_layout("webkit")
-            if tab:
-                results.append(self.webkit_case(tab))
+            results.extend([self.webkit_case(tab)] if tab else self.unopened("webkit", ["webkit"]))
         self.check("app still runs at the end", alive(self.app_pid))
         return results
 
@@ -710,7 +757,8 @@ class Driver:
 # ---------------------------------------------------------------- modes
 def selected(opts):
     engines = ENGINES if opts.engine == "all" else (opts.engine,)
-    only = set(opts.only.split(",")) if opts.only else {c for c, e in CASES.items() if e in engines}
+    default = CHECK_CASES if opts.socket else CASES  # check mode keeps the capture slot's cases
+    only = set(opts.only.split(",")) if opts.only else {c for c in default if CASES[c] in engines}
     unknown = only - set(CASES)
     if unknown:
         raise SystemExit(f"unknown case {', '.join(sorted(unknown))}; cases: {', '.join(CASES)}")
@@ -741,7 +789,7 @@ def check_mode(opts):
     server, url = serve()
     print(f"app pid {pid}, page {url}", flush=True)
     engines, only = selected(opts)
-    driver = Driver(rpc, pid, url, socket_path=opts.socket,
+    driver = Driver(rpc, pid, url, socket_path=opts.socket, strict=True,
                     host_on=(features.get(HOST_FEATURE) or {}).get("state") == "on")
     results = driver.run_cases(engines, only)
     server.shutdown()
@@ -820,7 +868,8 @@ def parse(argv=None):
     parser.add_argument("--app", help="bench mode: the tagged app bundle to launch")
     parser.add_argument("--tag", help="bench mode: the app's tag (the runner passes it; the bundle names it too)")
     parser.add_argument("--engine", choices=("chromium", "webkit", "all"), default="all")
-    parser.add_argument("--only", help=f"comma list of cases (default: every case of --engine): {', '.join(CASES)}")
+    parser.add_argument("--only", help=f"comma list of cases (default: every case of --engine; with --socket "
+                                       f"{','.join(CHECK_CASES)}): {', '.join(CASES)}")
     parser.add_argument("--host-arms", default="off", help=f"bench mode: {HOST_FEATURE} arms, off, on or off,on")
     parser.add_argument("--runs", type=int, default=1, help="bench mode: launches per arm (the capture slot passes it too)")
     parser.add_argument("--key-interval", type=float, default=0.1, help="seconds between typed keys")
