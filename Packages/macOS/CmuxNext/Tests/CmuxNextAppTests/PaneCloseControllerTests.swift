@@ -130,6 +130,29 @@ import Testing
         #expect(shown.content.focus.state.pane == (try shown.key(expected)), "the echo moved the focus")
     }
 
+    /// Columns A, B, C with C focused: B closes in the background (a `pane.close` of an unfocused
+    /// pane), then C before B's echo. The focus goes to A, which still shows, never to the hidden B,
+    /// and the coordinator and the layout agree on it through both echoes.
+    @Test func aBackgroundCloseLeavesNoHiddenPaneForTheNextClosesFocus() throws {
+        let columns = [ColumnSnapshot(id: 10, width: 0.34, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.33, layout: .leaf(2)),
+                       ColumnSnapshot(id: 12, width: 0.33, layout: .leaf(3))]
+        let shown = try Shown(columns)
+        defer { shown.end() }
+        try shown.focus(3)
+        _ = try #require(try shown.controller(2).showPaneClose(), "B did not close in the key's turn")
+        #expect(shown.content.focus.state.pane == (try shown.key(3)), "a background close moved the focus")
+        #expect(!shown.content.focus.state.topology.contains(pane: try shown.key(2)), "the coordinator still holds the hidden B")
+        _ = try #require(try shown.controller(3).showPaneClose(), "C did not close in the key's turn")
+        #expect(shown.content.focus.state.pane == (try shown.key(1)), "focus: \(String(describing: shown.content.focus.state.pane))")
+        #expect(shown.content.layoutModel.focusedPane?.rawValue == (try shown.key(1)),
+                "layout focus: \(String(describing: shown.content.layoutModel.focusedPane))")
+        shown.echo([columns[0], columns[2]])
+        #expect(shown.content.focus.state.pane == (try shown.key(1)))
+        shown.echo([columns[0]])
+        #expect(shown.content.focus.state.pane == (try shown.key(1)))
+        #expect(shown.content.layoutModel.focusedPane?.rawValue == (try shown.key(1)))
+    }
+
     // MARK: Overlapping closes
 
     private static let dock = ColumnSnapshot(id: 10, width: 0.3, layout: .leaf(1), dock: DockSnapshot(edge: .left, mode: .docked))
@@ -190,6 +213,27 @@ import Testing
         shown.held[0].finishPaneClose(second, failed: true)
         #expect(shown.width(11) == 0.5 && shown.width(12) == 0.5, "c11 \(String(describing: shown.width(11))), c12 \(String(describing: shown.width(12)))")
         #expect(shown.widthIntents.sorted() == ["column:11=0.5", "column:12=0.5"], "sent \(shown.widthIntents)")
+    }
+
+    /// c13 closes and its echo lands, so its widths (c11 = c12 = 0.5) go out; before the daemon
+    /// acknowledges them c12 closes. c11 takes the viewport in that key's turn, not after the older
+    /// widths' reply, and keeps it through the acknowledgement and c12's echo; its width goes once.
+    @Test func aCloseBeforeTheLastClosesWidthsAreAcknowledgedOwnsTheWidths() throws {
+        let shown = try Shown(Self.strip)
+        defer { shown.end() }
+        _ = try #require(try shown.controller(4).showPaneClose())
+        shown.echo(Array(Self.strip.prefix(3)))
+        #expect(shown.width(11) == 0.5 && shown.width(12) == 0.5)
+        #expect(shown.widthIntents.sorted() == ["column:11=0.5", "column:12=0.5"], "sent \(shown.widthIntents)")
+        shown.held = [try shown.controller(3)]
+        _ = try #require(shown.held[0].showPaneClose())
+        #expect(shown.width(11) == 1, "c11 waits for the older widths' reply: \(String(describing: shown.width(11)))")
+        let half = [Self.dock, ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2)), ColumnSnapshot(id: 12, width: 0.5, layout: .leaf(3))]
+        shown.echo(half)
+        #expect(shown.width(11) == 1, "the acknowledgement resized c11 to \(String(describing: shown.width(11)))")
+        shown.echo(Array(half.prefix(2)))
+        #expect(shown.width(11) == 1)
+        #expect(shown.widthIntents.sorted() == ["column:11=0.5", "column:11=1.0", "column:12=0.5"], "sent \(shown.widthIntents)")
     }
 
     /// The first close refused while the second is pending: c13 comes back, and c11 and c13 share.
