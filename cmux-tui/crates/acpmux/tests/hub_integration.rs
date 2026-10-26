@@ -33,6 +33,8 @@ mod full_access_guards;
 mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/presence.rs"]
+mod presence;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]

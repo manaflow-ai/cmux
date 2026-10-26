@@ -116,6 +116,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub mod person;
+pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod questions;
@@ -426,6 +427,8 @@ pub struct Hub {
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// Who has each chat open and who types in it, in memory only (`presence.rs`).
+    pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
@@ -537,6 +540,7 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
