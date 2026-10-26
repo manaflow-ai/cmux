@@ -77,6 +77,11 @@ nonisolated private let sessionPersistenceLogger = Logger(
 )
 
 extension Workspace {
+    /// Builds this workspace's session snapshot.
+    ///
+    /// Keeps at most `SessionPersistencePolicy.maxPanelsPerWorkspace` panels and
+    /// records any past it as `omittedPanelCount`. Focus and canvas panes only
+    /// name panels the snapshot saved.
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
