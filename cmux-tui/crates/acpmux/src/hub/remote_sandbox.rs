@@ -560,6 +560,7 @@ impl Bound {
 
 #[cfg(target_os = "linux")]
 fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
+    use std::io::Read;
     let path = home.join(".claude/.credentials.json");
     let file = match std::fs::OpenOptions::new()
         .read(true)
@@ -578,7 +579,7 @@ fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
         return Err(format!("{} exceeds the 1 MiB credential limit", path.display()));
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    std::io::Read::take(file, 1024 * 1024 + 1)
+    file.take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     if bytes.len() > 1024 * 1024 {
@@ -801,6 +802,8 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
+    #[cfg(unix)]
+    let _ = std::fs::remove_file(&socket_path);
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());
     #[cfg(unix)]
