@@ -1,4 +1,5 @@
 public import AppKit
+import ObjectiveC
 
 /// One glass panel, whatever the OS: Liquid Glass (`NSGlassEffectView`) on
 /// macOS 26 and later, and before it an `NSVisualEffectView` blur with the
@@ -42,14 +43,21 @@ public final class GlassPanelView: NSView {
         didSet { applyStyle() }
     }
 
+    /// Whether the glass keeps its key-window look while its window is not key
+    /// (``ActiveLookGlassEffectView``); the fallback is always `.active`.
+    public let keepsActiveLook: Bool
+
     /// `liquidGlass` picks the material; it defaults to this Mac's
-    /// (`Glass.isLiquidGlassAvailable`).
+    /// (`Glass.isLiquidGlassAvailable`). `keepsActiveLook` keeps the key
+    /// window's glass when the window resigns key, as the fallback's
+    /// `NSVisualEffectView.state = .active` does (the window backdrop).
     public init(style: Glass.Style = .regular, cornerRadius: CGFloat = 0, interactive: Bool = false,
-                liquidGlass: Bool = Glass.isLiquidGlassAvailable) {
+                liquidGlass: Bool = Glass.isLiquidGlassAvailable, keepsActiveLook: Bool = false) {
         self.style = style
         self.cornerRadius = cornerRadius
+        self.keepsActiveLook = keepsActiveLook
         if #available(macOS 26.0, *), liquidGlass {
-            let glass = NSGlassEffectView()
+            let glass = keepsActiveLook ? ActiveLookGlassEffectView() : NSGlassEffectView()
             Self.setInteractive(glass, interactive)
             isLiquidGlass = true
             materialView = glass
@@ -159,5 +167,33 @@ public final class GlassPanelView: NSView {
             view.topAnchor.constraint(equalTo: container.topAnchor),
             view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ]
+    }
+}
+
+/// Liquid Glass that keeps its key-window look when its window resigns key (Leo, 2026-10-26: "i
+/// didnt want any glass. you're frosting the app's background which is pointless?").
+///
+/// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. When its
+/// window resigns key, AppKit calls the view's private `_windowChangedKeyState`, and the glass drops
+/// its `tintColor` and draws the system's inactive grey frost. This view lets that call through only
+/// while its window is key, so it takes the active look when the window first becomes key and keeps
+/// it after (measured on macOS 27 with a tinted glass window: key 0.69/0.50/0.38, not key with plain
+/// `NSGlassEffectView` 0.18 grey, not key with this view 0.69/0.50/0.38, the key look). If AppKit
+/// stops calling the hook, this changes nothing and the glass follows the key state again.
+@available(macOS 26.0, *)
+final class ActiveLookGlassEffectView: NSGlassEffectView {
+    private static let keyStateChange = NSSelectorFromString("_windowChangedKeyState")
+
+    /// Whether a key-state change reaches the glass: only into a key window.
+    static func passesKeyStateChange(windowIsKey: Bool) -> Bool { windowIsKey }
+
+    @objc(_windowChangedKeyState)
+    func windowChangedKeyState() {
+        guard Self.passesKeyStateChange(windowIsKey: window?.isKeyWindow == true) else { return }
+        // The glass's own handler (NSView's when the glass has none of its own).
+        guard let implementation = class_getMethodImplementation(NSGlassEffectView.self, Self.keyStateChange),
+              NSGlassEffectView.instancesRespond(to: Self.keyStateChange) else { return }
+        typealias Handler = @convention(c) (NSGlassEffectView, Selector) -> Void
+        unsafeBitCast(implementation, to: Handler.self)(self, Self.keyStateChange)
     }
 }

@@ -3,69 +3,74 @@ import AppKit
 import Testing
 import CmuxNextDesignTokens
 
-/// Leo, 2026-10-20: "it's so weird when the app is in focus and out of focus; the opacity shifts
-/// in weird hardcoded ways." A window that is not key looks like the key one: the wash over
-/// inactive glass follows the Opacity the person set (not 0.85 for a dark theme and 0.35 for a
-/// light one), and only `appearance.inactiveWindowDim` makes it darker.
+/// Leo, 2026-10-26: "i didnt want any glass. you're frosting the app's background which is
+/// pointless?" A window that is not key looks exactly like the key one: the glass keeps its key look
+/// (``ActiveLookGlassEffectView``) and no wash covers it. Only `appearance.inactiveWindowDim`, 0 by
+/// default, dims a window that is not key.
 @MainActor @Suite struct InactiveWindowTintTests {
     static let glassMaterials: [WindowMaterial] = [.glass(.regular), .glass(.clear)]
+    static let materials: [WindowMaterial] = glassMaterials + [.frosted, .translucent, .opaque]
 
     /// A key window never has a wash, whatever the material or dim.
     @Test func aKeyWindowHasNoWash() {
-        for material in Self.glassMaterials + [.frosted, .translucent, .opaque] {
+        for material in Self.materials {
             for dim in [0.0, 0.3, 1.0] {
-                #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: true, tintAlpha: 0.55, dim: dim) == 0)
+                #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: true, dim: dim) == 0)
             }
         }
     }
 
-    /// Over inactive glass the wash replaces the tint Liquid Glass dropped: it follows the
-    /// Opacity, so 0.55 and 0.8 differ, and dark and light themes get the same coverage.
-    @Test func theGlassWashFollowsTheOpacity() {
+    /// Under the default settings a window that is not key gets what the key one gets: zero wash,
+    /// and the glass lets no key-state change through, so it keeps the key material state.
+    @Test func theInactiveStateMatchesTheKeyStateByDefault() {
+        let dim = CGFloat(DesignSettings().inactiveWindowDim)
+        #expect(dim == 0, "appearance.inactiveWindowDim is off by default")
+        for material in Self.materials {
+            let key = WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: true, dim: dim)
+            let notKey = WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: dim)
+            #expect(key == 0 && notKey == key, "\(material): no wash in front or behind")
+        }
+        if #available(macOS 26.0, *) {
+            #expect(ActiveLookGlassEffectView.passesKeyStateChange(windowIsKey: true))
+            #expect(!ActiveLookGlassEffectView.passesKeyStateChange(windowIsKey: false),
+                    "a window resigning key must not switch the glass to its inactive frost")
+        }
+    }
+
+    /// The window backdrop's glass keeps its active look; other glass panels follow the key state
+    /// as before.
+    @Test func theWindowBackdropGlassKeepsItsActiveLook() {
         for material in Self.glassMaterials {
-            var last: CGFloat = -1
-            for opacity in [0.0, 0.3, 0.55, 0.8, 1.0] {
-                let wash = WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: opacity, dim: 0)
-                #expect(wash == WindowMaterialView.matchedGlassWash(tintAlpha: opacity))
-                #expect(wash > last || (wash == 1 && last == 1), "the wash grows with the opacity (\(opacity): \(wash))")
-                #expect((0...1).contains(wash))
-                last = wash
+            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+            view.apply(WindowBackdrop(backgroundOpacity: 0.55, backgroundBlur: material == .glass(.clear) ? -2 : -1,
+                                      liquidGlass: true), tint: .black)
+            let glass = view.materialView as? GlassPanelView
+            #expect(glass?.keepsActiveLook == true)
+            if #available(macOS 26.0, *), glass?.isLiquidGlass == true {
+                #expect(glass?.materialView is ActiveLookGlassEffectView)
             }
-            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: 0, dim: 0) == 0)
         }
-        // Leo's setup, Opacity 0.55 with Glass: the old wash was 0.85 of the tint over a dark theme;
-        // now the inactive window shows the tint at the Opacity it showed while key.
-        let leo = WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 0)
-        #expect(abs(leo - 0.55) < 0.0001)
+        #expect(GlassPanelView().keepsActiveLook == false)
     }
 
-    /// Materials whose tint does not depend on the key state get no wash unless the person asks
-    /// for a dim; an opaque window never does (theme color over the same theme color).
-    @Test func otherMaterialsOnlyDimWhenAsked() {
-        for material: WindowMaterial in [.frosted, .translucent] {
-            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: 0.55, dim: 0) == 0)
-            #expect(abs(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: 0.55, dim: 0.2) - 0.2) < 0.0001)
+    /// Only the dim covers a window that is not key, clamped to 0...1; an opaque window never
+    /// gets one (theme color over the same theme color).
+    @Test func onlyTheDimCoversAWindowThatIsNotKey() {
+        for material in Self.glassMaterials + [.frosted, .translucent] {
+            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: 0) == 0)
+            #expect(abs(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: 0.2) - 0.2) < 0.0001)
+            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: 7) == 1)
+            #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, dim: -1) == 0)
         }
-        #expect(WindowMaterialView.inactiveTintAlpha(material: .opaque, isKeyWindow: false, tintAlpha: 1, dim: 0.5) == 0)
+        #expect(WindowMaterialView.inactiveTintAlpha(material: .opaque, isKeyWindow: false, dim: 0.5) == 0)
     }
 
-    /// The dim covers that share of what still shows through the matched wash, and stays in 0...1.
-    @Test func theDimCoversItsShareOfWhatShowsThrough() {
-        let matched = WindowMaterialView.matchedGlassWash(tintAlpha: 0.55)
-        let dimmed = WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 0.25)
-        #expect(abs(dimmed - (matched + 0.25 * (1 - matched))) < 0.0001)
-        #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 1) == 1)
-        #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 7) == 1)
-        #expect(WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: -1) == matched)
-    }
-
-    /// Leo, 2026-10-23: an inactive window may shield the desktop that native glass reveals, but
-    /// its wash must stay below the person's in-app background. The focus transition therefore
-    /// keeps the same art layer visible instead of dimming it with the inactive tint.
+    /// Leo, 2026-10-23: a dim stays below the person's in-app background, so losing focus never
+    /// dims or hides that art.
     @Test func theInactiveWashStaysBehindInAppArt() {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
         let wash = view.subviews.firstIndex(of: view.inactiveTintView)
         let art = view.subviews.firstIndex(of: view.artView)
-        #expect(wash != nil && art != nil && wash! < art!, "the desktop shield must be below the in-app background")
+        #expect(wash != nil && art != nil && wash! < art!, "the wash must be below the in-app background")
     }
 }
