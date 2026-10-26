@@ -12,6 +12,8 @@ extension ActionID {
     /// Show ACP Inspector: toggles the agent pane's ACP inspector
     /// (`AgentPaneView.toggleInspector`).
     public static let toggleAcpInspector: ActionID = "agentPane.toggleInspector"
+    /// Toggle the chat's floating Session Info panel through its header path.
+    public static let toggleSessionInfo: ActionID = "agentPane.toggleSessionInfo"
     /// Stop the focused agent chat's active turn through the page's composer path.
     public static let stopTurn: ActionID = "agentPane.stopTurn"
     /// Open File: a file in a tab of the pane or in the text editor
@@ -22,6 +24,18 @@ extension ActionID {
 }
 
 extension ActionRegistry {
+    /// Binds Session Info for the invocation's pane, focused when there is no target.
+    @discardableResult
+    public func bindAgentPaneSessionInfo(toggle: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+        bindEffect(.toggleSessionInfo, effect: { invocation in
+            guard ActionRunScope.viewChangeAllowed() else {
+                return .refused(AgentPaneView.sessionInfoNeedsFocus)
+            }
+            toggle(invocation)
+            return .done
+        })
+    }
+
     /// Binds every agent pane action. `openNewChat` opens an agent tab in
     /// the invocation's pane (the focused pane when it has no target).
     /// Returns false when a descriptor is missing from the catalog.

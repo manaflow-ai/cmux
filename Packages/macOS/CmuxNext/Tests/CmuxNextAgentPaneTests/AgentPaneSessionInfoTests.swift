@@ -42,7 +42,7 @@ struct AgentPaneSessionInfoTests {
         let refusal = registry.capturingRefusal {
             registry.perform("agentPane.toggleSessionInfo", invocation: ActionInvocation(origin: .cli))
         }
-        #expect(refusal != nil)
+        #expect(refusal == "Opening Session Info requires focus.")
         #expect(toggles == 0)
         registry.perform("agentPane.toggleSessionInfo", invocation: ActionInvocation(origin: .cli, focusRequested: true))
         #expect(toggles == 1)
