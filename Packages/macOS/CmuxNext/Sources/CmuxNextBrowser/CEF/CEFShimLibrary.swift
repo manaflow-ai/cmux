@@ -286,22 +286,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
-    enum LoadError: Error, Equatable {
-        case open(String)
-        case missingSymbol(String)
-        /// Identities are SHA-256 hex strings of the header (`CEFShimABI`).
-        case abiMismatch(expected: String, found: String)
-    }
-
-    /// Checks the shim's identity against the header this code was built with.
-    static func checkABI(expected: String?, found: String?) throws(LoadError) {
-        guard let expected, let found, expected == found else { throw .abiMismatch(expected: expected ?? "missing", found: found ?? "missing") }
-    }
-
     /// Opens the shim at `url`, resolves every symbol and checks that its ABI
     /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
     static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
-        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else { throw .open(String(cString: dlerror())) }
+        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
+            throw .open(String(cString: dlerror()))
+        }
         let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library

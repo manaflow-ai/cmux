@@ -351,8 +351,12 @@ final class CEFRuntime {
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
-            var untrusted = false
-            if case .untrusted = error { untrusted = true }
+            let untrusted: Bool
+            if case .untrusted = error {
+                untrusted = true
+            } else {
+                untrusted = false
+            }
             let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             // The attached host's wire stays with the remote shim until it detaches.

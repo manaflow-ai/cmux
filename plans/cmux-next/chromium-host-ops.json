@@ -1169,7 +1169,7 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFRuntime.swift"
+        "CmuxNextBrowser/CEF/CEFEnergySaver.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
