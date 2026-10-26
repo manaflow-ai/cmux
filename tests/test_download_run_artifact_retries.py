@@ -31,11 +31,18 @@ def refused(code: int, **headers: str) -> urllib.error.HTTPError:
 class RetryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.slept: list[float] = []
-        patcher = mock.patch.object(download, "sleep", self.slept.append)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        download.waited_seconds = 0.0
-        self.addCleanup(setattr, download, "waited_seconds", 0.0)
+        self.now = [1000.0]
+
+        def fake_sleep(seconds: float) -> None:
+            self.slept.append(seconds)
+            self.now[0] += seconds
+
+        for name, value in (("sleep", fake_sleep), ("clock", lambda: self.now[0])):
+            patcher = mock.patch.object(download, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        download.retry_deadline = None
+        self.addCleanup(setattr, download, "retry_deadline", None)
 
     def flaky(self, errors: list[Exception], result: str = "ok"):
         def call() -> str:
@@ -57,19 +64,27 @@ class RetryTests(unittest.TestCase):
         reset = refused(403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(now + 44)))
         self.assertEqual(download.retry_wait(reset, 1, now), 45.0)
 
-    def test_a_zero_retry_after_still_spends_budget_so_the_loop_ends(self) -> None:
+    def test_a_persistent_refusal_stops_after_max_attempts(self) -> None:
         self.assertEqual(download.retry_wait(refused(429, Retry_After="0"), 1), 1.0)
-        always = lambda: (_ for _ in ()).throw(refused(429, Retry_After="0"))  # noqa: E731
+        calls = []
+
+        def always():
+            calls.append(1)
+            raise refused(429, Retry_After="0")
+
         with self.assertRaises(urllib.error.HTTPError):
             download.with_retries(always, "lookup")
-        self.assertLessEqual(sum(self.slept), download.RETRY_BUDGET_SECONDS)
-        self.assertTrue(self.slept)
+        self.assertEqual(len(calls), download.MAX_ATTEMPTS)
 
-    def test_the_budget_is_bounded(self) -> None:
-        download.waited_seconds = download.RETRY_BUDGET_SECONDS - 5
+    def test_slow_calls_count_against_the_wall_clock_deadline(self) -> None:
+        def slow_refusal():
+            self.now[0] += 100  # each refused call itself takes 100 s
+            raise refused(403)
+
         with self.assertRaises(urllib.error.HTTPError):
-            download.with_retries(self.flaky([refused(403)]), "lookup")
-        self.assertEqual(self.slept, [])
+            download.with_retries(slow_refusal, "lookup")
+        # Started at 1000; no retry may begin after the deadline.
+        self.assertLessEqual(self.now[0] - 1000.0, download.RETRY_BUDGET_SECONDS + 100)
 
     def test_a_not_found_is_never_retried(self) -> None:
         with self.assertRaises(urllib.error.HTTPError):
@@ -78,15 +93,22 @@ class RetryTests(unittest.TestCase):
 
 
 class CallSiteTests(unittest.TestCase):
-    """api_json and blob_url go through the retry, and share one budget."""
+    """api_json and blob_url go through the retry, and share one deadline."""
 
     def setUp(self) -> None:
         self.slept: list[float] = []
-        patcher = mock.patch.object(download, "sleep", self.slept.append)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        download.waited_seconds = 0.0
-        self.addCleanup(setattr, download, "waited_seconds", 0.0)
+        self.now = [1000.0]
+
+        def fake_sleep(seconds: float) -> None:
+            self.slept.append(seconds)
+            self.now[0] += seconds
+
+        for name, value in (("sleep", fake_sleep), ("clock", lambda: self.now[0])):
+            patcher = mock.patch.object(download, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        download.retry_deadline = None
+        self.addCleanup(setattr, download, "retry_deadline", None)
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()
@@ -121,11 +143,27 @@ class CallSiteTests(unittest.TestCase):
         with mock.patch.object(download.urllib.request, "build_opener", lambda *a: Opener()):
             self.assertEqual(download.blob_url({"archive_download_url": "https://api.invalid/zip"}, "t"),
                              "https://blob.invalid/archive.zip")
-            # The lookup's wait counts against the redirect's budget too.
-            self.assertEqual(download.waited_seconds, 10.0)
             outcomes.append(None)
             with self.assertRaises(SystemExit):
                 download.blob_url({"archive_download_url": "https://api.invalid/zip"}, "t")
+
+    def test_the_lookup_and_the_redirect_share_one_deadline(self) -> None:
+        def lookup_refusal():
+            self.now[0] += download.RETRY_BUDGET_SECONDS  # the lookup's retries use up the budget
+            raise refused(403)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            download.with_retries(lookup_refusal, "lookup")
+        self.slept.clear()
+
+        class Opener:
+            def open(self, req, timeout):
+                raise refused(403)
+
+        with mock.patch.object(download.urllib.request, "build_opener", lambda *a: Opener()):
+            with self.assertRaises(urllib.error.HTTPError):
+                download.blob_url({"archive_download_url": "https://api.invalid/zip"}, "t")
+        self.assertEqual(self.slept, [], "the redirect retried after the lookup spent the deadline")
 
 
 if __name__ == "__main__":

@@ -47,15 +47,20 @@ def retryable(code: int) -> bool:
 
 
 RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
+# At most this many attempts per call, whatever the waits, so the calls' own time
+# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes.
+MAX_ATTEMPTS = 8
 sleep = time.sleep
-# One budget for the whole download (lookup, redirect and its refreshes), not per call.
-waited_seconds = 0.0
+clock = time.monotonic
+# One wall-clock deadline for the whole download (lookup, redirect and its
+# refreshes), set by the first retry: no retry starts after it.
+retry_deadline: float | None = None
 
 
 def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = None) -> float:
     """Seconds to wait before retrying a refused call: Retry-After, the limit's reset, else backoff.
 
-    Never less than one second, so every retry spends budget and the loop always ends.
+    Never less than one second, so retries never spin.
     """
     now = time.time() if now is None else now
     headers = error.headers or {}
@@ -73,22 +78,23 @@ def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = 
 
 
 def with_retries(call, what: str):
-    """Run call(); retry a refused or failed GitHub response until RETRY_BUDGET_SECONDS is spent."""
-    global waited_seconds
+    """Run call(); retry a refused or failed GitHub response until the shared deadline or MAX_ATTEMPTS."""
+    global retry_deadline
     attempt = 0
     while True:
         attempt += 1
         try:
             return call()
         except urllib.error.HTTPError as error:
-            if not retryable(error.code):
+            if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
                 raise
+            if retry_deadline is None:
+                retry_deadline = clock() + RETRY_BUDGET_SECONDS
             wait = retry_wait(error, attempt)
-            if waited_seconds + wait > RETRY_BUDGET_SECONDS:
+            if clock() + wait > retry_deadline:
                 raise
             print(f"{what}: HTTP {error.code}; retrying in {wait:.0f}s (attempt {attempt})", file=sys.stderr)
             sleep(wait)
-            waited_seconds += wait
 
 
 def api_json(path: str, token: str) -> dict:
