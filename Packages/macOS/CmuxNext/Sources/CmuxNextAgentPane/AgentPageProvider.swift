@@ -19,7 +19,7 @@ public extension PageDescriptor {
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
-        acceptsFirstMouse: false)
+        acceptsFirstMouse: false, opTables: [AgentPageOps.table])
 }
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.
@@ -50,6 +50,13 @@ public nonisolated struct AgentPageOps {
 
     /// Every op the agent page may call.
     public static let all: [String] = methods.keys.sorted().map { namespace + $0 }
+
+    /// The page's declared ops (``PageOpTable``): every op and the host events stream, all of which
+    /// act; the host-power names (`shell.`, `git.push`, ...) and the index and file writes below are
+    /// host power.
+    public static let table = PageOpTable(
+        namespace: namespace, act: Set(methods.keys).union(["host.events"]),
+        hostPower: ["git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "turn.undo", "pane.saveLog", "image.save"])
 
     /// The old bridge method for `op`, or nil for an op the page does not have.
     static func method(for op: String) -> String? {
