@@ -48,8 +48,9 @@ extension PageWebView {
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
-    var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
+    /// The page zoom both engines show: `uiScale` times ``additionalZoom``, the view points per CSS
+    /// pixel (WebKit pages take no pinch or smart magnification, ``PageWKWebView``).
+    public var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
 
     // MARK: Engine-neutral document calls
 

@@ -17,6 +17,8 @@ struct PointerFrameCoalescerTests {
         var inputs: [PointerCoalescedInput] = []
         var events: [String] = []
         var latestX = -1.0
+        /// The frames a frame-timed consumer's deliveries were drawn in.
+        var frames: [PointerFrameTime] = []
         /// The consumer whose body posts to itself.
         var consumer: PointerFrameConsumer?
     }
@@ -90,6 +92,30 @@ struct PointerFrameCoalescerTests {
         #expect(trailing.samples.map(\.location.x) == (1..<8).map { Double($0) })
         #expect(trailing.latest.location.x == 7)
         #expect(consumer.maxDeliveriesPerFrame == 2)
+        rig.coalescer.invalidate()
+    }
+
+    /// A frame-timed consumer (p04-input-040) gets the frame each delivery is drawn in: the frame tick's
+    /// time and refresh interval for the trailing delivery (Chromium's `DispatchRafAlignedInput(frame_time)`),
+    /// the newest event's own time for a delivery that goes out at once (the leading edge, a flush).
+    @Test func aFrameTimedConsumerGetsTheTicksTimeAtTheFrameAndTheEventsTimeAtOnce() throws {
+        let rig = Rig()
+        let log = Log()
+        let consumer = rig.coalescer.frameTimedConsumer(owner: "divider") { _, frame in log.frames.append(frame) }
+        for index in 0..<4 { consumer.post(Self.drag(x: index, at: 100 + Double(index))) }
+        let leading = try #require(log.frames.first)
+        #expect(log.frames.count == 1)
+        #expect(leading.time == 100, "a leading edge has no frame yet: its own event's time")
+        rig.tick(1)
+        let trailing = try #require(log.frames.last)
+        #expect(log.frames.count == 2)
+        #expect(trailing.time == 1000 + 1.0 / 120, "the trailing delivery is drawn in the tick's frame")
+        #expect(trailing.interval == 1.0 / 120)
+        consumer.post(Self.drag(x: 9, at: 200))
+        consumer.post(Self.drag(x: 10, at: 201))
+        consumer.flush()
+        #expect(log.frames.last?.time == 201, "a flush is not a frame: the newest event's time")
+        #expect(log.frames.last?.interval == 1.0 / 120, "the interval is the last tick's")
         rig.coalescer.invalidate()
     }
 

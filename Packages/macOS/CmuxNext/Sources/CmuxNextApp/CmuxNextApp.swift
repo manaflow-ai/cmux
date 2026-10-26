@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextBrowserImport
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
@@ -88,6 +89,12 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
+        // in memory before them, never read on the thread that asks first (p02-threads-122).
+        BrowserSourceRegistryInstall.shared.load(on: work)
+        // This app's signing team, which every acpmux resolve and the Computer Use admission require: asked of
+        // securityd on the system lane, so a main-thread resolve reads it from memory (p02-threads-122).
+        work.post(.userVisible, mayBlock: .system) { SigningTeamInstall.process.load() }
         DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
         // video wallpapers list the windows above theirs on its system lane, never on main.

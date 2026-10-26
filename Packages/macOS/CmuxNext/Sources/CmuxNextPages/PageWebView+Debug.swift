@@ -324,12 +324,14 @@ extension PageWebView {
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
-    /// build behind other windows still renders.
-    func keepRenderingWhenCovered() {
+    /// build behind other windows still renders (`debug.agent_pane` asks it of the chat it drives).
+    /// A Chromium page follows the view's own visibility (``PageChromiumPage/setVisible(_:)``), so
+    /// only the WebKit view needs it.
+    public func keepRenderingWhenCovered() {
         Self.keepRenderingWhenCovered(webView)
     }
 
-    /// The same for a web view no `PageWebView` owns (the agent pane's own, cx-zjtn.6).
+    /// The same for a web view no `PageWebView` owns.
     public static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }

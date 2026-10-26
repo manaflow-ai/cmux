@@ -137,7 +137,7 @@ final class NewTabPreload {
 
     // MARK: Launch
 
-    /// At launch: probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2).
+    /// Probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2); an afterStartup post (p08-startup-042).
     func prewarm() {
         if agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }
