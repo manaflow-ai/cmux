@@ -236,10 +236,10 @@ pub struct PeerSnapshots {
 }
 
 impl PeerSnapshots {
-    /// The store under `peers` (`store.peer_cache_dir()`); None keeps nothing.
-    pub fn open(peers: Option<PathBuf>) -> Self {
+    /// The store in the daemon's home `home` (`disk::root`, beside `peers/`); None keeps nothing.
+    pub fn open(home: Option<PathBuf>) -> Self {
         Self {
-            dir: peers.map(|p| disk::root(&p)),
+            dir: home.map(|h| disk::root(&h)),
             tx: StdMutex::new(None),
             ended: Arc::default(),
             queued: Arc::default(),
@@ -1369,12 +1369,19 @@ impl Store {
 impl Hub {
     /// Whether `link` is still the link of peer `peer` while `generation` is the instance
     /// registered under the name (the store checks again, in order: `Store::fresh_link`).
-    fn capturing(&self, peer: &str, generation: u64, link: u64) -> bool {
-        self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+    /// Sends a capture's op when it is of instance `generation` and link `link` still, checked
+    /// and sent under the rows lock (lock order: `remote_sessions`, then `peers`): an instance that
+    /// replaces it registers under that lock (`spawn_peer`), so its listing comes after this op.
+    fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
+        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link) {
+            send();
+        }
     }
 
-    /// The generation (`createdAt`) peer `peer` lists for session `mux` now: read before a
-    /// forwarded page is asked (`Page::asked`).
+    /// The generation (`createdAt`) peer `peer` lists for session `mux` now (a forwarded page's
+    /// `Page::asked` is the one the row it was resolved by named).
+    #[cfg(test)]
     pub fn listed_generation(&self, peer: &str, mux: &str) -> Option<u64> {
         self.resolve_remote(&format!("{peer}/{mux}")).and_then(|(_, _, row)| created_at(&row))
     }
@@ -1388,12 +1395,13 @@ impl Hub {
         row: &Value,
         r: &EventRecord,
     ) {
-        if r.seq == 0 || r.dir == "peer" || row.is_null() || !self.capturing(peer, generation, link)
-        {
+        if r.seq == 0 || r.dir == "peer" || row.is_null() {
             return;
         }
         let value = json!({"sessionId": mux, "seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg});
-        self.peer_snapshots.record((peer, mux), (generation, link), value);
+        self.capture_on(peer, (generation, link), || {
+            self.peer_snapshots.record((peer, mux), (generation, link), value);
+        });
     }
 
     /// Keeps a page of peer `peer`'s session `mux` this daemon forwarded (`_acpmux/attach`,
@@ -1408,28 +1416,36 @@ impl Hub {
         params: &Value,
         result: &Value,
     ) {
-        if params.get("beforeSeq").is_some_and(|v| !v.is_null())
-            || params
-                .get("kinds")
-                .and_then(Value::as_array)
-                .is_some_and(|kinds| !kinds.iter().any(|k| k.as_str() == Some("transcript")))
-            || !self.capturing(peer, generation, link)
-        {
+        // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
+        // leaves the chat out.
+        let transcript = |k: &Value| k.as_str() == Some("transcript");
+        let leaves_out = match params.get("kinds") {
+            None | Some(Value::Null) => false,
+            Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
+            Some(kind) => !transcript(kind),
+        };
+        if params.get("beforeSeq").is_some_and(|v| !v.is_null()) || leaves_out {
             return;
         }
         let Some(records) = result.get("events").and_then(Value::as_array) else { return };
         let page = Page {
             link: (generation, link),
             asked,
-            generation: result.get("session").and_then(created_at),
+            // An attach names it in its session, an events page beside its records (acpmux 5/8 and
+            // later). A page that names none (an older peer's events page) only joins a copy of
+            // the generation asked, never starts one: a generation read before the request cannot
+            // say which journal answered it.
+            generation: result.get("session").and_then(created_at).or_else(|| created_at(result)),
             // `_acpmux/events` with no `afterSeq` pages forward from the first record.
             after: params.get("afterSeq").and_then(Value::as_u64).or(events.then_some(0)),
             has_more: result.get("hasMore") != Some(&Value::Bool(false)),
             host_last_seq: result.get("lastSeq").and_then(Value::as_u64),
+            // Only a peer that says how far its page holds is taken past the page's last record.
+            through: result.get("pageThrough").and_then(Value::as_u64),
             row: self.resolve_remote(&format!("{peer}/{mux}")).map(|(_, _, row)| row),
             records: records.clone(),
         };
-        self.peer_snapshots.page((peer, mux), page);
+        self.capture_on(peer, (generation, link), || self.peer_snapshots.page((peer, mux), page));
     }
 }
 
