@@ -54,7 +54,8 @@ struct DebugSidebarNestedFixture {
 /// - `state` (`updating`, `retrying`, `updated`, `failed`, `rolled_back`, `cleared`): applies that
 ///   ``DaemonUpdateEvent`` to ``DaemonUpdateBoard/shared`` for the machine `id` (default
 ///   `ssh:build-box`), named `name` (`build-box`), on `ssh_host` (`build-box.example.com`); `reason`
-///   for a failure, `build` for an update, `notify` as the policy sets it for a recorded failure.
+///   for a failure, `build` for an update and the build a failure is about (its notice stays
+///   closed for that build), `notify` as the policy sets it for a recorded failure.
 /// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, a section each, whose
 ///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:)``,
 ///   so whatever the live tooltip adds shows here too); `false` brings the live rows back. Shown again
@@ -74,7 +75,8 @@ extension DebugSidebarNestedFixture {
                                 "available": .array(["updating", "retrying", "updated", "failed", "rolled_back", "cleared"].map { .string($0) })])
             }
             DaemonUpdateBoard.shared.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
-                                                             notify: params["notify"]?.boolValue ?? false))
+                                                             notify: params["notify"]?.boolValue ?? false,
+                                                             build: params["build"]?.stringValue))
             answer["state"] = .string(raw)
         }
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
