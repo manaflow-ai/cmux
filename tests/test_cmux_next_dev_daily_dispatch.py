@@ -41,6 +41,17 @@ check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
 check("run.conclusion === 'success'" in text and "run.status" in text,
       "a skipped or failed publisher run must not suppress a retry")
 publish_text = PUBLISH_WORKFLOW.read_text()
+# The shared GITHUB_TOKEN budget was spent when the publishers started on
+# 2026-10-26 ("Resolve the source run" failed with the installation rate limit).
+sign_job = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", publish_text, re.MULTILINE | re.DOTALL)
+sign_text = sign_job.group(1) if sign_job else ""
+check("id: read-token" in sign_text and "private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in sign_text
+      and "permission-actions: read" in sign_text and "permission-actions: write" not in sign_text,
+      "the signer must read the source run with the read-only manaflow-glaeda-route token")
+check("GH_TOKEN: ${{ github.token }}" not in sign_text,
+      "every signer source-run read must try the App token before GITHUB_TOKEN")
+check("- name: Wait for the API budget before publishing" in publish_text,
+      "the release writes must wait for the shared budget instead of failing on it")
 check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
