@@ -67,7 +67,7 @@ impl CloudWire for ScriptedWire {
         {
             return next;
         }
-        std::thread::sleep(timeout.min(Duration::from_millis(2)));
+        cmux_threads::checked::sync::sleep(timeout.min(Duration::from_millis(2)));
         WireRecv::Idle
     }
 }
@@ -255,7 +255,7 @@ impl Events {
                 return seen;
             }
             assert!(Instant::now() < deadline, "timed out waiting for events: {seen:#?}");
-            std::thread::sleep(Duration::from_millis(2));
+            cmux_threads::checked::sync::sleep(Duration::from_millis(2));
         }
     }
 }
@@ -265,6 +265,6 @@ pub fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(2));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(2));
     }
 }

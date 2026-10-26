@@ -196,6 +196,7 @@ extension SettingsSchema {
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
         "browser.keepNeighborTabsAwake",
+        "memory.saver", // how soon hidden content frees its memory (performance, like browser.hibernation)
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -327,6 +328,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether a quit writes each window's picture (terminal text, pages) to disk: the person's choice only.
+        "launch.savedPicture": .privacy,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,

@@ -76,8 +76,11 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
-                            [--isolation netns|auto|none]
-                                                     one case, its result JSON
+                            [--isolation netns|auto|none] [--trace TRACE.json]
+                                                     one case, its result JSON; --trace also takes a journal
+                                                     checkpoint at setup and writes the case's trace with an
+                                                     oracle-restore-preview at every capture (invariant I9:
+                                                     invariants.py check TRACE.json)
   driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
@@ -127,7 +130,7 @@ for _path in (str(HERE), str(SDK)):
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
 import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
-from invariants import first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
+from invariants import TRACE_SCHEMA, first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
 from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
@@ -157,6 +160,11 @@ DEFAULT_FACETS = ("daemon",)
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
 FACET_TASKS = {"crashes": "p15-oracle-188", "liveObjects": "p15-oracle-188", "switches": "p15-oracle-049"}
 ORACLE_STATE = "oracle-state"
+# Invariant I9's journal restore preview (p15-oracle-205), asked for at each capture of a traced case.
+RESTORE_PREVIEW = "oracle-restore-preview"
+# The idempotency key of the journal checkpoint a traced case takes when its daemon first starts: the
+# restore preview reduces from it.
+FIXTURE_CHECKPOINT_KEY = "oracle.fixture-checkpoint"
 # `oracle-state` fields that make the facet's `oracle` object (schema: facets.daemon.oracle).
 EXTRAS = ("switches", "terminalAttach", "liveObjects", "panicLog")
 OTHER_DRIVERS = {
@@ -238,6 +246,51 @@ def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]]
     facet["settings"] = check_snapshot_schema.capture(schema, props["settings"],
                                                       reads.operation("settings.snapshot", SELECTORS))
     return facet
+
+
+def restore_preview_at(facet: Any, command: Callable[..., Mapping[str, Any]],
+                       case_session: str) -> Optional[Dict[str, Any]]:
+    """Invariant I9's input at one capture: the `oracle-restore-preview` reply (its `data`) through the daemon
+    facet's `journalHead`, so the preview and the facet are one cut whatever the daemon wrote between the two
+    requests (spec/commands.md). None for a facet with no journalHead (v0, not comparable) or a daemon with no
+    such command. The preview's session resource shows the fixture's name, as the facet does."""
+    head = facet.get("journalHead") if isinstance(facet, Mapping) else None
+    if not isinstance(head, int) or isinstance(head, bool):
+        return None
+    try:
+        reply = dict(command(RESTORE_PREVIEW, through=head))
+    except KeyError:
+        return None
+    preview = reply.get("preview")
+    sections = preview.get("session") if isinstance(preview, dict) else None
+    info = sections.get("session") if isinstance(sections, dict) else None
+    if isinstance(info, dict) and info.get("name") == case_session:
+        info["name"] = SESSION_NAME
+    return reply
+
+
+def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
+               captures: Sequence["Capture"]) -> Optional[Dict[str, Any]]:
+    """The `cmux.oracle.trace/v1` document (invariants.py) of the case's steps that captured: their raw
+    checkpoints and restore previews, for `invariants.py check`. Replies, layout counters and the teardown
+    are not in it yet. None when no step captured."""
+    by_step: Dict[str, Dict[str, Any]] = {}
+    for capture in captures:
+        record = by_step.setdefault(capture.step, {"checkpoints": {}, "restorePreviews": {}})
+        record["checkpoints"][capture.checkpoint] = capture.snapshot
+        if capture.restore_preview is not None:
+            record["restorePreviews"][capture.checkpoint] = capture.restore_preview
+    records = []
+    for step in steps:
+        record = by_step.get(step.get("id"))
+        if record is None:
+            continue
+        if not record["restorePreviews"]:
+            del record["restorePreviews"]
+        records.append({"id": step["id"], "op": step["op"], **record})
+    if not records:
+        return None
+    return {"schema": TRACE_SCHEMA, "case": case_id, "steps": records}
 
 
 class SdkReads:
@@ -973,6 +1026,8 @@ class Capture:
     step: str
     checkpoint: str
     snapshot: Dict[str, Any]
+    # The oracle-restore-preview reply at the daemon facet's cut (a traced case only).
+    restore_preview: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1004,6 +1059,10 @@ class CaseRun:
         # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
         # of the push base and one of a later SHA compare.
         self.v0 = session_ctx.get("facets") == "v0"
+        # `trace` in the session context (`run-case --trace`): the result carries the case's
+        # cmux.oracle.trace/v1 document, with a restore preview at every capture (I9). Off by default: it takes
+        # a journal checkpoint when the daemon first starts, one more journal record than the corpus expects.
+        self.trace = bool(session_ctx.get("trace")) and not self.v0
         self.state = CaseState()
         self.host = host_meta()
         self.dirty = False
@@ -1025,6 +1084,8 @@ class CaseRun:
             try:
                 self.case_env.prepare()
                 self.daemon.start("setup")
+                if self.trace:
+                    self.fixture_checkpoint()
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
             except CaseError as error:
@@ -1048,7 +1109,18 @@ class CaseRun:
             result["checkpoints"] = self.canonical_checkpoints()
         except normalize.OracleError as error:
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
+        if self.trace:
+            result["trace"] = case_trace(self.case_id, self.case.get("steps") or (), self.state.captures)
         return result
+
+    def fixture_checkpoint(self) -> None:
+        """The journal checkpoint a traced case's restore previews reduce from (`session.journal.checkpoint
+        .create`), taken once the daemon is ready, before the first step."""
+        try:
+            self.daemon.request("session.journal.checkpoint.create", SELECTORS, FIXTURE_CHECKPOINT_KEY,
+                                REQUEST_S * self.scale)
+        except CmuxError as error:
+            raise self.sdk_failure(error, "setup", "fixture journal checkpoint") from None
 
     def run_step(self, index: int, step: Mapping[str, Any]) -> None:
         step_id = step["id"]
@@ -1302,7 +1374,15 @@ class CaseRun:
 
     def capture(self, index: int, step: str, checkpoint: str, names: Sequence[str]) -> None:
         self.check_alive(step)
-        self.state.captures.append(Capture(step, checkpoint, self.snapshot(index, checkpoint, self.facets(names, step))))
+        facets = self.facets(names, step)
+        preview = None
+        if self.trace and self.daemon.running:
+            try:
+                preview = restore_preview_at(facets.get("daemon"), partial(self.daemon.command, step=step),
+                                             self.paths.session)
+            except CmuxError as error:
+                raise self.sdk_failure(error, step, "restore preview") from None
+        self.state.captures.append(Capture(step, checkpoint, self.snapshot(index, checkpoint, facets), preview))
 
     def normalize_context(self) -> normalize.Context:
         roots = tuple(dict.fromkeys([str(self.paths.root), os.path.realpath(self.paths.root)]))
@@ -1680,6 +1760,12 @@ def cmd_run_case(args: argparse.Namespace) -> int:
     ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0", "state_root": str(base / short_token(case["id"]))}
     result = session.run_case(case, ctx)
     remove_empty_dir(base)
+    trace = result.pop("trace", None)
+    if getattr(args, "trace", None):
+        if trace is None:
+            print("driver_daemon.py: no step captured a checkpoint: no trace", file=sys.stderr)
+            return 1
+        Path(args.trace).write_text(json.dumps(trace, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=1, sort_keys=True))
     return 0 if result["status"] == "Pass" else 1
 
@@ -1864,6 +1950,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if name == "run-case":
             cmd.add_argument("case", help="a case-v1 JSON file")
             cmd.add_argument("--ref", help="the SHA under test (meta.sha)")
+            cmd.add_argument("--trace", help="write the case's cmux.oracle.trace/v1 document here (raw checkpoints "
+                                             "and I9's restore previews, for invariants.py check)")
         else:
             cmd.add_argument("--cases", type=int, default=300)
             cmd.add_argument("--jobs", type=int, default=300)
@@ -1892,6 +1980,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args.session_extra = {"isolation": args.isolation}
     if args.snapshot_schema:
         args.session_extra["snapshot_schema"] = args.snapshot_schema
+    if getattr(args, "trace", None):
+        args.session_extra["trace"] = True
     try:
         return cmd_run_case(args) if args.command == "run-case" else cmd_smoke(args)
     except ValueError as error:

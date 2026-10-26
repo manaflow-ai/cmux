@@ -170,6 +170,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored var committedURL: URL?
     /// ``discard()`` emptied the tab in place; any commit, load or reload ends it.
     @ObservationIgnored var isDiscardedInPlace = false
+    /// The visibility tree node Chromium hears for this tab, and its freeze (`CEFTab+Visibility`).
+    @ObservationIgnored let nodeVisibility = CEFTabNodeVisibility()
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -274,7 +276,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        if host.quietsPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
+        if isFrozenSparePlaceholder { freezeNeverShownPage(browser) }
+        nodeVisibility.apply() // a new browser hears its tab's node before it paints
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -325,20 +328,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             isClosed = true
             if closesTab { emit(.close) }
         }
-    }
-
-    func contentDidAppear(in view: CEFTabContentView) {
-        guard !isClosed else { return }
-        host.present(self, in: view)
-        view.layoutContent()
-        if reloadWhenShown {
-            reloadWhenShown = false
-            if state.processExit != nil { reload() }
-        }
-    }
-
-    func contentDidDisappear() {
-        host.conceal(self)
     }
 
     func emit(_ intent: BrowserTabIntent) {

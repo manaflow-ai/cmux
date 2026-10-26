@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <utility>
 
 #include "chromium_host_input_ring.h"
@@ -46,6 +47,9 @@ namespace {
 constexpr size_t kMaxWatchedKeys = 16384;
 // Page view tokens open at once.
 constexpr size_t kMaxPageViews = 4096;
+// Page view sizes kept (HostContext::view_sizes_): room for every open view
+// and as many closed ones.
+constexpr size_t kMaxSizedViews = 2 * kMaxPageViews;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
@@ -182,7 +186,7 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op)) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -219,6 +223,10 @@ void HostContext::Handle(control::Message& message) {
         if (!HandleLayerHosting(message)) Bad("a malformed layer hosting op");
         return;
       }
+      if (message.op == kOpPageResize) {
+        if (!HandlePageResize(message)) Bad("a malformed page resize");
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       if (message.op == kOpBrowserAccessibilityToken && HoldForCreation(message)) return;
       Dispatch(message);
@@ -249,6 +257,51 @@ void HostContext::RunHeldForCreation(int32_t client_id) {
     if (state_ != State::kRunning) return;
     Dispatch(message);
   }
+}
+
+// The fence joins the browser's next commit before the view's frame changes,
+// in this turn (host_resize.h). A view not open yet is not made here: it
+// takes the size when an op opens it (PageView).
+bool HostContext::HandlePageResize(const control::Message& message) {
+  const std::optional<PageResize> resize = DecodePageResize(message.fields);
+  if (!resize) return false;
+  RememberViewSize(resize->view, resize->width, resize->height);
+  const int chromium_id = AwaitsCreation(resize->browser) ? 0 : Browser(resize->browser);
+  auto change_frame = [&] {
+    if (open_views_.count(resize->view)) views_.Resize(resize->view, resize->width, resize->height);
+  };
+  bool joined = false;
+  if (resizes_) {
+    joined = resizes_->Apply(*resize, chromium_id, change_frame);
+  } else {
+    change_frame();
+  }
+  if (message.token != 0) {
+    TlvWriter reply;
+    reply.I32(joined ? 1 : 0);
+    Reply(message.token, reply);
+  }
+  return true;
+}
+
+void HostContext::RememberViewSize(uint64_t token, int32_t width, int32_t height) {
+  if (auto found = view_sizes_.find(token); found != view_sizes_.end()) {
+    view_size_order_.splice(view_size_order_.end(), view_size_order_, found->second.order);
+    found->second.width = width;
+    found->second.height = height;
+    return;
+  }
+  if (view_sizes_.size() >= kMaxSizedViews) {
+    // At most kMaxPageViews of them are open: a closed one is there to go.
+    for (auto oldest = view_size_order_.begin(); oldest != view_size_order_.end(); ++oldest) {
+      if (open_views_.count(*oldest)) continue;
+      view_sizes_.erase(*oldest);
+      view_size_order_.erase(oldest);
+      break;
+    }
+  }
+  view_size_order_.push_back(token);
+  view_sizes_[token] = {width, height, std::prev(view_size_order_.end())};
 }
 
 bool HostContext::HandleHello(const control::Message& message) {
@@ -627,7 +680,7 @@ void HostContext::ReleaseView(uint64_t token) {
   }
   if (open_views_.erase(token)) {
     placed_.erase(token);
-    views_.Close(token);
+    views_.Close(token);  // its size stays (view_sizes_)
   }
 }
 
@@ -639,6 +692,11 @@ void* HostContext::PageView(uint64_t token) {
       return nullptr;
     }
     open_views_.insert(token);
+    void* view = views_.Open(token);
+    const auto size = view_sizes_.find(token);
+    if (size != view_sizes_.end()) views_.Resize(token, size->second.width, size->second.height);
+    if (dispatching_) dispatching_view_ = token;
+    return view;
   }
   if (dispatching_) dispatching_view_ = token;
   return views_.Open(token);

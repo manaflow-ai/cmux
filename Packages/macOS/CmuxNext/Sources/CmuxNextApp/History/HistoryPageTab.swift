@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextHistory
 import CmuxNextIcons
@@ -82,9 +83,8 @@ final class HistoryPageTab: BrowserTab {
             }
             return image
         }
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
+        // A hidden page's SwiftUI is out of the window (feature visibilityGatedHosting): this draws it too.
+        guard let image = contentView.cachedDisplayImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 

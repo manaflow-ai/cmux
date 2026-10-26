@@ -290,7 +290,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The resize fence goes over XPC with a one-frame deadline (task 052), owned by ChromiumHostPageView."
+      "reason": "Host mode never holds a commit for a page: the page view's resize carries a Core Animation fence right with a one-frame deadline instead (kOpPageResize, task 052, ChromiumHostResizeFence)."
     },
     {
       "name": "cmux_shim_browser_set_resize_fence",
@@ -315,7 +315,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence is a port right over XPC, an op of its own (task 052), owned by ChromiumHostPageView."
+      "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence goes with the page view's resize: the right in a Mach message to the host's fence inbox, then the ordered kOpPageResize naming its seq (task 052, ChromiumHost/src/host_resize.h)."
     },
     {
       "name": "cmux_shim_browser_set_embedder_visibility",
@@ -1947,7 +1947,7 @@
       "returns": "int",
       "result_used_by": [
         "CmuxNextBrowser/CEF/CEFRuntime+Events.swift",
-        "CmuxNextBrowser/CEF/CEFTab+Freeze.swift"
+        "CmuxNextBrowser/CEF/CEFTabNodeVisibility.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
@@ -4297,7 +4297,75 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
+      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR and TOOLTIP events reach ChromiumHostPageView, tasks 045 and 054), so the remote export does nothing."
+    },
+    {
+      "name": "cmux_shim_tab_set_visibility",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "visibility",
+          "type": "int"
+        },
+        {
+          "name": "capture",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The app gives a tab its visibility tree node's state as a one-way op in call order (p06-scheduler-212), as Chrome's tab strip hides a background WebContents; the freeze that follows a hide is sent after it on the same channel, so it reaches the host after the hide."
+    },
+    {
+      "name": "cmux_shim_ext_load_later_supported",
+      "class": "mirror",
+      "args": [],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFRuntime.swift"
+      ],
+      "mirror_key": "host.ext_load_later_supported",
+      "refresh_events": [
+        "attach"
+      ],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A fork capability, fixed for the host's life (p13-webui-055): CEFRuntime.initialize reads it after the attach await to decide whether the built-in extensions go on --load-extension or load at each profile's first tab. Feature detection is mirror, never post (task 017)."
+    },
+    {
+      "name": "cmux_shim_ext_load_command_line",
+      "class": "async",
+      "args": [
+        {
+          "name": "profile_cache_path",
+          "type": "const char*"
+        },
+        {
+          "name": "reply",
+          "type": "int"
+        },
+        {
+          "name": "path",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFBuiltInExtensionLoads.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "CMUX_SHIM_REPLY",
+      "reason": "Answered by CMUX_SHIM_REPLY with the caller's reply id once the fork installed the extension and its background page finished its first load (p13-webui-055); the profile's first browser tab waits for it. The host's wire:REPLY under the op's token carries the start result: a start other than 1 ends that load at once instead of at its deadline (CEFBuiltInExtensionLoader awaits it, as profileWrite does, task 021)."
     }
   ],
   "events": [
@@ -4605,6 +4673,12 @@
       "kind": "CMUX_SHIM_DRAG_OPERATION",
       "value": 55,
       "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_TOOLTIP",
+      "value": 57,
+      "refreshes": [],
+      "reason": "The page's tooltip (OnTooltip, task 054): the host's page windows never show, so cmux's page view shows it, as Chrome's app shim view shows RenderWidgetHostNSView::SetTooltipText."
     }
   ],
   "optional_exports": [
@@ -4715,7 +4789,7 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+Freeze.swift"
+        "CmuxNextBrowser/CEF/CEFTabNodeVisibility.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
@@ -5150,6 +5224,15 @@
       "needs": "after_attach",
       "change": "Runs after the attach await of CEFRuntime.start, so the version-gated preinit decisions (setPopupWindowsEnabled, installInRenderer, switches) use the host's fork version.",
       "task": "p01-process-015"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:), the built-in extensions' builtInExtensionsAtFirstTab read",
+      "exports": [
+        "cmux_shim_ext_load_later_supported"
+      ],
+      "needs": "after_attach",
+      "change": "Runs after the attach await of CEFRuntime.start, so whether the built-in extensions stay off --load-extension and load at each profile's first tab follows the host's fork (its hello carries the capability).",
+      "task": "p13-webui-055"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFForkFeatures.swift: CEFForkFeatures.init(_:)",

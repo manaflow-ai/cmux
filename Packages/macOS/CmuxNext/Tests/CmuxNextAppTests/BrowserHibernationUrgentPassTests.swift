@@ -87,7 +87,7 @@ struct BrowserHibernationUrgentPassTests {
         let rig = Rig(ranks: true)
         defer { rig.close() }
         #expect(rig.hibernation.urgentDiscardOwners().map { ObjectIdentifier($0) } == [ObjectIdentifier(rig.lifecycle)])
-        let chats = AgentPageHibernation(tabs: { nil })
+        let chats = AgentPageHibernation(tabs: { nil }, deadlines: rig.services.mainDeadlines)
         rig.hibernation.agentPages = chats
         #expect(rig.hibernation.urgentDiscardOwners().map { ObjectIdentifier($0) } == [ObjectIdentifier(chats), ObjectIdentifier(rig.lifecycle)])
         #expect(chats.leavesCriticalEventToUrgentPass && rig.lifecycle.leavesCriticalEventToUrgentPass,

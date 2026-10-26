@@ -203,6 +203,8 @@ command_table! {
     PasteImage => "paste-image", TerminalIo;
     ServerStats => "server-stats", Query;
     DebugDaemonLocks => "debug-daemon-locks", Query;
+    ServerThreads => "server-threads", Query;
+    ServerBlocking => "server-blocking", Query;
     TraceStart => "trace-start", Other;
     TraceStop => "trace-stop", Other;
     TraceStatus => "trace-status", Other;

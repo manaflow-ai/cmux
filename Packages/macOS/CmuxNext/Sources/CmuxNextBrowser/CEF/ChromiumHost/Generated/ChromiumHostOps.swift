@@ -47,16 +47,16 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case contextProxyState = 162, releaseContext = 163, setNavigationGuard = 164, setAuthCallback = 165
     case prefGet = 166, prefSetBool = 167, prefWatch = 168, bookmarksSync = 169, pageSchemeAdd = 170
     case pageSchemeAddFirstParty = 171, pageSchemeAddFirstPartyDynamic = 172, pageResourceRespond = 173
-    case memoryPressureVote = 174, setCursorEvents = 175, addDocumentScript = 176, addPageChannel = 177
-    case tabEvaluate = 178, tabSetFrozen = 179, tabSendClick = 180, tabSetColorScheme = 181
-    case pageSchemeSetGroup = 182, tabDiscard = 183, widgetSetGeometry = 184, widgetDismiss = 185
-    case widgetSendInput = 186, browserImeSetComposition = 187, browserImeCommitText = 188
-    case browserImeFinishComposing = 189, browserImeCancelComposition = 190
+    case memoryPressureVote = 174, setCursorEvents = 175, tabSetVisibility = 176, extLoadLaterSupported = 177
+    case extLoadCommandLine = 178, addDocumentScript = 179, addPageChannel = 180, tabEvaluate = 181
+    case tabSetFrozen = 182, tabSendClick = 183, tabSetColorScheme = 184, pageSchemeSetGroup = 185, tabDiscard = 186
+    case widgetSetGeometry = 187, widgetDismiss = 188, widgetSendInput = 189, browserImeSetComposition = 190
+    case browserImeCommitText = 191, browserImeFinishComposing = 192, browserImeCancelComposition = 193
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "fd2880fd853619b378183b36b603c45f6d47fa5f5873e2d90caa9a8900ef7c3c"
+    static let abiIdentity = "7f5e881b55dbd76f745704fab29009d857e77759c82e0b0771f53c8f978e4bc7"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "191a398b9696a54a39b9e64220bbf8a0246c9f430ca5a90a55f108ae3d946697"
+    static let wireIdentity = "0f0dacb2577581743c1f046794332b3967287767f883bd607cbc53dd750afd73"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -371,6 +371,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.local, [], []),
+        Row(.post, [.int32, .int32, .int32], [.int32]),
+        Row(.mirror, [], [.int32]),
+        Row(.async, [.string, .int32, .string], [.int32]),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
@@ -487,6 +490,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Refresh(-1, -1, .passwordReplaceAvailable),  // attach
         Refresh(-1, -1, .passkeysAvailable),  // attach
         Refresh(-1, -1, .passwordCoreAvailable),  // attach
+        Refresh(-1, -1, .extLoadLaterSupported),  // attach
     ]
 
     /// The mirrors an event of `kind` with `request` refreshes, in table order.
@@ -506,8 +510,8 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case prefChanged = 33, downloadStarted = 34, downloadProgress = 35, downloadDone = 36, authCallback = 37
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
-    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, pageMessage = 49
-    case evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53
+    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
+    case pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

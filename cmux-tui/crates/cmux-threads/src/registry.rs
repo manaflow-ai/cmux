@@ -1,5 +1,6 @@
 //! The process's thread registry: one row per cmux thread, with its name,
-//! declared QoS, desired-QoS slot, effective QoS and native ids.
+//! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
+//! native ids.
 //!
 //! A thread's row lives in a thread-local of this crate and is removed when
 //! the thread deregisters (at the end of [`crate::spawn`], or by its
@@ -94,6 +95,13 @@ impl Row {
         self.effective.store(qos.map_or(NOT_APPLIED, |qos| qos as u8), Ordering::Relaxed);
     }
 
+    /// The class the thread runs at by its own changes: the last one that
+    /// succeeded, else the class it was registered with (a refused change
+    /// still says what it wants).
+    pub(crate) fn class(&self) -> ThreadQos {
+        self.effective().unwrap_or(self.declared)
+    }
+
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
@@ -135,6 +143,9 @@ pub struct ThreadInfo {
     pub effective: Option<ThreadQos>,
     /// What the kernel reports now.
     pub live: LiveQos,
+    /// The scheduler priority the thread runs at now (macOS `pth_curpri`,
+    /// Linux 20 + nice), `None` when it could not be read.
+    pub priority: Option<i32>,
     /// QoS changes the kernel or the Linux nice rule refused.
     pub refused_changes: u32,
     /// The kernel thread id (Linux tid, macOS pthread_threadid_np).
@@ -236,6 +247,7 @@ pub fn snapshot() -> Vec<ThreadInfo> {
             desired: ThreadQos::from_u8(row.desired.load(Ordering::Relaxed)),
             effective: row.effective(),
             live: qos::live_of(&row.native),
+            priority: qos::priority_of(&row.native),
             refused_changes: row.refused.load(Ordering::Relaxed),
             tid: row.native.tid(),
         })

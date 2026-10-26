@@ -33,7 +33,9 @@ With --browser the top-left pane of each layout shows a Chromium page instead of
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
-trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), of the page's own animation
+trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), the host mode
+page resizes and their fences (fence_resizes: fenced resizes, fence_joined, fence_late, fence_cut: `debug.cef` host_resize,
+p01-process-052; None in process), of the page's own animation
 frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
@@ -75,6 +77,9 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
 parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
+parser.add_argument("--enable-features", default="",
+                    help="comma-separated features the app starts with (CMUX_ENABLE_FEATURES), for example "
+                         "cefHelperHost,chromiumHostResizeFence (cef-resize-sync-bench.py --modes host)")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -172,13 +177,15 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
+              ("fence_resizes", "host_resize", "fenced"), ("fence_joined", "host_resize", "joined"),
+              ("fence_late", "host_resize", "late"), ("fence_cut", "host_resize", "cut")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "rAF", "catch", "reord", "post/f"]
+                 "fresz", "fjoin", "flate", "fcut", "rAF", "catch", "reord", "post/f"]
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
 
 
@@ -617,8 +624,10 @@ def main():
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
     # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
-                     log_name=f"app-{TAG}.log")
+    env = {"CMUX_NEXT_NO_ACTIVATE": None}
+    if opts.enable_features:
+        env["CMUX_ENABLE_FEATURES"] = opts.enable_features
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env=env, window=None, screen=None, log_name=f"app-{TAG}.log")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -710,6 +719,9 @@ def main():
                   f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
                   + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
                   flush=True)
+    # Host mode's page resize counters at the end, with or without --browser: null when Chromium ran in process
+    # (cef-resize-sync-bench.py's host modes are valid only with them).
+    report["host_resize"] = (rpc("debug.cef") or {}).get("host_resize")
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
     MEASURED = bool(report["runs"])  # at least one action was measured

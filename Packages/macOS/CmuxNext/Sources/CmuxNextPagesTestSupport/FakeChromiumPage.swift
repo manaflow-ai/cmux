@@ -56,6 +56,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onCall: (() -> Void)?
     /// Answers a call by its method and params before the defaults (nil: the defaults answer).
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
+    /// When set, every DevTools call fails with it after ``answer`` ran (a page whose browser ended).
+    public var devToolsFailure: (any Error)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
     /// Every script ``evaluate(_:)`` ran, in order, whichever path answered it.
@@ -107,11 +109,14 @@ public final class FakeChromiumPage: PageChromiumPage {
         return value
     }
 
-    /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.
+    /// Records the call and answers it: ``answer`` first, then ``devToolsFailure``, then the sender
+    /// check, then an empty result.
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
-        if let answered = answer?(method, params) { return answered }
+        let answered = answer?(method, params)
+        if let devToolsFailure { throw devToolsFailure }
+        if let answered { return answered }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
@@ -157,6 +162,15 @@ public final class FakeChromiumPage: PageChromiumPage {
         discards += 1
         isDiscarded = true
         return true
+    }
+
+    /// Every ``answerUnresponsive(terminate:)``, in order (true: terminate).
+    public private(set) var hangAnswers: [Bool] = []
+
+    /// Records `terminate` in ``hangAnswers``; a closed page records nothing.
+    public func answerUnresponsive(terminate: Bool) {
+        guard !closed else { return }
+        hangAnswers.append(terminate)
     }
 
     /// Sets ``closed`` and runs ``onClose``.

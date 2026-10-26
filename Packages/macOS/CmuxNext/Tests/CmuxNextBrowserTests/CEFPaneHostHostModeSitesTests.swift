@@ -394,6 +394,30 @@ import Testing
         #expect(page.pageCursorName == "col-resize")
     }
 
+    /// Task 054: the shown tab's TOOLTIP shows on the page view; a hidden tab's does not.
+    @Test func hostModeShowsTheShownTabsTooltip() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.livePane(runtime)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(first, in: container)
+        let page = try #require(host.hostedPageView)
+        #expect(page.pageTooltip == nil)
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Close")))
+        #expect(page.pageTooltip == "Close")
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(second)
+        runtime.register(second, browser: Self.firstBrowser + 1)
+        host.present(second, in: container)
+        #expect(page.pageTooltip == nil, "the first tab's tooltip is not the second's")
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Hidden")))
+        #expect(page.pageTooltip == nil, "a hidden tab's tooltip does not show")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("Shown")))
+        #expect(page.pageTooltip == "Shown")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("")))
+        #expect(page.pageTooltip == nil)
+    }
+
     // MARK: Fixtures
 
     /// The first browser's id: a window's AFTER_CREATED names it.

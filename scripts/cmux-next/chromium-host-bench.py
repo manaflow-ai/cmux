@@ -81,6 +81,19 @@ Per mode:
            `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
            shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
            pointer route to the host: the row says not_measurable with the reason instead of passing.
+  mouse    `--modes mouse` (task 054 of plans/cmux-next/chrome-parity/p01-process.md), host mode: a page with a
+           `title=` band and a pad that records every mousedown, mouseup, click, auxclick and ctrl-wheel (a pinch, as
+           Blink hands it to the page) with its button, and visualViewport.scale.
+           tooltip  the pointer moves onto the band once and stays: `debug.cef`'s `page_tooltip` must name the band's
+                    title and `tooltip_shown` (the app's tooltip on screen) must show it while the pointer stays
+                    inside the page view (Chrome's -setToolTipAtMousePoint: shows it with no exit and enter).
+           back, forward  `debug.mouse` page clicks with AppKit buttons 3 and 4: the page must see no left button
+                    (button 0) event; until the host sends kBack and kForward (p01-process-054b) it sees none.
+           middle   a middle click: the page's events of button 1 (auxclick), reported.
+           pinch, smart_magnify  `debug.mouse` page `pinch` (scale 1.5) and `smart_magnify`: the frames the page view
+                    sent, and whether the page saw them (scale changed or a ctrl-wheel); `not_dispatched` with the
+                    reason while the host drops kGesture (p01-process-054b), never a pass.
+           In process, or before the host input route (p01-process-042), the row says not_measurable.
   dragin   `--modes dragin` (task 050), on an input host (real HID events) with feature chromiumHostDragIn on: a
            Chromium tab of the app's backend over a drop zone and an <input type=file>; a real drag session from
            another app (pointer-probe.swift drag-file, as from Finder) drops one file on each. Pass: the zone's drop
@@ -248,6 +261,19 @@ DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
 # ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
 DRAG_TARGET_FORK_API = 31
 
+
+# The mouse row's page (task 054): a title= band over a pad that records the page's mouse events and pinches.
+MOUSE_TOOLTIP = "probe tooltip"
+MOUSE_PAGE = """<!doctype html><meta charset=utf-8><title>mouse probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}div{position:fixed;left:0;width:100%;height:50%}</style>
+<div id=tip style="top:0;background:#cde" title="TIP">tooltip</div>
+<div id=pad style="top:50%;background:#ecd">buttons and gestures</div>
+<script>
+window.__mouse = [];
+for (const type of ["mousedown", "mouseup", "click", "auxclick", "contextmenu"])
+  addEventListener(type, e => { __mouse.push({type, button: e.button, buttons: e.buttons}); }, true);
+addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel", dy: e.deltaY}); }, {capture: true, passive: true});
+</script>""".replace("TIP", MOUSE_TOOLTIP)
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -612,6 +638,10 @@ def main():
             drag_probe = os.path.join(opts.out, "drag.html")
             open(drag_probe, "w").write(DRAG_PAGE)
             ok = run_dragin(rpc, pathlib.Path(drag_probe).as_uri()) and ok
+        if "mouse" in modes:
+            mouse_probe = os.path.join(opts.out, "mouse.html")
+            open(mouse_probe, "w").write(MOUSE_PAGE)
+            ok = run_mouse(rpc, pathlib.Path(mouse_probe).as_uri()) and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:
@@ -1265,6 +1295,101 @@ def run_dragin(rpc, url):
     if "not_measurable" not in row:
         row["pass"] = "error" not in row and all(row[t].get("pass") for t in ("zone", "file"))
     RESULT["modes"]["dragin"] = row
+    return True
+
+
+def run_mouse(rpc, url):
+    """The mouse rows (task 054): the page's tooltip shown while the pointer stays, back and forward clicks that never
+    reach the page as a left click, the middle click, and the pinch and smart magnify frames (debug.mouse page)."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        value, got = page_eval_reply(rpc, script, tab.get("tab"))
+        if got:
+            tab.setdefault("tab", got)
+        return value
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'mouse probe'"), 60, 0.5):
+        RESULT["modes"]["mouse"] = {"error": f"the mouse probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+
+    def entry():
+        entries = (rpc("debug.cef") or {}).get("devtools") or []
+        return ([e for e in entries if (e.get("url") or "").startswith(url)] or [{}])[0]
+
+    def center(element):
+        return page(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+
+    def unmeasurable(reply):
+        # No route to the host, or a move that went to the in-process page window (no page view).
+        return isinstance(reply, dict) and (reply.get("reason") in ("no_host_input_route", "not_host_mode")
+                                            or (not reply.get("error") and reply.get("view") != "ChromiumHostPageView"))
+
+    row = {}
+    tip = center("tip")
+    moved = rpc("debug.mouse", {"action": "move", "target": "page", "x": tip[0], "y": tip[1]}) if tip else {"error": "no band rect"}
+    if unmeasurable(moved):
+        row["not_measurable"] = (f"no host-mode page view with a pointer route to the Chromium Host ({moved.get('reason') or 'in process'}): "
+                                 "in process Chromium's page window shows its own tooltip and gets every button itself")
+        RESULT["modes"]["mouse"] = row
+        return True
+    if not isinstance(moved, dict) or moved.get("error"):
+        row["tooltip"] = {"move": moved, "error": "debug.mouse move failed", "pass": False}
+    else:
+        # The renderer sends the tooltip after the move reaches it; the tooltip then waits AppKit's hover delay. No
+        # other move: the pointer stays inside the page view the whole time, as a user's resting on the link.
+        text = wait(lambda: entry().get("page_tooltip") == MOUSE_TOOLTIP and MOUSE_TOOLTIP, 5, 0.05)
+        shown = wait(lambda: entry().get("tooltip_shown") == MOUSE_TOOLTIP and MOUSE_TOOLTIP, 5, 0.05)
+        row["tooltip"] = {"expected": MOUSE_TOOLTIP, "page_tooltip": text or entry().get("page_tooltip"),
+                          "shown": shown or entry().get("tooltip_shown"), "pass": bool(text and shown)}
+
+    pad = center("pad") or [0, 0]
+    for button in ("back", "forward", "middle"):
+        page("window.__mouse = []")
+        clicked = rpc("debug.mouse", {"target": "page", "button": button, "x": pad[0], "y": pad[1]})
+        time.sleep(1.0)  # test harness: the click's events reach the page through the host, if at all
+        events = page("JSON.stringify(window.__mouse)")
+        seen = json.loads(events) if isinstance(events, str) else None
+        result = {"click": clicked, "events": seen}
+        if not isinstance(clicked, dict) or clicked.get("error"):
+            result["error"] = "debug.mouse page click failed"
+            if button != "middle":
+                result["pass"] = False
+        elif seen is None:
+            result["error"] = "the page's events could not be read"
+            if button != "middle":
+                result["pass"] = False
+        elif button == "middle":
+            result["auxclick"] = any(e.get("type") == "auxclick" and e.get("button") == 1 for e in seen)
+        else:
+            left = [e for e in seen if e.get("button") == 0]
+            result["left_events"] = left
+            result["pass"] = not left
+            if not seen:
+                result["note"] = "nothing reached the page: the host sends kBack and kForward from p01-process-054b"
+        row[button] = result
+
+    for gesture in ("pinch", "smart_magnify"):
+        page("window.__mouse = []")
+        before = page("visualViewport.scale")
+        sent = rpc("debug.mouse", {"action": gesture, "target": "page", "x": pad[0], "y": pad[1],
+                                   **({"scale": 1.5} if gesture == "pinch" else {})})
+        time.sleep(1.0)  # test harness: the gesture, if dispatched, zooms within a frame or two
+        after = page("visualViewport.scale")
+        events = page("JSON.stringify(window.__mouse)")
+        wheel = any(e.get("type") == "pinch-wheel" for e in (json.loads(events) if isinstance(events, str) else []))
+        result = {"sent": sent, "scale_before": before, "scale_after": after, "ctrl_wheel": wheel}
+        if not isinstance(sent, dict) or sent.get("error") or not sent.get("frames"):
+            result.update({"error": "the page view sent no gesture frame", "pass": False})
+        elif before != after or wheel:
+            result["dispatched"] = True
+            result["pass"] = True
+        else:
+            result["not_dispatched"] = "the host drops kGesture until the fork sends PinchEvent and SmartMagnifyEvent (p01-process-054b)"
+        row[gesture] = result
+
+    row["pass"] = all(row.get(name, {}).get("pass") is not False for name in ("tooltip", "back", "forward", "pinch", "smart_magnify"))
+    RESULT["modes"]["mouse"] = row
     return True
 
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hangReportsSchema3",
+  "owner": "PL-telemetry",
+  "description": "Opt-in hang reports are written in schema 3, with the catalog histograms, stability counts, earlier launches and the merged black box; turn it on only once cmux.com accepts schema 3 (p09-observability-064 deployed).",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

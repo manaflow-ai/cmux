@@ -8,4 +8,6 @@ nonisolated enum CEFPageViewEvent: Equatable, Sendable {
     /// The renderer's answer to a drag over the page (DRAG_OPERATION, task 050): the
     /// `cef_drag_operations_mask_t` it takes, 0 none.
     case dragOperation(Int64)
+    /// The page's tooltip changed (TOOLTIP, task 054; host mode turns it on): the text, "" for none.
+    case tooltip(String)
 }

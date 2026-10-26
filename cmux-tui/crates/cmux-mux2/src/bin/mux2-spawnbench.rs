@@ -1,5 +1,7 @@
 //! macOS only for now (kqueue, posix_spawn PTY setup); see GOAL.md.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(target_os = "macos")]
 #[path = "../macos/mux2_spawnbench.rs"]
 mod imp;
