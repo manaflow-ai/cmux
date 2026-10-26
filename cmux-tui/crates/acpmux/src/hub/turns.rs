@@ -317,17 +317,19 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
-        // A lane's report to a parent whose close began since `queue_slot` checked: refused,
-        // with nothing awaited from here to the turn's start (`lane_reports.rs`).
-        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
-            let e = super::queue::closing_error();
+        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
-        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
-        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
+        // A lane's report to a parent whose close began since `queue_slot` checked is refused
+        // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
+        // clears the turn, so a close that began any time before this check is seen.
+        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);

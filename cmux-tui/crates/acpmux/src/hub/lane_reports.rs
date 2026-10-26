@@ -61,8 +61,8 @@ pub(crate) const KIND: &str = "lane_report";
 const REPLY_CHARS: usize = 400;
 /// Transcript records read per page, newest first, back to the start of the last turn.
 const TAIL_RECORDS: usize = 400;
-/// Pages read back at most for the last turn (its reply streamed in more records than this
-/// holds is read from where they start).
+/// Pages read back at most for the last turn (a turn that streamed more records than this
+/// holds is read back this far, and its reply marked as cut).
 const MAX_TAIL_PAGES: usize = 50;
 /// Parents walked up from a session at most. A chain this deep without the session in it is
 /// refused too, since a link map that was written wrong could loop past the walk.
@@ -436,14 +436,14 @@ impl Hub {
         let last_seq = summary.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
         let filter = EventFilter::parse(Some(&json!(["transcript"])))
             .map_err(|e| anyhow::anyhow!("transcript filter: {e:?}"))?;
-        let records = last_turn_records(last_seq, |before| {
+        let (records, whole) = last_turn_records(last_seq, |before| {
             self.events_page(lane, 0, Some(before), TAIL_RECORDS, None, true, &filter)
         })?;
         let events: Vec<Value> = records
             .into_iter()
             .map(|r| json!({"seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
             .collect();
-        Ok(last_reply(&events))
+        Ok(last_reply(&events).map(|r| cut_reply(r, whole)))
     }
 
     /// Whether session `id` is here and not closed.
@@ -517,12 +517,12 @@ impl Hub {
 }
 
 /// The records of the last turn, from its `turn_started` on (or as far back as
-/// [`MAX_TAIL_PAGES`] pages go), oldest first; `page(before)` reads the newest page below seq
-/// `before`.
+/// [`MAX_TAIL_PAGES`] pages go), oldest first, and whether they are the whole turn (false: its
+/// start lies further back); `page(before)` reads the newest page below seq `before`.
 fn last_turn_records(
     last_seq: u64,
     mut page: impl FnMut(u64) -> Result<EventPage>,
-) -> Result<Vec<crate::store::EventRecord>> {
+) -> Result<(Vec<crate::store::EventRecord>, bool)> {
     let mut out = Vec::new();
     let mut before = last_seq.saturating_add(1);
     for _ in 0..MAX_TAIL_PAGES {
@@ -535,11 +535,21 @@ fn last_turn_records(
         events.append(&mut out);
         out = events;
         if !more {
-            break;
+            return Ok((out, true));
         }
         before = first;
     }
-    Ok(out)
+    // Empty, or stopped at the page limit with more before it.
+    let whole = out.is_empty();
+    Ok((out, whole))
+}
+
+/// What a report's reply starts with when its turn's start lay past the pages read.
+const CUT_NOTE: &str = "(its reply began before the records read; this is how it ends) ";
+
+/// `reply`, marked as cut when it is not the whole turn's.
+fn cut_reply(reply: String, whole: bool) -> String {
+    if whole { reply } else { format!("{CUT_NOTE}{reply}") }
 }
 
 /// `l`'s queued report to deliver now, without the pull requests reported before, and its key
@@ -694,7 +704,8 @@ mod tests {
         };
         // The turn's start lies further back than every page read.
         let n = (TAIL_RECORDS * MAX_TAIL_PAGES) as u64 + 100;
-        let log: Vec<_> = (1..=n).map(|s| rec(s, if s == 1 { "turn_started" } else { "chunk" })).collect();
+        let log: Vec<_> =
+            (1..=n).map(|s| rec(s, if s == 1 { "turn_started" } else { "chunk" })).collect();
         let page = |before: u64| -> Result<EventPage> {
             let below: Vec<_> = log.iter().filter(|r| r.seq < before).cloned().collect();
             let from = below.len().saturating_sub(TAIL_RECORDS);
