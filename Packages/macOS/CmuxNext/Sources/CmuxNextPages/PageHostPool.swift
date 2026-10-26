@@ -170,11 +170,8 @@ public final class PageHostPool {
     ///
     /// - Parameter hosting: The app's Chromium page maker (`WebUIHost.chromium`); nil for WebKit only.
     public func servesOpens(hosting: (any PageChromiumHosting)?) -> Bool {
-        guard let hosting else { return true }
-        let liveWebOverride = WebDevOverride.current.isActive
-        return PageServedHosts.pooledDescriptors.contains { page in
-            PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable, chromiumServes: hosting.serves(page),
-                             liveWebOverride: liveWebOverride).decide(for: page, options: options).engine == .webKit
+        PageServedHosts.pooledDescriptors.contains { page in
+            PageWebView.engineDecisionNow(for: page, options: options, hosting: hosting).engine == .webKit
         }
     }
 
