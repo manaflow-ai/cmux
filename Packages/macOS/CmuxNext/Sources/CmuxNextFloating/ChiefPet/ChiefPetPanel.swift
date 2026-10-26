@@ -147,6 +147,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     }
 
     static func screenUnderPointer() -> NSScreen? {
+        // global-input-allow: not in a handler; the pet shows over other apps, and only the real cursor knows the screen there.
         let point = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
     }
@@ -162,8 +163,6 @@ final class ChiefPetView: NSView {
     var onDragEnded: (() -> Void)?
     /// The right-click menu (the panel's `contextMenu()`).
     var contextMenu: (() -> NSMenu?)?
-    /// The pointer in screen points; tests drive their own.
-    var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
     private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
@@ -240,14 +239,17 @@ final class ChiefPetView: NSView {
             press = nil
             return NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
-        let local = convert(event.locationInWindow, from: nil)
-        press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
+        let start = event.screenLocation
+        // The hit test reads the same point as the drag's start.
+        let local = convert(window?.convertPoint(fromScreen: start) ?? start, from: nil)
+        press = (start, window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let press, let window else { return }
-        let point = pointer()
+        // The event's own screen point: the panel moves under the pointer on every step.
+        let point = event.screenLocation
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.

@@ -39,8 +39,8 @@ extension PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: PageNativeOp.edit, provider: edits)]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        guard let page = PageWebView(descriptor: .homeChannels, routes: routes,
-                                     options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .homeChannels, routes: routes,
+                                                              options: Self.homeChannelsEngineOptions, surface: .home)) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in
             page?.performEdit(command.selector)

@@ -4,9 +4,12 @@ internal import CmuxNextSettings
 
 /// `debug.blocking`: the call sites that blocked the main thread since launch (the main-thread
 /// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the
-/// benches (Debug and bench builds). `{"reset": true}` zeroes the counts after the report; no other
+/// benches (Debug and bench-checks builds). `{"reset": true}` zeroes the counts after the report; no other
 /// parameter is read (trap mode is set only by `CMUX_BLOCKING_TRAP=1` at launch). It reads the detector's own tables, so it
 /// runs off the main thread (socket threading policy) and answers while the main thread is busy.
+///
+/// The method also answers in a `--config bench` build, which has no detector: there `compiled_in` is false
+/// and `sites` is always empty, so a reader must refuse such a report rather than read it as no blocking.
 public struct BlockingControl: Sendable {
     private let detector: BlockingDetector
 
@@ -22,6 +25,7 @@ public struct BlockingControl: Sendable {
 
     static func report(_ params: [String: JSONValue], detector: BlockingDetector) -> JSONValue {
         let report: JSONValue = .object([
+            "compiled_in": .bool(detector.isCompiledIn),
             "mode": .string(detector.mode.rawValue),
             "overflow": .number(Double(detector.overflow)),
             "sites": .array(detector.sites.map { site in
