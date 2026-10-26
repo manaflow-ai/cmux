@@ -12,16 +12,15 @@ import CmuxNextSettings
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
-    /// Creates the browser and agent page hibernation, follows `browser.hibernation`, and follows the
-    /// memory pressure level that also sizes the terminal warm set (the one budget of hidden GPU surfaces).
-    /// It registers with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer,
-    /// which hands it each level.
+    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers
+    /// with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it
+    /// each level, as do the terminal warm set (the one budget of hidden GPU surfaces) and the parked
+    /// workspaces, which the coordinator releases one surface or one workspace per frame.
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
-        hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in
             guard let self else { return [:] }
@@ -35,6 +34,8 @@ extension AppServices {
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
+        cache.warmSetRelease = WarmSetRelease(host: cache, registry: memoryCoordinator) { WarmSetBudget.current(pressure: $0).terminalCapacity }
+        windows.parkedRelease = ParkedWorkspaceRelease(hosts: { [weak self] in self?.windows.controllers.map { $0 as any ParkedWorkspaceHost } ?? [] }, registry: memoryCoordinator)
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard) {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
@@ -48,13 +49,6 @@ extension AppServices {
         let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
         let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
         return FrozenGrowthRule.openerGroup(of: key, openers: openers)
-    }
-
-    func memoryPressureDidChange(_ level: MemoryPressureLevel) {
-        let budget = WarmSetBudget.current(pressure: level)
-        cache.setWarmBudget(budget)
-        // Critical keeps only what shows, the parked workspaces too.
-        if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
     }
 }
 

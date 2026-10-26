@@ -72,6 +72,10 @@ tab's page window covers the pane (`foreign_pages`).
   parked panes in total as the terminal warm set (4 to 12); pressure warning
   one workspace of up to 2 panes, critical none. Many small workspaces stay
   warm; a few large ones do not crowd memory.
+- Memory pressure shrinks both through the app's memory coordinator, one
+  surface close or one parked workspace teardown per frame, never all in
+  one main turn (`WarmSetRelease`, `ParkedWorkspaceRelease`; parked
+  workspaces of off-screen windows first, least recently shown first).
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20

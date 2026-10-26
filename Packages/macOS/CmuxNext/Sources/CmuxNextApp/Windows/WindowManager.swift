@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextLaunch
 import CmuxNextWakeups
 import Observation
@@ -107,6 +108,8 @@ final class WindowManager {
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
     var incognitoHistoryReset: (() -> Void)?
+    /// Releases the windows' parked workspaces under critical memory pressure, one per frame.
+    var parkedRelease: ParkedWorkspaceRelease?
 
     init(services: AppServices) {
         self.services = services
