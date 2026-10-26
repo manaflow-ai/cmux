@@ -513,8 +513,9 @@ export interface RetryParams {
 export type RetryReason = "capacity" | "transport" | "agent_exited";
 
 /**
- * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
- * failed prompt) and the turn it started.
+ * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+ * attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+ * it started.
  */
 export type RetryResult = {
   kind: RetryKind;

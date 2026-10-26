@@ -107,6 +107,8 @@ pub(super) struct Slot<'a> {
     pub(super) full_access_device: Option<&'a str>,
     /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
+    /// `PromptOptions::no_queue`.
+    pub(super) no_queue: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -180,6 +182,10 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
+                // Decided with the queue's own test, with no await since: it never queues.
+                if waiting && p.no_queue {
+                    return Err(Err(super::auto_resume::retry_turn::busy()));
+                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let waits = self.enqueue(session, &p, position, &turn_id);
@@ -196,7 +202,18 @@ impl Hub {
         let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
             Some(withdraw) => (withdraw, None),
             None => {
-                let guard = session.turn_lock.lock().await;
+                let guard = if p.no_queue {
+                    // A prompt about to start holds the lock with no turn shown yet.
+                    match session.turn_lock.try_lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            session.queued.fetch_sub(1, Ordering::SeqCst);
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
+                    }
+                } else {
+                    session.turn_lock.lock().await
+                };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
@@ -219,6 +236,9 @@ impl Hub {
                     // The parent's run slots are all taken: it waits in the queue for one.
                     Err(parent) => {
                         drop(guard);
+                        if p.no_queue {
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
                         let mark = self.mark_waiting_for_slot(&parent, session);
                         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                         let waits = self.enqueue(session, &p, position, &turn_id);

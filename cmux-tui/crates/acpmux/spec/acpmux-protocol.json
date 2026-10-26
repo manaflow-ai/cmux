@@ -2875,7 +2875,7 @@
       "type": "string"
     },
     "RetryResult": {
-      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the\nfailed prompt) and the turn it started.",
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next\nattempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn\nit started.",
       "properties": {
         "kind": {
           "$ref": "#/types/RetryKind"

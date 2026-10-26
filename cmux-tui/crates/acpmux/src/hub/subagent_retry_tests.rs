@@ -295,3 +295,126 @@ async fn a_refused_person_retry_answers_at_once() {
     settle().await;
     assert_eq!(outcomes(&hub, &session), ["scheduled", "fired", "scheduled"]);
 }
+
+/// The chat's `user_message` records.
+fn prompts(hub: &Hub, session: &Session) -> Vec<Value> {
+    let records = hub.events(&session.id, 0, 10_000).unwrap();
+    records.into_iter().filter(|e| e.kind == "user_message").map(|e| e.msg).collect()
+}
+
+/// The subagent's retry state: its attempts so far, and its wait's attempt and whether it fired.
+fn wait_of(hub: &Hub, session: &Session, id: &str) -> (usize, Option<(usize, bool)>) {
+    let all = hub.subagent_retries.lock();
+    let sub = &all.subs[&session.id][id];
+    let wait = sub.failed.as_ref().and_then(|f| f.wait.as_ref()).map(|w| (w.attempt, w.fired));
+    (sub.attempts, wait)
+}
+
+/// A prompt that takes the chat between a person's claim and its send (here: one holding the
+/// turn lock, about to start; then Claude Code's own turn): `retry.busy`, nothing queued or sent,
+/// and the automatic retry it took over waits again, at its attempt.
+#[tokio::test]
+async fn a_person_retry_overtaken_after_its_claim_is_busy_and_gives_the_wait_back() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    for overtaken in ["turn_lock", "harness_turn"] {
+        let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+        assert_eq!(wait_of(&hub, &session, "s/t1"), (1, Some((1, true))));
+        let lock = (overtaken == "turn_lock").then(|| session.turn_lock.try_lock().unwrap());
+        session.harness_turn.store(overtaken == "harness_turn", Ordering::SeqCst);
+        let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+        drop(lock);
+        session.harness_turn.store(false, Ordering::SeqCst);
+        assert_eq!(refused.data.unwrap()["reason"], "retry.busy", "{overtaken}");
+        assert!(session.queue().is_empty(), "{overtaken}: nothing queued");
+        assert!(prompts(&hub, &session).is_empty(), "{overtaken}: nothing sent");
+        settle().await;
+        assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "{overtaken}");
+    }
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "fired", "scheduled", "fired", "scheduled"]);
+    let entry = last_entry(&hub, &session, "s/t1").unwrap();
+    assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(true)));
+    assert!(entry["retry"].is_object(), "it waits again: {entry}");
+    // The wait it gave back still fires, now.
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+}
+
+/// Stop, a resume or a replacement between a person's claim and its prompt's start: the prompt
+/// never runs, and the retry answers `retry.nothing_failed` (`skipped`), never a promptId.
+#[tokio::test]
+async fn a_person_retry_skipped_before_its_prompt_starts_is_refused() {
+    for skip in ["stop", "resume", "replace"] {
+        let (hub, session, _conn) = chat(vec![60_000]).await;
+        let running = json!({"id": "s/t1", "parent": null, "state": "running", "task": "Push relay"});
+        hub.observe_subagents(&session, &[running, failed("s/t1")]);
+        settle().await;
+        let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+        match skip {
+            "stop" => hub.stop_subagent_retries(&session, false),
+            "resume" => hub.observe_subagents(
+                &session,
+                &[json!({"id": "s/t1", "parent": null, "state": "running"})],
+            ),
+            _ => hub.observe_subagents(
+                &session,
+                &[json!({"id": "s/t2", "parent": null, "state": "running", "task": "Push relay"})],
+            ),
+        }
+        let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+        let data = refused.data.unwrap();
+        assert_eq!((&data["reason"], &data["why"]), (&json!("retry.nothing_failed"), &json!("skipped")), "{skip}");
+        assert!(prompts(&hub, &session).is_empty(), "{skip}: nothing ran");
+        assert!(session.turn().is_none(), "{skip}");
+    }
+}
+
+/// A double click: the second retry while the first one's prompt is under way is `retry.busy`,
+/// and only one prompt goes.
+#[tokio::test]
+async fn a_second_person_retry_while_the_first_is_under_way_is_busy() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let first = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    let second = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap_err();
+    assert_eq!(second.data.unwrap()["reason"], "retry.busy");
+    let v = hub.send_claim(&session, "s/t1", first, by_person()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    settle().await;
+    assert_eq!(prompts(&hub, &session).len(), 1);
+    assert_eq!(outcomes(&hub, &session).iter().filter(|o| *o == "fired").count(), 1);
+}
+
+/// A sub-session's retry (`from` its parent) passes the family check at dispatch, and its prompt
+/// names the sender.
+#[tokio::test]
+async fn a_sub_session_retry_runs_and_names_its_sender() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let (out_tx, mut out_rx) = mpsc::channel(64);
+    let (in_tx, in_rx) = mpsc::channel(8);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    in_tx.send(Message::request(2, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let parent = loop {
+        let reply: Value = serde_json::from_str(&out_rx.recv().await.unwrap()).unwrap();
+        if reply["id"] == 2 {
+            break reply["result"]["sessionId"].as_str().unwrap().to_owned();
+        }
+    };
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by = crate::hub::auto_resume::retry_turn::RetryBy { from: Some(parent.clone()), ..by_person() };
+    let v = hub.retry_subagent(&session, "s/t1", by).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    let sent = prompts(&hub, &session);
+    let provenance = &sent[0]["_meta"]["provenance"];
+    assert_eq!(provenance["from"], parent.as_str(), "{provenance}");
+    assert_eq!(provenance["manual"], true, "{provenance}");
+    assert_eq!(provenance["kind"], "subagent_retry", "{provenance}");
+}

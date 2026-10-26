@@ -610,17 +610,24 @@ impl Hub {
         let provenance = json!({"kind": PROVENANCE_KIND, "subagentId": id,
             "agentId": failure.agent_id, "attempt": wait.attempt});
         let opts = PromptOptions { provenance: Some(provenance), ..PromptOptions::default() };
-        let (result, failed) =
+        let result =
             self.send_attempt(session, id, wait, &failure, name.as_deref(), opts, None).await;
         if let Err(e) = result {
             tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
         }
-        failed
+        self.end_attempt(session, id, wait)
+    }
+
+    /// The sent `wait`'s prompt answered: no longer refused at its start. Whether the wait is
+    /// still the subagent's (its turn ended with it still failed), taken.
+    fn end_attempt(&self, session: &Session, id: &str, wait: &Wait) -> bool {
+        let sent = (session.id.clone(), wait.prompt_id.clone());
+        self.subagent_retries.lock().sent.remove(&sent);
+        self.take_wait(session, id, wait).is_some()
     }
 
     /// Sends fired `wait`'s prompt under `opts` (its rules and provenance) and waits for its
-    /// turn, telling `accepted` once the prompt is recorded: the prompt's outcome, and whether
-    /// its turn ended with the subagent still failed (the wait still its own).
+    /// turn, telling `accepted` once the prompt is recorded: the prompt's outcome.
     #[allow(clippy::too_many_arguments)]
     async fn send_attempt(
         self: &Arc<Self>,
@@ -630,8 +637,8 @@ impl Hub {
         failure: &Failure,
         name: Option<&str>,
         mut opts: PromptOptions,
-        accepted: Option<tokio::sync::oneshot::Sender<Value>>,
-    ) -> (Result<Value, RpcError>, bool) {
+        accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+    ) -> Result<Value, RpcError> {
         // Stop, close or a resume between the fire and the queue: taken back from the queue.
         let (hub, owner, sub, sent) = (self.clone(), session.clone(), id.to_owned(), wait.clone());
         let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |v: Value| {
@@ -640,18 +647,15 @@ impl Hub {
                     hub.remove_queued_because(&owner, &sent.prompt_id, Some(PROVENANCE_KIND));
                 });
             }
-            if let Some(tx) = accepted {
-                let _ = tx.send(v);
+            if let Some(accepted) = accepted {
+                accepted(v);
             }
         });
         opts.prompt_id = Some(wait.prompt_id.clone());
         opts.on_accepted = Some(on_accepted);
         let text = retry_text(name, &failure.agent_id, &failure.error);
         let blocks = vec![json!({"type": "text", "text": text})];
-        let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
-        let sent = (session.id.clone(), wait.prompt_id.clone());
-        self.subagent_retries.lock().sent.remove(&sent);
-        (result, self.take_wait(session, id, wait).is_some())
+        self.prompt_with(session, blocks, "acpmux", false, opts).await
     }
 
     /// Whether `wait` is still the subagent's.

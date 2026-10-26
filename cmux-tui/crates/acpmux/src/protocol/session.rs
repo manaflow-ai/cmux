@@ -419,8 +419,9 @@ pub struct RetryParams {
     pub subagent_id: Option<String>,
 }
 
-/// What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
-/// failed prompt) and the turn it started.
+/// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+/// attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+/// it started.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RetryResult {

@@ -200,6 +200,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
+        let no_queue = opts.no_queue;
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
@@ -261,6 +262,7 @@ impl Hub {
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
+            no_queue: opts.no_queue,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -306,6 +308,13 @@ impl Hub {
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        // A person's subagent retry never waits out Claude Code's own turn: it is busy.
+        if no_queue && session.harness_turn.load(Ordering::SeqCst) {
+            let e = super::auto_resume::retry_turn::busy();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
