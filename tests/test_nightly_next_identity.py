@@ -136,7 +136,7 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     # ...and nothing reassigns the values between the checks above and their use.
     assert len(re.findall(r"\bfeed_url=", builder)) == 1
     decide = job_block("decide")
-    assert len(re.findall(r"\b(?:variants|feeds)\b\s*(?:\.(?:push|unshift|splice)\b|=(?!=))", decide)) == 2
+    assert len(re.findall(r"\b(?:variants|feeds)\b\s*(?:\[[^\]]*\]\s*)?(?:\.(?:push|unshift|splice|fill|reverse|sort)\b|=(?!=))", decide)) == 2
     assert 'Add :SUFeedURL string ${feed_url}"' in builder
     # The arm64 variant bakes appcast-arm64.xml (only universal keeps appcast.xml).
     assert ('          if [ "$NIGHTLY_VARIANT" = "universal" ]; then\n            NIGHTLY_APPCAST="appcast.xml"\n'
@@ -155,6 +155,9 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert "\n      feeds: ${{ steps.decide.outputs.feeds }}\n" in job_block("decide")
     assert "core.setOutput('feeds', feeds.join(' '));" in WORKFLOW
     assert next_base + "/" == host + env_value("NIGHTLY_NEXT_R2_PREFIX")
+    # files-next.cmux.com serves this bucket; both uploaders write to it.
+    assert env_value("NIGHTLY_NEXT_R2_BUCKET") == "cmux-nightly-next"
+    assert len(re.findall(r"\bNIGHTLY_NEXT_R2_BUCKET\s*[:=]", WORKFLOW)) == 1
     # cmux NIGHTLY: the legacy sign job bakes LEGACY_BASE/LEGACY_APPCAST, and the
     # legacy publish job uploads that same key.
     sign = job_block("sign-nightly-identity-legacy")
@@ -170,10 +173,15 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
     # upload() puts its file at its second argument, the key checked above.
     assert publish.count("--key ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
-    assert len(re.findall(r"\bprefix=", publish)) == 1 and len(re.findall(r"\bLEGACY_APPCAST=", publish)) == 0
+    assert len(re.findall(r"\bprefix=", publish)) == 1
+    for block in (sign, publish):
+        assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", block)
     assert legacy_base.startswith(host) and legacy_base != next_base
-    # main's feed watch alarms when this feed falls behind; it must watch the same URL.
-    assert f"{legacy_base}/appcast-arm64.xml" == "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+    # legacy-identity-target picks the candidate by comparing cmux NEXT's feed with this one.
+    target = job_block("legacy-identity-target")
+    assert '-o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in target
+    assert '-o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"' in target
+    assert re.findall(r"\n\s+LEGACY_APPCAST: (\S+)\n", target) == ["appcast-arm64.xml"]
 
 
 def main() -> int:
