@@ -607,7 +607,8 @@ FAKE_RISK_TIER = textwrap.dedent("""\
         open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=partial\\n")
         sys.exit(1)
     open(os.environ["FAKE_GH_LOG"], "a").write('{"token": "%s", "args": ["grade"]}\\n' % os.environ["GH_TOKEN"])
-    open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=normal\\nlabel=risk:normal\\nready=true\\n")
+    ready = "false" if os.environ["GH_TOKEN"] == os.environ.get("HELD_ON") else "true"
+    open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=normal\\nlabel=risk:normal\\nready=%s\\n" % ready)
     open(sys.argv[sys.argv.index("--summary") + 1], "a").write("## Risk tier: normal\\n")
     """)
 
@@ -655,6 +656,16 @@ class RiskTierCalls(unittest.TestCase):
         calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", FAIL_READ_TOKEN="app")
         self.assertEqual(calls, [{"token": "workflow", "args": ["grade"]}])
         self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_a_held_app_verdict_is_graded_again_on_the_workflow_token(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", HELD_ON="app")
+        self.assertEqual(calls, [{"token": "app", "args": ["grade"]}, {"token": "workflow", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_the_risk_labels_are_in_the_label_manifest(self) -> None:
+        manifest = json.loads((ROOT / ".github/labels.json").read_text())
+        names = {label["name"] for label in manifest["labels"]}
+        self.assertTrue({"risk:low", "risk:normal", "risk:high", "risk:human-ok"} <= names)
 
     def test_without_an_app_token_grading_uses_the_workflow_token(self) -> None:
         calls, _ = self.run_step("Grade the pull request", READ_TOKEN="")

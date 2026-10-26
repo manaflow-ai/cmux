@@ -106,11 +106,18 @@ jobs:
           if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then
             [ -z "${READ_TOKEN:-}" ] || echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
             grade
+          elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out"; then
+            # A held verdict is read again on GITHUB_TOKEN: the classifier treats an unreadable
+            # sign-off (a refused comments, reviews or label-events read) as none, so the App's
+            # budget may only ever cost a held pull request extra calls, never its sign-off.
+            echo "held on the App's read; grading again on GITHUB_TOKEN"
+            grade
           fi
           cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/grade.md" >> "$GITHUB_STEP_SUMMARY"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
-      # The labels exist, so they are created only when adding one fails: creating all four on every
+      # The risk labels are in .github/labels.json (labels-sync.yml keeps them, risk:human-ok
+      # included), so this step creates them only when adding one fails: creating all four on every
       # run spent four GITHUB_TOKEN calls on 422s. The read goes on the App's budget; writes stay on
       # GITHUB_TOKEN, whose label events start no workflow (this one would re-grade itself otherwise).
       - name: Set the risk label
