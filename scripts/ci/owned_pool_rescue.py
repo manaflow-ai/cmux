@@ -153,7 +153,10 @@ re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
 cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
-re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. Side lanes upload no marker
+re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A nightly-next watch does
+not end when its accepted jobs are all that exist: prepare-nightly-variant takes
+the side label only after build-nightly-app finishes, so it lasts until the
+run finishes, within NIGHTLY_WATCH_LIMIT_SECONDS. Side lanes upload no marker
 (cmux-next.yml aside), so the sweeper finds one's run by path once it has
 failed (GitHub.failed_runs()), which a refused job makes it: its failed jobs
 are re-run then. A failed job of such a run that is not a refusal keeps it
@@ -163,8 +166,12 @@ an `if: always()` aggregator such as cmux-tui.yml's hosted-verification fails
 whenever a leg it requires was refused, so it fails only because of the refusal
 (downstream_of_refusals(), which reads the `needs` graph from the workflow file
 at the run's head). GitHub's re-run of failed jobs re-runs it too. A
-side-lane job only queued long is moved only for a run a dispatch names
-(WATCH_RUN_ID). A side-lane run that is not
+side-lane job only queued long is moved here only for a run a dispatch names
+(WATCH_RUN_ID); queue_janitor.py's unclaimed-leg rule moves the rest, from the
+inventory its sweep already lists: an owned leg no runner claimed for
+max(45 minutes, the pool's p90 wait), at the head of an open pull request or a
+live branch, gets its run cancelled and its failed jobs re-run once, where that
+re-run leaves the owned label (bot_rerun_leaves_owned()). A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
 on the feat-cmux-next branch; its pull request and dispatch runs upload the
 owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
@@ -350,6 +357,12 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/terminal-hang-diagnostics.yml",
     ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
 })
+# Side workflows whose Mac jobs take a session or gui label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()).
+OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+})
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
@@ -410,6 +423,9 @@ E2E_WATCH_LIMIT_SECONDS = 150 * 60
 # (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
 # ended before the job existed would leave it on the fleet unwatched.
 SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
+# A nightly's owned jobs run one after another: the app build (about 20 min
+# on a mini, longer cold), then prepare-nightly-variant (up to 40 min).
+NIGHTLY_WATCH_LIMIT_SECONDS = E2E_WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
@@ -989,10 +1005,13 @@ class GitHub:
             runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             for run in runs:
                 finished = parse_time(run.get("updated_at"))
-                if run.get("id") and run.get("path") in SIDE_WORKFLOW_PATHS and not (
+                entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
+                if entry[0] and entry not in found and run.get("path") in SIDE_WORKFLOW_PATHS and not (
                         since is not None and finished is not None and finished < since):
-                    found.append((int(run["id"]), int(run.get("run_attempt") or 0)))
-            if len(runs) < count:
+                    found.append(entry)
+            # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
+            # in_flight_runs()), so only an empty page ends the listing before `pages`.
+            if not runs:
                 break
         return found
 
@@ -1125,7 +1144,14 @@ class Target:
         return E2E_PICKER_JOB if self.e2e else PICKER_JOB
 
     @property
+    def late_owned_jobs(self) -> bool:
+        """nightly-next's nightly.yml puts prepare-nightly-variant on the side label after the app build."""
+        return self.nightly and self.push_branch == "nightly-next"
+
+    @property
     def watch_limit(self) -> int:
+        if self.late_owned_jobs:
+            return NIGHTLY_WATCH_LIMIT_SECONDS
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
@@ -1250,6 +1276,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 log("a side-lane job asked for a persistent pool")
             elif run_finished(jobs):
                 return "stop", "no job of the run asked for a persistent pool"
+            elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
+                # A pending run cancelled before any job (a newer nightly took its place).
+                return "stop", "the run finished with no job"
         elif not on_persistent and target.attempt > 1 and not target.full_rerun:
             # A re-run of failed jobs: no `changes` job, no marker. Follow it
             # if a job asks for an owned pool. When it runs compile admission
@@ -1339,8 +1368,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-                if target.side and owned and all(accepted(job, seen_at) for job in owned):
+                if target.side and not target.late_owned_jobs and owned \
+                        and all(accepted(job, seen_at) for job in owned):
                     # A side lane's jobs are all created by now, and none can be refused any more.
+                    # Not nightly-next's: prepare-nightly-variant takes the side label only once
+                    # build-nightly-app has finished, and its runner can refuse it then
+                    # (run 40144317744), so that watch lasts until the run finishes.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
             if target.nightly:
@@ -1352,6 +1385,35 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                             f"runner {runner} at the watch limit")
             return "stop", "watch limit reached"
         sleep(interval)
+
+
+def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
+    """Whether a bot's re-run of failed jobs of `attempt` sends a leg queued on an owned label elsewhere.
+
+    queue_janitor.py's unclaimed-leg rule cancels a run whose owned leg no runner claimed within its bound
+    and later re-runs its failed jobs (rerun-failed-jobs), so it acts only where that re-run is a rescue,
+    as next_attempt() describes the routes:
+    - a side lane other than cmux-next takes its Blacksmith default from attempt 2 on (cmux-tui.yml's
+      macOS legs read `github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-...-macos-...'`);
+    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it;
+    - ci.yml's re-run of failed jobs reuses attempt 1's placement through LAST_OWNED_ATTEMPT;
+    - test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml take their retry route from attempt 2;
+      test-e2e.yml does not count, since a UI run's retry_label stays on its owned pool and the path alone
+      cannot tell one apart;
+    - the base and PR autofix's Mac exports (OWNED_EVERY_ATTEMPT_PATHS) keep their owned label on every
+      attempt, so a re-run only rejoins the queue;
+    - nightly, the UNRESCUED_WORKFLOW_PATHS and any workflow not watched here are a person's call.
+    """
+    following = attempt + 1
+    if path in OWNED_EVERY_ATTEMPT_PATHS:
+        return False
+    if path == CMUX_NEXT_WORKFLOW_PATH:
+        return following > REFUSAL_RESCUE_ATTEMPT
+    if path == CI_WORKFLOW_PATH:
+        return following > LAST_OWNED_ATTEMPT
+    if path in DISPATCH_WORKFLOW_PATHS:
+        return path != E2E_WORKFLOW_PATH and following > 1
+    return path in SIDE_WORKFLOW_PATHS and following > 1
 
 
 def next_attempt(target: Target) -> str:

@@ -144,6 +144,8 @@ PATH_OWNERS = {
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
+    "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
@@ -174,12 +176,24 @@ PATH_OWNERS = {
     # workflow; owned_pool_rescue.py and classify_failures.py import it too.
     "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
     ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
-    # tests/test_ci_pr_media.py imports the script and reads the workflow.
+    # tests/test_ci_pr_media.py imports the script and reads the workflow;
+    # tests/test_ci_pr_media_privacy.py (ci) reads the workflow too.
     "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
-    ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_pr_media.py (preflight) and tests/test_ci_pr_media_privacy.py
+    # (ci) both load the uploader and its publishing-gate check.
+    "scripts/pr-media.py": frozenset(("ci", "preflight")),
     # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
     # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
     "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and tesseract tool, and reads the action and its fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
     "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
     ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),

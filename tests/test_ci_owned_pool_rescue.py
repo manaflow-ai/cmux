@@ -1889,6 +1889,18 @@ class Nightly(unittest.TestCase):
         self.assertIn("the fleet accepted", summary)
         self.assertNotIn("cancel", api.calls)
 
+    def test_a_next_build_a_mini_takes_is_watched_until_the_run_finishes(self):
+        # nightly-next's prepare-nightly-variant takes the side label later and can still be refused.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=30))
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("the fleet accepted", summary)
+        self.assertIn("stopped: watch limit reached", summary)
+        self.assertGreaterEqual(clock.seconds, rescue.NIGHTLY_WATCH_LIMIT_SECONDS)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
     def test_the_budget_is_the_configured_one_with_no_copied_allowance(self):
         # CI_OWNED_POOL_RESCUE_SECONDS alone: no nightly-only round on top (it was 930 s at 30).
         for seconds in ("30", "120"):
@@ -1928,6 +1940,43 @@ class Nightly(unittest.TestCase):
                          finished=lambda s: s >= 200)
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_later_job_refused_after_the_build_was_accepted_is_still_moved(self):
+        # Run 40144317744: build-nightly-app ran on cmux14-glaeda-3, and the
+        # prepare-nightly-variant job behind it, created 20 minutes later on the
+        # same side label, was refused for disk. The watch had already stopped.
+        built_at, refused_at = 20 * 60, 21 * 60
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            app = job("build-nightly-app", labels=[SIDE], created=15, runner="cmux14-glaeda-3",
+                      status="completed" if seconds >= built_at else "in_progress")
+            app.update(started_at=stamp(20), steps=[{"name": "Set up runner", "conclusion": "success"}])
+            if seconds >= built_at:
+                app.update(conclusion="success", completed_at=stamp(built_at))
+            found.append(app)
+            if seconds >= refused_at:
+                prepare = refused_job("prepare-nightly-variant (arm64)", seconds=60, labels=(SIDE,),
+                                      steps=[{"name": "Set up runner", "conclusion": "failure"}])
+                found.append(prepare)
+            elif seconds >= built_at:
+                found.append(job("prepare-nightly-variant (arm64)", labels=[SIDE], created=built_at))
+            return found
+
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= refused_at + 120)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("the fleet accepted", summary)
+        # The refusal waits for the run to finish: nothing healthy is cancelled.
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_run_cancelled_before_any_job_stops_when_it_finishes(self):
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [], finished=lambda s: s >= 100)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("stopped: the run finished with no job", summary)
+        self.assertLess(clock.seconds, 300)
 
     def test_only_a_nightly_honours_a_runner_label(self):
         # A pull request's compile admission names a warm runner as a preference: still rescued.
@@ -2419,9 +2468,27 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, [])}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, since=START - dt.timedelta(minutes=30), pages=5), [(9, 1)])
-        self.assertEqual(len(seen), 2)
+        # Page 2 is short, which no longer ends the listing (failed_runs()): the empty page 3 does.
+        self.assertEqual(len(seen), 3)
         self.assertIn("status=failure", seen[0])
         self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
+
+    def test_failed_runs_reads_past_a_short_page_while_the_total_says_more(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        side = ".github/workflows/cmux-next-base-autofix.yml"
+        pages = {1: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)}],
+                 # A shifted listing repeats a row; it is listed once.
+                 2: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)},
+                     {"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(0)}]}
+        seen = []
+
+        def request(method, path, **_):
+            page = int(path.split("&page=")[1].split("&")[0])
+            seen.append(page)
+            return {"workflow_runs": pages.get(page, []), "total_count": 2}
+        api.request = request
+        self.assertEqual(api.failed_runs(2, START, pages=5), [(9, 1), (7, 2)])
+        self.assertEqual(seen, [1, 2, 3])
 
     def test_the_session_label_is_an_owned_pool(self):
         # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
@@ -2731,6 +2798,59 @@ class Workflow(unittest.TestCase):
         self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
         self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
+
+
+
+class BotRerunRouteTests(unittest.TestCase):
+    """Where the bot's re-run of failed jobs sends a leg still queued on an owned label.
+
+    queue_janitor.py's unclaimed-leg rule (run 39652497071's cmux-tui macOS leg, queued 18:25Z to 00:37Z on
+    glaeda-side-std-xcode-26.6) re-runs a run only when that re-run leaves the owned pool.
+    """
+
+    def test_a_side_lane_attempt_1_goes_to_its_blacksmith_default(self):
+        for path in (".github/workflows/cmux-tui.yml", ".github/workflows/remote-daemon.yml"):
+            with self.subTest(path=path):
+                self.assertTrue(rescue.bot_rerun_leaves_owned(path, 1))
+                self.assertTrue(rescue.bot_rerun_leaves_owned(path, 2))
+
+    def test_cmux_next_stays_on_the_minis_until_its_refusal_attempt(self):
+        path = rescue.CMUX_NEXT_WORKFLOW_PATH
+        self.assertFalse(rescue.bot_rerun_leaves_owned(path, 1))
+        self.assertFalse(rescue.bot_rerun_leaves_owned(path, rescue.REFUSAL_RESCUE_ATTEMPT - 1))
+        self.assertTrue(rescue.bot_rerun_leaves_owned(path, rescue.REFUSAL_RESCUE_ATTEMPT))
+
+    def test_ci_reuses_attempt_1s_owned_labels_on_attempt_2(self):
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, 1))
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, rescue.LAST_OWNED_ATTEMPT))
+
+    def test_dispatches_take_their_retry_label_except_an_e2e_ui_run(self):
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.IOS_TEST_WORKFLOW_PATH, 1))
+        # A UI run's retry_label stays on its owned pool, and the path cannot tell a UI run apart.
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.E2E_WORKFLOW_PATH, 1))
+
+    def test_an_unwatched_or_release_workflow_is_never_moved(self):
+        self.assertFalse(rescue.bot_rerun_leaves_owned(".github/workflows/unknown.yml", 1))
+        for path in rescue.UNRESCUED_WORKFLOW_PATHS:
+            with self.subTest(path=path):
+                self.assertFalse(rescue.bot_rerun_leaves_owned(path, 1))
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.NIGHTLY_WORKFLOW_PATH, 1))
+        # The autofix Mac exports keep their session or gui label on every attempt.
+        for path in rescue.OWNED_EVERY_ATTEMPT_PATHS:
+            with self.subTest(path=path):
+                self.assertIn(path, rescue.SIDE_WORKFLOW_PATHS)
+                self.assertFalse(rescue.bot_rerun_leaves_owned(path, 5))
+
+    def test_cmux_tui_macos_legs_take_blacksmith_on_any_later_attempt(self):
+        # The route bot_rerun_leaves_owned() relies on: every macOS runner expression in cmux-tui.yml takes
+        # CI_SIDE_LANE_RUNNER only on attempt 1 and falls back to a Blacksmith macOS label otherwise.
+        text = (ROOT / ".github/workflows/cmux-tui.yml").read_text(encoding="utf-8")
+        legs = [line for line in text.splitlines() if "vars.CI_SIDE_LANE_RUNNER" in line]
+        self.assertTrue(legs)
+        for line in legs:
+            with self.subTest(line=line.strip()[:60]):
+                self.assertIn("github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-", line)
+                self.assertIn("macos", line.rsplit("||", 1)[1])
 
 
 if __name__ == "__main__":
