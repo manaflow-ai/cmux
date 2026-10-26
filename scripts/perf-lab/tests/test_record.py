@@ -91,6 +91,10 @@ class JournalApp(fixtures.TreeApp):
         self.stats = {"enabled": True, "recordsCharacters": False, "capacity": 4096}
         self.capacity = 4096  # the ring: the oldest entries go when it is full
         self.tap_frames = []  # (ms after the tap starts, bytes) the fake tap writes
+        self.tap_frames_of = {}  # tap file name: its own tap_frames
+        self.tap_lines, self.tap_stops = [], []
+        self.delay_ns = {"clear": 0, "marker": 0}  # how long the app takes before it clears or appends a marker
+        self.after_marker = None  # a record another thread appends right after each marker, before the read
 
     def ident(self, prefix):
         if not self.descending_ids:
@@ -109,10 +113,14 @@ class JournalApp(fixtures.TreeApp):
                 at, window, kind = self.script.pop(0)
                 self.append(self.start_ns + at * 1_000_000, window, kind)
         if "marker" in params:
+            self.ns.ns += self.delay_ns["marker"]
             self.append(self.ns(), None, {"marker": {"_0": params["marker"]}})
             if self.start_ns is None and self.cleared:
                 self.start_ns = self.ns()
+            if self.after_marker is not None:
+                self.append(self.ns(), None, self.after_marker)
         if params.get("clear"):
+            self.ns.ns += self.delay_ns["clear"]
             self.ring, self.cleared = [], True
         last = params.get("last", 200)
         return {"stats": {**self.stats, "count": len(self.ring), "lastSeq": self.seq},
@@ -139,9 +147,11 @@ class JournalApp(fixtures.TreeApp):
     def start_tap(self, text):
         argv = shlex.split(text.rstrip("\r"))
         out, stop = argv[argv.index("--out") + 1], argv[argv.index("--stop-file") + 1]
+        self.tap_lines.append(argv)
+        self.tap_stops.append(stop)
         header = pty_replay.TTYREC_HEADER
         data = b""
-        for at_ms, chunk in self.tap_frames:
+        for at_ms, chunk in self.tap_frames_of.get(Path(out).name, self.tap_frames):
             stamp = self.ns() + int(at_ms * 1_000_000)
             data += header.pack(stamp // 1_000_000_000, (stamp // 1000) % 1_000_000, len(chunk)) + chunk
         Path(out).write_bytes(data)
@@ -233,6 +243,14 @@ class RefusalTests(Case):
                       record.process_env_refusal(1, ps(f"cmux DEV {record.CHARACTERS_KEY}=0 HOME=/x")))
         self.assertIn("cannot read", record.process_env_refusal(1, ps("", 1)))
         self.assertIn("cannot read", record.process_env_refusal(None, ps("cmux DEV")))
+
+    def test_a_ps_output_without_an_environment_is_refused(self):
+        """macOS ps -E prints only the command when it cannot read the process's environment."""
+        command = "/x/cmux DEV rec.app/Contents/MacOS/cmux DEV"
+        done = subprocess.CompletedProcess([], 0, stdout=command + "\n", stderr="")
+        self.assertIn("no environment", record.process_env_refusal(1, lambda *a, **k: done))
+        done = subprocess.CompletedProcess([], 0, stdout=f"{command} --flag CMUX_NEXT_INPUT_JOURNAL=1\n", stderr="")
+        self.assertIsNone(record.process_env_refusal(1, lambda *a, **k: done))
 
     def test_a_journal_that_is_off_or_records_characters_is_refused(self):
         self.assertIn(record.ENABLE_KEY, record.journal_refusal({"enabled": False, "recordsCharacters": False}))
@@ -417,6 +435,166 @@ class PtyTests(Case):
         for spec in ("@w0.p0.t9=ls", "@w0.p0=ls", "w0.p0.t0=ls", "@w0.p0.t0="):
             with self.subTest(spec), self.assertRaises(record.RecordError):
                 recording.start([spec], sleep=self.clock.sleep)
+
+
+class TimingAndMarkerTests(Case):
+    def test_a_slow_clear_or_marker_rpc_keeps_one_end_at_the_duration(self):
+        for step in ("clear", "marker"):
+            with self.subTest(step):
+                app = self.app()
+                app.delay_ns[step] = 10_000_000
+                recording = self.recording(app)
+                recording.start(sleep=self.clock.sleep)
+                manifest = recording.run(sleep=self.clock.sleep)
+                self.assertEqual(manifest["checkpoints"][-1]["t_ms"], 3000)
+                self.assertEqual([c["name"] for c in manifest["checkpoints"]], ["start", "midpoint", "end"])
+
+    def test_a_record_another_thread_appends_after_the_marker_does_not_hide_it(self):
+        app = self.app([(500, None, key("down", "named", 36))])
+        app.after_marker = {"attach": {"_0": {"event": "input", "bytes": 1}}}
+        recording = self.recording(app)
+        recording.start(sleep=self.clock.sleep)
+        self.assertEqual(recording.t0_ns, app.start_ns, "the zero is the marker, not the attach record")
+        manifest = recording.run(sleep=self.clock.sleep)
+        self.assertEqual([(e["kind"], e["t_ms"]) for e in manifest["input"]["events"]], [("key", 500)])
+        self.assertEqual([c["name"] for c in manifest["checkpoints"]], ["start", "midpoint", "end"])
+
+    def test_an_older_marker_is_not_taken_for_a_new_one(self):
+        reader = record.JournalReader(lambda method, params: {
+            "stats": {"enabled": True, "recordsCharacters": False},
+            "entries": [{"seq": 7, "uptimeNanos": 70, "kind": {"marker": {"_0": record.MARKER}}},
+                        {"seq": 8, "uptimeNanos": 80, "kind": {"marker": {"_0": "someone else's"}}}]})
+        self.assertEqual(reader.mark(), 70)
+        with self.assertRaisesRegex(record.RecordError, "did not return its marker"):
+            reader.mark()
+
+
+class TapStopTests(Case):
+    def two_taps(self, app):
+        app.split(app.workspaces[0], app.focused_pane, "right")
+        recording = self.recording(app)
+        recording.start(["@w0.p0.t0=ls", "@w0.p1.t0=ls"], sleep=self.clock.sleep)
+        self.assertEqual(len(app.tap_stops), 2)
+        return recording
+
+    def assert_every_tap_stopped(self, app):
+        self.assertTrue(app.tap_stops)
+        for stop in app.tap_stops:
+            self.assertTrue(Path(stop).exists(), f"{stop}: the tap keeps running")
+
+    def test_a_failed_run_stops_every_tap(self):
+        app = self.app()
+        recording = self.two_taps(app)
+        app.stats["recordsCharacters"] = True
+        with self.assertRaisesRegex(record.RecordError, "records characters"):
+            recording.run(sleep=self.clock.sleep)
+        self.assert_every_tap_stopped(app)
+
+    def test_a_refused_first_track_stops_the_other_tap_too(self):
+        app = self.app()
+        app.tap_frames_of = {"pty-0.ttyrec": [(100, b"$ ls /home/someone-private\n")]}
+        recording = self.two_taps(app)
+        with self.assertRaisesRegex(record.RecordError, "@w0.p0.t0: .*account's"):
+            recording.run(sleep=self.clock.sleep)
+        self.assert_every_tap_stopped(app)
+
+    def test_a_tap_that_does_not_start_stops_the_ones_that_did(self):
+        app = self.app()
+        app.split(app.workspaces[0], app.focused_pane, "right")
+        started = app.start_tap
+        app.start_tap = lambda text: started(text) if not app.tap_stops else app.tap_stops.append(
+            shlex.split(text)[shlex.split(text).index("--stop-file") + 1])
+        recording = self.recording(app)
+        with mock.patch.object(record, "TAP_START_S", 0.0), \
+                self.assertRaisesRegex(record.RecordError, r"\['@w0.p1.t0'\] did not start"):
+            recording.start(["@w0.p0.t0=ls", "@w0.p1.t0=ls"], sleep=self.clock.sleep)
+        self.assert_every_tap_stopped(app)
+
+    def test_the_cli_stops_every_tap_when_the_recording_fails(self):
+        app = self.app()
+        story = self.folder / "story.json"
+        story.write_text(json.dumps(template()))
+        handlers = {number: record.signal.getsignal(number) for number in (record.signal.SIGTERM,
+                                                                           record.signal.SIGHUP)}
+        for number, handler in handlers.items():
+            self.addCleanup(record.signal.signal, number, handler)
+        with mock.patch.object(record, "attach", return_value=app.rpc), \
+                mock.patch.object(record.Recording, "run", side_effect=record.RecordError("the driver failed")), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            code = record.main(["record", "--socket", "/tmp/none.sock", "--template", str(story), "--out",
+                                str(self.folder / "o"), "--cache", str(self.folder / "cache"), "--pty", "@w0.p0.t0=ls"])
+        self.assertEqual(code, 2)
+        self.assertIn("the driver failed", err.getvalue())
+        self.assert_every_tap_stopped(app)
+
+    def test_a_relative_out_folder_gives_the_taps_absolute_paths(self):
+        here = os.getcwd()
+        self.addCleanup(os.chdir, here)
+        os.chdir(self.folder)
+        app = self.app()
+        recording = record.Recording(app.rpc, template(), cache=self.cache, folder=Path("rel-out"),
+                                     clock=self.clock, private=[])
+        recording.start(["@w0.p0.t0=ls"], sleep=self.clock.sleep)
+        (argv,) = app.tap_lines
+        for flag in ("--out", "--stop-file"):
+            path = Path(argv[argv.index(flag) + 1])
+            self.assertTrue(path.is_absolute(), f"{flag} {path}")
+            self.assertEqual(path.parent, (self.folder / "rel-out").resolve())
+        recording.close()
+
+
+class TapResizeTests(unittest.TestCase):
+    CHILD = ("import os, signal, time\n"
+             "got = []\n"
+             "signal.signal(signal.SIGWINCH, lambda *a: got.append(1))\n"
+             "size = os.get_terminal_size(1)\n"
+             "print(f'ready {size.lines} {size.columns}', flush=True)\n"
+             "deadline = time.monotonic() + 10\n"
+             "while not got and time.monotonic() < deadline:\n"
+             "    time.sleep(0.01)\n"
+             "size = os.get_terminal_size(1)\n"
+             "print(f'size {size.lines} {size.columns}', flush=True)\n")
+
+    def test_a_resized_terminal_resizes_the_tapped_command(self):
+        import fcntl
+        import pty
+        import signal
+        import struct
+        import termios
+        import threading
+
+        folder = Path(tempfile.mkdtemp(prefix="record-resize-"))
+        outer, terminal = pty.openpty()  # the terminal the tap runs in: the test resizes it like a pane split
+        fcntl.ioctl(outer, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+        shown = bytearray()
+
+        def terminal_side():
+            resized = False
+            while True:
+                try:
+                    chunk = os.read(outer, 4096)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                shown.extend(chunk)
+                if not resized and b"ready" in shown:
+                    resized = True
+                    fcntl.ioctl(outer, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 132, 0, 0))
+                    os.kill(os.getpid(), signal.SIGWINCH)  # what the kernel sends the terminal's foreground group
+
+        reader = threading.Thread(target=terminal_side, daemon=True)
+        reader.start()
+        out = folder / "tap.ttyrec"
+        code = record.tap([sys.executable, "-I", "-c", self.CHILD], str(out), str(folder / "tap.stop"),
+                          output_fd=terminal)
+        self.assertEqual(code, 0)
+        os.close(terminal)
+        reader.join(5)
+        os.close(outer)
+        data = pty_replay.decode_ttyrec(out.read_bytes()).data
+        self.assertIn(b"ready 24 80", data)
+        self.assertIn(b"size 50 132", data)
 
 
 class ActionAndPlanTests(Case):

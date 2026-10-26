@@ -74,6 +74,7 @@ BENCH_KIND = "bench-hooks"  # bench_launch.bundle_kind of a --config bench, benc
 JOURNAL_LAST = 4096  # InputJournal.defaultCapacity: one read returns the whole ring
 POLL_S = 0.25  # a read of the journal every POLL_S keeps well ahead of the ring at any typing rate
 MARKER = "corpus-record"  # the recorder's own journal marker; markers are never recorded as events
+MARK_LAST = 16  # a mark reads this many entries: its marker and what other threads appended right after it
 INLINE_EVENTS = 400  # more events than this go to an NDJSON input blob
 TAP_START_S = 15.0
 TAP_STOP_S = 15.0
@@ -166,9 +167,13 @@ def env_refusal(env: Mapping[str, str], where: str = "the target environment") -
     return None
 
 
+ENV_PROOF_KEYS = ("HOME", "PATH", ENABLE_KEY)  # one of them is in every launch's environment
+
+
 def process_env_refusal(pid: int, run: Callable[..., Any] = subprocess.run) -> str | None:
     """The environment check for a running app: `ps -E` of PID (the account's own process). Fails closed: an
-    environment it cannot read is refused."""
+    environment it cannot read is refused. ps prints only the command when it cannot read the environment
+    (KERN_PROCARGS2 fails), so an output with none of ENV_PROOF_KEYS is no environment."""
     try:
         done = run(["/bin/ps", "-E", "-ww", "-o", "command=", "-p", str(int(pid))], capture_output=True, text=True,
                    timeout=10)
@@ -176,6 +181,9 @@ def process_env_refusal(pid: int, run: Callable[..., Any] = subprocess.run) -> s
         return f"cannot read the environment of pid {pid}: {error}"
     if done.returncode != 0 or not done.stdout.strip():
         return f"cannot read the environment of pid {pid} (ps exit {done.returncode})"
+    words = done.stdout.split()
+    if not any(word.startswith(f"{key}=") for key in ENV_PROOF_KEYS for word in words):
+        return f"cannot read the environment of pid {pid}: ps printed no environment"
     return env_refusal({CHARACTERS_KEY: ""} if f"{CHARACTERS_KEY}=" in done.stdout else {}, f"pid {pid}")
 
 
@@ -273,12 +281,18 @@ def journal_event(entry: Mapping[str, Any], t0_ns: int, windows: WindowRefs) -> 
     return {"t_ms": round(t_ms, 3), "kind": name, "payload": payload}
 
 
+def is_marker(entry: Mapping[str, Any]) -> bool:
+    """Whether ENTRY is a journal marker the recorder appended."""
+    marker = (entry.get("kind") or {}).get("marker")
+    return isinstance(marker, Mapping) and marker.get("_0") == MARKER
+
+
 class JournalReader:
     """Every journal entry after the recorder's start marker, read a ring at a time. A drag or scroll run is one
     entry the app keeps updating, so the newest entry of a read is read again in the next one."""
 
     def __init__(self, rpc: Callable[..., Any]):
-        self.rpc, self.entries, self.last_seq = rpc, {}, None
+        self.rpc, self.entries, self.last_seq, self.mark_seq = rpc, {}, None, None
 
     def call(self, params: Mapping[str, Any]) -> dict[str, Any]:
         reply = self.rpc("debug.journal", dict(params))
@@ -289,19 +303,24 @@ class JournalReader:
             raise RecordError(refusal)
         return dict(reply)
 
-    def start(self) -> int:
-        """Clears the ring and appends the start marker; returns its uptime (ns), the input track's zero."""
+    def clear(self) -> None:
+        """Empties the ring, so the next `mark` is the start marker."""
         self.call({"clear": True, "last": 0})
-        return self.mark()
 
     def mark(self) -> int:
-        """Appends a marker and returns its uptime on the journal's clock (ns)."""
-        entries = self.call({"marker": MARKER, "last": 1})["entries"]
-        if not entries or "marker" not in (entries[-1].get("kind") or {}):
+        """Appends a marker and returns its uptime on the journal's clock (ns). The app appends the marker and reads
+        the ring under two lock turns and records from other threads (attach, input) may land between them, so the
+        marker is the newest MARKER entry after the previous one, not the newest entry."""
+        entries = self.call({"marker": MARKER, "last": MARK_LAST})["entries"]
+        marker = max((entry for entry in entries if is_marker(entry)
+                      and (self.mark_seq is None or int(entry["seq"]) > self.mark_seq)),
+                     key=lambda entry: int(entry["seq"]), default=None)
+        if marker is None:
             raise RecordError("debug.journal did not return its marker")
+        self.mark_seq = int(marker["seq"])
         if self.last_seq is None:
-            self.last_seq = int(entries[-1]["seq"])
-        return int(entries[-1]["uptimeNanos"])
+            self.last_seq = self.mark_seq
+        return int(marker["uptimeNanos"])
 
     def read(self) -> None:
         entries = sorted(self.call({"last": JOURNAL_LAST})["entries"], key=lambda entry: int(entry["seq"]))
@@ -438,15 +457,41 @@ def tap(command: list[str], out_path: str, stop_path: str, *, output_fd: int = 1
         clock: Callable[[], int] = time.monotonic_ns) -> int:
     """Runs COMMAND on a pty of its own, writes its output to OUTPUT_FD (the terminal) and keeps every read as a
     ttyrec frame stamped with CLOCK (absolute monotonic ns) in OUT_PATH, until the command ends or STOP_PATH exists.
-    OUT_PATH + ".done" says the file is complete. The command's input is /dev/null: nothing typed reaches it."""
+    OUT_PATH + ".done" says the file is complete. The command's input is /dev/null: nothing typed reaches it.
+    The pty follows OUTPUT_FD's size: when the terminal is resized (a split, a pane resize) the tap gets SIGWINCH,
+    sets the new size on the pty and sends SIGWINCH to the command, as a terminal emulator does for its own pty."""
     header = pty_replay().TTYREC_HEADER
     master, slave = pty.openpty()
-    with contextlib.suppress(OSError):  # an output that is no tty keeps the pty's default size
-        size = fcntl.ioctl(output_fd, termios.TIOCGWINSZ, b"\0" * 8)
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, size)
+
+    def copy_size() -> None:
+        with contextlib.suppress(OSError):  # an output that is no tty keeps the pty's default size
+            fcntl.ioctl(master, termios.TIOCSWINSZ, fcntl.ioctl(output_fd, termios.TIOCGWINSZ, b"\0" * 8))
+
+    copy_size()
     child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True,
                              close_fds=True)
     os.close(slave)
+
+    def resized(_signum, _frame) -> None:
+        copy_size()
+        with contextlib.suppress(OSError):  # the command has no controlling tty, so the kernel does not signal it
+            os.killpg(child.pid, signal.SIGWINCH)
+
+    previous = signal.signal(signal.SIGWINCH, resized)
+    try:
+        _tap_loop(child, master, out_path, stop_path, header, output_fd, clock)
+    finally:
+        signal.signal(signal.SIGWINCH, previous)
+    os.close(master)
+    with contextlib.suppress(OSError):
+        os.killpg(child.pid, signal.SIGKILL)
+    code = child.wait()
+    Path(out_path + ".done").write_text(str(code), encoding="utf-8")
+    return 0
+
+
+def _tap_loop(child: subprocess.Popen, master: int, out_path: str, stop_path: str, header: Any, output_fd: int,
+              clock: Callable[[], int]) -> None:
     stop_at = None
     with open(out_path, "wb") as record:
         while True:
@@ -467,12 +512,6 @@ def tap(command: list[str], out_path: str, stop_path: str, *, output_fd: int = 1
             stamp = clock()
             record.write(header.pack(stamp // 1_000_000_000, (stamp // 1000) % 1_000_000, len(data)) + data)
             pty_replay().write_all(output_fd, data)
-    os.close(master)
-    with contextlib.suppress(OSError):
-        os.killpg(child.pid, signal.SIGKILL)
-    code = child.wait()
-    Path(out_path + ".done").write_text(str(code), encoding="utf-8")
-    return 0
 
 
 def trim_tap(data: bytes, start_ns: int, end_ns: int) -> bytes:
@@ -540,12 +579,14 @@ def checkpoint_plan(template: Mapping[str, Any], duration_ms: int) -> list[tuple
 class Recording:
     """One story's recording against the app behind `rpc`. `start` exports the layout, starts the PTY taps and
     marks the zero; then `poll` and `checkpoint` (or `run`, which does both on the story's schedule) until `finish`
-    returns the manifest. A driver may call `action` in between."""
+    returns the manifest. A driver may call `action` in between. `close` stops every PTY tap; `start`, `run` and
+    `finish` call it when they fail, and a caller calls it on every exit."""
 
     def __init__(self, rpc: Callable[..., Any], template: Mapping[str, Any], *, cache: Any, folder: Path,
                  duration_ms: int | None = None, builder: Any = None, clock: Callable[[], int] = time.monotonic_ns,
                  private: Iterable[str] | None = None):
-        self.rpc, self.template, self.cache, self.folder = rpc, copy.deepcopy(dict(template)), cache, Path(folder)
+        self.rpc, self.template, self.cache = rpc, copy.deepcopy(dict(template)), cache
+        self.folder = Path(folder).resolve()  # the taps' shells have their own working folder
         self.duration_ms = int(duration_ms or template["duration_ms"])
         self.builder, self.clock = builder, clock
         self.private = list(account_private() if private is None else private)
@@ -555,11 +596,25 @@ class Recording:
         self.checkpoints: list[dict[str, Any]] = []
         self.layout_ref = self.workspaces = self.windows = None
         self.t0_ns = self.start_mono = 0
+        self.ended = False  # the plan's last checkpoint (at the duration) is taken
 
     def elapsed_ms(self) -> float:
         return (self.clock() - self.start_mono) / 1e6
 
+    def close(self) -> None:
+        """Stops every PTY tap the recording started, each whatever happens to the others; idempotent."""
+        for tap_files in self.taps:
+            with contextlib.suppress(OSError):
+                tap_files.stop.touch()
+
     def start(self, pty: Iterable[str] = (), sleep: Callable[[float], None] = time.sleep) -> None:
+        try:
+            self._start(pty, sleep)
+        except BaseException:
+            self.close()
+            raise
+
+    def _start(self, pty: Iterable[str], sleep: Callable[[float], None]) -> None:
         io = session_io()
         self.journal.call({"last": 0})  # refuses a journal that is off or records characters before anything else
         try:
@@ -591,17 +646,22 @@ class Recording:
             if time.monotonic() > deadline:
                 raise RecordError(f"the PTY tap of {[t.ref for t in self.taps if not t.out.exists()]} did not start")
             sleep(0.05)  # recorder script: the shells start their taps
-        before = self.clock()
-        self.t0_ns = self.journal.start()
+        self.journal.clear()
+        before = self.clock()  # after the clear: the zero comes from the marker's round trip alone
+        self.t0_ns = self.journal.mark()
         self.start_mono = (before + self.clock()) // 2  # the zero on this process's clock, which the taps share
 
     def poll(self) -> None:
         self.journal.read()
 
-    def checkpoint(self, name: str) -> None:
+    def checkpoint(self, name: str, *, final: bool = False) -> None:
+        """Takes checkpoint NAME at its marker's time; the FINAL one (the plan's last) is at the duration, where the
+        input and PTY tracks end."""
         t_ms = max(0, min(round((self.journal.mark() - self.t0_ns) / 1e6), self.duration_ms))
         if self.checkpoints and t_ms < self.checkpoints[-1]["t_ms"]:
             t_ms = self.checkpoints[-1]["t_ms"]
+        if final:
+            t_ms, self.ended = self.duration_ms, True
         focus, surfaces = checkpoint_digests(self.rpc)
         self.checkpoints.append({"t_ms": t_ms, "name": name, "focus": focus, "surfaces": surfaces})
         self.journal.read()
@@ -631,19 +691,27 @@ class Recording:
 
     def run(self, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
         """Polls the journal and takes the story's checkpoints on schedule until the duration ends."""
-        for t_ms, name in checkpoint_plan(self.template, self.duration_ms):
-            while self.elapsed_ms() < t_ms:
-                self.poll()
-                sleep(max(0.0, min(POLL_S, (t_ms - self.elapsed_ms()) / 1000)))  # recorder script: the next read
-            self.checkpoint(name)
+        try:
+            plan = checkpoint_plan(self.template, self.duration_ms)
+            for index, (t_ms, name) in enumerate(plan):
+                while self.elapsed_ms() < t_ms:
+                    self.poll()
+                    sleep(max(0.0, min(POLL_S, (t_ms - self.elapsed_ms()) / 1000)))  # recorder script: the next read
+                self.checkpoint(name, final=index == len(plan) - 1)
+        except BaseException:
+            self.close()
+            raise
         return self.finish()
 
     def finish(self) -> dict[str, Any]:
         """Takes the last checkpoint if `run` did not, stops the PTY taps and returns the validated manifest; the
         input and PTY tracks end at the duration."""
-        if not self.checkpoints or self.checkpoints[-1]["t_ms"] != self.duration_ms:
-            self.checkpoint(checkpoint_plan(self.template, self.duration_ms)[-1][1])
-        self.journal.read()
+        try:
+            if not self.ended:
+                self.checkpoint(checkpoint_plan(self.template, self.duration_ms)[-1][1], final=True)
+            self.journal.read()
+        finally:
+            self.close()  # every tap stops before any is read, so a refused track leaves none of the others running
         events = [event for event in self.journal.events(self.t0_ns, self.windows) + self.actions
                   if event["t_ms"] <= self.duration_ms]
         events.sort(key=lambda event: event["t_ms"])
@@ -653,7 +721,7 @@ class Recording:
         return self.manifest(events, tracks)
 
     def stop_tap(self, tap_files: Tap, end_mono: int) -> bytes:
-        tap_files.stop.touch()
+        """The trimmed track of a tap `close` stopped, once the tap has drained its pty."""
         deadline = time.monotonic() + TAP_STOP_S
         while not tap_files.done.exists():
             if time.monotonic() > deadline:
@@ -724,8 +792,8 @@ def record_command(args: argparse.Namespace) -> int:
     manifest_module = corpus_manifest()
     template = load_template(args.story, args.template)
     cache = manifest_module.BlobCache(args.cache or manifest_module.default_cache_dir(), manifest_module.http_fetcher())
-    folder = Path(args.out)
-    bench = builder = None
+    folder = Path(args.out).resolve()
+    bench = builder = recording = None
     try:
         if args.app:
             refusal = bundle_refusal(args.app) or env_refusal(os.environ, "the recorder's environment")
@@ -757,6 +825,8 @@ def record_command(args: argparse.Namespace) -> int:
                                              "cache": str(cache.directory)}), flush=True)
         return 0
     finally:
+        if recording is not None:
+            recording.close()
         if builder is not None:
             builder.close()
         if bench is not None:
