@@ -128,9 +128,13 @@ export function UpdatedCard({
     <section className="ui-glass wn-card" aria-labelledby={titleId}>
       {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
       <div className="wn-card-eyebrow" id={titleId} title={data.version}>
-        {strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings, data.builtAt))}
+        <Parts text={strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings, data.builtAt))} />
       </div>
-      {build && <div className="wn-card-build">{build}</div>}
+      {build && (
+        <div className="wn-card-build">
+          <Parts text={build} />
+        </div>
+      )}
       {closeButton && actions.dismiss && (
         <button
           type="button"
@@ -244,6 +248,18 @@ export function UpdateReadyHighlights({
       </div>
     </section>
   );
+}
+
+/** "Updated to Nightly · Oct 26, 7:38 PM" as parts that each keep one line: a narrow sidebar wraps
+    the line between them, never inside a time or cuts it off. */
+function Parts({ text }: { text: string }) {
+  const parts = text.split(" · ");
+  return parts.map((part, index) => (
+    <span key={index}>
+      {index > 0 && " "}
+      <span className="wn-card-part">{index < parts.length - 1 ? `${part} ·` : part}</span>
+    </span>
+  ));
 }
 
 /** A row's name: the area ("Sidebar"), else the category its changes share ("Fixed"). */

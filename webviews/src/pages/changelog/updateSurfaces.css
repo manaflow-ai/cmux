@@ -44,9 +44,14 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+/* The eyebrow and the build line wrap between their parts ("Nightly ·" | "Oct 26, 7:38 PM"), never
+   inside one, so a narrow sidebar cuts nothing off (Leo 2026-10-26). */
+.wn-card-part {
   white-space: nowrap;
+}
+:is(.wn-card-eyebrow, .wn-card-build) {
+  overflow: hidden;
 }
 /* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart, under
    the build line when there is one (Leo 2026-10-26). */
@@ -60,9 +65,6 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .wn-card-close {
   position: absolute;
