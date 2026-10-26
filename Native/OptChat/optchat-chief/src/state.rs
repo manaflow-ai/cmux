@@ -262,6 +262,10 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// A turn an automation's note started made it: its subagents never
+    /// fire an `agent_done` automation (automations.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_automation: bool,
     /// E22: the messages that turn answered; each turn its reports cause
     /// answers them too, and says while a subagent of it still works.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

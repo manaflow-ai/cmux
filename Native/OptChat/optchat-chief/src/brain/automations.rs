@@ -31,6 +31,10 @@ pub enum AutomationsRequest {
     },
 }
 
+/// The longest the brain waits before it reads the wall clock again while a
+/// schedule is active.
+const SCHEDULE_RECHECK: Duration = Duration::from_secs(60);
+
 /// The owner's update actions.
 pub const UPDATE_ACTIONS: [&str; 4] = ["pause", "resume", "delete", "run"];
 
@@ -95,6 +99,7 @@ impl Brain {
             runs: 0,
             fired: Vec::new(),
             last_error: None,
+            baselined: false,
         };
         schedule(&mut automation, now);
         if let Trigger::Schedule { cron } = &automation.trigger
@@ -139,6 +144,9 @@ impl Brain {
                     return Ok(("noop", format!("{id} is {action}d already")));
                 }
                 automation.paused = pause;
+                // What failed while it was paused is not news: the next read
+                // takes a new baseline.
+                automation.baselined = false;
                 schedule(automation, now);
                 ("done", automation.line())
             }
@@ -198,7 +206,11 @@ impl Brain {
             .filter(|a| !a.paused)
             .filter_map(|a| a.next_ms)
             .min()
-            .map(at);
+            .map(at)
+            // An Instant stands still while the Mac sleeps: look at the wall
+            // clock again at least once a minute, so a 9:00 fire after a
+            // night's sleep comes at wake, not hours later.
+            .map(|due| due.min(Instant::now() + SCHEDULE_RECHECK));
         let ci = (self.ci.is_some() && self.ci_polling.is_empty() && !self.ci_watched().is_empty())
             .then(|| self.ci_read_at.unwrap_or_else(Instant::now));
         [schedule, ci].into_iter().flatten().min()
@@ -300,10 +312,11 @@ impl Brain {
         }
         self.ci_read_at = Some(Instant::now() + self.ci_every);
         for (repo, branch) in watched {
-            self.ci_polling.insert((repo.clone(), branch.clone()));
+            let key = (repo.clone(), branch.clone());
+            self.ci_polling.insert(key.clone());
             let ci = ci.clone();
             let tx = self.tx.clone();
-            let _ = std::thread::Builder::new()
+            let spawned = std::thread::Builder::new()
                 .name("ci-read".into())
                 .spawn(move || {
                     let result = ci.failed(&repo, branch.as_deref());
@@ -313,6 +326,11 @@ impl Brain {
                         result,
                     });
                 });
+            // No thread, no answer: the next tick reads it again.
+            if let Err(e) = spawned {
+                self.ci_polling.remove(&key);
+                (self.log)(&format!("automation CI read of {}: {e}", key.0));
+            }
         }
     }
 
@@ -342,6 +360,29 @@ impl Brain {
             self.save();
         }
         let Ok(runs) = result else { return };
+        // The first read after an automation was made or resumed is its
+        // baseline: what is red now never fires it.
+        let mut baselined = false;
+        for automation in self
+            .state
+            .automations
+            .iter_mut()
+            .filter(|a| watches(a) && !a.paused && !a.baselined)
+        {
+            for run in &runs {
+                let key = Event::CiRed {
+                    repo: repo.to_owned(),
+                    run: run.clone(),
+                }
+                .key();
+                automation.record_seen(&key);
+            }
+            automation.baselined = true;
+            baselined = true;
+        }
+        if baselined {
+            self.save();
+        }
         // Oldest first, so the notes come in the order the runs failed.
         for run in runs.into_iter().rev() {
             self.automation_event(Event::CiRed {
@@ -371,4 +412,10 @@ fn schedule(automation: &mut Automation, now: u64) {
         }
         _ => None,
     };
+}
+
+/// Whether a queued item is an automation's note (the brain's own, never a
+/// person's message that only looks like one).
+pub(super) fn is_automation_note(item: &super::Queued) -> bool {
+    item.source == Source::Note && item.text.starts_with("[automation au")
 }

@@ -127,7 +127,8 @@ fn every_morning_at_nine_runs_at_nine_and_posts_in_the_chat() {
     assert_eq!(fired.runs, 1);
     assert_eq!(fired.last_fired_ms, Some(nine));
     let next = fired.next_ms.unwrap();
-    assert!(next > nine + 23 * 3600 * 1000, "{next} after {nine}");
+    // 23 h on the day the clocks go forward.
+    assert!(next >= nine + 23 * 3600 * 1000, "{next} after {nine}");
     h.brain.fire_automations_at(nine);
     h.settle_posts();
     assert_eq!(prompts(&h).len(), before + 1);
@@ -289,6 +290,75 @@ fn sub_session(h: &Harness) -> Option<String> {
     inner.prompt_sessions.contains(&session).then_some(session)
 }
 
+/// Spawns one subagent with `task` and steps the brain until its report is
+/// in the log.
+fn spawn_until_report(h: &mut Harness, task: &str, sub: &str) {
+    let sp = spawner(h);
+    let task = task.to_owned();
+    let worker = std::thread::spawn(move || sp.spawn(vec![task], None));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut idle_sent = false;
+    let prefix = format!("[{sub}] ");
+    while !h.log().iter().any(|(_, t)| t.starts_with(&prefix)) {
+        assert!(Instant::now() < deadline, "no report: {:?}", h.log());
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+            continue;
+        }
+        if !idle_sent
+            && worker.is_finished()
+            && let Some(session) = last_sub_session(h)
+        {
+            idle_sent = true;
+            let idle: cmux_chief::acp::SessionSummary = serde_json::from_value(json!({
+                "sessionId": session, "name": sub, "status": "idle", "harness": "claude",
+            }))
+            .unwrap();
+            h.brain.step(Input::from(AgentEvent::SessionChanged(idle)));
+        }
+    }
+    worker.join().unwrap().expect("the spawn answers");
+    h.settle_posts();
+}
+
+/// The newest subagent's session once its first prompt is in.
+fn last_sub_session(h: &Harness) -> Option<String> {
+    let inner = h.agents.inner.lock().unwrap();
+    let k = inner
+        .specs
+        .iter()
+        .rposition(|s| s.tags.contains_key("optchat.subagent"))?;
+    let session = format!("s{}", k + 1);
+    inner.prompt_sessions.contains(&session).then_some(session)
+}
+
+#[test]
+fn a_subagent_an_automations_turn_started_never_fires_agent_done() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    automation(
+        &mut h,
+        json!({"action": "add", "name": "Review", "prompt": "Review what the agent did", "event": "agent_done"}),
+    )
+    .unwrap();
+    // The automation's own turn (run now), and a subagent spawned after it.
+    automation(&mut h, json!({"action": "run", "id": "au1"})).unwrap();
+    h.settle_posts();
+    assert_eq!(automation_notes(&h).len(), 1, "the run's own note");
+    spawn_until_report(&mut h, "Title: Review\nCI-TASK review it", "a1");
+    assert_eq!(
+        automation_notes(&h).len(),
+        1,
+        "its own subagent did not fire it again: {:?}",
+        automation_notes(&h)
+    );
+    // The person's next turn: its subagent fires it.
+    h.say("user_local", "fix the flaky test");
+    h.settle_posts();
+    spawn_until_report(&mut h, "Title: Flaky\nCI-TASK fix it", "a2");
+    assert_eq!(automation_notes(&h).len(), 2, "{:?}", automation_notes(&h));
+}
+
 #[test]
 fn agent_done_fires_once_when_a_subagent_finishes() {
     let mut h = Harness::new(report_script());
@@ -401,7 +471,7 @@ fn read_ci(h: &mut Harness, ci: &FakeCi, n: usize) {
 }
 
 #[test]
-fn ci_red_fires_once_per_failed_run_and_never_for_old_ones() {
+fn ci_red_fires_once_per_failed_run_after_its_baseline() {
     let mut h = Harness::new(default_script());
     let ci = Arc::new(FakeCi {
         runs: Mutex::new(Ok(Vec::new())),
@@ -415,33 +485,56 @@ fn ci_red_fires_once_per_failed_run_and_never_for_old_ones() {
     )
     .unwrap();
     let made = h.brain.automations()[0].created_ms;
-    // A run red before the automation existed, and one after.
-    *ci.runs.lock().unwrap() = Ok(vec![red(2, made + 1_000), red(1, made - 60_000)]);
+    // Its first read is its baseline: what is red now never fires it.
+    *ci.runs.lock().unwrap() = Ok(vec![red(1, made - 60_000)]);
     read_ci(&mut h, &ci, 1);
     assert_eq!(
         ci.reads.lock().unwrap()[0],
         ("manaflow-ai/cmux".to_owned(), Some("main".to_owned()))
     );
+    assert!(
+        automation_notes(&h).is_empty(),
+        "{:?}",
+        automation_notes(&h)
+    );
+    // A run that started before the automation and failed after it fires it.
+    *ci.runs.lock().unwrap() = Ok(vec![red(2, made - 30_000), red(1, made - 60_000)]);
+    read_ci(&mut h, &ci, 2);
     let notes = automation_notes(&h);
     assert_eq!(notes.len(), 1, "{notes:?}");
     assert!(notes[0].contains("Find why main is red"), "{}", notes[0]);
     assert!(notes[0].contains("actions/runs/2"), "{}", notes[0]);
+    assert!(
+        !notes[0].contains("fix the build"),
+        "a run's title is never quoted: {}",
+        notes[0]
+    );
     // The next read sees the same run: no second fire.
-    read_ci(&mut h, &ci, 2);
+    read_ci(&mut h, &ci, 3);
     assert_eq!(automation_notes(&h).len(), 1);
     // A new red run fires it again, once.
-    *ci.runs.lock().unwrap() = Ok(vec![red(3, made + 5_000), red(2, made + 1_000)]);
-    read_ci(&mut h, &ci, 3);
+    *ci.runs.lock().unwrap() = Ok(vec![red(3, made + 5_000), red(2, made - 30_000)]);
+    read_ci(&mut h, &ci, 4);
     let notes = automation_notes(&h);
     assert_eq!(notes.len(), 2, "{notes:?}");
     assert!(notes[1].contains("actions/runs/3"));
+    // Paused, then resumed: what failed meanwhile is a new baseline, not a burst.
+    for action in ["pause", "resume"] {
+        h.brain.automations_control(AutomationsRequest::Update {
+            id: "au1".into(),
+            action: action.into(),
+        });
+    }
+    *ci.runs.lock().unwrap() = Ok(vec![red(5, made + 9_000), red(4, made + 8_000)]);
+    read_ci(&mut h, &ci, 5);
+    assert_eq!(automation_notes(&h).len(), 2, "{:?}", automation_notes(&h));
     // A read that fails is shown on the automation, and cleared by a good one.
     *ci.runs.lock().unwrap() = Err("gh: not logged in".into());
-    read_ci(&mut h, &ci, 4);
+    read_ci(&mut h, &ci, 6);
     let list = h.brain.automations_control(AutomationsRequest::List);
     assert_eq!(list["automations"][0]["last_error"], "gh: not logged in");
     *ci.runs.lock().unwrap() = Ok(Vec::new());
-    read_ci(&mut h, &ci, 5);
+    read_ci(&mut h, &ci, 7);
     let list = h.brain.automations_control(AutomationsRequest::List);
     assert!(list["automations"][0]["last_error"].is_null());
 }

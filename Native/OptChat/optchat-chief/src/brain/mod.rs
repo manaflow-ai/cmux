@@ -819,6 +819,10 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The running turn took an automation's note (automations.rs): what it
+    /// spawns never fires an `agent_done` automation, so one cannot start
+    /// itself again and again.
+    turn_from_automation: bool,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -963,6 +967,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_from_automation: false,
             last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,

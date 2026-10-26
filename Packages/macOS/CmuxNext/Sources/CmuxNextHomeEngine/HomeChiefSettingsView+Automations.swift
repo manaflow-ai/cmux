@@ -45,6 +45,8 @@ extension HomeChiefSettingsView {
                 note(error.text, kept: true)
                 return
             }
+            // A change that took clears the note an earlier one left.
+            if !failure.isHidden { hideNote(resize: false) }
             showAutomations(result)
         }
     }

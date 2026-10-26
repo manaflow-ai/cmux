@@ -71,6 +71,10 @@ import Testing
         await view.changeAutomation("au9", .resume).value
         #expect(!view.failure.isHidden)
         #expect(view.automationRows.shown.count == 3)
+        // The next change that takes clears that note.
+        await view.changeAutomation("au1", .resume).value
+        #expect(view.failure.isHidden)
+        #expect(view.automationRows.shown.first?.paused == false)
     }
 
     @Test func theRowsButtonsSendTheirAction() async throws {
