@@ -63,13 +63,21 @@ test("a teammate's presence reaches the live faces without a pane snapshot", asy
     undefined,
     () => new SharedHost() as unknown as WebSocket,
   );
+  // Waits for a condition, yielding a macrotask at a time (the mock host answers on its own turns).
   const settle = async (check: () => boolean) => {
-    for (let i = 0; i < 200 && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    for (let i = 0; i < 2_000 && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
     expect(check()).toBe(true);
   };
   try {
     await settle(() => summary !== undefined);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The open's own snapshots are done once 50 turns pass with none.
+    let seen = -1;
+    let quiet = 0;
+    await settle(() => {
+      quiet = seen === snapshots ? quiet + 1 : 0;
+      seen = snapshots;
+      return quiet >= 50;
+    });
     const before = snapshots;
     const changes: unknown[] = [];
     const stop = shownPresence.subscribe(() => changes.push(shownPresence.get()));

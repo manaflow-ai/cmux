@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { PresenceClient, STOP_RETRIES, STOP_RETRY_MS, TYPING_IDLE_MS, TYPING_REFRESH_MS } from "./presenceClient";
 
 const ana = { id: "tailnet:ana@example.com", name: "Ana", devices: 1, viewing: true, typing: false };
@@ -62,17 +62,20 @@ test("typing is on once, refreshed before acpmux's expiry, and off on send or em
   expect(sent.filter((s) => !s.on).length).toBe(2);
 });
 
-test(
-  "no keystroke for the idle time turns typing off",
-  async () => {
+test("no keystroke for the idle time turns typing off", () => {
+  jest.useFakeTimers();
+  try {
     const { presence, sent } = client();
     presence.attached("s1", { presence: { sessionId: "s1", participants: [] } });
     presence.typed("x");
-    await new Promise((resolve) => setTimeout(resolve, TYPING_IDLE_MS + 50));
+    jest.advanceTimersByTime(TYPING_IDLE_MS - 1);
+    expect(sent.at(-1)).toEqual({ sessionId: "s1", on: true });
+    jest.advanceTimersByTime(1);
     expect(sent.at(-1)).toEqual({ sessionId: "s1", on: false });
-  },
-  TYPING_IDLE_MS + 2_000,
-);
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 // A teammate's pane (through the host daemon) is not acpmux's `owner`: the attach reply names its
 // own id, so it sees the owner and not itself.
@@ -119,11 +122,29 @@ test("a detached pane's keystrokes reach no chat until the next attach", () => {
 });
 
 const refused = () => Promise.reject(Object.assign(new Error("slow down"), { reason: "typing.rate_limited" }));
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/// The retries on a fake clock: `elapse` runs the timers due in `ms` in small steps, letting each
+/// refused send's answer (a microtask) schedule its retry before the clock moves on.
+const flush = async () => {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+};
+const elapse = async (ms: number) => {
+  for (let at = 0; at < ms; at += 25) {
+    jest.advanceTimersByTime(Math.min(25, ms - at));
+    await flush();
+  }
+};
+const faked = (run: () => Promise<void>) => async () => {
+  jest.useFakeTimers();
+  try {
+    await run();
+  } finally {
+    jest.useRealTimers();
+  }
+};
 
 test(
   "an off refused for the rate goes again, a bounded number of times",
-  async () => {
+  faked(async () => {
     const sent: { sessionId: string; on: boolean }[] = [];
     const presence = new PresenceClient(
       (_method, params) => {
@@ -135,15 +156,15 @@ test(
     presence.attached("s1", { presence: { sessionId: "s1", participants: [me] } });
     presence.typed("h");
     presence.stopTyping();
-    await wait(STOP_RETRY_MS * (STOP_RETRIES + 1) + 200);
+    await elapse(STOP_RETRY_MS * (STOP_RETRIES + 1) + 200);
     expect(sent.filter((s) => !s.on).length).toBe(STOP_RETRIES + 1);
-  },
+  }),
   STOP_RETRY_MS * (STOP_RETRIES + 2) + 2_000,
 );
 
 test(
   "a refused off that lands on retry stops, and typing again cancels a pending retry",
-  async () => {
+  faked(async () => {
     const sent: { sessionId: string; on: boolean }[] = [];
     let refusals = 1;
     const presence = new PresenceClient(
@@ -160,21 +181,21 @@ test(
     presence.attached("s1", { presence: { sessionId: "s1", participants: [me] } });
     presence.typed("h");
     presence.stopTyping();
-    await wait(STOP_RETRY_MS + 200);
+    await elapse(STOP_RETRY_MS + 200);
     expect(sent.filter((s) => !s.on).length).toBe(2);
-    await wait(STOP_RETRY_MS + 200);
+    await elapse(STOP_RETRY_MS + 200);
     expect(sent.filter((s) => !s.on).length).toBe(2);
     // Refused again, then typing starts before the retry: no stale off follows the on.
     refusals = 1;
     presence.typed("again");
     presence.stopTyping();
-    await wait(0);
+    await flush();
     presence.typed("again and again");
-    await wait(STOP_RETRY_MS + 200);
+    await elapse(STOP_RETRY_MS + 200);
     expect(sent.at(-1)).toEqual({ sessionId: "s1", on: true });
     presence.detached();
-    await wait(0);
-  },
+    await flush();
+  }),
   STOP_RETRY_MS * 4 + 2_000,
 );
 
@@ -200,7 +221,7 @@ test("a keystroke in the chat still shown while the next one attaches says nothi
 
 test(
   "an off for the chat before, refused after the switch, is not sent again to it",
-  async () => {
+  faked(async () => {
     const sent: { sessionId: string; on: boolean }[] = [];
     let refuse: () => void = () => {};
     const presence = new PresenceClient(
@@ -223,14 +244,14 @@ test(
     // s2's own typing starts before s1's off is refused: that refusal is not retried to s1.
     presence.typed("in s2");
     refuse();
-    await wait(STOP_RETRY_MS + 200);
+    await elapse(STOP_RETRY_MS + 200);
     expect(sent.filter((s) => s.sessionId === "s1")).toEqual([
       { sessionId: "s1", on: true },
       { sessionId: "s1", on: false },
     ]);
     expect(sent.at(-1)).toEqual({ sessionId: "s2", on: true });
     presence.detached();
-    await wait(0);
-  },
+    await flush();
+  }),
   STOP_RETRY_MS * 2 + 2_000,
 );
