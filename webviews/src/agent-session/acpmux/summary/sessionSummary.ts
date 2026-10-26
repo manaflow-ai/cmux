@@ -94,8 +94,19 @@ const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
   pullRequests.map((pr) => `${pr.url}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`).join("|");
 
 const normalizedPath = (path: string) => {
-  const compact = path.replaceAll("//", "/").replace(/\/$/, "");
-  return compact || "/";
+  const absolute = path.startsWith("/");
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length > 0 && parts.at(-1) !== "..") parts.pop();
+      else if (!absolute) parts.push(part);
+      continue;
+    }
+    parts.push(part);
+  }
+  const compact = `${absolute ? "/" : ""}${parts.join("/")}`;
+  return compact || (absolute ? "/" : ".");
 };
 
 /// Outputs belong to the chat's project folder. Relative tool paths are already rooted there;
@@ -105,6 +116,7 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   const root = normalizedPath(cwd);
   return files.filter((file) => {
     const path = file.canonical ?? file.path;
+    if (path.startsWith("~")) return false;
     if (!path.startsWith("/")) return !path.split("/").includes("..");
     const normalized = normalizedPath(path);
     return normalized === root || normalized.startsWith(`${root}/`);

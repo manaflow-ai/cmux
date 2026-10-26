@@ -107,6 +107,7 @@ describe("Run board human intent", () => {
           diffs: [
             { path: "/work/project/src/main.ts", newText: "export {}" },
             { path: "/tmp/m1076.txt", newText: "scratch" },
+            { path: "/work/project/../tmp/m1077.txt", newText: "scratch" },
           ],
         }),
       ], 1),
