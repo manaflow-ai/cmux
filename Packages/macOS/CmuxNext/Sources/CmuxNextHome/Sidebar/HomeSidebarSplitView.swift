@@ -113,7 +113,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         super.mouseDown(with: event)
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The list at `width` (clamped to this window), kept as the user's width (a divider drag's
     /// result without the drag: `debug.home.sidebar_fixture` width for screenshots).
     public func setWidth(_ width: CGFloat) {

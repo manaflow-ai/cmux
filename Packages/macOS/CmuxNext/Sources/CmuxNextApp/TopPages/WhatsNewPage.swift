@@ -24,9 +24,10 @@ enum WhatsNewPage {
     }
 
     /// A click on a client-only sidebar item: the Channels entry switches Home to Channels; a
-    /// Chief subagent row opens its chat.
+    /// Chief subagent row opens its chat; another machine's group folds and its chat rows open.
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
         if ChiefSidebar.shared.activate(id, registry: services.registry) { return }
+        if RemoteMachinesSidebar.shared.activate(id) { return }
         // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.
         if id == SidebarTransientItem.channelsID { _ = services.registry.perform("home.switchView", invocation: .init(arguments: ["view": .string("channels")], origin: .user)) }
     }

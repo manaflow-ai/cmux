@@ -236,7 +236,8 @@ extension AgentPaneTransport {
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots,
+                                           workspaceID: workspaceID())
         return await Self.checkPaths(box, scope: scope)
     }
 
@@ -364,7 +365,8 @@ extension AgentPaneTransport {
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
         if let pageID = facts.pageID {
-            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "") else { return Self.refuseInFlight() }
+            let subject = facts.method == AgentPaneAgentReply.method ? box.param("sessionId") : nil
+            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else { return Self.refuseInFlight() }
             relayID = next
         }
         // A fork or handoff from a session outside the scope: the click's scope credit, used only

@@ -413,6 +413,10 @@ impl Mux {
         if matches!(agent.state, AgentState::Done) {
             self.forget_agent_prompt(&agent.terminal_id);
         }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
+        }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
             self.publish_resource_event();
@@ -486,7 +490,11 @@ impl Mux {
                     })?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
-                let last_prompt = prompts.get(&terminal_id).cloned();
+                // The hover card's folded cut; the whole prompt is the phone Feed's.
+                let last_prompt = prompts
+                    .get(&terminal_id)
+                    .and_then(|prompt| crate::agent_hooks::live_prompt_text(prompt))
+                    .map(Arc::from);
                 let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,

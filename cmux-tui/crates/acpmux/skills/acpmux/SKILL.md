@@ -29,6 +29,8 @@ At most `maxRunning` of your sub-sessions run at once (16 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
 and how many run and wait; only the user or your parent session raises them.
+A sub-session runs on this machine; `host: "auto"` first checks it has room
+(the engine `acpmux new --host auto` uses) and refuses the start when not.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -138,6 +140,14 @@ one command; running it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
 ```
 
+A child of another harness under your own chat (a Codex child of a Claude chat): it lists
+under your chat, and your sub-session tools read, message and stop it.
+
+```bash
+acpmux run --parent "$ACPMUX_SESSION_ID" -m codex -e high "PROMPT"   # prints its reply
+acpmux new --parent "$ACPMUX_SESSION_ID" -m opencode -n tests -d "PROMPT"
+```
+
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
 surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
 in the cmux repository.
@@ -185,6 +195,15 @@ answer locally. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
+A session you start from inside your own session (`acpmux new|run`, a local
+`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+pass neither: your policy, and your mode (or, on another harness family, the
+same level: full access, asking, or its own mode). It never runs wider than
+you: a wider `--mode` is refused. A start from a plain shell with no session
+gets the defaults. Some requests still ask in full access, because the harness
+raises them itself (Claude Code's guard on an `rm` whose target it cannot
+resolve): your policy answers those, and `ask` sends them to a person.
+
 ## 6. Other machines
 
 A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
@@ -197,6 +216,9 @@ acpmux run -m claude --host HOST "…"             # start there; --cwd is a rem
 acpmux ensure NAME -m codex --host HOST
 acpmux send HOST/NAME "…"                        # wait, tail, history, cancel work the same
 acpmux wait                                      # covers remote sessions too
+acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
+                                                 # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
+acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
 - **Check first.** Run `acpmux peer status` before remote work and after any peer request
@@ -216,6 +238,15 @@ acpmux wait                                      # covers remote sessions too
 - **What the host allows.** Some machines are not for builds or long jobs. When the task or the
   session's first message names what a host must not run, honour it, and pick another host
   from `peer status`.
+
+A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
+`webRoots` (a missing folder there is made); with no `--cwd` the session gets a
+scratch folder. `--mode` is refused, and the session starts in the harness's
+asking mode. `--policy approve-all` passes only when the peer serves this machine
+as a peer (`servedAs` in `acpmux --json host ls`); otherwise start it on that
+machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
+from here as `HOST/NAME`. Every such refusal ends with the command that works
+(`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
 current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not

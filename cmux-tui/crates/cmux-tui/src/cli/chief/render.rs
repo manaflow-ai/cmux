@@ -118,3 +118,36 @@ fn split_keep_spaces(line: &str) -> Vec<&str> {
     }
     pieces
 }
+
+/// The glyph of a reaction kind: a tapback's symbol, or the emoji itself.
+pub(super) fn reaction_glyph(kind: &Value) -> String {
+    if let Some(emoji) = kind.get("emoji").and_then(Value::as_str) {
+        return emoji.to_owned();
+    }
+    match kind.get("tapback").and_then(Value::as_str).unwrap_or("") {
+        "love" => "♥".into(),
+        "like" => "👍".into(),
+        "dislike" => "👎".into(),
+        "laugh" => "😂".into(),
+        "emphasize" => "‼".into(),
+        "question" => "?".into(),
+        other => other.to_owned(),
+    }
+}
+
+/// A message's reactions as one line (`👍 2 · ♥ 1`), in first-seen order;
+/// None when it has none.
+pub(super) fn reactions_line(message: &Value) -> Option<String> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for reaction in message.get("reactions").and_then(Value::as_array).into_iter().flatten() {
+        let glyph = reaction_glyph(reaction.get("kind").unwrap_or(&Value::Null));
+        match counts.iter_mut().find(|(g, _)| *g == glyph) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((glyph, 1)),
+        }
+    }
+    if counts.is_empty() {
+        return None;
+    }
+    Some(counts.iter().map(|(g, n)| format!("{g} {n}")).collect::<Vec<_>>().join(" · "))
+}

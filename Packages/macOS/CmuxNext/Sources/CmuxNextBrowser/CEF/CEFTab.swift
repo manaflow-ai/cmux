@@ -234,6 +234,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
+        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -450,7 +451,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func exitContentFullscreen() {
         guard state.isContentFullscreen else { return }
-        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()"); withExtendedLifetime(runtime) {} }
+        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()", world: .page, gesture: .cmux); withExtendedLifetime(runtime) {} }
     }
 
     public func showDevTools() { performDevTools(.show) }
