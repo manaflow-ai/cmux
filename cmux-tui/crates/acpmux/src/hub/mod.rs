@@ -120,11 +120,13 @@ mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
+mod remote_rows;
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
 };
 mod permission_groups;
 mod permissions;
+pub(crate) use permissions::drop_display_lines;
 pub mod person;
 pub mod presence;
 mod processes;
@@ -365,7 +367,9 @@ pub struct Hub {
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
-    pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
+    pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
+    pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
@@ -443,6 +447,13 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// Held (read) by a family message from its last check to its write, and an answer from
+    /// its check to its delivery; an MDM off push takes it (write) once the off is stored
+    /// (`full_access_bound.rs` `family_gate`).
+    pub(super) family_gate: tokio::sync::RwLock<()>,
+    /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
+    #[cfg(test)]
+    pub(super) family_write_seam: full_access_bound::WriteSeam,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -537,7 +548,8 @@ impl Hub {
             shutdown: Notify::new(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
-            remote_sessions: StdMutex::new(HashMap::new()),
+            remote_sessions: Default::default(),
+            child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
@@ -572,6 +584,9 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
+            family_gate: tokio::sync::RwLock::new(()),
+            #[cfg(test)]
+            family_write_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -781,7 +796,7 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
-        Arc::new(Session {
+        let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
             meta: StdMutex::new(meta),
@@ -849,7 +864,10 @@ impl Hub {
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
-        })
+        });
+        // Found by its tags from now on (`permissions/display.rs`).
+        self.child_tags.note(&session);
+        session
     }
 
     // ------------------------------------------------------------ lookup

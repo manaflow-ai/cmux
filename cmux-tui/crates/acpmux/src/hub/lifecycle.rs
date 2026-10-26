@@ -226,6 +226,7 @@ impl Hub {
         let (session, created_stops) = session;
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
+            self.child_tags.forget(&id);
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -236,6 +237,7 @@ impl Hub {
                 crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
             {
                 self.sessions.lock().unwrap().remove(&id);
+                self.child_tags.forget(&id);
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
