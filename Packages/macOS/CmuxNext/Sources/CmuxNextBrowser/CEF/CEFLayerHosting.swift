@@ -2,7 +2,7 @@ import AppKit
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
-/// a ``CEFHostedPageView`` at the bottom of the host view, following
+/// a ``ChromiumHostPageView`` at the bottom of the host view, following
 /// `BrowserResizeTunables.layerHosting`.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
@@ -77,7 +77,7 @@ final class CEFLayerHosting {
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
-    private(set) var page: CEFHostedPageView?
+    private(set) var page: ChromiumHostPageView?
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
     /// show (`CEFTrackerStats.hostingRefused` sums every view).
     private(set) var refusals = 0
@@ -89,7 +89,7 @@ final class CEFLayerHosting {
     private var pending = Pending.none
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
-    private let makePage: (CGRect) -> CEFHostedPageView
+    private let makePage: (CGRect) -> ChromiumHostPageView
     private let resizeDeadlineMs: () -> Int32
     private let liveResizeDeadlineMs: () -> Int32
     private let refreshIntervals: () -> [Double]
@@ -111,7 +111,7 @@ final class CEFLayerHosting {
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
-         makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
+         makePage: @escaping (CGRect) -> ChromiumHostPageView = { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
@@ -239,7 +239,7 @@ final class CEFLayerHosting {
         let id = fork.setLayerHosting(browser, true)
         if id != 0 {
             let page = self.page ?? addPage(to: view)
-            if page.host(contextID: id) {
+            if page.show(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
                 return
@@ -274,7 +274,7 @@ final class CEFLayerHosting {
         CEFHostView.trackerStats.hostingRefused += 1
     }
 
-    private func addPage(to view: NSView) -> CEFHostedPageView {
+    private func addPage(to view: NSView) -> ChromiumHostPageView {
         let page = makePage(view.bounds)
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
