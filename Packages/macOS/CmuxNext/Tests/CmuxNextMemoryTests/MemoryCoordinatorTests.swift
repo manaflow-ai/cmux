@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextMemory
+@testable import CmuxNextMemory
 import Testing
 
 /// ``MemoryCoordinator`` sets limits from the pressure level and the Memory Saver mode, releases on
@@ -222,6 +222,30 @@ import Testing
         slicer.drain()
         #expect(registration == nil)
         #expect(log.calls.isEmpty, "a released consumer was called: \(log.calls)")
+    }
+
+    @Test func equalOrdersReleaseInRegistrationOrder() {
+        let consumers = (0..<4).map { consumer("c\($0)") }
+        let registrations = consumers.map { register($0, managedTraits()) }
+        source.send(.critical)
+        slicer.drain()
+        #expect(log.releases == ["c0", "c1", "c2", "c3"])
+        withExtendedLifetime(registrations) {}
+    }
+
+    @Test func registrationsThatComeAndGoNeverGrowTheCoordinator() {
+        let kept = consumer("kept")
+        let registration = register(kept, managedTraits())
+        for index in 0..<100 {
+            _ = register(consumer("gone\(index)"), managedTraits())
+        }
+        #expect(coordinator.consumers.storedCount <= 2, "released registrations stayed in the coordinator")
+        source.send(.critical)
+        slicer.drain()
+        #expect(coordinator.consumers.storedCount == 1)
+        #expect(coordinator.consumers.liveEntries().map(\.name) == ["kept"])
+        #expect(log.releases == ["kept"], "a released registration was called")
+        withExtendedLifetime(registration) {}
     }
 
     @Test func aLimitRaisedDuringAReleaseKeepsWhatIsHeld() {

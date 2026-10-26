@@ -59,14 +59,15 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         }
     }
 
+    /// The registered consumers in registration order, each with its limit and release state. The
+    /// list drops released registrations on each add and walk; a slice walks them in
+    /// ``MemoryReleaseOrder``.
+    let consumers = MemoryConsumerList<Record>()
     private var policy: MemoryLimitPolicy
-    /// The registered consumers in release order; released entries are dropped on each add and walk.
-    private var consumers: [Registered] = []
-    private var nextSequence: UInt64 = 0
     private var isSliceScheduled = false
     private let slicer: any MemoryReleaseSlicer
     private let clock: any Clock<Duration>
-    private let budget: Duration
+    private let sliceDuration: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
@@ -90,7 +91,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
         self.clock = clock
-        budget = sliceBudget
+        sliceDuration = sliceBudget
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
@@ -103,14 +104,11 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
-        dropReleased()
         let current = self.limit(for: entry.traits)
-        let registered = Registered(entry: entry, sequence: nextSequence, limit: current)
-        nextSequence &+= 1
-        let index = consumers.firstIndex { registered.releasesBefore($0) } ?? consumers.endIndex
-        consumers.insert(registered, at: index)
+        let record = Record(entry: entry, limit: current)
+        consumers.add(record)
         entry.liveConsumer?.updateMemoryLimit(current)
-        if registered.needsRelease { scheduleSlice() }
+        if record.needsRelease { scheduleSlice() }
     }
 
     private func kernelLevelDidChange(_ newLevel: MemoryPressureLevel) {
@@ -127,13 +125,12 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.
     private func applyLimits() {
-        dropReleased()
         var needsRelease = false
-        for registered in consumers {
-            let newLimit = self.limit(for: registered.entry.traits)
-            guard newLimit != registered.limit, let consumer = registered.entry.liveConsumer else { continue }
-            registered.setLimit(newLimit)
-            needsRelease = needsRelease || registered.needsRelease
+        for record in consumers.liveRecords() {
+            let newLimit = self.limit(for: record.entry.traits)
+            guard newLimit != record.limit, let consumer = record.entry.liveConsumer else { continue }
+            record.setLimit(newLimit)
+            needsRelease = needsRelease || record.needsRelease
             consumer.updateMemoryLimit(newLimit)
         }
         if needsRelease { scheduleSlice() }
@@ -145,22 +142,23 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         slicer.scheduleSlice { [weak self] in self?.runSlice() }
     }
 
-    /// One frame's release: the consumers over their limit, in order, until the budget is spent.
+    /// One frame's release: the consumers over their limit, in release order (equal orders keep
+    /// registration order; the sort is stable), until the slice's time is spent.
     private func runSlice() {
         isSliceScheduled = false
-        dropReleased()
-        let isExpired = Self.deadline(on: clock, after: budget)
-        for registered in consumers where registered.needsRelease {
+        let isExpired = Self.deadline(on: clock, after: sliceDuration)
+        let inReleaseOrder = consumers.liveRecords().sorted { $0.order < $1.order }
+        for record in inReleaseOrder where record.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()
                 return
             }
             // A consumer called before may have released this one's registration.
-            guard let consumer = registered.entry.liveConsumer else { continue }
-            let target = registered.limit
+            guard let consumer = record.entry.liveConsumer else { continue }
+            let target = record.limit
             switch consumer.releaseMemory(within: MemoryReleaseSlice(limit: target, isExpired: isExpired)) {
             case .done:
-                registered.didRelease(to: target)
+                record.didRelease(to: target)
             case .more:
                 scheduleSlice()
                 return
@@ -168,52 +166,43 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         }
     }
 
-    private func dropReleased() {
-        consumers.removeAll { !$0.entry.isLive }
-    }
-
-    /// A check that turns true `budget` after now on `clock`, shared by every consumer of one slice.
-    private nonisolated static func deadline(on clock: some Clock<Duration>, after budget: Duration)
+    /// A check that turns true `duration` after now on `clock`, shared by every consumer of one slice.
+    private nonisolated static func deadline(on clock: some Clock<Duration>, after duration: Duration)
         -> @Sendable () -> Bool {
-        let end = clock.now.advanced(by: budget)
+        let end = clock.now.advanced(by: duration)
         return { clock.now >= end }
     }
 }
 
-/// One registered consumer and what the coordinator knows of it.
-@MainActor
-private final class Registered {
-    let entry: MemoryConsumerEntry
-    let order: MemoryReleaseOrder
-    let sequence: UInt64
-    /// The limit it was last given.
-    private(set) var limit: MemoryLimit
-    /// The most it may hold now: its limit when it last finished a release, or a higher limit given
-    /// since. It needs a release while its limit is below this.
-    private var heldBound = MemoryLimit.default
+extension MemoryCoordinator {
+    /// One registered consumer and what the coordinator knows of it.
+    final class Record: MemoryConsumerListRecord {
+        let entry: MemoryConsumerEntry
+        let order: MemoryReleaseOrder
+        /// The limit it was last given.
+        private(set) var limit: MemoryLimit
+        /// The most it may hold now: its limit when it last finished a release, or a higher limit given
+        /// since. It needs a release while its limit is below this.
+        private var heldBound = MemoryLimit.default
 
-    init(entry: MemoryConsumerEntry, sequence: UInt64, limit: MemoryLimit) {
-        self.entry = entry
-        order = MemoryReleaseOrder(traits: entry.traits)
-        self.sequence = sequence
-        self.limit = limit
-    }
+        init(entry: MemoryConsumerEntry, limit: MemoryLimit) {
+            self.entry = entry
+            order = MemoryReleaseOrder(traits: entry.traits)
+            self.limit = limit
+        }
 
-    var needsRelease: Bool {
-        limit < heldBound
-    }
+        var needsRelease: Bool {
+            limit < heldBound
+        }
 
-    func releasesBefore(_ other: Registered) -> Bool {
-        order < other.order || (order == other.order && sequence < other.sequence)
-    }
+        func setLimit(_ newLimit: MemoryLimit) {
+            limit = newLimit
+            heldBound = max(heldBound, newLimit)
+        }
 
-    func setLimit(_ newLimit: MemoryLimit) {
-        limit = newLimit
-        heldBound = max(heldBound, newLimit)
-    }
-
-    /// Records a finished release down to `released`; a limit given during the call still counts.
-    func didRelease(to released: MemoryLimit) {
-        heldBound = max(released, limit)
+        /// Records a finished release down to `released`; a limit given during the call still counts.
+        func didRelease(to released: MemoryLimit) {
+            heldBound = max(released, limit)
+        }
     }
 }

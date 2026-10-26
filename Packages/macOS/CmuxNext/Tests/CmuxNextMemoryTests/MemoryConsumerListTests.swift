@@ -58,7 +58,7 @@ private final class Consumer: MemoryConsumer {
 
 /// A registry over one ``MemoryConsumerList`` that hands each new consumer the default limit.
 private final class ListRegistry: MemoryConsumerRegistry {
-    var list = MemoryConsumerList()
+    let list = MemoryConsumerList<MemoryConsumerEntry>()
 
     func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
         list.add(entry)
