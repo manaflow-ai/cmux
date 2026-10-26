@@ -24,10 +24,12 @@ const src = join(repo, "webviews/src");
 
 /// The sheets the bundled pane's <style> is written from, in order (build-agent-pane-web.sh).
 function paneSheets(): string[] {
-  const script = readFileSync(join(repo, "scripts/cmux-next/build-agent-pane-web.sh"), "utf8");
-  const paths = [...script.matchAll(/"\$(SRC|ROOT)\/([^"$]+\.css)"/g)].map(([, base, path]) =>
-    base === "SRC" ? join(src, "agent-session", path) : join(repo, path),
-  );
+  // build-agent-pane-web.sh derives the page's sheets from the dev server's entry: dev.tsx imports
+  // the base sheets in the page's order (the components' own sheets follow, after them).
+  const entry = join(src, "agent-session/acpmux");
+  const dev = readFileSync(join(entry, "dev.tsx"), "utf8");
+  const paths = [...dev.matchAll(/^import "(\.{1,2}\/[^"]+\.css)";$/gm)].map(([, path]) => join(entry, path!));
+  expect(paths.map((path) => relative(src, path))).toContain("pages/shared/desktop.css");
   return [...new Set(paths)];
 }
 
@@ -43,6 +45,10 @@ const PANE = `
     <button data-expect="pointer" data-name="started chat chip" type="button" class="acpmux-started-chip">a chat</button>
     <sup class="cv-fnref"><button data-expect="pointer" data-name="footnote mark" type="button">1</button></sup>
   </div>
+  <!-- An image thumbnail's button shows zoom-in, and so does the image in it. -->
+  <div class="cv-user__images"><button data-expect="zoom-in" data-name="sent image thumbnail" type="button"><img data-expect="zoom-in" data-name="sent image" alt="" /></button></div>
+  <button data-expect="zoom-in" data-name="queued image thumbnail" type="button" class="acpmux-queued-image"><img data-expect="zoom-in" data-name="queued image" alt="" /></button>
+  <div class="cv-md selectable"><button data-expect="zoom-in" data-name="reply image" type="button" class="cv-img-open"><img data-expect="zoom-in" data-name="reply image picture" class="cv-img" alt="" /></button></div>
   <button data-expect="pointer" data-name="tool row" type="button" class="cv-tool is-toggle">Ran a command</button>
   <div class="cv-tools">
     <button data-expect="pointer" data-name="Subagent finished row" type="button" class="cv-tool cv-bgtask cv-subagent-done" data-state="completed"><span class="cv-tool__icon"><svg data-expect="pointer" data-name="Subagent finished icon"></svg></span><span data-expect="pointer" data-name="Subagent finished text" class="cv-tool__text">Subagent finished: Fix merge hook · 49m 38s</span></button>

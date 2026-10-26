@@ -235,26 +235,11 @@ input[type="range"] {
    CLICKABLE"; this replaces the R139 arrow on buttons and links). Zero specificity (:where), so a
    surface's own cursor still wins: text in a field, a resize or drag cursor, zoom-in on an image.
    A surface never sets `default` or `auto` on a clickable element (clickable-cursor.test.ts); a
-   clickable div gets a role instead of a cursor rule. */
-:where(
-    button,
-    a[href],
-    [role="button"],
-    [role="link"],
-    [role="menuitem"],
-    [role="menuitemcheckbox"],
-    [role="menuitemradio"],
-    [role="tab"],
-    [role="option"],
-    [role="treeitem"],
-    [role="switch"],
-    [role="checkbox"],
-    [role="radio"],
-    summary,
-    label[for],
-    label:has(input[type="checkbox"], input[type="radio"]),
-    select
-  ),
+   clickable div gets a role instead of a cursor rule.
+   What is inside a clickable thing takes its cursor (`inherit`, not `pointer`): the hand inside
+   selectable text, where `.selectable *` would give its label the I-beam, and a surface's own
+   cursor on the clickable thing too, so a sent or queued image's thumbnail keeps the button's
+   zoom-in. This rule comes first so a clickable thing nested in another still gets the hand. */
 :where(
     button,
     a[href],
@@ -274,6 +259,27 @@ input[type="range"] {
     label:has(input[type="checkbox"], input[type="radio"])
   )
   * {
+  cursor: inherit;
+}
+:where(
+    button,
+    a[href],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="treeitem"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    summary,
+    label[for],
+    label:has(input[type="checkbox"], input[type="radio"]),
+    select
+  ) {
   cursor: pointer;
 }
 input:is(
