@@ -100,8 +100,37 @@ class PrStatusTests(unittest.TestCase):
                 upsert_calls.append(1)
                 other_writer_overwrites()
             return out
-        pr_status.upsert(REPO, PR, "checks", "red: web / lint", api=gh_with_race, sleep=lambda _: None)
+        pr_status.upsert(REPO, PR, "checks", "red: web / lint", api=gh_with_race, sleep=lambda _: None,
+                         confirm=True)
         self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "checks": "red: web / lint"})
+
+    def test_by_default_a_write_reads_the_comments_once(self):
+        # The settle re-read doubled every writer's GITHUB_TOKEN reads (2026-10-25); it is opt-in.
+        gh = FakeGitHub()
+        gh.add(pr_status.render({"bead": "Bead: `cx-abc1`"}))
+        reads = []
+        orig = gh.__call__
+
+        def counting(method, path, payload):
+            if method == "GET":
+                reads.append(path)
+            return orig(method, path, payload)
+        os.environ.pop("PR_STATUS_CONFIRM", None)
+        pr_status.upsert(REPO, PR, "checks", "red: web / lint", api=counting, sleep=lambda _: None)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "checks": "red: web / lint"})
+
+    def test_comments_already_read_are_not_read_again(self):
+        gh = FakeGitHub()
+        gh.add(pr_status.render({"gallery": "old"}))
+        comments = pr_status.list_comments(gh, REPO, PR)
+        self.assertEqual(pr_status.section_in(comments, "gallery"), "old")
+
+        def no_reads(method, path, payload):
+            assert method != "GET", path
+            return gh(method, path, payload)
+        pr_status.upsert(REPO, PR, "gallery", "new", api=no_reads, sleep=lambda _: None, comments=comments)
+        self.assertEqual(gh.status(), {"gallery": "new"})
 
     def test_two_status_comments_fold_into_the_oldest(self):
         gh = FakeGitHub()
