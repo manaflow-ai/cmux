@@ -312,6 +312,9 @@ describe("sandbox run lifecycle", () => {
     expect(tail([`PASSWORD="it's ${"t".repeat(70_000)}`, "\nfoo'\n", "hunter2\n", '"\n'])).not.toContain("hunter2");
     // Only the opening quote's own character closes it: an apostrophe near the end does not.
     expect(tail([`PASSWORD="${"t".repeat(70_000)}it's`, "\nhunter2\n", '"\n'])).not.toContain("hunter2");
+    // Progress output that rewrites its line, then a secret: the carriage return is a boundary.
+    expect(tail(["loading\rsk-abcdefghijklmnopqrstuvwxyz\n"])).not.toContain("abcdefghijklmnop");
+    expect(tail(["db:\n  password: |-\n", "    hunter2\n", "  host: x\n"])).not.toContain("hunter2");
     // A long line that ends in a whole value stands in for nothing: the next line is kept.
     expect(tail(["x".repeat(70_000), " password=done\n", "after\n"])).toBe("[long line omitted]\nafter\n");
   });
