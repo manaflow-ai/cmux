@@ -1557,6 +1557,15 @@ class TransientFailureTests(unittest.TestCase):
         fake = Limited({run["id"]: dict(run)}, {})
         with self.assertRaises(janitor.RateLimited):
             janitor.read_run_jobs(fake, [run], frozenset(), NOW)
+        # Nor is it swallowed as missing evidence: the starved-label evidence listing re-raises it.
+        evidence = Limited({run["id"]: dict(run)}, {})
+        evidence.completed_runs = lambda workflow, since: (_ for _ in ()).throw(
+            janitor.RateLimited("GET /runs failed (403: rate limit)"))
+        fleet = make_run(status="queued", branch="fleet")
+        jobs = {fleet["id"]: [{"status": "queued", "name": "compile", "labels": ["glaeda-side-std-xcode-26.6"],
+                               "created_at": iso(100)}]}
+        with self.assertRaises(janitor.RateLimited):
+            janitor.starved_result(evidence, [fleet], jobs, {}, now=NOW)
 
 
 class RateLimitTests(unittest.TestCase):

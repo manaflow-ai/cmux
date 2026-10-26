@@ -508,6 +508,8 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
             known = set(fleet_jobs) | set(evidence)
             for run in [run for run in recent if run.get("id") not in known][:LOST_EVIDENCE_RUNS_PER_WORKFLOW]:
                 evidence[run["id"]] = github.jobs(run["id"])
+        except RateLimited:
+            raise
         except RuntimeError as error:
             incomplete = True
             print(f"queue-janitor: starved-label evidence for {workflow}: {error}", file=sys.stderr)
@@ -2853,6 +2855,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for run in evidence_runs(listed, known=set(jobs_by_run) | set(evidence_jobs),
                                          cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
                     evidence_jobs[run["id"]] = github.jobs(run["id"])
+            except RateLimited:
+                raise
             except RuntimeError as error:
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
@@ -2929,7 +2933,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshot[WAIT_P90_KEY] = waits
         # Fleet labels no runner is taking jobs from; the workflow's alert step
         # (starved_labels.py) annotates them and keeps one issue per label.
-        snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
+        try:
+            snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
+        except RateLimited as error:
+            print(f"queue-janitor: {error}", file=sys.stderr)
+            print(render_rate_limits(github.rate_limits), file=sys.stderr)
+            return 1
         if unread:
             # Read from every run but these: their jobs are missing, so a label one of them is running on
             # can look starved and one it waits on can look recovered. No starved-label issue is opened,
