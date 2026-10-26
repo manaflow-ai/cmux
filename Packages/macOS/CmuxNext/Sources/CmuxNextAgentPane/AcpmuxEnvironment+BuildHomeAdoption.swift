@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -81,7 +82,7 @@ nonisolated enum BuildHomeAdoption {
         // Resumed once: by the CLI's exit, by a failed start, or by the time limit (the app goes
         // on; the CLI keeps going and holds the moved homes' daemon locks until it ends).
         let status: Int32? = await withCheckedContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let resumed = Mutex(false)
             let finish: @Sendable (Int32?) -> Bool = { status in
                 let first = resumed.withLock { done -> Bool in
                     defer { done = true }

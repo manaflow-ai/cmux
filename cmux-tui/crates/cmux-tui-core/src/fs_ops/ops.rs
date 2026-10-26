@@ -3,7 +3,8 @@
 //! server/fs_wire.rs decodes a line into one of the params structs here by
 //! its `cmd`.
 
-use std::fs::File;
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt as _;
 use std::sync::Mutex;

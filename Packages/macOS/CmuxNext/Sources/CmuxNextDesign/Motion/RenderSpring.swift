@@ -129,7 +129,7 @@ public struct RenderSpring {
                 }
                 continue
             }
-            for part in Self.parts(offset: offset, velocity: move.velocity, omega: spring.omega) {
+            for part in Self.parts(offset: offset, velocity: move.velocity, progressVelocity: move.progressVelocity, omega: spring.omega) {
                 Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
             }
         }
@@ -192,6 +192,8 @@ public struct RenderSpring {
         let target: Any
         let zero: Any
         let velocity: CGFloat
+        /// The share of the distance covered per second at the start, toward the target (any value type).
+        let progressVelocity: CGFloat
         /// The offset from the model value read when the group starts.
         let offsetFrom: (Any?) -> Offset?
 
@@ -208,11 +210,26 @@ public struct RenderSpring {
         /// `from` replaces the model value read at the start (a frame already written: a pane host
         /// AppKit placed at rest in the change's turn springs from where it showed).
         public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value, velocity: CGFloat = 0) {
+            self.init(layer, keyPath, from: from, to: value, velocity: velocity, progressVelocity: 0)
+        }
+
+        /// `layer.keyPath` springs from `from` to `value`, starting at `progressVelocity`: the share of the
+        /// distance it covers per second at the start, toward `value`. Any value type takes it, a transform
+        /// too: a `CASpringAnimation` moves every component by one progress, and its `initialVelocity` is
+        /// that progress's rate.
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value, to value: Value,
+                                              progressVelocity: CGFloat) {
+            self.init(layer, keyPath, from: from, to: value, velocity: 0, progressVelocity: progressVelocity)
+        }
+
+        private init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value,
+                                               velocity: CGFloat, progressVelocity: CGFloat) {
             self.layer = layer
             self.keyPath = keyPath
             target = value.layerValue
             zero = Value.springZero.layerValue
             self.velocity = velocity
+            self.progressVelocity = progressVelocity
             offsetFrom = { model in
                 guard let old = from ?? Value(layerValue: model) else { return nil }
                 let delta = old.springDelta(to: value)
@@ -240,9 +257,15 @@ public struct RenderSpring {
     /// The additive springs that carry `offset` at `velocity`. A scalar whose offset is too small
     /// to normalize its velocity against (a fling released at its rest value) splits into two
     /// springs, (offset + s) with the velocity and -s at rest: the sum of two solutions of the same
-    /// spring is the solution with the summed start.
-    static func parts(offset: Offset?, velocity: CGFloat, omega: Double) -> [Part] {
+    /// spring is the solution with the summed start. A `progressVelocity` is already normalized
+    /// (``Move/init(_:_:from:to:progressVelocity:)``), so one spring of any value type carries it.
+    static func parts(offset: Offset?, velocity: CGFloat, progressVelocity: CGFloat = 0, omega: Double) -> [Part] {
         guard let offset else { return [] }
+        if progressVelocity != 0 {
+            guard offset.extent > 0 else { return [] }
+            return [Part(from: offset.value, normalizedVelocity: progressVelocity,
+                         extent: offset.extent * (1 + abs(progressVelocity) / CGFloat(omega)))]
+        }
         guard let scalar = offset.scalar, velocity != 0 else {
             return offset.extent > 0 ? [Part(from: offset.value, normalizedVelocity: 0, extent: offset.extent)] : []
         }
@@ -330,71 +353,4 @@ extension MotionGate {
     public func renderSpring(_ token: MotionSpring) -> RenderSpring {
         RenderSpring(token, gate: self)
     }
-}
-
-/// A layer value a ``RenderSpring`` animates: a scalar, point, size or rect.
-public nonisolated protocol RenderSpringValue: Sendable {
-    /// The value from a layer's `value(forKeyPath:)`, or nil when it is another type.
-    init?(layerValue: Any?)
-    /// The value as a layer stores it (`NSNumber` or `NSValue`).
-    var layerValue: Any { get }
-    /// The zero offset.
-    static var springZero: Self { get }
-    /// `self - target`, per component.
-    func springDelta(to target: Self) -> Self
-    /// The largest component's magnitude.
-    var springExtent: CGFloat { get }
-    /// The value as a scalar, or nil when it has several components.
-    var springScalar: CGFloat? { get }
-}
-
-nonisolated extension CGFloat: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let number = layerValue as? NSNumber else { return nil }
-        self = CGFloat(number.doubleValue)
-    }
-    public var layerValue: Any { NSNumber(value: Double(self)) }
-    public static var springZero: CGFloat { 0 }
-    public func springDelta(to target: CGFloat) -> CGFloat { self - target }
-    public var springExtent: CGFloat { abs(self) }
-    public var springScalar: CGFloat? { self }
-}
-
-nonisolated extension CGPoint: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.pointValue
-    }
-    public var layerValue: Any { NSValue(point: self) }
-    public static var springZero: CGPoint { .zero }
-    public func springDelta(to target: CGPoint) -> CGPoint { CGPoint(x: x - target.x, y: y - target.y) }
-    public var springExtent: CGFloat { Swift.max(abs(x), abs(y)) }
-    public var springScalar: CGFloat? { nil }
-}
-
-nonisolated extension CGSize: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.sizeValue
-    }
-    public var layerValue: Any { NSValue(size: self) }
-    public static var springZero: CGSize { .zero }
-    public func springDelta(to target: CGSize) -> CGSize { CGSize(width: width - target.width, height: height - target.height) }
-    public var springExtent: CGFloat { Swift.max(abs(width), abs(height)) }
-    public var springScalar: CGFloat? { nil }
-}
-
-nonisolated extension CGRect: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.rectValue
-    }
-    public var layerValue: Any { NSValue(rect: self) }
-    public static var springZero: CGRect { .zero }
-    public func springDelta(to target: CGRect) -> CGRect {
-        CGRect(x: origin.x - target.origin.x, y: origin.y - target.origin.y,
-               width: size.width - target.size.width, height: size.height - target.size.height)
-    }
-    public var springExtent: CGFloat { Swift.max(abs(origin.x), abs(origin.y), abs(size.width), abs(size.height)) }
-    public var springScalar: CGFloat? { nil }
 }

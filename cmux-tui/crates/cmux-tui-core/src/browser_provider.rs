@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::resource::TabPublicId;
@@ -111,7 +111,7 @@ impl BrowserProviderRegistry {
         client: u64,
         registration: BrowserProviderRegistration,
     ) -> anyhow::Result<BrowserProviderSnapshot> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         for (other_client, existing) in &state.registrations {
             if *other_client == client {
                 continue;
@@ -137,7 +137,7 @@ impl BrowserProviderRegistry {
     }
 
     pub(crate) fn unregister(&self, client: u64) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.registrations.remove(&client).is_none() {
             return false;
         }
@@ -147,11 +147,11 @@ impl BrowserProviderRegistry {
     }
 
     pub(crate) fn snapshot(&self) -> Option<BrowserProviderSnapshot> {
-        Self::snapshot_locked(&self.state.lock().unwrap())
+        Self::snapshot_locked(&self.state.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     pub(crate) fn target(&self, tab_id: &TabPublicId) -> Option<BrowserProviderTargetLease> {
-        Self::target_locked(&self.state.lock().unwrap(), tab_id)
+        Self::target_locked(&self.state.lock().unwrap_or_else(PoisonError::into_inner), tab_id)
     }
 
     /// Blocks until a provider publishes `tab_id`'s target, or `canceled`
@@ -163,7 +163,7 @@ impl BrowserProviderRegistry {
         tab_id: &TabPublicId,
         canceled: impl Fn() -> bool,
     ) -> Option<BrowserProviderTargetLease> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(lease) = Self::target_locked(&state, tab_id) {
                 return Some(lease);
@@ -175,9 +175,9 @@ impl BrowserProviderRegistry {
             if canceled() {
                 return None;
             }
-            state = self.state.lock().unwrap();
+            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             while (state.revision, state.wakes) == seen {
-                state = self.changed.wait(state).unwrap();
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
             }
         }
     }
@@ -187,7 +187,7 @@ impl BrowserProviderRegistry {
     /// Call it after making that predicate true (surface death, mux shutdown,
     /// mux drop).
     pub(crate) fn wake_waiters(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.wakes = state.wakes.wrapping_add(1);
         self.changed.notify_all();
     }
@@ -201,7 +201,7 @@ impl BrowserProviderRegistry {
         timeout: Duration,
     ) -> bool {
         let deadline = Instant::now() + timeout;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if state.revision != revision {
                 return true;
@@ -211,13 +211,17 @@ impl BrowserProviderRegistry {
             if canceled() {
                 return false;
             }
-            state = self.state.lock().unwrap();
+            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             while state.revision == revision && state.wakes == wakes {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
                     return true;
                 }
-                state = self.changed.wait_timeout(state, remaining).unwrap().0;
+                state = self
+                    .changed
+                    .wait_timeout(state, remaining)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             }
         }
     }

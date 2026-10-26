@@ -105,10 +105,33 @@ public final class SidebarView: NSView {
         get { list.inputTap }
         set { list.inputTap = newValue }
     }
-    public init(model: SidebarModel, design: DesignSettings = .shared) {
+    /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
+    /// the rows the list draws on screen stay armed. Nil observes every row.
+    public var rowFeed: SidebarRowFeed? {
+        get { list.rowFeed }
+        set {
+            // The feed it leaves observes every row again.
+            list.rowFeed?.follow(visibility: nil)
+            list.rowFeed?.watch(drawn: nil, SidebarRowFeed.Viewport())
+            list.rowFeed = newValue
+            newValue?.follow(visibility: list.visibility)
+            list.watchRows(layoutChanged: true)
+        }
+    }
+    /// The app's sidebar document store (the App injects it): the list follows its events (`SidebarListView.docStore`).
+    public var docStore: SidebarDocStore? {
+        get { list.docStore }
+        set { list.docStore = newValue }
+    }
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - design: The `sidebar.*` settings it draws from.
+    ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
+    public init(model: SidebarModel, design: DesignSettings = .shared, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        list.newRows = newRows
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()

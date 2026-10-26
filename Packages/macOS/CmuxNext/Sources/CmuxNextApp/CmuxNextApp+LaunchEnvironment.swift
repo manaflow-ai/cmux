@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextLaunch
 import CmuxNextProcessEnvironment
 import CmuxNextSettings
 import CmuxNextTerminal

@@ -56,7 +56,7 @@ final class HostPressureService {
     @ObservationIgnored private var lifecycleGeneration = 0
     /// The generation the monitor should run for, read by the monitor actor itself right before it
     /// builds its timer, so a stop issued while a start hop is in flight wins.
-    @ObservationIgnored private let wanted = OSAllocatedUnfairLock(initialState: 0)
+    @ObservationIgnored nonisolated private let wanted = Mutex(0)
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "host-pressure")
 
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
@@ -115,13 +115,13 @@ final class HostPressureService {
         if subscribers > 0, !running {
             running = true
             lifecycleGeneration += 1
-            let (monitor, previous, generation, wanted) = (monitor, lifecycle, lifecycleGeneration, wanted)
+            let (monitor, previous, generation) = (monitor, lifecycle, lifecycleGeneration)
             wanted.withLock { $0 = generation }
             // task-owner: one hop to start the monitor, after the previous hop; it ends when the monitor has started
             lifecycle = Task { [weak self] in
                 await previous?.value
                 guard let self, lifecycleGeneration == generation else { return }
-                await monitor.start(while: { wanted.withLock { $0 } == generation }) { [weak self] level, verdict in
+                await monitor.start(while: { [self] in wanted.withLock { $0 } == generation }) { [weak self] level, verdict in
                     self?.monitored = level
                     self?.monitoredVerdict = verdict
                     self?.noteLevel()

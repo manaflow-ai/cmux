@@ -11,6 +11,7 @@
 //! process, nonce and record at the same path. It spawns no child; the
 //! adopted session ends as `exit-unobserved` (`adopted_child.rs`).
 
+use cmux_threads::checked::fs as files;
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
 
 use cmux_process::Command;
@@ -333,7 +334,7 @@ fn predecessor(
     record_path: &Path,
     identity: &TerminalHostIdentity,
 ) -> anyhow::Result<Option<TerminalHostRecord>> {
-    let bytes = match fs::read(record_path) {
+    let bytes = match files::read(record_path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std_io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -370,7 +371,7 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
         .ok_or_else(|| anyhow::anyhow!("incarnation is not a canonical UUIDv4"))?;
     let terminal_hex = terminal_id.to_hex();
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
-    let uid = fs::metadata(root)?.uid();
+    let uid = files::metadata(root)?.uid();
     prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
     prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
     let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
@@ -444,7 +445,7 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
     drop(stdout);
 
     let record: TerminalHostRecord = serde_json::from_slice(
-        &fs::read(&record_path).context("read replacement terminal-host record")?,
+        &files::read(&record_path).context("read replacement terminal-host record")?,
     )?;
     validate_terminal_host_record(&record_path, &record)?;
     if record.terminal_id != terminal_hex
@@ -462,7 +463,7 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
         && terminal_host_record_liveness(&record_path, &dead).ok()
             == Some(TerminalHostLiveness::Dead)
     {
-        let _ = fs::remove_file(liveness_path(&record_path, &dead));
+        let _ = files::remove_file(liveness_path(&record_path, &dead));
     }
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     attachment.launch_process = Some(process);

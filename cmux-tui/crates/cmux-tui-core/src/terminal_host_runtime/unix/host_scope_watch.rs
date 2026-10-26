@@ -14,6 +14,7 @@
 //! trusted). The wait is one `poll()` deadline; on timeout, on a cgroup v1
 //! host, or when inotify cannot be set up, the caller fails open.
 
+use cmux_threads::checked::fs as files;
 use std::ffi::CString;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
@@ -96,7 +97,7 @@ impl PlacementWatch {
     }
 
     fn populated(&self) -> bool {
-        std::fs::read_to_string(self.scope.join("cgroup.events"))
+        files::read_to_string(self.scope.join("cgroup.events"))
             .is_ok_and(|events| events.lines().any(|line| line.trim() == "populated 1"))
     }
 

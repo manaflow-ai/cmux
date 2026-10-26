@@ -141,10 +141,10 @@ import Testing
         _ = springs
     }
 
-    /// With the display link down, the one-frame fallback delivers the frame's posts once, and no
+    /// With the display link stopped, the one-frame fallback delivers the frame's posts once, and no
     /// timer stays armed after it.
     @Test func withTheLinkDownTheFallbackFiresOnce() async throws {
-        let (scheduler, _) = Self.scheduler()
+        let (scheduler, _) = Self.scheduler(linkRuns: false)
         let clock = ManualClock()
         let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: clock, ledger: WakeupLedger())
         let (delivered, deliver) = AsyncStream.makeStream(of: Int.self)
@@ -164,16 +164,17 @@ import Testing
         deliver.finish()
     }
 
-    /// While the link ticks, input costs no fallback timer: the coalescer keeps ticking one frame
-    /// past its last delivery, and a post in that frame arms nothing.
+    /// While the link runs, input costs no fallback timer, from the first post of a burst on: the
+    /// coalescer keeps ticking one frame past its last delivery, and a post in that frame arms nothing.
     @Test func aTickingLinkArmsNoFallback() {
         let (scheduler, _) = Self.scheduler()
-        let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: WakeupLedger())
+        let clock = ManualClock()
+        let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: clock, ledger: WakeupLedger())
         var calls = 0
         coalescer.post(.pointerMove, owner: "hover", sample: Self.sample(0)) { _, _, _ in calls += 1 }
-        #expect(coalescer.isFallbackArmed, "the first post waits for a link that has not ticked yet")
+        #expect(!coalescer.isFallbackArmed, "a running link arms no fallback, even before its first tick")
         scheduler.frameDidFire(timestamp: 1000, refreshInterval: 1.0 / 120)
-        #expect(!coalescer.isFallbackArmed, "the tick cancels the fallback")
+        #expect(!coalescer.isFallbackArmed)
         for frame in 1...5 {
             coalescer.post(.pointerMove, owner: "hover", sample: Self.sample(frame)) { _, _, _ in calls += 1 }
             #expect(!coalescer.isFallbackArmed)
@@ -182,6 +183,7 @@ import Testing
         #expect(calls == 6)
         #expect(coalescer.fallbackFires == 0)
         #expect(coalescer.frameFlushes == 6)
+        #expect(clock.sleepRequests.isEmpty, "no timer task was made")
         coalescer.invalidate()
     }
 
@@ -198,16 +200,28 @@ import Testing
     }
 
     /// A scheduler whose link only ticks when the test says, and whose stall timer never fires
-    /// (its clock is never advanced), so every frame in a test is one the test delivered.
-    private static func scheduler() -> (FrameScheduler, ManualClock) {
+    /// (its clock is never advanced), so every frame in a test is one the test delivered. `linkRuns`
+    /// false: the link stays paused, as an occluded window's does.
+    private static func scheduler(linkRuns: Bool = true) -> (FrameScheduler, ManualClock) {
         let stallClock = ManualClock()
-        let scheduler = FrameScheduler.testing(clock: stallClock, ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in CoalescerFakeLink() }
+        let scheduler = FrameScheduler.testing(clock: stallClock, ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in
+            CoalescerFakeLink(runs: linkRuns)
+        }
         return (scheduler, stallClock)
     }
 }
 
 @MainActor
 private final class CoalescerFakeLink: FrameLink {
-    var isPaused = false
+    private let runs: Bool
+    private var paused = false
+
+    init(runs: Bool) { self.runs = runs }
+
+    var isPaused: Bool {
+        get { paused || !runs }
+        set { paused = newValue }
+    }
+
     func invalidate() {}
 }

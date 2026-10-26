@@ -22,7 +22,7 @@ extension CADisplayLink: FrameLink {
 
 /// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link
 /// on the shared ``DisplayClock`` only while at least one ``FrameClient`` is active, and leaves when
-/// the last one goes idle, so an idle window has no frame wakeups.
+/// the last one goes idle (or is parked, ``FrameClient/visibleOnly``), so an idle window has no frame wakeups.
 ///
 /// Every animation, drag autoscroll, resize settle and per-frame batch in CmuxNext is a client of
 /// its window's scheduler; window-less frame work uses ``app``, on the main display. Budgeted
@@ -231,8 +231,8 @@ public final class FrameScheduler: NSObject {
     /// Its display's link exists and runs, and this scheduler ticks on it.
     public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
 
-    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
-    /// clients (made on first use; dropped with the scheduler's window).
+    /// This scheduler's continuous input, delivered before its frame clients (made on first use; kept, with
+    /// its work dropped, when its window closes, so a window shown again keeps it). Get it through ``FrameInputCoalescers``.
     public var input: FrameInputCoalescer {
         if let madeInput { return madeInput }
         let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
@@ -361,7 +361,6 @@ public final class FrameScheduler: NSObject {
     /// Drops the subscription and every client (the window closed).
     public func invalidate() {
         madeInput?.invalidate()
-        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
@@ -456,9 +455,13 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() }
     }
 
+    /// Ticks `client` and records its wakeup, unless an earlier tick of this frame stopped or parked it
+    /// (it left ``clients``): a client that does not run is not counted.
     private func fire(_ client: FrameClient, _ tick: FrameTick) {
+        let id = ObjectIdentifier(client)
+        guard clients[id] === client, client.isActive else { return }
         ledger.record(client.owner, reason: "frame")
-        if !client.fire(tick) { drop(ObjectIdentifier(client)) }
+        if !client.fire(tick) { drop(id) }
     }
 
     private struct WeakScheduler {

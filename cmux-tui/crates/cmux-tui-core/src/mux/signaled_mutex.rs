@@ -41,6 +41,7 @@ impl<T> SignaledMutex<T> {
         site: crate::diagnostics::LockSite,
         waited_from: Instant,
         blocker: Option<crate::diagnostics::LockSite>,
+        rank: HeldRank,
     ) -> SignaledMutexGuard<'a, T> {
         self.stats.acquired(site, waited_from.elapsed(), blocker);
         SignaledMutexGuard {
@@ -48,22 +49,27 @@ impl<T> SignaledMutex<T> {
             owner: self,
             site,
             acquired_at: Instant::now(),
-            _rank: HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME),
+            _rank: rank,
         }
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
         debug_assert_not_journal_writer_commit();
-        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
+        // Raised before the wait (crate::lock_rank `RankWait`).
+        let wait = HeldRank::acquire(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
         match self.value.lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(error) => {
-                Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
-            }
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker, wait.held())),
+            Err(error) => Err(PoisonError::new(self.guard(
+                error.into_inner(),
+                site,
+                waited_from,
+                blocker,
+                wait.held(),
+            ))),
         }
     }
 
@@ -81,10 +87,10 @@ impl<T> SignaledMutex<T> {
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
         match self.value.try_lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
+            Ok(value) => Ok(self.guard(value, site, waited_from, blocker, registry_rank())),
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
             Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
-                self.guard(error.into_inner(), site, waited_from, blocker),
+                self.guard(error.into_inner(), site, waited_from, blocker, registry_rank()),
             ))),
         }
     }
@@ -216,7 +222,7 @@ pub(crate) struct StateGuard<'a> {
 }
 
 impl StateGuard<'_> {
-    fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
+    fn new(guard: MutexGuard<'_, State>, rank: HeldRank) -> StateGuard<'_> {
         // A request thread may hold state while it waits for a writer
         // receipt: the writer must never take state (counted in release).
         let on_writer = crate::workspace_registry::registry_connection::in_journal_writer_commit();
@@ -225,11 +231,23 @@ impl StateGuard<'_> {
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
+        StateGuard { guard, _rank: rank }
     }
 }
 
 const STATE_LOCK_NAME: &str = "mux.state";
+
+/// The state rank of a `try_lock`, which never waits.
+#[cfg(test)]
+fn state_rank() -> HeldRank {
+    HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME)
+}
+
+/// The registry rank of a `try_lock`, which never waits.
+#[cfg(test)]
+fn registry_rank() -> HeldRank {
+    HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME)
+}
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
@@ -258,21 +276,22 @@ impl StateMutex {
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
-        HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
+        // Raised before the wait (crate::lock_rank `RankWait`).
+        let wait = HeldRank::acquire(LockRank::MuxState, STATE_LOCK_NAME);
         match self.0.lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
-            Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
+            Ok(guard) => Ok(StateGuard::new(guard, wait.held())),
+            Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner(), wait.held()))),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         match self.0.try_lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
+            Ok(guard) => Ok(StateGuard::new(guard, state_rank())),
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(poison)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
-            }
+            Err(TryLockError::Poisoned(poison)) => Err(TryLockError::Poisoned(PoisonError::new(
+                StateGuard::new(poison.into_inner(), state_rank()),
+            ))),
         }
     }
 }
@@ -336,3 +355,7 @@ impl Mux {
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }
+
+#[cfg(test)]
+#[path = "lock_qos_tests.rs"]
+mod lock_qos_tests;

@@ -97,6 +97,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
+        view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator) // p07-memory-005
@@ -446,6 +447,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
         DebugTabSwitch.mark(self, "content")
         if let content, let key { DebugTabSwitch.content(self, content, key: key) }
+        // The tab's node is the one `selectTabNode` made visible; a no-op when the content follows it already.
+        if let content, let key { content.followAppearance(services.appearance, node: services.cache.node(for: key)) }
         currentTabKey = key
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }

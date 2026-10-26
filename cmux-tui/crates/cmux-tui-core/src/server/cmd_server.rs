@@ -15,10 +15,13 @@ use super::ClientIdentityWire;
 use super::machine_usage_json;
 use super::origin_gate;
 use super::server_stats;
+use super::{AsyncReply, MessageWriter, Response, send_response};
 use crate::Mux;
 use crate::MuxEvent;
 use crate::PaneId;
 use crate::mux::DaemonHandoffRequest;
+use crate::work_reply::{Unanswered, WorkReply};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -205,8 +208,60 @@ pub(super) fn machine_usage(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     Ok(machine_usage_json(mux.machine_usage().as_ref()))
 }
 
-pub(super) fn machine_listening_tcp() -> anyhow::Result<Value> {
-    machine_listening_tcp_json()
+/// `machine-listening-tcp` runs ss or netstat to completion, so it runs on a
+/// work item of the System lane and answers from there; the request thread
+/// goes on at once (Chrome posts blocking work to a MayBlock task runner,
+/// base/task/task_traits.h). The inventory is a view's poll: UserVisible.
+/// It only reads, so shutdown never waits for it (ContinueOnShutdown); a
+/// refused, dropped or panicked item still answers its id.
+pub(super) fn start_machine_listening_tcp(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    reply: AsyncReply,
+    writer: &MessageWriter,
+) -> bool {
+    let item_writer = writer.clone();
+    let answer = WorkReply::new(move |listing: Result<anyhow::Result<Value>, Unanswered>| {
+        let listing = listing.unwrap_or_else(|why| {
+            Err(match why {
+                Unanswered::ShuttingDown => anyhow::anyhow!("the daemon is shutting down"),
+                Unanswered::Panicked => {
+                    anyhow::anyhow!("internal error: the listening-port read stopped unexpectedly")
+                }
+            })
+        });
+        reply.reply(|| respond(&item_writer, id, listing));
+    });
+    // A refused item is dropped here, and `answer` answers it.
+    let _ = mux.work.post(
+        Priority::UserVisible,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || answer.run(machine_listening_tcp_json),
+    );
+    true
+}
+
+fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {
+    let response = match answer {
+        Ok(data) => Response {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        },
+        Err(error) => Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error.to_string()),
+            error_code: None,
+            error_delivery: None,
+        },
+    };
+    send_response(writer, response)
 }
 
 pub(super) fn pairing_response(
@@ -303,6 +358,7 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
+            crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
             let output = match cmux_process::Command::new(program).args(arguments).output() {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,

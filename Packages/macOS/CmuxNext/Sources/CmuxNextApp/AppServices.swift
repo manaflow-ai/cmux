@@ -75,6 +75,9 @@ final class AppServices {
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
     private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    /// The local and peer chat upload stagers' expiry deadlines.
+    private(set) lazy var chatUploadExpiry = MainDeadline(owner: "AgentChatUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
+    private(set) lazy var peerUploadExpiry = MainDeadline(owner: "AgentPeerUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -117,12 +120,21 @@ final class AppServices {
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
+    /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
+    /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
+    // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
     private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: AppEvents(center: NSWorkspace.shared.notificationCenter),
+        appEvents: appEvents, workspaceEvents: workspaceEvents,
         isAppHidden: NSApp.isHidden
     )
+    /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
+    /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
+    /// the glass watch, every window and the content its panes show. The design settings own it,
+    /// so `Motion` reads the same one.
+    let appearance: AppearanceSignals
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -273,6 +285,17 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
+    /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
+    /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
+    private lazy var pointerFrames: FrameInputCoalescers = (NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()
+    /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
+    /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
+    /// is off: each drag event moves them.
+    private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
+    /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
+    private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -329,7 +352,7 @@ final class AppServices {
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
-    /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
+    /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
@@ -380,6 +403,8 @@ final class AppServices {
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
+    private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
+        .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read by its afterFirstFrame start
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
@@ -479,6 +504,14 @@ final class AppServices {
     let hoverCards: HoverCardCoordinator
     /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
     let overlayChanges = OverlayChangeFeed()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A terminal view's daemon screen or link changed (the terminals facet's wait): each step a view's attach driver
+    /// maps signals it. The overlays' broadcaster type, so no second lock site: it only says "read again".
+    let terminalScreenChanges = OverlayChangeFeed()
+    var terminalScreenChanged: (@Sendable () -> Void)? { { [terminalScreenChanges] in terminalScreenChanges.signal() } }
+    #else
+    var terminalScreenChanged: (@Sendable () -> Void)? { nil }
+    #endif
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -523,6 +556,7 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
@@ -531,7 +565,8 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil) {
+         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals) {
+        self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -645,11 +680,9 @@ final class AppServices {
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
-        (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
-            // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
-            if self.sleepyMode.consumesKeyDown() { return true }
-            return self.keyRouter.interceptKeyDown(event, in: window)
+            return sleepyMode.consumesKeyDown() || routeKeyDown(event, window)  // a key on Sleepy Mode's scene only wakes it
         }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
             // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
@@ -664,7 +697,6 @@ final class AppServices {
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }
         surfaceInvariant.services = self
-        surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
@@ -681,19 +713,18 @@ final class AppServices {
         daemon.workTracker = { [registry] in registry.track($0) }
         palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch (p08-startup-023)
         terminalDelegate.services = self
+        // Wiring only: the starts behind them are launch posts (`serviceStartPosts()`, p08-startup-031).
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
-        serverUpdates.start(registry: registry)
+        updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
+        serverUpdates.bind(registry: registry)
+        input.startNoActivateGuard(tap: inputTap)  // an NSApp input hook: before the app activates
+        notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
-        input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
-        browserHost = AppBrowserHost(services: self)
-        browserHost?.start()
-        notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
         // ends link hints and a waiting chord (it may move the keyboard).
@@ -707,6 +738,9 @@ final class AppServices {
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
+    /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
+    /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).
+    func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).

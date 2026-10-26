@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 ///
@@ -15,7 +16,8 @@ final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
     private let tap: InputEventTap
     private let notifications: NotificationCenter
-    private let clock: any Clock<Duration>
+    /// The intentional-hold deadline of one modifier press, in the visible class; its release or a key cancels it.
+    private let holdDeadline: MainDeadline
     private let changed: (NSEvent.ModifierFlags?) -> Void
     private let keepsHints: (NSEvent) -> Bool
     private let isFront: @MainActor (NSWindow) -> Bool
@@ -24,7 +26,6 @@ final class WindowScopedShortcutHintModifierMonitor {
     /// The policy's `held`, read by the key and click subscriptions' predicate without a weak load.
     private let hold = Hold()
     private var observers: [NSObjectProtocol] = []
-    private var pending: Task<Void, Never>?
     private var enabled = false
     /// Hints show in this window now; the tap's `hintsShowing` flag is set while it is true.
     private(set) var showing = false
@@ -35,18 +36,19 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     /// - Parameters:
     ///   - tap: The app's input tap.
+    ///   - deadlines: The app's deadline placer (`AppServices.mainDeadlines`): the hold deadline is one of its wakes.
     ///   - notifications: Where the window's resign-key and the app's resign-active notifications come from.
     ///   - isFront: Whether the window is the one a hold shows hints in (the active app's key window).
     ///   - keepsHints: Whether a key-down leaves the hints up (a pane-navigation key); others hide them until release.
     ///   - changed: The held set to show hints for, or nil to hide them.
-    init(window: NSWindow, tap: InputEventTap, notifications: NotificationCenter = .default, clock: any Clock<Duration> = ContinuousClock(),
+    init(window: NSWindow, tap: InputEventTap, deadlines: MainDeadlineScheduler, notifications: NotificationCenter = .default,
          isFront: @escaping @MainActor (NSWindow) -> Bool = WindowScopedShortcutHintModifierMonitor.isFrontWindow,
          keepsHints: @escaping (NSEvent) -> Bool = { _ in false },
          changed: @escaping (NSEvent.ModifierFlags?) -> Void) {
         self.window = window
         self.tap = tap
         self.notifications = notifications
-        self.clock = clock
+        holdDeadline = MainDeadline(owner: "ShortcutHint.intentionalHold", workClass: .visible, scheduler: deadlines)
         self.isFront = isFront
         self.keepsHints = keepsHints
         self.changed = changed
@@ -108,19 +110,20 @@ final class WindowScopedShortcutHintModifierMonitor {
         _ = policy.update(flags: flags, eligible: eligible, elapsed: .zero)
         hold.active = policy.held
         guard eligible, ShortcutHintModifierPolicy.armed(flags) != nil else { return }
-        pending = Task { [weak self, clock] in
-            // wakeup-allow: one cancellable, injected-clock 0.30s intentional hold deadline; never polling.
-            do { try await clock.sleep(for: ShortcutHintModifierPolicy.intentionalHoldDelay) } catch { return }
-            guard !Task.isCancelled, let self else { return }
-            pending = nil
-            let current = currentFlags
-            if policy.update(flags: current, eligible: eligible, elapsed: ShortcutHintModifierPolicy.intentionalHoldDelay),
-               let armed = ShortcutHintModifierPolicy.armed(current) {
-                show(armed)
-                #if DEBUG || CMUX_BENCH_HOOKS
-                capture.finish(true)
-                #endif
-            }
+        holdDeadline.schedule(after: ShortcutHintModifierPolicy.intentionalHoldDelay) { [weak self] in
+            self?.holdElapsed()
+        }
+    }
+
+    /// The modifier stayed down for the intentional hold: the hints show when the policy agrees.
+    private func holdElapsed() {
+        let current = currentFlags
+        if policy.update(flags: current, eligible: eligible, elapsed: ShortcutHintModifierPolicy.intentionalHoldDelay),
+           let armed = ShortcutHintModifierPolicy.armed(current) {
+            show(armed)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            capture.finish(true)
+            #endif
         }
     }
 
@@ -150,8 +153,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     }
 
     private func hide() {
-        pending?.cancel()
-        pending = nil
+        holdDeadline.cancel()
         guard showing else { return }
         showing = false
         tap.setFlag(.hintsShowing, false)

@@ -18,6 +18,8 @@ final class WindowKeyFamily {
     private let environment: WindowKeyEnvironment
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
     private var observers: [EventSubscription] = []
+    /// `appearance.inactiveWindowDim` changes (only while it has a view).
+    private var dimWatch: AppearanceSignals.Subscription?
     /// The injected app events, or this window's own when none was injected.
     private lazy var events = environment.events ?? AppEvents(center: .default)
     /// The keyboard left the window's family after the family held it.
@@ -61,7 +63,10 @@ final class WindowKeyFamily {
     func remove(_ view: WindowMaterialView) {
         views.remove(view)
         // The last view left: no one reads the state, so no notice should cost a check.
-        if views.allObjects.isEmpty { observers.removeAll() }
+        if views.allObjects.isEmpty {
+            observers.removeAll()
+            dimWatch = nil
+        }
     }
 
     private func startObserving() {
@@ -72,9 +77,9 @@ final class WindowKeyFamily {
                      NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
         observers = names.map { name in events.subscribe(name, owner: "WindowKeyFamily") { [weak self] in self?.keyDidMove() } }
-        observers.append(events.subscribe(WindowMaterialView.inactiveDimDidChange, owner: "WindowKeyFamily") { [weak self] in
+        dimWatch = environment.appearance.subscribe([.inactiveDim], owner: "WindowKeyFamily") { [weak self] in
             self?.forEachView { $0.updateInactiveTint() }
-        })
+        }
         // Key changes while it did not observe: read where the keyboard is now.
         keyDidMove()
     }

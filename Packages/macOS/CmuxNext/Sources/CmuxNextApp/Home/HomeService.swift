@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
 import Observation
@@ -60,6 +61,10 @@ final class HomeService {
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``, p08-startup-027): ``start()`` is one of their
+    /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
+    /// service made after launch): nothing waits on the launch order.
+    @ObservationIgnored var launchFeeds: LaunchNeedPosts?
     /// Home opened in a window this launch; the host starts once the Chief
     /// owner is connected, even when Home opened first.
     @ObservationIgnored private var homeWasOpened = false
@@ -172,10 +177,33 @@ final class HomeService {
         wireHostedChief()
     }
 
+    /// The local daemon gets the Home workspace on each connect (`workspace.ensure_home`). Part of the
+    /// launch's critical path: the restore's first workspace waits for its answer (`FirstWorkspaceLaunch`).
+    /// It asks only the build's own daemon; the Chief tab it adds waits for ``start()``'s Chief owner.
+    func startWorkspace() {
+        guard homeObservation == nil else { return }
+        let (local, auth) = (services.machines.local, services.cloudAuth)
+        // task-owner: lives as long as the service; event-driven (Observation)
+        homeObservation = Task { [weak self] in
+            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
+            for await (connection, _) in ObservationStream({
+                (local.supports(DaemonCapability.workspaceKind.rawValue) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+            }) {
+                guard let self, let connection else { continue }
+                ensureHomeWorkspace(connection)
+                // The Chief's daemon link names this connection's socket, known only once it is up.
+                if homeWasOpened { publishAppLinks() }
+            }
+        }
+    }
+
     /// Observes the Chief owner: each new connection reloads the list and
     /// every open session, then resends what is still sending (same keys;
-    /// the owner applies each once). The local daemon gets the Home workspace.
+    /// the owner applies each once). Starts the cloud link and the list's
+    /// owners. Once; never before the first frame at launch (``postLaunchFeeds(startup:)``):
+    /// a Home view shows the last list from the cache until then.
     func start() {
+        startWorkspace()
         // Local conversations come from the Chief owner; the build's own
         // daemon carries only the cloud proxy's events (its own conversation
         // store is the old per-tag one, which Home no longer shows).
@@ -191,21 +219,7 @@ final class HomeService {
         }
         watchReplies()
         chief.start()
-        let local = services.machines.local
-        let auth = services.cloudAuth
         let chief = chief
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeObservation = Task { [weak self] in
-            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in ObservationStream({
-                (local.supports(DaemonCapability.workspaceKind.rawValue) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
-            }) {
-                guard let self, let connection else { continue }
-                ensureHomeWorkspace(connection)
-                // The Chief's daemon link names this connection's socket, known only once it is up.
-                if homeWasOpened { publishAppLinks() }
-            }
-        }
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
@@ -248,11 +262,13 @@ final class HomeService {
     /// Home opened in a window (or its owner reconnected, not `asked`): start
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
+        launchFeeds?.need()
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
+        // Before ``start()`` the Chief owner has no connection: the brain host starts on its connect.
         brain.ensure(asked: asked)
     }
 
