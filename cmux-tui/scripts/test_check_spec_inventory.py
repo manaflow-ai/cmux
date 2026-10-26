@@ -140,7 +140,7 @@ fn cancel_request(mux: &Mux, client: u64) -> bool {
     if !mux.control_clients.is_unix(client) { return false; }
     true
 }
-fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
     if !mux.control_clients.is_unix(client) { return Some(false); }
     Some(true)
@@ -154,7 +154,7 @@ enum Command {
 }
 fn helper(mux: &Mux, client: u64) -> bool { if !mux.control_clients.is_unix(client) { return false; } true }
 fn cancel_request(mux: &Mux, client: u64) -> bool { true }
-fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+fn handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
     if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
     if !mux.control_clients.is_unix(client) { return Some(false); }
     Some(true)

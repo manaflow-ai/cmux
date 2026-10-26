@@ -4,7 +4,7 @@
     "apps": {
       "enum": "Command",
       "envelope": "Request",
-      "enum_handler": "try_handle",
+      "enum_handler": "handle",
       "literals": {
         "cancel-request": {
           "request": "CancelRequest",
