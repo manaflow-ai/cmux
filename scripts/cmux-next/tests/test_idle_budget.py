@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""idle-budget.py's pure parts: process kinds, per-kind sums, the budget check and the perf cron rows; procs.py's
-counters (interrupt and package-idle wakeups apart, billed energy, GPU time, the coalition); and the chrome-static
-reference (Chrome kinds, uBlock Origin parity, ratio rows; xbench's Chrome switches)."""
+"""idle-budget.py's pure parts: process kinds, per-kind sums, the v2 budget check (sessions, sums, ratios,
+assertions) and the perf cron rows; procs.py's counters (interrupt and package-idle wakeups apart, billed
+energy, GPU time, the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the
+reference browser refusal, ratio rows; xbench's Chrome switches). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,7 +24,6 @@ procs = ib.procs
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
 CHROME = "/Applications/Google Chrome.app"
 CHROME_HELPERS = f"{CHROME}/Contents/Frameworks/Google Chrome Framework.framework/Versions/141.0.0.0/Helpers"
-UBO_TARGET = {"type": "background_page", "url": f"chrome-extension://{ib.UBLOCK_ID}/background.html"}
 
 
 def row(kind, threads, wakeups, cpu=0.0):
@@ -42,6 +43,11 @@ class IdleBudgetTests(unittest.TestCase):
                          "cef-extension")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/x --type=utility --utility-sub-type=n"), "cef-utility")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper"), "cef-helper")
+        # The Chromium Host is a second executable of the app (Contents/MacOS), not the app.
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host --framework=/x/Chromium Embedded Framework.framework"),
+                         "cef-host")
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host"), "cef-host")
+        # Older builds' Chromium Host app in Contents/Frameworks.
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Chromium Host.app/Contents/MacOS/cmux Chromium Host --x"),
                          "cef-host")
         # A --type process outside a Helper app is not a Chromium helper: the app binary is the app.
@@ -80,7 +86,8 @@ class IdleBudgetTests(unittest.TestCase):
         self.assertIsNone(rows["idle_budget.light.app.threads_max"]["budget"])
 
     def test_checked_in_budget_parses(self):
-        budget = ib.json.load(open(ib.BUDGET_FILE))
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(budget["version"], 2)
         self.assertEqual(budget["kinds"]["app"]["main_wakes_per_s"], 0)
         self.assertIn("energy_mw_billed", budget["kinds"]["app"])
         self.assertIn("gpu_ms_per_s", budget["kinds"]["app"])
@@ -199,16 +206,287 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(xbench.fmt(2.25, "ms/s"), "2.2 ms/s")
         self.assertIn("ms/s", xbench.FLOORS)
 
+    # -- v2 (p14-energy-002) ------------------------------------------------------------------------------
+
+    def test_v2_kinds(self):
+        frameworks = f"{APP}/Contents/Frameworks"
+        host = f"{frameworks}/cmux DEV t Chromium Host.app/Contents/MacOS/cmux DEV t Chromium Host"
+        self.assertEqual(ib.kind(host), "cef-host")
+        self.assertEqual(ib.kind(f"{host} --remote-debugging-port=0"), "cef-host")
+        helper = f"{frameworks}/cmux Helper.app/Contents/MacOS/cmux Helper"
+        self.assertEqual(ib.kind(f"{helper} --type=renderer --extension-process"), "cef-extension")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=network.mojom.NetworkService"), "cef-network")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=storage.mojom.StorageService"), "cef-storage")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=audio.mojom.AudioService"), "cef-audio")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=data_decoder.mojom.DataDecoderService"),
+                         "cef-utility")
+        self.assertEqual(ib.kind(f"{helper} --type=crashpad-handler --database=x"), "crashpad")
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV"), "app")
+
+    def test_app_plus_daemon_sum_is_an_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": {"wakeups_per_s": 0.7, "main_wakes_per_s": 0.2}, "daemon": {"wakeups_per_s": 0.4}}
+        overs = ib.over_budget("tabs-static", kinds, budget)
+        self.assertIn(("app+daemon", "wakeups_per_s", 1.1, 1.0), overs)
+        self.assertEqual(ib.over_line("tabs-static", ("app+daemon", "wakeups_per_s", 1.1, 1.0)),
+                         "IDLE-BUDGET-OVER tabs-static app+daemon wakeups_per_s 1.1 > 1.0")
+        # Each alone is within its own kind limit: only the sum is over.
+        self.assertEqual([o for o in overs if o[0] in ("app", "daemon")], [])
+        rows = ib.cron_rows({"sessions": {"tabs-static": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.tabs-static.app+daemon.wakeups_per_s"]["p50"], 1.1)
+        self.assertEqual(rows["idle_budget.tabs-static.app+daemon.wakeups_per_s"]["budget"], 1.0)
+        self.assertIn("idle_budget.tabs-static.tree.wakeups_per_s", rows)
+
+    def test_v1_file_still_loads_and_judges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v1.json"
+            path.write_text(json.dumps({"kinds": {"app": {"main_wakes_per_s": 0, "wakeups_per_s": 1.0},
+                                                  "holder": {"wakeups_max": {"light": 0}}}}))
+            budget = ib.load_budget(str(path))
+        self.assertEqual(budget["version"], 1)
+        self.assertEqual(budget["sessions"], {})
+        kinds = {"app": {"main_wakes_per_s": 0.2, "wakeups_per_s": 1.5}, "holder": {"wakeups_max": 0.5}}
+        self.assertEqual(ib.over_budget("light", kinds, budget),
+                         [("app", "main_wakes_per_s", 0.2, 0), ("app", "wakeups_per_s", 1.5, 1.0),
+                          ("holder", "wakeups_max", 0.5, 0)])
+        rows = ib.cron_rows({"sessions": {"light": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.light.app.wakeups_per_s"]["budget"], 1.0)
+
+    def test_d2_to_d7_sessions_and_numbers(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        sessions = budget["sessions"]
+
+        def limit(session, name, field):
+            return ib.limit_for(budget, session, name, field)
+
+        # D2: light-webkit keeps the owner's zeros and tightens; light takes D4's Chromium limits.
+        self.assertEqual(limit("light-webkit", "app", "main_wakes_per_s"), 0)
+        self.assertEqual(limit("light-webkit", "holder", "wakeups_max"), 0)
+        self.assertEqual(limit("light-webkit", "terminal-host", "wakeups_max"), 0)
+        self.assertEqual(limit("light-webkit", "app", "wakeups_per_s"), 0.5)
+        self.assertEqual(limit("light-webkit", "daemon", "wakeups_per_s"), 0.2)
+        self.assertEqual(limit("light-webkit", "acpmux", "wakeups_max"), 0.1)
+        self.assertEqual(sessions["light-webkit"]["sums"]["tree"], {"energy_mw_cpu": 1.0})  # D2: tree CPU energy
+        self.assertEqual(limit("light", "app", "wakeups_per_s"), 1.0)
+        self.assertEqual(limit("light", "app", "main_wakes_per_s"), 0.5)
+        # D3: hidden, minimized, occluded, each no higher than light on the same run, and napped.
+        for name in ("light-hidden", "minimized", "occluded"):
+            self.assertEqual(limit(name, "app", "wakeups_per_s"), 0.3)
+            self.assertEqual(limit(name, "app", "main_wakes_per_s"), 0.1)
+            self.assertEqual(limit(name, "app", "role"), "napped")
+            self.assertEqual({(r["to"], r["max_ratio"]) for r in sessions[name]["relative"]}, {("light", 1.0)})
+        # D4 tabs-static.
+        self.assertEqual(sessions["tabs-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
+        self.assertEqual(limit("tabs-static", "app", "main_wakes_per_s"), 0.5)
+        self.assertEqual(limit("tabs-static", "cef-renderer", "hidden_wakeups_max"), 0.1)
+        self.assertEqual(limit("tabs-static", "cef-extension", "wakeups_max"), 0.1)
+        self.assertEqual(limit("tabs-static", "cef-network", "wakeups_per_s"), 0.2)
+        self.assertEqual(limit("tabs-static", "webkit-webcontent", "hidden_wakeups_max"), 0.5)
+        # D5 stress-static.
+        self.assertEqual(sessions["stress-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
+        self.assertEqual(limit("stress-static", "app", "main_wakes_per_s"), 0.5)
+        # D6 Chrome ratios.
+        chrome = {f"{r['of']}/{r['vs']}.{r['field']}": r["max_ratio"] for r in budget["ratio_to_chrome"]}
+        xbench = {(r["browser"], r["row"]): r.get("max_ratio", r.get("max")) for r in budget["xbench"]}
+        self.assertEqual(xbench[("cmux-chromium", "idle-wakeups-20")], 0.5)
+        self.assertEqual(xbench[("cmux-chromium", "idle-wakeups-1")], 0.5)
+        self.assertEqual(xbench[("cmux-chromium", "power-idle-visible")], 1.0)
+        self.assertEqual(xbench[("cmux-chromium", "power-idle-hidden")], 1.0)
+        self.assertEqual(xbench[("cmux-terminal", "idle-wakeups-home")], 1.0)
+        self.assertEqual(chrome["cef-host/browser.wakeups_per_s"], 1.0)
+        self.assertEqual(chrome["cef-gpu/gpu.wakeups_per_s"], 1.0)
+        # D7 energy saver.
+        for name, reason in (("energy-saver", "setting"), ("energy-saver-auto", "battery")):
+            self.assertEqual(sessions[name]["limits"]["page_raf_per_s"], 31)
+            self.assertEqual(sessions[name]["expect"], {"saver": True, "saver_reason": reason})
+            self.assertEqual(sessions[name]["relative"],
+                             [{"to": "tabs-static", "of": "tree", "field": "wakeups_per_s", "max_ratio": 0.6}])
+        self.assertEqual(sessions["energy-saver-auto"]["simulate"], {"on_battery": True, "percent": 15})
+
+    def test_assertion_with_keep_awake_off_is_an_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        held = [{"pid": 4242, "type": "PreventUserIdleSystemSleep", "name": "cmux keep awake"}]
+        off = {"sessions.keepAwake": "off", "phone.keepAwake": "off"}
+        over = ("assertions", "held", 1, 0)
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": held, "settings": off}), [over])
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": held}), [over])
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": [], "settings": off}), [])
+        # The shipping default (pluggedIn) with no agent at work: the assertion is a leak, and the run did not
+        # have the settings the session asked for (off).
+        shipping = {"sessions.keepAwake": "pluggedIn", "phone.keepAwake": "pluggedIn"}
+        overs = ib.over_budget("light", {}, budget, facts={"assertions": held, "settings": shipping})
+        self.assertIn(over, overs)
+        self.assertIn(("session", "sessions.keepAwake", "pluggedIn", "off"), overs)
+        self.assertIn(("session", "phone.keepAwake", "pluggedIn", "off"), overs)
+        # Only a session that itself turns keep-awake on may hold one; busy and reference sessions are not judged.
+        asks = {"sessions": {"keep-awake": {"settings": {"sessions.keepAwake": "always"}}},
+                "assertions_allowed_when": budget["assertions_allowed_when"]}
+        self.assertEqual(ib.over_budget("keep-awake", {}, asks,
+                                        facts={"assertions": held, "settings": {"sessions.keepAwake": "always"}}), [])
+        for name in ("agent-working-visible", "busy-hidden", "chrome-static"):
+            self.assertEqual(ib.over_budget(name, {}, budget, facts={"assertions": held, "settings": shipping}), [])
+        # STRESS has no agent at work: judged.
+        self.assertIn(over, ib.over_budget("stress", {}, budget, facts={"assertions": held}))
+
+    def test_every_session_runs_with_keep_awake_off(self):
+        for session in ib.SESSIONS:
+            config = ib.session_config(session)
+            self.assertEqual((config["sessions"]["keepAwake"], config["phone"]["keepAwake"]), ("off", "off"))
+            self.assertEqual(config["appearance"], {"backgroundOpacity": 1})
+        self.assertEqual(ib.session_config("light-webkit")["browser"], {"defaultEngine": "webkit"})
+
+    def test_relative_and_chrome_ratios(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        light = {"app": {"wakeups_per_s": 0.2, "main_wakes_per_s": 0.05}}
+        hidden = {"app": {"wakeups_per_s": 0.25, "main_wakes_per_s": 0.0}}
+        # light-hidden measured before light: judged all the same once both are measured.
+        overs, notes = ib.cross_overs(budget, {"light-hidden": hidden, "light": light})
+        self.assertEqual(overs, [("light-hidden", ("app", "wakeups_per_s/light", 1.25, 1.0))])
+        self.assertEqual(notes, [])
+        overs, notes = ib.cross_overs(budget, {"light-hidden": hidden})
+        self.assertEqual(overs, [])
+        self.assertIn("light-hidden app wakeups_per_s/light: not judged: reference session light not measured", notes)
+        # 40/s vs Chrome's 63.5/s at 0.5 (task 004's fixture) and a Chromium Host above Chrome's browser process,
+        # with tabs-static measured before chrome-static (task 004's --sessions tabs-static,chrome-static).
+        cmux = {"app": {"wakeups_per_s": 30.0, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
+                "daemon": {"wakeups_per_s": 0.0, "energy_mw_billed": 1.0},
+                "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": 2.0},
+                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0}}
+        chrome = {"browser": {"wakeups_per_s": 3.5, "energy_mw_billed": 20.0},
+                  "gpu": {"wakeups_per_s": 60.0, "energy_mw_billed": 20.0}}
+        overs, notes = ib.cross_overs(budget, {"tabs-static": cmux, "chrome-static": chrome})
+        got = [over for session, over in overs if session == "tabs-static"]
+        self.assertIn(("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5), got)
+        self.assertIn(("cef-host", "wakeups_per_s/chrome:browser", 1.143, 1.0), got)
+        self.assertNotIn("cef-gpu", [o[0] for o in got])
+        self.assertEqual(notes, [])
+        # Without chrome-static, every ratio_to_chrome row says it was not judged.
+        _, notes = ib.cross_overs(budget, {"tabs-static": cmux})
+        self.assertEqual(len([n for n in notes if "chrome-static not measured" in n]), len(budget["ratio_to_chrome"]))
+        # A partial tree is no value: an unknown part makes the ratio not judged, not a pass.
+        partial = {**cmux, "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": None}}
+        overs, notes = ib.cross_overs(budget, {"tabs-static": partial, "chrome-static": chrome})
+        self.assertNotIn("energy_mw_billed/chrome:tree", [o[1] for _, o in overs])
+        self.assertIn("tabs-static tree energy_mw_billed/chrome:tree: not judged: tree energy_mw_billed unknown", notes)
+
+    def test_a_sum_with_an_unknown_part_is_no_value(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": {"energy_mw_cpu": 0.6, "wakeups_per_s": 0.1, "main_wakes_per_s": 0},
+                 "cef-gpu": {"energy_mw_cpu": None, "wakeups_per_s": 0.1}}
+        self.assertIsNone(ib.selector_value(kinds, "tree", "energy_mw_cpu"))
+        self.assertTrue(ib.unknown_sum(kinds, "tree", "energy_mw_cpu"))
+        self.assertEqual(ib.over_budget("light-webkit", kinds, budget), [])
+        self.assertEqual(ib.sum_notes("light-webkit", kinds, budget), ["light-webkit tree energy_mw_cpu: not judged: unknown"])
+        # A kind that lacks a field another kind carries is unknown too; a kind that did not run is skipped.
+        self.assertIsNone(ib.selector_value({"app": {"x": 1.0}, "daemon": {}}, "tree", "x"))
+        self.assertEqual(ib.selector_value({"app": {"x": 1.0}}, "app+daemon", "x"), 1.0)
+        self.assertIsNone(ib.selector_value({}, "app+daemon", "x"))
+        known = {"app": {"energy_mw_cpu": 0.6}, "daemon": {"energy_mw_cpu": 0.5}}
+        self.assertEqual(ib.over_budget("light-webkit", known, budget), [("tree", "energy_mw_cpu", 1.1, 1.0)])
+        rows = ib.cron_rows({"sessions": {"light-webkit": {"kinds": known}}}, budget)
+        self.assertEqual(rows["idle_budget.light-webkit.tree.energy_mw_cpu"]["budget"], 1.0)
+        self.assertEqual(rows["idle_budget.light-webkit.tree.energy_mw_cpu"]["unit"], "mW")
+
+    def test_disk_and_log_reported_by_some_processes_only_are_unknown(self):
+        processes = [{**row("daemon", 4, 0.0), "disk_bytes_per_s": 0.0}, row("daemon", 4, 0.0),
+                     {**row("app", 30, 0.0), "disk_bytes_per_s": 0.0, "log_lines": 0}, row("holder", 2, 0.0)]
+        kinds = ib.aggregate({"processes": processes})
+        self.assertIsNone(kinds["daemon"]["disk_bytes_per_s"])
+        self.assertEqual((kinds["app"]["disk_bytes_per_s"], kinds["app"]["log_lines"]), (0.0, 0))
+        self.assertNotIn("disk_bytes_per_s", kinds["holder"])
+
+    def test_stress_keeps_the_v1_limits_outside_its_busy_pages(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"holder": {"wakeups_max": 0.5}, "terminal-host": {"wakeups_max": 0.0},
+                 "daemon": {"wakeups_per_s": 1.5}, "app": {"wakeups_per_s": 0.5, "main_wakes_per_s": 0},
+                 "cef-renderer": {"wakeups_max": 60.0, "disk_bytes_per_s": 4096.0},
+                 "webkit-webcontent": {"disk_bytes_per_s": 10.0}}
+        self.assertEqual(ib.over_budget("stress", kinds, budget),
+                         [("daemon", "wakeups_per_s", 1.5, 1.0), ("holder", "wakeups_max", 0.5, 0)])
+        self.assertEqual(ib.limit_for(budget, "stress", "app", "main_wakes_per_s"), 0)
+        self.assertEqual(ib.limit_for(budget, "stress", "terminal-host", "wakeups_max"), 0)
+        self.assertIsNone(ib.limit_for(budget, "stress", "cef-renderer", "disk_bytes_per_s"))
+        rows = ib.cron_rows({"sessions": {"stress": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.stress.holder.wakeups_max"]["budget"], 0)
+        self.assertEqual(rows["idle_budget.stress.daemon.wakeups_per_s"]["budget"], 1.0)
+
+    def test_xbench_rows(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        result = {"rows": {"idle-wakeups-20": {"cmux-chromium": {"median": 40.0}, "chrome": {"median": 63.5}},
+                           "idle-wakeups-1": {"cmux-chromium": {"median": 20.0}, "chrome": {"median": 44.8}},
+                           "power-idle-visible": {"cmux-chromium": {"median": 90.0}, "chrome": {"median": 100.0}},
+                           "idle-wakeups-home": {"cmux-terminal": {"median": 8.6}}}}
+        overs, notes = ib.xbench_overs(budget, result)
+        self.assertEqual(overs, [("cmux-chromium", "idle-wakeups-20/chrome", 0.63, 0.5),
+                                 ("cmux-terminal", "idle-wakeups-home", 8.6, 1.0)])
+        self.assertEqual(notes, ["xbench cmux-chromium power-idle-hidden: not judged: not measured"])
+        self.assertEqual(ib.over_line("xbench", overs[1]),
+                         "IDLE-BUDGET-OVER xbench cmux-terminal idle-wakeups-home 8.6 > 1.0")
+
+    def test_session_limits_expectations_roles_and_busy_sessions(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        facts = {"page_raf_per_s": 60.0, "saver": True, "saver_reason": "setting"}
+        self.assertEqual(ib.over_budget("energy-saver", {}, budget, facts=facts),
+                         [("session", "page_raf_per_s", 60.0, 31)])
+        self.assertEqual(ib.over_budget("energy-saver-auto", {}, budget, facts={**facts, "page_raf_per_s": 30}),
+                         [("session", "saver_reason", "setting", "battery")])
+        self.assertEqual(ib.over_line("x", ("session", "saver_reason", "setting", "battery")),
+                         "IDLE-BUDGET-OVER x session saver_reason setting != battery")
+        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["foreground"]}}
+        self.assertEqual(ib.over_budget("minimized", napped, budget), [("app", "role", "foreground", "napped")])
+        # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
+        # their own limits.
+        self.assertEqual(ib.over_budget("light", {"other:zsh": {"disk_bytes_per_s": 12.0}}, budget),
+                         [("other:zsh", "disk_bytes_per_s", 12.0, 0)])
+        busy = {"app": {"wakeups_per_s": 1.5, "main_wakes_per_s": 30.0, "disk_bytes_per_s": 100.0}}
+        self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [])
+        self.assertEqual(ib.over_budget("chrome-static", busy, budget), [])
+
+    def test_aggregate_hidden_max_roles_and_energy(self):
+        processes = [{**row("cef-renderer", 10, 0.05), "hidden": True, "energy_mw_billed": 0.25, "role": "best-effort"},
+                     {**row("cef-renderer", 12, 3.0), "energy_mw_billed": 1.0, "role": "foreground"},
+                     {**row("cef-renderer", 11, 0.3), "hidden": True, "role": "best-effort"}]
+        entry = ib.aggregate({"processes": processes})["cef-renderer"]
+        self.assertEqual(entry["hidden_wakeups_max"], 0.3)
+        self.assertEqual(entry["wakeups_max"], 3.0)
+        self.assertEqual(entry["energy_mw_billed"], 1.25)
+        self.assertEqual(entry["roles"], ["best-effort", "foreground"])
+
+    def test_allowed_periodic_fits_wakeup_audit_limits(self):
+        entries = ib.load_budget(ib.BUDGET_FILE)["allowed_periodic"]
+        self.assertLessEqual(len(entries), 6)
+        for entry in entries:
+            self.assertTrue(entry["owner"] and entry["why"])
+            self.assertGreaterEqual(entry["period_s"], 15)
+
 
 def ratio_rule(of, vs, field, max_ratio, session="tabs-static"):
-    return {"source": "idle-budget", "session": session, "of": of, "vs": vs, "field": field, "max_ratio": max_ratio}
+    return {"session": session, "of": of, "vs": vs, "field": field, "max_ratio": max_ratio}
+
+
+def chrome_entry(kinds, running=True, chrome_version="1.75.0", cmux_version="1.75.0", shape=None):
+    """A measured chrome-static session entry (run_chrome_static's block plus its kinds)."""
+    return {"exit": 0, "kinds": kinds, "over": [],
+            "chrome": {"app": CHROME, "version": "154.0.8037.58",
+                       "ublock": {"cmux_version": cmux_version, "chrome_version": chrome_version, "running": running},
+                       "unequal": list(shape or [])}}
+
+
+# A tabs-static cmux tree with uBlock Origin's extension renderer, and a Chrome tree with its own.
+CMUX_KINDS = {"app": {"n": 1, "wakeups_per_s": 10.0}, "cef-renderer": {"n": 11, "wakeups_per_s": 28.0},
+              "cef-extension": {"n": 1, "wakeups_per_s": 2.0}}
+CHROME_KINDS = {"browser": {"n": 1, "wakeups_per_s": 20.0}, "renderer": {"n": 16, "wakeups_per_s": 41.5},
+                "extension": {"n": 1, "wakeups_per_s": 2.0}}
+TREE_RULE = {"ratio_to_chrome": [ratio_rule("tree", "tree", "wakeups_per_s", 0.5)]}
 
 
 class ChromeReferenceTests(unittest.TestCase):
-    """The chrome-static reference (p14-energy-004): Google Chrome with tabs-static's pages and uBlock Origin."""
+    """The chrome-static reference (p14-energy-004): a Chromium that runs MV2, tabs-static's pages, uBlock Origin."""
 
-    def chrome_block(self, kinds, ublock=None):
-        return {"kinds": kinds, "ublock": ublock or ib.ublock_parity("1.75.0", "1.75.0", [UBO_TARGET])}
+    def judge(self, sessions, budget, asked=True):
+        report = {"sessions": sessions}
+        overs, notes, refused = ib.judge_across(report, budget, asked)
+        return report, overs, notes, refused
 
     def test_chrome_kinds(self):
         self.assertEqual(ib.chrome_kind(f"{CHROME}/Contents/MacOS/Google Chrome --user-data-dir=/p/data"), "browser")
@@ -225,86 +503,168 @@ class ChromeReferenceTests(unittest.TestCase):
                                         "--type=ppapi"), "other")
 
     def test_forty_against_sixty_three_and_a_half_at_half_is_over(self):
-        kinds = {"app": {"wakeups_per_s": 10.0}, "cef-renderer": {"wakeups_per_s": 30.0}}
-        chrome = self.chrome_block({"browser": {"wakeups_per_s": 20.0}, "renderer": {"wakeups_per_s": 43.5}})
-        budget = {"ratio_to_chrome": [ratio_rule("tree", "tree", "wakeups_per_s", 0.5)]}
-        self.assertEqual(ib.over_budget("tabs-static", kinds, budget, chrome),
-                         [("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5)])
-        row = ib.ratio_to_chrome("tabs-static", kinds, chrome, budget)[0]
-        self.assertEqual((row["cmux_value"], row["chrome_value"], row["over"]), (40.0, 63.5, True))
-        self.assertEqual(ib.over_budget("tabs-static", {"app": {"wakeups_per_s": 31.0}}, budget, chrome), [])
-        self.assertEqual(ib.over_budget("light", kinds, budget, chrome), [])  # the row is tabs-static's
+        # The acceptance case: cmux's tree 40/s against Chrome's 63.5/s at max_ratio 0.5, both running uBlock Origin;
+        # tabs-static measured before chrome-static, judged all the same.
+        report, overs, notes, refused = self.judge(
+            {"tabs-static": {"kinds": CMUX_KINDS, "over": []}, ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [("tabs-static", ("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5))])
+        self.assertEqual((notes, refused), ([], []))
+        row = report["ratio_to_chrome"][0]
+        self.assertEqual((row["cmux_value"], row["chrome_value"], row["verdict"]), (40.0, 63.5, "over"))
+        self.assertEqual(report["sessions"]["tabs-static"]["over"], [["tree", "wakeups_per_s/chrome:tree", 0.63, 0.5]])
+        self.assertTrue(report["chrome"]["parity"]["tabs-static"]["equal"])
+        self.assertEqual(report["chrome"]["kinds"], CHROME_KINDS)
+        self.assertIn("**over**", ib.ratio_table(report["ratio_to_chrome"]))
+        # Below the ratio: no over.
+        quiet = {**CMUX_KINDS, "cef-renderer": {"n": 11, "wakeups_per_s": 19.0}}
+        _, overs, _, _ = self.judge({"tabs-static": {"kinds": quiet, "over": []},
+                                     ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [])
 
-    def test_without_ublock_in_chrome_ratios_are_unequal_and_not_judged(self):
-        parity = ib.ublock_parity("1.75.0", None, [])
-        self.assertFalse(parity["equal"])
-        self.assertEqual(parity["unequal"], ["no uBlock Origin was loaded into Chrome"])
-        chrome = self.chrome_block({"browser": {"wakeups_per_s": 63.5}}, parity)
-        budget = {"ratio_to_chrome": [ratio_rule("tree", "tree", "wakeups_per_s", 0.5)]}
-        kinds = {"app": {"wakeups_per_s": 40.0}}
-        row = ib.ratio_to_chrome("tabs-static", kinds, chrome, budget)[0]
-        self.assertTrue(row["over"])
+    def test_the_budget_file_rows_are_judged_once(self):
+        # The budget's own ratio_to_chrome rows go through one path: one over per row, not one per judge.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        chrome = {**CHROME_KINDS, "gpu": {"n": 1, "wakeups_per_s": 4.0}}
+        cmux = {**CMUX_KINDS, "cef-gpu": {"n": 1, "wakeups_per_s": 6.0}, "cef-host": {"n": 1, "wakeups_per_s": 1.0}}
+        _, overs, _, _ = self.judge({ib.CHROME_SESSION: chrome_entry(chrome), "tabs-static": {"kinds": cmux, "over": []}},
+                                    budget)
+        fields = [over[1] for _, over in overs]
+        self.assertEqual(len(fields), len(set(fields)))
+        self.assertIn("wakeups_per_s/chrome:gpu", fields)
+
+    def test_without_ublock_in_chrome_ratios_are_unequal_not_judged_and_refused(self):
+        report, overs, notes, refused = self.judge(
+            {"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+             ib.CHROME_SESSION: chrome_entry(CHROME_KINDS, chrome_version=None, running=False)}, TREE_RULE)
+        self.assertEqual(overs, [])
+        row = report["ratio_to_chrome"][0]
+        self.assertEqual(row["verdict"], "not judged")
         self.assertEqual(row["unequal"], ["no uBlock Origin was loaded into Chrome"])
-        self.assertEqual(ib.over_budget("tabs-static", kinds, budget, chrome), [])
-        self.assertIn("unequal: no uBlock Origin was loaded into Chrome", ib.ratio_table([row]))
+        self.assertIn("tabs-static tree wakeups_per_s/chrome:tree: not judged: unequal: no uBlock Origin was loaded "
+                      "into Chrome", notes)
+        self.assertEqual(refused, ["tabs-static: no uBlock Origin was loaded into Chrome"])
+        self.assertIn("unequal: no uBlock Origin was loaded into Chrome", ib.ratio_table(report["ratio_to_chrome"]))
+
+    def test_parity_comes_from_the_measured_sessions(self):
+        # uBlock Origin bundled but not run in the cmux session (built-in ad blocker off, a person's own copy
+        # found): no cef-extension process, so unequal although the bundle has the folder.
+        no_ext = {name: values for name, values in CMUX_KINDS.items() if name != "cef-extension"}
+        report, overs, _, refused = self.judge({"tabs-static": {"kinds": no_ext, "over": []},
+                                                ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in the cmux session (no cef-extension process)"])
+        self.assertTrue(refused)
+        # Chrome listed uBlock Origin's target but measured no extension renderer: not running either.
+        no_chrome_ext = {name: values for name, values in CHROME_KINDS.items() if name != "extension"}
+        report, _, _, _ = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                      ib.CHROME_SESSION: chrome_entry(no_chrome_ext)}, TREE_RULE)
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in Chrome (no extension target or process)"])
 
     def test_ublock_parity_needs_the_same_version_running(self):
-        self.assertTrue(ib.ublock_parity("1.75.0", "1.75.0", [UBO_TARGET])["equal"])
-        self.assertEqual(ib.ublock_parity("1.75.0", "1.75.0", [])["unequal"],
-                         ["uBlock Origin 1.75.0 did not start in Chrome (no extension target)"])
-        self.assertEqual(ib.ublock_parity("1.75.0", "1.74.0", [UBO_TARGET])["unequal"],
+        self.assertTrue(ib.ublock_parity("1.75.0", True, "1.75.0", True)["equal"])
+        self.assertEqual(ib.ublock_parity("1.75.0", True, "1.75.0", False)["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in Chrome (no extension target or process)"])
+        self.assertEqual(ib.ublock_parity("1.75.0", True, "1.74.0", True)["unequal"],
                          ["uBlock Origin 1.74.0 in Chrome, 1.75.0 in cmux"])
-        self.assertIn("the cmux app bundles no uBlock Origin", ib.ublock_parity(None, "1.75.0", [UBO_TARGET])["unequal"])
+        self.assertIn("the cmux app bundles no uBlock Origin", ib.ublock_parity(None, False, "1.75.0", True)["unequal"])
 
-    def test_manifest_version(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as folder:
-            self.assertIsNone(ib.manifest_version(folder))
-            Path(folder, "manifest.json").write_text(json.dumps({"version": "1.75.0"}))
-            self.assertEqual(ib.manifest_version(folder), "1.75.0")
+    def test_a_reference_that_cannot_run_mv2_is_refused(self):
+        mv2 = {"manifest_version": 2, "version": "1.75.0"}
+        self.assertIn("ignores --load-extension", ib.reference_refusal("com.google.Chrome", "155.0.7400.12", mv2))
+        self.assertIn("ignores --load-extension", ib.reference_refusal("com.google.Chrome.canary", "137.0.1.0", mv2))
+        self.assertIsNone(ib.reference_refusal("com.google.Chrome", "136.0.7103.2", mv2))
+        self.assertIn("no Manifest V2", ib.reference_refusal(ib.CHROME_FOR_TESTING_ID, "154.0.8037.92", mv2))
+        self.assertIsNone(ib.reference_refusal(ib.CHROME_FOR_TESTING_ID, "154.0.8037.92", {"manifest_version": 3}))
+        # ungoogled-chromium (org.chromium.Chromium) may: whether uBlock Origin started is checked in the run.
+        self.assertIsNone(ib.reference_refusal("org.chromium.Chromium", "154.0.8037.58", mv2))
 
-    def test_chrome_at_zero_and_missing_sides(self):
+    def test_a_failed_chrome_static_is_refused_only_when_asked(self):
+        failed = {"exit": 1, "error": "RuntimeError: chrome-static: branded Google Chrome 155 ignores --load-extension"}
+        _, overs, notes, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                               ib.CHROME_SESSION: failed}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(notes, ["tabs-static tree wakeups_per_s/chrome:tree: not judged: reference session "
+                                 "chrome-static not measured"])
+        self.assertEqual(len(refused), 1)
+        self.assertIn("branded Google Chrome 155", refused[0])
+        _, _, _, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []}}, TREE_RULE, asked=False)
+        self.assertEqual(refused, [])
+
+    def test_chrome_pages_out_of_shape_are_unequal(self):
+        good = {str(n): "visible" if n == 0 else "hidden" for n in range(16)}
+        self.assertEqual(ib.chrome_shape_unequal(16, good), [])
+        self.assertEqual(ib.chrome_shape_unequal(17, good), ["Chrome had 17 page targets, tabs-static has 16"])
+        behind = {**good, "0": "hidden"}
+        self.assertEqual(ib.chrome_shape_unequal(16, behind),
+                         ["Chrome's tab visibility is not 1 shown, 15 hidden: 0=hidden"])
+        reason = ib.chrome_shape_unequal(16, behind)[0]
+        report, overs, _, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                                ib.CHROME_SESSION: chrome_entry(CHROME_KINDS, shape=[reason])}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"], [reason])
+        self.assertEqual(refused, [f"tabs-static: {reason}"])
+
+    def test_chrome_at_zero_counts_as_the_floor(self):
+        # Chrome's GPU process at 0 wakeups and cmux's at 1 in a minute is noise: the floor (0.5/s), no over.
         budget = {"ratio_to_chrome": [ratio_rule("cef-gpu", "gpu", "wakeups_per_s", 1.0),
                                       ratio_rule("cef-host", "browser", "wakeups_per_s", 1.0)]}
-        chrome = self.chrome_block({"gpu": {"wakeups_per_s": 0.0}, "browser": {"wakeups_per_s": 2.0}})
-        gpu, host = ib.ratio_to_chrome("tabs-static", {"cef-gpu": {"wakeups_per_s": 0.2}}, chrome, budget)
-        self.assertEqual((gpu["ratio"], gpu["over"]), (None, True))
-        self.assertEqual(host["missing"], ["cmux"])
-        self.assertFalse(host["over"])
-        self.assertEqual(ib.ratio_overs([gpu, host]), [("cef-gpu", "wakeups_per_s/chrome:gpu", 0.2, 1.0)])
+        chrome = {**CHROME_KINDS, "gpu": {"n": 1, "wakeups_per_s": 0.0}}
+        cmux = {**CMUX_KINDS, "cef-gpu": {"n": 1, "wakeups_per_s": 0.017}}
+        report, overs, notes, _ = self.judge({"tabs-static": {"kinds": cmux, "over": []},
+                                              ib.CHROME_SESSION: chrome_entry(chrome)}, budget)
+        self.assertEqual(overs, [])
+        gpu, host = report["ratio_to_chrome"]
+        self.assertEqual((gpu["ratio"], gpu["floor"], gpu["verdict"]), (0.034, 0.5, "ok"))
+        self.assertEqual(host["verdict"], "not judged")
+        self.assertIn("tabs-static cef-host wakeups_per_s/chrome:browser: not judged: cmux ran no cef-host", notes)
+        # cmux at 3/s against the floor is over, and the printed field says the floor was the reference.
+        cmux["cef-gpu"] = {"n": 1, "wakeups_per_s": 3.0}
+        _, overs, _, _ = self.judge({"tabs-static": {"kinds": cmux, "over": []},
+                                     ib.CHROME_SESSION: chrome_entry(chrome)}, budget)
+        self.assertEqual(overs, [("tabs-static", ("cef-gpu", "wakeups_per_s/chrome:gpu:floor", 6.0, 1.0))])
+        self.assertEqual(ib.over_line("tabs-static", overs[0][1]),
+                         "IDLE-BUDGET-OVER tabs-static cef-gpu wakeups_per_s/chrome:gpu:floor 6.0 > 1.0")
+        # A field with no floor and a reference of 0 judges nothing (ratio_over's rule).
+        self.assertEqual(ib.ratio_of(2.0, 0.0), (None, None))
+        self.assertEqual(ib.ratio_over("a", "x", {"a": {"x": 2.0}}, "b", {"b": {"x": 0.0}}, 1.0, "/c"), [])
 
-    def test_an_unknown_kind_makes_the_tree_unknown(self):
-        kinds = {"app": {"gpu_ms_per_s": 1.0}, "daemon": {"gpu_ms_per_s": None}}
-        self.assertIsNone(ib.kind_value(kinds, "tree", "gpu_ms_per_s"))
-        self.assertEqual(ib.kind_value(kinds, "app", "gpu_ms_per_s"), 1.0)
-        self.assertIsNone(ib.kind_value({}, "tree", "wakeups_per_s"))
+    def test_template_key_follows_the_browser_and_ublock(self):
+        base = ib.template_key("/A/Chromium.app", "154.0", "/u", "1.75.0")
+        self.assertEqual(base, ib.template_key("/A/Chromium.app", "154.0", "/u", "1.75.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "155.0", "/u", "1.75.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "154.0", "/u", "1.76.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "154.0", None, None))
 
-    def test_budget_rows_replace_the_defaults_and_xbench_rows_are_skipped(self):
-        xbench_row = {"source": "xbench", "browser": "cmux-chromium", "row": "idle-wakeups-20", "max_ratio": 0.5}
-        self.assertEqual(ib.ratio_rules({"ratio_to_chrome": [xbench_row]}), ib.DEFAULT_RATIO_ROWS)
-        own = ratio_rule("tree", "tree", "energy_mw_billed", 0.8)
-        self.assertEqual(ib.ratio_rules({"ratio_to_chrome": [xbench_row, own]}), [own])
-        self.assertEqual(ib.ratio_rules({}), ib.DEFAULT_RATIO_ROWS)
+    def test_a_template_build_that_fails_leaves_no_template(self):
+        class Failing:
+            def launch(self, profile, url):
+                Path(profile, "data").mkdir()
 
-    def test_report_gets_the_chrome_block_and_ratio_rows(self):
-        report = {"sessions": {
-            "tabs-static": {"kinds": {"app": {"wakeups_per_s": 40.0, "energy_mw_billed": 5.0}}, "over": []},
-            "light": {"kinds": {"app": {"wakeups_per_s": 1.0}}, "over": []},
-            ib.CHROME_SESSION: {"chrome": {"app": CHROME, "version": "141.0",
-                                           "ublock": ib.ublock_parity("1.75.0", "1.75.0", [UBO_TARGET])},
-                                "kinds": {"browser": {"wakeups_per_s": 63.5, "energy_mw_billed": 10.0}}}}}
-        overs = ib.judge_against_chrome(report, {})
-        self.assertEqual(report["chrome"]["version"], "141.0")
-        self.assertEqual(report["chrome"]["kinds"]["browser"]["wakeups_per_s"], 63.5)
-        rows = [(row["session"], row["of"], row["field"]) for row in report["ratio_to_chrome"]]
-        self.assertEqual(rows, [(r["session"], r["of"], r["field"]) for r in ib.DEFAULT_RATIO_ROWS])
-        energy = report["ratio_to_chrome"][1]
-        self.assertEqual((energy["ratio"], energy["over"]), (0.5, False))
-        self.assertEqual(overs, [("tabs-static", "tree", "wakeups_per_s/chrome:tree", 0.63, 0.5)])
-        self.assertEqual(report["sessions"]["tabs-static"]["over"], [list(overs[0][1:])])
-        self.assertEqual(report["sessions"]["light"]["over"], [])
-        self.assertEqual(report["sessions"]["tabs-static"]["ratio_to_chrome"], report["ratio_to_chrome"])
-        self.assertEqual(ib.judge_against_chrome({"sessions": {"light": {"kinds": {}}}}, {}), [])
+            def ready(self):
+                raise RuntimeError("no DevTools endpoint")
+
+            def quit(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            template = str(Path(folder, "template-k"))
+            with self.assertRaises(RuntimeError):
+                ib.build_template(Failing(), template, 0)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_chrome_static_settles_as_long_as_the_tab_sessions(self):
+        self.assertEqual(ib.settle_seconds(ib.CHROME_SESSION, 10), ib.FREEZE_HIDDEN_TABS_S + ib.FREEZE_GRACE_S)
+        self.assertEqual(ib.settle_seconds(ib.CHROME_SESSION, 90), 90)
+        self.assertEqual(ib.settle_seconds("light", 10), 10)
+
+    def test_manifest_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(ib.manifest_version(folder))
+            Path(folder, "manifest.json").write_text(json.dumps({"version": "1.75.0", "manifest_version": 2}))
+            self.assertEqual(ib.manifest_version(folder), "1.75.0")
+            self.assertEqual(ib.read_manifest(folder)["manifest_version"], 2)
 
     def test_chrome_rows_count_like_cmux_rows(self):
         cmd = f"{CHROME}/Contents/MacOS/Google Chrome"
@@ -328,10 +688,7 @@ class XbenchChromeSwitchTests(unittest.TestCase):
         browser = xbench.ChromiumBrowser("chrome", CHROME, None, None, extensions=["/tmp/ubo"])
         switches = browser.switches()
         self.assertIn("--load-extension=/tmp/ubo", switches)
-        features = [s for s in switches if s.startswith("--disable-features=")]
-        self.assertEqual(len(features), 1)
-        self.assertIn("DisableLoadExtensionCommandLineSwitch", features[0])
-        self.assertIn("ChromeWhatsNewUI", features[0])
+        self.assertEqual([s for s in switches if s.startswith("--disable-features=")], ["--disable-features=ChromeWhatsNewUI"])
         plain = xbench.ChromiumBrowser("chrome", CHROME, None, None).switches()
         self.assertEqual([s for s in plain if s.startswith("--disable-features=")], ["--disable-features=ChromeWhatsNewUI"])
         self.assertFalse(any(s.startswith("--load-extension") for s in plain))

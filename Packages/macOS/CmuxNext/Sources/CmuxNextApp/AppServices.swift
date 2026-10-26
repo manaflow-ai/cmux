@@ -298,7 +298,7 @@ final class AppServices {
             keyRouter: keyRouter),
         openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

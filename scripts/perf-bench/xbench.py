@@ -50,7 +50,8 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
 Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py run --out DIR --app NAME=BUNDLE ... [--browsers a,b] [--rounds 3]
       [--launches 2] [--idle 60] [--active 30] [--settle 30] [--max-load 4]
-      [--chrome-extension DIR]   (D6: Chrome with the uBlock Origin cmux bundles, scripts/cmux-next/fetch-ublock.sh)
+      [--chrome-extension DIR]   (D6: the uBlock Origin cmux bundles, scripts/cmux-next/fetch-ublock.sh; MV2, so
+                                  --app chrome= must be a Chromium that runs MV2, such as ungoogled-chromium)
   xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
@@ -295,10 +296,10 @@ class ChromiumBrowser(Browser):
              "--mute-audio", "--window-size=1280,800", "--window-position=40,80", "--remote-allow-origins=*",
              "--hide-crash-restore-bubble"]
     disabled_features = ["ChromeWhatsNewUI"]
-    # Branded Chrome 137+ ignores --load-extension and later Chrome stops Manifest V2 extensions (full uBlock
-    # Origin is MV2) unless these features are off; extension_targets() reports what actually started.
-    extension_features = ["DisableLoadExtensionCommandLineSwitch", "ExtensionManifestV2Unsupported",
-                          "ExtensionManifestV2Disabled"]
+    # --load-extension: branded Google Chrome ignores it from 137 with no switch back from 142 (Chromium
+    # 04f6233ce5be), and Chromium runs no Manifest V2 extension from 139 (full uBlock Origin is MV2). Load
+    # extensions into a Chromium that runs them (ungoogled-chromium for MV2); extension_targets() reports
+    # what actually started.
 
     def __init__(self, *args, extensions: list[str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -313,9 +314,8 @@ class ChromiumBrowser(Browser):
     def switches(self) -> list[str]:
         """The launch switches: the shared flags, the unpacked extensions, and one --disable-features
         (Chromium reads only the last one on a command line)."""
-        features = self.disabled_features + (self.extension_features if self.extensions else [])
         loads = [f"--load-extension={','.join(self.extensions)}"] if self.extensions else []
-        return [*self.flags, *loads, f"--disable-features={','.join(features)}"]
+        return [*self.flags, *loads, f"--disable-features={','.join(self.disabled_features)}"]
 
     def launch(self, profile: str, url: str | None):
         self.port = free_port()
@@ -1156,7 +1156,8 @@ def main():
     run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--chrome-extension", action="append", default=[], metavar="DIR",
                      help="an unpacked extension Chrome loads (D6: the uBlock Origin cmux bundles, "
-                     "scripts/cmux-next/fetch-ublock.sh)")
+                     "scripts/cmux-next/fetch-ublock.sh; branded Chrome 137+ ignores it, so --app chrome= a "
+                     "Chromium that runs MV2)")
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
