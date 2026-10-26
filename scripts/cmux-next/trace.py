@@ -37,6 +37,26 @@ Scenarios (record --scenario):
   light-storm    the light session instead of STRESS (perf-stress-session.py build_light: a shown workspace split
                  once, Chromium, WebKit, chat and terminal tabs, plus LIGHT_BACKGROUND workspaces for the storm
                  to rearrange), then the same storm, typing and chords
+  launch-warm   one launch from process start to `startup_complete` + 2 s: a priming launch saves a session and
+                 quits the app only (its daemon keeps running, the binaries stay in the page cache), the recorders
+                 start, then the measured launch restores that session. The app writes its StartupTrace
+                 (CMUX_TRACE_STARTUP, Chrome Trace Event JSON on CLOCK_UPTIME_RAW) into DIR/startup/, where the
+                 daemon's and Chromium's `--trace-startup` files go too (p08-startup 099); they are merged on their
+                 own tracks (a file whose events fall outside the window is moved by the launch marks it shares with
+                 the signposts, as the Chromium trace's clock check does). No DevTools port: Chromium's start is not
+                 delayed by a CDP client. Watchdog stalls from 4 ms (or --hang-ms when lower), drained once at the end
+                 so no socket call lands on the main thread during the launch. --seconds is the longest wait for
+                 `startup_complete` after the spawn
+  launch-cold   the same after a reboot's state: the priming launch's app, daemon, hosts and agents are stopped (SIGTERM
+                 by exact PID, the bundle's own processes) and `sudo -n purge` empties the file cache; a host where
+                 purge needs a password refuses the run (`purge-refused`), never a cold label on a warm launch
+                 The launch summary: the milestones (ms since process start), the critical path (each step between
+                 milestones with the work that filled it), the top 10 main-thread frames before the first frame
+                 (`first_window_frame_committed`) and every main-thread turn of 4 ms or more. As Chrome does it:
+                 `--trace-startup` writes a startup trace file at its deadline (content/browser/tracing/
+                 startup_tracing_controller.cc), and Telemetry's cold start empties the file cache with `purge`
+                 (third_party/catapult/telemetry/telemetry/internal/platform/mac_platform_backend.py,
+                 FlushEntireSystemCache)
   -- COMMAND     wrap mode: record while COMMAND runs (the every-action sweep or sidebar-churn-typing.py, which
                  launch their own app): time profile and signposts only (COMMAND's app gets no CDP port, no
                  daemon spans and no hang drain; pass --socket S for the hang drain). COMMAND runs in its own
@@ -62,7 +82,7 @@ are stopped first; the export and the build stop at once, and recording.trace is
 Usage (a fleet GUI host, never Lawrence's Mac):
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/trace.py record --app "$NX_APP" --out "$NX_ARTIFACTS/trace" --scenario stress-storm
-  trace.py record --app APP --out DIR [--scenario stress-storm|light-storm] [--seconds 20] [--system-trace]
+  trace.py record --app APP --out DIR [--scenario stress-storm|light-storm|launch-warm|launch-cold] [--seconds 20] [--system-trace]
                   [--recorder auto|xctrace|sample] [--no-cef] [--hang-ms 8] [--storm-hz 10]
   trace.py record --bundle APP --out DIR [--socket S] [--seconds-cap 600] -- python3 scripts/cmux-next/every-action-sweep.py ...
   trace.py export DIR          rebuild DIR/trace.json.gz and the summary from DIR's raw files
@@ -96,6 +116,20 @@ SYNTHETIC_TID_BASE = 0x7000_0000
 DRIVER_PID = 0  # Perfetto shows pid 0 as its own process: the scenario driver's own events
 FLAME_DEPTH = 120  # root-most frames kept per sample (deeper Swift stacks are rare; the leaf is in args)
 LIGHT_BACKGROUND = 4  # light-storm: workspaces besides the shown one, for the storm to move, tag, group and pill
+LAUNCH_SCENARIOS = ("launch-warm", "launch-cold")
+LAUNCH_SETTLE_S = 2.0  # the launch window ends this long after `startup_complete`: work the launch left for later shows
+LAUNCH_TURN_MS = 4  # main-thread turns at or over this are listed (a 240 Hz frame is 4.2 ms)
+LAUNCH_TOP_FRAMES = 10
+STARTUP_DIR = "startup"  # DIR/startup: the app's StartupTrace file, the daemon's and Chromium's startup traces
+STARTUP_APP_FILE = "startup-app.json"
+FIRST_FRAME_MARK = "first_window_frame_committed"
+STARTUP_COMPLETE_MARK = "startup_complete"
+# The launch milestones (p08-startup.md, E. Tracing; the bench-startup MARKS of the main thread's path): the critical
+# path runs through the ones a launch has, in the order they happened.
+LAUNCH_MILESTONES = ("process_start", "main_start", "main.run", "run_loop_start", "did_finish_launching_start",
+                     "did_finish_launching_end", "first_idle", "window_display", "launch_picture_shown",
+                     FIRST_FRAME_MARK, "first_live_content_frame", STARTUP_COMPLETE_MARK)
+INSTANT_PHASES = ("i", "I", "R", "n")  # Chrome Trace Event instants (a mark), as StartupTrace writes its milestones
 # Chromium categories: tasks (toplevel), input and frame latency, GPU and compositor frames, browser UI and
 # navigation. Not mojom/ipc (one event per message: tens of MB a second with 40 pages animating) and not the
 # devtools timeline. The ring buffer keeps the last CHROME_BUFFER_KB of events, so a long window stays bounded.
@@ -185,6 +219,10 @@ PS_S = 30  # one `ps` of the process table
 # WrappedCommand.stop at most: a `ps`, the command's grace, a `ps`, the orphans' grace, a `ps`, the reap after
 # SIGKILL (10 s) and the wait for the killed (5 s).
 WRAP_STOP_S = PS_S + WRAP_GRACE_S + PS_S + WRAP_ORPHAN_GRACE_S + PS_S + 10 + 5
+LAUNCH_S = 180 + 10 + 60  # BenchApp.launch: 180 s for the socket, 10 s for a crash report, a main-thread sample
+PRIME_QUIT_S = RPC_SHORT_S + 30 + 15  # the priming app's debug.quit, its exit, then its exit after SIGTERM
+COLD_STOP_S = 15 + 5  # the bundle's processes after SIGTERM (kqueue NOTE_EXIT), then after SIGKILL
+PURGE_S = 120  # `sudo -n purge`
 
 # Each stage of a recording has a bound. A stage that passes it ends loudly, its cleanup (`on_abort`) stops what
 # it started, and the trace and summary are still written from what was recorded (job 7 on 2026-10-23 sat silent
@@ -198,7 +236,9 @@ WRAP_STOP_S = PS_S + WRAP_GRACE_S + PS_S + WRAP_ORPHAN_GRACE_S + PS_S + 10 + 5
 STAGE_BOUNDS_S = {
     "preflight": PS_S + STAGE_MARGIN_S,  # one `ps`: no process of the bundle may run yet
     # BenchApp.launch: 180 s for the socket, 10 s for a crash report, a 60 s main-thread sample of a silent app.
-    "launch": 180 + 10 + 60 + STAGE_MARGIN_S,
+    "launch": LAUNCH_S + STAGE_MARGIN_S,
+    "prime": LAUNCH_S + PRIME_QUIT_S + STAGE_MARGIN_S,  # launch-*: the priming launch and its quit
+    "cold-prep": PS_S + COLD_STOP_S + PURGE_S + STAGE_MARGIN_S,  # launch-cold: stop the bundle, purge
     "stress-build": 1800,    # measured 691 s on cmux-lawrence-2 (macOS 27.0.1), 2026-10-23
     # Not measured: about 13 actions (4 workspaces, 1 workspace shown and split, 5 tabs, window placement) where
     # the STRESS build ran about 200 in 691 s (3.5 s each on a loaded host), so ~45 s, plus a cold Chromium start
@@ -436,6 +476,24 @@ class SignpostStream:
     def __init__(self, path):
         self.path, self.proc, self.reader, self.file = path, None, None, None
         self.attached = threading.Event()
+        self.marks = {}  # launch mark name -> Event, set by the reader when the app's `launch.mark` event names it
+
+    def watch_mark(self, name):
+        """An Event the reader sets when a `launch.mark` signpost for the launch mark `name` arrives (LaunchSignposts
+        message `<name> ms=<ms>`): a launch scenario waits on the stream it records, with no socket call into the
+        launching app. Call before the launch."""
+        return self.marks.setdefault(name, threading.Event())
+
+    def _saw(self, line):
+        if '"launch.mark"' not in line or not self.marks:
+            return
+        try:
+            message = json.loads(line).get("eventMessage") or ""
+        except json.JSONDecodeError:
+            return
+        event = self.marks.get(message.split(" ", 1)[0])
+        if event:
+            event.set()
 
     def start(self, timeout=LOG_ATTACH_S, hold=contextlib.nullcontext):
         timebase = signposts_lib.local_timebase()
@@ -450,6 +508,7 @@ class SignpostStream:
             for line in self.proc.stdout:
                 self.file.write(line)
                 self.attached.set()
+                self._saw(line)
             self.attached.set()
 
         with hold():
@@ -1041,16 +1100,28 @@ class TraceApp:
         self.probe = os.path.join(out, "typing.csv")
         self.flows = os.path.join(out, "flows")
         os.makedirs(self.flows, exist_ok=True)
+        self.startup_dir = os.path.join(out, STARTUP_DIR)
+        launch = opts.scenario in LAUNCH_SCENARIOS
         # The app keeps only CMUX_NEXT_* launch knobs (LaunchIdentity strips every other inherited CMUX* variable):
         # the daemon launch passes these two on as CMUX_TRACE_FLOWS and CMUX_TUI_DEBUG_SPANS (DaemonDiagnosticKnobs),
         # and the daemon's terminal hosts and holder inherit them.
-        env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
+        hang_ms = min(opts.hang_ms, LAUNCH_TURN_MS) if launch else opts.hang_ms
+        env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
                "CMUX_NEXT_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
-        if not opts.no_cef:
+        if not opts.no_cef and not launch:  # a launch traces Chromium through its own --trace-startup file
             self.cdp_port = opts.cdp_port or free_port()
             env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = f"remote-debugging-port={self.cdp_port}:remote-allow-origins=*"
         self.bench = BenchApp(path, out=out, env=env, window=None, screen=None)
+
+    def startup_env(self, seconds):
+        """The StartupTrace switches of the measured launch (p08-startup 004): trace `seconds` of the launch into
+        DIR/startup. Both the spec's name and its CMUX_NEXT_ spelling, which LaunchIdentity keeps if the app reads
+        the switch after its environment strip."""
+        os.makedirs(self.startup_dir, exist_ok=True)
+        path = os.path.join(self.startup_dir, STARTUP_APP_FILE)
+        return {"CMUX_TRACE_STARTUP": f"{seconds:g}", "CMUX_TRACE_STARTUP_FILE": path,
+                "CMUX_NEXT_TRACE_STARTUP": f"{seconds:g}", "CMUX_NEXT_TRACE_STARTUP_FILE": path}
 
     def rpc(self, method, params=None, timeout=60):
         return self.bench.rpc(method, params, timeout)
@@ -1120,9 +1191,10 @@ class Recording:
             self.terminated = error.code if isinstance(error.code, int) else 1
         finally:
             self.stopping = True  # a signal from here on waits for the stop (`install_signals`)
-            meta["window_end_us"] = uptime_us()
-            if meta.get("window_start_us"):
-                note("window ends")
+            if meta.get("window_end_us") is None:  # a launch scenario ends its window itself
+                meta["window_end_us"] = uptime_us()
+                if meta.get("window_start_us"):
+                    note("window ends")
             try:
                 self.stop()
             finally:
@@ -1183,6 +1255,8 @@ class Recording:
         opts, meta, stages = self.opts, self.meta, self.stages
         with stages.run("preflight", fatal=True):
             self.refuse_running_bundle()
+        if opts.scenario in LAUNCH_SCENARIOS and opts.app and not opts.command:
+            return self.launch_window()
         if opts.command:
             # The wrapped command launches its own app with its own environment (BenchApp's BASE_ENV sets
             # CMUX_NEXT_NO_ACTIVATE unless the command removes it): trace.py cannot say whether its window was key.
@@ -1227,6 +1301,106 @@ class Recording:
         bound = (opts.seconds_cap if opts.command else opts.seconds) + STAGE_BOUNDS_S["window-margin"]
         with stages.run("window", bound, on_abort=self.end_window):
             self.run_window()
+
+    def launch_window(self):
+        """launch-warm and launch-cold (the module doc): the priming launch, the cold preparation, the recorders, then
+        the measured launch, recorded from before its spawn to `startup_complete` + LAUNCH_SETTLE_S."""
+        opts, meta, stages = self.opts, self.meta, self.stages
+        cold = opts.scenario == "launch-cold"
+        meta["launch"] = {"temperature": "cold" if cold else "warm"}
+        self.app = TraceApp(opts.app, self.out, opts)
+        with stages.run("prime", fatal=True):
+            self.prime_launch()
+        if cold:
+            with stages.run("cold-prep", fatal=True):
+                meta["launch"].update(self.make_cold())
+        with stages.run("recorders-start", fatal=True):
+            self.start_recorders()
+        complete = self.signposts.watch_mark(STARTUP_COMPLETE_MARK)
+        first_frame = self.signposts.watch_mark(FIRST_FRAME_MARK)
+        bench = self.app.bench
+        bench.fresh_state = False  # the measured launch restores the session the priming launch saved
+        bench.extra_env.update(self.app.startup_env(opts.seconds + LAUNCH_SETTLE_S))
+        meta["window_start_us"] = uptime_us()
+        meta["load_at_start"] = [round(x, 1) for x in os.getloadavg()]
+        note(f"window starts: scenario {opts.scenario}, until {STARTUP_COMPLETE_MARK} + {LAUNCH_SETTLE_S:g} s "
+             f"(at most {opts.seconds:g} s)")
+
+        def window(process):
+            """BenchApp.launch's `on_start`: the window runs here, before its first socket poll, so no socket call
+            reaches the launching app's main thread until the launch is over."""
+            meta["app_pid"] = process.pid
+            meta["launch"]["spawned_us"] = uptime_us()
+            if self.recorder == "sample":
+                self.sampler = self.sampler or Sampler(self.out)
+                self.sampler.start([(process.pid, "app")], opts.seconds + LAUNCH_SETTLE_S, hold=stages.hold)
+            # The app's exit ends the wait too (a launch that crashed has no startup_complete).
+            threading.Thread(target=lambda: (process.wait(), complete.set()), name="launch-exit", daemon=True).start()
+            reached = complete.wait(opts.seconds)
+            meta["launch"].update(startup_complete=reached and process.poll() is None, first_frame=first_frame.is_set())
+            if process.poll() is not None:
+                return  # BenchApp.launch reports the exit or crash
+            if not reached:
+                self.warn(f"no {STARTUP_COMPLETE_MARK} launch mark within {opts.seconds:g} s: the window ends at "
+                          f"--seconds" + ("" if first_frame.is_set() else f" (no {FIRST_FRAME_MARK} either)"))
+            time.sleep(LAUNCH_SETTLE_S)  # the work the launch left for after startup_complete shows in the window
+            meta["window_end_us"] = uptime_us()
+            note("window ends")
+
+        with stages.run("launch", bound=STAGE_BOUNDS_S["launch"] + opts.seconds + LAUNCH_SETTLE_S, fatal=True):
+            bench.launch(on_start=window)
+        self.install_signals()
+        self.rpc = self.app.rpc
+        meta.update(tag=bench.tag, launched_env=bench.launched_env)
+        # One drain at the stop (`stop-hangs`), after the launch: the ring holds the launch's turns over the threshold.
+        self.hangs = HangDrain(self.rpc, os.path.join(self.out, "hangs.json"))
+        with stages.run("window-state"):
+            meta["window_state"] = window_state(self.rpc)
+        meta["scenario_label"] = scenario_label(opts.scenario, [meta.get("window_state") or {}])
+
+    def prime_launch(self):
+        """The priming launch: a fresh session the measured launch restores. Its app quits keeping its sessions
+        (`fixture_quit: keep`), so the tag's daemon and terminal hosts run on, as after a person's quit."""
+        bench = self.app.bench
+        bench.launch()
+        self.install_signals()
+        process = bench.process
+        self.meta["launch"]["prime_pid"] = process.pid
+        rpc_at_quit = bench.rpc("debug.quit", {"fixture_quit": "keep"}, timeout=RPC_SHORT_S)
+        try:
+            process.wait(30)
+        except subprocess.TimeoutExpired:
+            self.warn(f"the priming app did not quit in 30 s ({json.dumps(rpc_at_quit)[:200]}): SIGTERM")
+            process.terminate()  # the PID this run started
+            process.wait(15)
+        self.meta["launch"]["prime_ready_s"] = bench.ready_seconds
+
+    def make_cold(self):
+        """A reboot's state for the measured launch: every process of the bundle this run started (the priming
+        launch's daemon, terminal hosts, holder, agents) ends by its exact PID, then `sudo -n purge` empties the
+        file cache. A purge that needs a password refuses the run: a warm launch must never carry the cold label."""
+        from tag_teardown import TagTeardown
+        running = TagTeardown(self.bundle).processes()
+        pids = {pid for pid, _ in running}
+        for pid in pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGTERM)  # an exact PID of this bundle; the preflight proved this run started it
+        killed = wait_exits(pids, 15)
+        for pid in killed:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        left = wait_exits(killed, 5)
+        if left:
+            raise LaunchError("cold-not-stopped", {"detail": f"process(es) {sorted(left)} of {self.bundle} did not exit "
+                                                             "after SIGKILL", "log_tail": ""})
+        done = subprocess.run(["sudo", "-n", "purge"], capture_output=True, text=True, timeout=PURGE_S,
+                              stdin=subprocess.DEVNULL)
+        if done.returncode != 0:
+            raise LaunchError("purge-refused", {"detail": f"`sudo -n purge` exited {done.returncode}: "
+                                                          f"{(done.stdout + done.stderr).strip()[:300]}; a cold launch "
+                                                          "needs a passwordless purge (a fleet measure host)",
+                                                "log_tail": ""})
+        return {"stopped": len(pids), "killed": len(killed), "purged": True}
 
     def build_stress(self):
         """STRESS through perf-stress-session.py; a session that misses the shape is traced and says so. The
@@ -2051,7 +2225,7 @@ def chromium_events(out, threads_by_pid):
                     "os_thread": {f"{p}:{t}": o for (p, t), o in mapping.items()}}
 
 
-def chromium_on_own_tracks(chrome, samples, tracks):
+def chromium_on_own_tracks(chrome, samples, tracks, kind="chromium"):
     """Chromium's events, each thread on a track of its own: a Chromium thread id that is also a sampled OS
     thread id (Chromium's trace names threads by their system id) moves to a synthetic track, so its slices
     never share a track with that thread's sampled frames (the two do not nest: Perfetto's importer reported
@@ -2062,7 +2236,7 @@ def chromium_on_own_tracks(chrome, samples, tracks):
     for e in chrome:
         key = (e.get("pid"), e.get("tid"))
         if key in sampled:
-            e = dict(e, tid=tracks.tid(key[0], ("chromium", key[1])))
+            e = dict(e, tid=tracks.tid(key[0], (kind, key[1])))
         moved.append(e)
     # Chromium itself can end a nested complete event a microsecond after its parent (MainFrameAborted in
     # ProxyMain::BeginMainFrame): the child ends with its parent, so the track nests.
@@ -2344,6 +2518,348 @@ def flow_summary(flows, dropped, warnings=()):
                       for f in flows[:60]]}
 
 
+# ---------------------------------------------------------------- startup trace files (launch scenarios)
+
+def read_trace_file(path):
+    """(events, truncated) of a Chrome Trace Event JSON file: an object with `traceEvents` or a bare array. A file
+    cut short (StartupTrace flushes 64 KiB chunks, so a crash or a kill leaves whole chunks and no closing bracket;
+    Chromium's `--trace-startup` file likewise) gives every whole event before the cut."""
+    try:
+        with open(path, errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return [], False
+    try:
+        data = json.loads(text)
+        events = data.get("traceEvents") if isinstance(data, dict) else data
+        return [e for e in events or [] if isinstance(e, dict)], False
+    except json.JSONDecodeError:
+        pass
+    key = text.find('"traceEvents"')
+    start = text.find("[", key if key >= 0 else 0)
+    if start < 0:
+        return [], True
+    decoder, events, at = json.JSONDecoder(), [], start + 1
+    while True:
+        while at < len(text) and text[at] in " \t\r\n,":
+            at += 1
+        if at >= len(text) or text[at] == "]":
+            break
+        try:
+            value, at = decoder.raw_decode(text, at)
+        except json.JSONDecodeError:
+            break  # the event the cut went through
+        if isinstance(value, dict):
+            events.append(value)
+    return events, True
+
+
+def complete_slices(events):
+    """B/E pairs as X slices (per pid and tid, innermost first), so every source nests the same way on its track.
+    An E with no B is dropped; a B with no E (the file was cut) ends at the file's last time, marked unfinished."""
+    timed = [e for e in events if isinstance(e.get("ts"), (int, float))]
+    last = max((float(e["ts"]) + float(e.get("dur") or 0) for e in timed), default=0.0)
+    out, begun = [], collections.defaultdict(list)
+    for e in events:
+        phase = e.get("ph")
+        if phase in ("B", "E") and not isinstance(e.get("ts"), (int, float)):
+            continue
+        key = (e.get("pid"), e.get("tid"))
+        if phase == "B":
+            begun[key].append(e)
+        elif phase == "E":
+            if begun[key]:
+                b = begun[key].pop()
+                out.append({**b, "ph": "X", "dur": max(0.0, float(e["ts"]) - float(b["ts"])),
+                            "args": {**(b.get("args") or {}), **(e.get("args") or {})}})
+        else:
+            out.append(e)
+    for stack in begun.values():
+        for b in stack:
+            out.append({**b, "ph": "X", "dur": max(0.0, last - float(b["ts"])),
+                        "args": {**(b.get("args") or {}), "unfinished": True}})
+    return out
+
+
+def startup_source(name):
+    """Which process wrote a file of DIR/startup, from its name: the app's StartupTrace (STARTUP_APP_FILE), the
+    daemon's startup marks, or Chromium's `--trace-startup` file (p08-startup 099)."""
+    if name == STARTUP_APP_FILE:
+        return "app"
+    lower = name.lower()
+    if "daemon" in lower or "tui" in lower:
+        return "daemon"
+    if "cef" in lower or "chrom" in lower:
+        return "chromium"
+    return os.path.splitext(name)[0]
+
+
+def mark_name(event):
+    """The launch mark an instant stands for: its `mark` argument, else its name."""
+    return (event.get("args") or {}).get("mark") or event.get("name")
+
+
+def launch_marks(signposts, app_pid):
+    """{mark: {"ms": since process start, "at_us": CLOCK_UPTIME_RAW}} from the app's `launch.mark` signpost events
+    (LaunchSignposts: `<name> ms=<ms>`), the first of each name."""
+    marks = {}
+    for event in signposts["events"]:
+        if event["name"] != "launch.mark" or (app_pid is not None and event["pid"] not in (None, app_pid)):
+            continue
+        name, _, rest = (event.get("message") or "").partition(" ")
+        try:
+            ms = float(signposts_lib.fields(rest).get("ms"))
+        except (TypeError, ValueError):
+            continue
+        if name:
+            marks.setdefault(name, {"ms": ms, "at_us": event["at_us"]})
+    return marks
+
+
+def startup_clock(events, signpost_at, window, prefix=""):
+    """(offset_us, how, warning) for one startup file, by the trace's clock rule: every source is CLOCK_UPTIME_RAW in
+    us (StartupTrace writes it; Chromium's TimeTicks is mach_absolute_time), checked rather than assumed. The launch
+    marks a file shares with the signposts (instants of the same mark) give the offset: 0 within 1 ms (the same
+    clock), else their median, as the Chromium trace's clock_sync check does. A daemon file's marks are the app's
+    `daemon.<mark>` (`prefix`: the app maps the daemon's startup_marks so, p08-startup 093). A file with no shared
+    mark stays put and is named when its events fall more than 1 s outside the window."""
+    diffs = [signpost_at[prefix + mark_name(e)] - float(e["ts"]) for e in events
+             if e.get("ph") in INSTANT_PHASES and isinstance(e.get("ts"), (int, float))
+             and prefix + str(mark_name(e)) in signpost_at]
+    if diffs:
+        raw = statistics.median(diffs)
+        if abs(raw) <= 1000:
+            return 0.0, f"CLOCK_UPTIME_RAW ({len(diffs)} launch marks within {abs(raw):.0f} us of the signposts)", None
+        return raw, f"launch marks ({len(diffs)} shared)", (f"its clock is {raw / 1000:.1f} ms off the signposts': moved "
+                                                           f"by the median of {len(diffs)} shared launch marks")
+    times = [float(e["ts"]) for e in events if e.get("ph") != "M" and isinstance(e.get("ts"), (int, float))]
+    start, end = window
+    if times and start is not None and end is not None and (min(times) < start - 1e6 or max(times) > end + 1e6):
+        return 0.0, "CLOCK_UPTIME_RAW (assumed: no shared launch mark)", (
+            f"its events run from {(min(times) - start) / 1e6:+.1f} s to {(max(times) - start) / 1e6:+.1f} s of the "
+            f"window's start: not CLOCK_UPTIME_RAW us, or another launch's")
+    return 0.0, "CLOCK_UPTIME_RAW (assumed: no shared launch mark)", None
+
+
+def startup_files(out, signposts, app_pid, window):
+    """Every startup trace in DIR/startup on the trace clock: (events, {file: info}). Process names come from the
+    trace's roles; each thread is named `startup <source>: <thread>`."""
+    folder = os.path.join(out, STARTUP_DIR)
+    signpost_at = {name: mark["at_us"] for name, mark in launch_marks(signposts, app_pid).items()}
+    events, files = [], {}
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if not name.endswith(".json"):
+            continue
+        source = startup_source(name)
+        raw, truncated = read_trace_file(os.path.join(folder, name))
+        raw = complete_slices(raw)
+        offset, how, warning = startup_clock(raw, signpost_at, window, "daemon." if source == "daemon" else "")
+        named, kept = set(), []
+        for e in raw:
+            if e.get("ph") == "M" and e.get("name") in ("process_name", "process_sort_index", "process_labels"):
+                continue  # the trace names every process by its cmux role
+            e = dict(e)
+            if e.get("pid") is None and source == "app":
+                e["pid"] = app_pid
+            if e.get("pid") is None:
+                continue
+            e.setdefault("tid", 0)
+            if e.get("ph") == "M":
+                if e.get("name") == "thread_name":
+                    e["args"] = {"name": f"startup {source}: {(e.get('args') or {}).get('name')}"}
+                    named.add((e["pid"], e["tid"]))
+            elif isinstance(e.get("ts"), (int, float)):
+                e["ts"] = float(e["ts"]) + offset
+            else:
+                continue
+            kept.append(e)
+        for pid, tid in sorted({(e["pid"], e["tid"]) for e in kept} - named, key=str):
+            kept.append({"ph": "M", "pid": pid, "tid": tid, "name": "thread_name",
+                         "args": {"name": f"startup {source}"}})
+        events += kept
+        files[name] = {"source": source, "events": len(kept), "truncated": truncated, "clock": how,
+                       "offset_us": round(offset, 1), "warning": warning,
+                       "pids": sorted({e["pid"] for e in kept if isinstance(e["pid"], int)})}
+    return events, files
+
+
+# ---------------------------------------------------------------- launch summary
+
+def is_turn(event):
+    """A StartupTrace main-thread turn (p08-startup 004 records turns over 1 ms from the watchdog's sink)."""
+    return event.get("cat") in ("turn", "main_turn", "main.turn") or str(event.get("name") or "").startswith("main.turn")
+
+
+def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stalls, startup_events):
+    """The launch section of the summary: milestones, the critical path between them, the top main-thread frames
+    before the first frame, and every main-thread turn of LAUNCH_TURN_MS or more."""
+    marks = launch_marks(signposts, app_pid)
+    app_events = [e for e in startup_events if e.get("pid") == app_pid and e.get("ph") != "M"]
+    instants = {}
+    for e in app_events:
+        if e.get("ph") in INSTANT_PHASES:
+            instants.setdefault(mark_name(e), float(e["ts"]))
+    # Process start on the trace clock: StartupTrace's own `process_start` (kinfo p_starttime), else the earliest
+    # signpost minus its ms (a mark is emitted at or after the time it names, so the earliest bound is the best).
+    if "process_start" in instants:
+        process_start, process_start_from = instants["process_start"], "startup trace"
+    elif marks:
+        process_start, process_start_from = min(m["at_us"] - m["ms"] * 1000 for m in marks.values()), "launch marks"
+    else:
+        process_start, process_start_from = None, "none"
+    milestones = {"process_start": {"ms": 0.0, "from": process_start_from}}
+    for name, mark in marks.items():
+        milestones.setdefault(name, {"ms": mark["ms"], "from": "signposts"})
+    if process_start is not None:
+        for name, ts in instants.items():
+            milestones.setdefault(name, {"ms": (ts - process_start) / 1000, "from": "startup trace"})
+    timings = meta.get("timings") if isinstance(meta.get("timings"), dict) else {}
+    for name, ms in (timings.get("launch_ms_since_process_start") or {}).items():
+        if isinstance(ms, (int, float)):
+            milestones.setdefault(name, {"ms": float(ms), "from": "debug.timings"})
+    at = (lambda ms: process_start + ms * 1000) if process_start is not None else (lambda ms: None)
+    window_end = meta.get("window_end_us")
+    main_tid = next((t for t, n in (threads_by_pid.get(app_pid) or {}).items() if n.startswith("Main Thread")), None)
+    main = sorted((t / 1000.0 + offset_us, w / 1000.0, frames) for t, w, thread, frames in samples
+                  if thread.get("pid") == app_pid and thread.get("tid") == main_tid)
+    main_times = [r[0] for r in main]
+
+    def main_samples(a, b):
+        if a is None or b is None:
+            return []
+        return main[bisect.bisect_left(main_times, a):bisect.bisect_right(main_times, b)]
+
+    tasks = [e for e in app_events if e.get("ph") == "X" and not is_turn(e)]
+
+    def tasks_during(a, b, limit=3):
+        overlap = collections.Counter()
+        for e in tasks:
+            lo, hi = max(a, float(e["ts"])), min(b, float(e["ts"]) + float(e.get("dur") or 0))
+            if hi > lo:
+                overlap[str(e.get("name"))] += hi - lo
+        return [{"task": k[:120], "ms": round(v / 1000, 1)} for k, v in overlap.most_common(limit)]
+
+    def frames_of(rows, limit):
+        """[{frame, ms inclusive, self_ms}] of the interesting frames of sampled stacks (leaf first; weights in us)."""
+        inclusive, own = collections.Counter(), collections.Counter()
+        for _, weight, frames in rows:
+            for frame in set(frames):
+                if interesting(frame):
+                    inclusive[frame] += weight
+            leaf = next((f for f in frames if interesting(f)), None)
+            if leaf:
+                own[leaf] += weight
+        ranked = sorted(inclusive.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]  # ties by name: a stable summary
+        return [{"frame": f[:180], "ms": round(us / 1000, 1), "self_ms": round(own.get(f, 0.0) / 1000, 1)}
+                for f, us in ranked]
+
+    # The critical path: the launch milestones the run has, in the order they happened, each step with what filled it.
+    path_marks = sorted(((n, m["ms"]) for n, m in milestones.items() if n in LAUNCH_MILESTONES), key=lambda x: x[1])
+    critical = []
+    for (a, a_ms), (b, b_ms) in zip(path_marks, path_marks[1:]):
+        start, end = at(a_ms), at(b_ms)
+        inside = main_samples(start, end)
+        critical.append({"from": a, "to": b, "at_ms": round(a_ms, 1), "ms": round(b_ms - a_ms, 1),
+                         "main_cpu_ms": round(sum(w for _, w, _ in inside) / 1000, 1), "frames": frames_of(inside, 3),
+                         "tasks": tasks_during(start, end) if start is not None else []})
+    if critical:
+        max(critical, key=lambda step: step["ms"])["longest"] = True
+
+    def step_at(ms):
+        return next((f"{s['from']} -> {s['to']}" for s in critical if s["at_ms"] <= ms < s["at_ms"] + s["ms"]), None)
+
+    first_frame = milestones.get(FIRST_FRAME_MARK)
+    until = at(first_frame["ms"]) if first_frame else window_end
+    top = frames_of(main_samples(process_start, until), LAUNCH_TOP_FRAMES)
+    # Main-thread turns of LAUNCH_TURN_MS or more: the watchdog's (its threshold is LAUNCH_TURN_MS in a launch),
+    # StartupTrace's that no watchdog record covers, else busy runs of the main thread's samples.
+    begin = process_start if process_start is not None else meta.get("window_start_us")
+    turns = []
+    for s in stalls:
+        if s["kind"] in ("stall", "over_budget") and s["ms"] >= LAUNCH_TURN_MS and begin is not None and \
+                begin <= s["start_us"] <= (window_end or float("inf")):
+            frames = [f for f in s["frames"] if interesting(re.sub(r"^\S+ ", "", str(f)))][:6]
+            turns.append({"start_us": s["start_us"], "ms": s["ms"], "cpu_ms": s["cpu_ms"], "source": "watchdog",
+                          "frames": frames})
+    for e in app_events:
+        if e.get("ph") == "X" and is_turn(e) and float(e.get("dur") or 0) >= LAUNCH_TURN_MS * 1000:
+            start = float(e["ts"])
+            if not any(t["start_us"] - 1000 <= start <= t["start_us"] + t["ms"] * 1000 for t in turns):
+                turns.append({"start_us": start, "ms": float(e["dur"]) / 1000, "cpu_ms": None, "source": "startup trace",
+                              "frames": []})
+    if not turns:
+        run = []
+        for row in main + [(float("inf"), 0, ())]:
+            if run and row[0] - (run[-1][0] + run[-1][1]) > 1.5 * max(run[-1][1], 1):
+                a, b = run[0][0], run[-1][0] + run[-1][1]
+                if b - a >= LAUNCH_TURN_MS * 1000 and (begin is None or a >= begin):
+                    turns.append({"start_us": a, "ms": (b - a) / 1000, "cpu_ms": (b - a) / 1000, "source": "samples",
+                                  "frames": []})
+                run = []
+            run.append(row)
+    rows = []
+    for turn in sorted(turns, key=lambda t: t["start_us"]):
+        end = turn["start_us"] + turn["ms"] * 1000
+        at_ms = (turn["start_us"] - process_start) / 1000 if process_start is not None else None
+        sampled = [x["frame"] for x in frames_of(main_samples(turn["start_us"], end), 4)]
+        rows.append({"at_ms": None if at_ms is None else round(at_ms, 1), "ms": round(turn["ms"], 1),
+                     "cpu_ms": None if turn["cpu_ms"] is None else round(turn["cpu_ms"], 1), "source": turn["source"],
+                     "step": None if at_ms is None else step_at(at_ms), "frames": turn["frames"] or sampled,
+                     "tasks": tasks_during(turn["start_us"], end, 2)})
+    return {
+        "temperature": (meta.get("launch") or {}).get("temperature"), "process_start_from": process_start_from,
+        "milestones": [{"name": n, "ms": round(m["ms"], 1), "from": m["from"]}
+                       for n, m in sorted(milestones.items(), key=lambda kv: kv[1]["ms"])],
+        "first_frame_ms": round(first_frame["ms"], 1) if first_frame else None,
+        "startup_complete_ms": round(milestones[STARTUP_COMPLETE_MARK]["ms"], 1)
+        if STARTUP_COMPLETE_MARK in milestones else None,
+        "critical_path": critical, "main_samples": len(main),
+        "top_main_frames": top, "top_main_frames_until": FIRST_FRAME_MARK if first_frame else "the window's end",
+        "turns": rows, "turn_ms": LAUNCH_TURN_MS, "run": meta.get("launch"),
+    }
+
+
+def launch_text(launch, files):
+    """The launch section of SUMMARY.txt."""
+    lines = [f"Launch ({launch.get('temperature')}): first frame {launch.get('first_frame_ms')} ms, "
+             f"{STARTUP_COMPLETE_MARK} {launch.get('startup_complete_ms')} ms since process start (process start from "
+             f"{launch.get('process_start_from')}); {launch.get('main_samples')} main-thread samples"]
+    run = launch.get("run") or {}
+    if run.get("temperature") == "cold":
+        lines.append(f"  cold: {run.get('stopped')} process(es) of the bundle stopped ({run.get('killed')} after SIGKILL), "
+                     f"file cache purged {run.get('purged')}")
+    lines.append("  milestones (ms since process start): " +
+                 ", ".join(f"{m['name']} {m['ms']}" for m in launch.get("milestones") or []))
+    lines.append("Critical path (main thread, milestone to milestone; * the longest step):")
+    if not launch.get("critical_path"):
+        lines.append("  none: fewer than two launch milestones were recorded")
+    for step in launch.get("critical_path") or []:
+        what = "; ".join(f"{f['frame'][:80]} {f['ms']} ms" for f in step["frames"])
+        tasks = "; ".join(f"{t['task'][:60]} {t['ms']} ms" for t in step["tasks"])
+        lines.append(f"  {'*' if step.get('longest') else ' '} {step['from']} -> {step['to']}: {step['ms']} ms at "
+                     f"+{step['at_ms']} ms, main cpu {step['main_cpu_ms']} ms" + (f"; {what}" if what else "")
+                     + (f"; tasks: {tasks}" if tasks else ""))
+    lines.append(f"Top {LAUNCH_TOP_FRAMES} main-thread frames before {launch.get('top_main_frames_until')} "
+                 f"(ms inclusive / self):")
+    for row in launch.get("top_main_frames") or []:
+        lines.append(f"  {row['ms']:8} / {row['self_ms']:<8} {row['frame'][:120]}")
+    turns = launch.get("turns") or []
+    lines.append(f"Main-thread turns of {launch.get('turn_ms')} ms or more ({len(turns)}):")
+    for turn in turns:
+        lines.append(f"  +{turn['at_ms']} ms: {turn['ms']} ms" + (f", cpu {turn['cpu_ms']} ms" if turn["cpu_ms"] is not None else "")
+                     + f" [{turn['source']}]" + (f" in {turn['step']}" if turn["step"] else "")
+                     + (": " + " < ".join(str(f)[:80] for f in turn["frames"][:4]) if turn["frames"] else "")
+                     + ("; tasks: " + "; ".join(t["task"][:60] for t in turn["tasks"]) if turn["tasks"] else ""))
+    for name, info in (files or {}).items():
+        lines.append(f"  startup file {name}: {info['source']}, {info['events']} events"
+                     + (", TRUNCATED (whole events before the cut kept)" if info["truncated"] else "")
+                     + f", clock {info['clock']}" + (f"; WARNING: {info['warning']}" if info.get("warning") else ""))
+    if not files:
+        lines.append(f"  no startup trace files in {STARTUP_DIR}/ (an app before StartupTrace, or CMUX_TRACE_STARTUP "
+                     f"not read)")
+    return lines
+
+
 def build(out):
     """Merges every raw file in `out` into trace.json.gz and returns the summary (also summary.json, SUMMARY.txt)."""
     meta = read_json(os.path.join(out, "meta.json"), {}) or {}
@@ -2400,8 +2916,10 @@ def build(out):
     flame_roles = set(ROLE_ORDER) - {"other"}
     keep = lambda thread: roles.get(thread.get("pid"), "other") in flame_roles
     chrome, chrome_info = chromium_events(out, threads_by_pid)
+    # The launch scenarios' startup traces (the app's StartupTrace, the daemon's, Chromium's), on the trace clock.
+    startup, startup_info = startup_files(out, signposts, app_pid, (meta.get("window_start_us"), meta.get("window_end_us")))
     os_tids = {thread.get("tid") for _, _, thread, _ in samples} | {thread.get("tid") for _, _, thread, _, _ in states} \
-        | {e.get("tid") for e in chrome}
+        | {e.get("tid") for e in chrome} | {e.get("tid") for e in startup}
     os_tids = {t for t in os_tids if isinstance(t, int)}
     tracks = SyntheticTracks(os_tids)
     events = flame_events(samples, offset_us, keep)
@@ -2463,6 +2981,10 @@ def build(out):
     lane_names.update(span_info.pop("track_names"))
     events += span_events
     events += chromium_on_own_tracks(chrome, samples, tracks)
+    events += chromium_on_own_tracks(startup, samples, tracks, kind="startup")
+    for info in startup_info.values():  # a process only a startup file names (no ps snapshot, no samples)
+        for pid in info["pids"]:
+            roles.setdefault(pid, {"app": "app", "daemon": "daemon"}.get(info["source"], "bundle-other"))
     driver = read_json(os.path.join(out, "driver.json"), []) or []
     driver_lanes = collections.defaultdict(Lanes)
     for item in driver:
@@ -2514,6 +3036,9 @@ def build(out):
     summary = summarize(meta, roles, app_pid, samples, offset_us, signposts, stall_records, blocked, span_rows, chrome,
                         chrome_info, threads_by_pid)
     summary["key_flows"] = flow_summary(key_flows, flow_dropped, flow_gaps)
+    if meta.get("scenario") in LAUNCH_SCENARIOS:
+        summary["launch"] = launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stall_records,
+                                           startup)
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
@@ -2524,6 +3049,7 @@ def build(out):
         "system_trace_states": len(states), "hang_records": len(stall_records), "hangs_dropped": hangs.get("dropped"),
         "daemon_span_lines": span_info["lines"], "chromium": chrome_info, "processes": dict(collections.Counter(roles.values())),
         "sample_files": sorted(p for p in os.listdir(out) if p.startswith("sample-")),
+        "startup_files": startup_info,
     }
     write_json(os.path.join(out, "summary.json"), summary)
     with open(os.path.join(out, "SUMMARY.txt"), "w") as f:
@@ -2825,6 +3351,8 @@ def summary_text(s):
     if s.get("storm_targets"):
         lines.append(f"  storm targets: {s['storm_targets']}")
     lines.append(f"  CPU seconds by process role: {s.get('cpu_s_by_role')}")
+    if s.get("launch"):
+        lines += launch_text(s["launch"], (s.get("sources") or {}).get("startup_files"))
     lines.append(f"Top main-thread stalls ({s.get('stall_count')} over the watchdog threshold):")
     for n, stall in enumerate(s.get("top_stalls") or [], 1):
         how = f"waiting ({stall['wait_class']})" if stall["waiting"] else "busy"
@@ -3933,6 +4461,21 @@ def check_real_xctrace_exports():
         print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {rows} syscall rows")
 
 
+def check_launch_trace():
+    """The launch fixture (trace_fixtures.write_launch_fixture; tests/test_trace_launch.py checks it in full): the
+    startup files merge on one clock, a cut file keeps its whole events, and the summary has a critical path."""
+    fixtures = load("trace_fixtures", "trace_fixtures.py")
+    with tempfile.TemporaryDirectory() as out:
+        fixtures.write_launch_fixture(out)
+        launch = build(out)["launch"]
+        assert launch["first_frame_ms"] == 240.0 and launch["critical_path"], launch
+        assert [t["ms"] for t in launch["turns"]] == [12.0, 6.0], launch["turns"]
+        files = read_json(os.path.join(out, "summary.json"))["sources"]["startup_files"]
+        assert files["startup-cef.json"]["truncated"] and files["startup-daemon.json"]["offset_us"] == 2e6, files
+        with open(os.path.join(out, "SUMMARY.txt")) as f:
+            assert "Critical path" in f.read()
+
+
 SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
@@ -3941,7 +4484,7 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn, check_focus_quiet_terminal]
+              check_flow_gaps_warn, check_focus_quiet_terminal, check_launch_trace]
 
 
 def self_test():
@@ -3971,7 +4514,7 @@ def main():
     where.add_argument("--bundle", help="wrap mode: the bundle whose processes the COMMAND's app runs")
     rec.add_argument("--socket", help="wrap mode: the debug socket of the app COMMAND launches (hang drain)")
     rec.add_argument("--out", required=True)
-    rec.add_argument("--scenario", choices=["stress-storm", "light-storm"], default="stress-storm")
+    rec.add_argument("--scenario", choices=["stress-storm", "light-storm", *LAUNCH_SCENARIOS], default="stress-storm")
     rec.add_argument("--seconds", type=float, default=20)
     rec.add_argument("--seconds-cap", type=float, default=600, help="wrap mode: the longest recording")
     rec.add_argument("--recorder", choices=["auto", "xctrace", "sample"], default="auto")
