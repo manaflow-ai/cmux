@@ -29,7 +29,19 @@ public struct RegistryKeyBindings {
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
         registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
+        registry.shortcutIndex?.subtables = [:]
         return table
+    }
+
+    /// The entries of ``table`` that `keep` keeps, as a table, built once per binding change and
+    /// cached under `name` (the palette resolves every key-down against its own entries).
+    /// `keep` must give the same answer for a name every time.
+    public func subtable(_ name: String, keeping keep: (KeyBinding) -> Bool) -> KeyBindingTable {
+        let full = table
+        if let cached = registry.shortcutIndex?.subtables[name] { return cached }
+        let sub = KeyBindingTable(full.entries.filter(keep))
+        registry.shortcutIndex?.subtables[name] = sub
+        return sub
     }
 
     /// Bound, available in `context` (the key window's facts), and enabled.
@@ -52,6 +64,45 @@ public struct RegistryKeyBindings {
         return registry.perform(binding.command, invocation: invocation)
     }
 
+    /// The `when` a shipped default entry of `id` on `keys` carries (the action's context and the
+    /// keys it yields: the code editor's, a terminal program's, a web page's, a text field's), as
+    /// the table builds it. A cmux.json override equal to the default is that entry again.
+    public func shippedWhen(for id: ActionID, keys: [Shortcut]) -> WhenClause? {
+        let requires = registry.descriptor(for: id)?.requires ?? []
+        return Self.keyWhen(scopes(id).defaultWhen, keys: keys, yieldsToTextInput: requires.isEmpty)
+    }
+
+    /// `when`: the context of every entry of `id` (its `requires`, Home's chat scope);
+    /// `defaultWhen`: a shipped default's, with the keys it yields to others.
+    private func scopes(_ id: ActionID) -> (when: WhenClause?, defaultWhen: WhenClause?) {
+        var when = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
+        if KeyBindingDefaults.homeChatScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+        } else if KeyBindingDefaults.homeScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHome].compactMap { $0 })
+        }
+        // The code editor's editing chords win over these defaults (R127).
+        var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
+            ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
+        // A terminal program's own keys win over these defaults (amendment 3).
+        if KeyBindingDefaults.yieldsToTerminal.contains(id) {
+            defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
+        }
+        // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+        if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+            defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
+        }
+        return (when, defaultWhen)
+    }
+
+    /// A focused text field's own keys win over these defaults (Cmd-Return steers the chat); an
+    /// action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.
+    private static func keyWhen(_ defaultWhen: WhenClause?, keys: [Shortcut], yieldsToTextInput: Bool) -> WhenClause? {
+        guard yieldsToTextInput, keys.count == 1, KeyBindingDefaults.textInputKeys.contains(keys[0]) else { return defaultWhen }
+        return WhenClause.and([defaultWhen, KeyBindingDefaults.notTextInput].compactMap { $0 })
+    }
+
     private func makeTable() -> KeyBindingTable {
         typealias Ranked = (binding: KeyBinding, specificity: Int, order: Int)
         var layers: [KeyBinding.Source: [Ranked]] = [:]
@@ -59,31 +110,11 @@ public struct RegistryKeyBindings {
         ids += registry.actions.map(\.id).filter { registry.descriptorIndexByID[$0] == nil }
         for (order, id) in ids.enumerated() where registry.disabledFeature(for: id) == nil {
             let requires = registry.descriptor(for: id)?.requires ?? []
-            var when = WhenClause.requiring(requires)
-            // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
-            if KeyBindingDefaults.homeChatScoped.contains(id) {
-                when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
-            }
-            // The code editor's editing chords win over these defaults (R127).
-            var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
-                ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
-            // A terminal program's own keys win over these defaults (amendment 3).
-            if KeyBindingDefaults.yieldsToTerminal.contains(id) {
-                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
-            }
-            // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
-            if KeyBindingDefaults.yieldsToWebContent.contains(id) {
-                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
-            }
+            let (when, defaultWhen) = scopes(id)
             let specificity = requires.rawValue.nonzeroBitCount
-            // A focused text field's own keys win over these defaults (Cmd-Return steers the chat);
-            // an action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.
             let yieldsToTextInput = requires.isEmpty
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
-                var keyWhen = defaultWhen
-                if yieldsToTextInput, keys.count == 1, KeyBindingDefaults.textInputKeys.contains(keys[0]) {
-                    keyWhen = WhenClause.and([keyWhen, KeyBindingDefaults.notTextInput].compactMap { $0 })
-                }
+                let keyWhen = Self.keyWhen(defaultWhen, keys: keys, yieldsToTextInput: yieldsToTextInput)
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }

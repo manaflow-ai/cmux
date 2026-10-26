@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 
 public extension WindowBackdrop {
     /// The backdrop a pane or page decides its own painting from: `tokens` with the active
@@ -22,7 +23,7 @@ public extension ThemeScope {
     /// the theme's opacity, or over a background picture the tint the window lays over it (an
     /// unset slider sat at Ghostty's 100% while the window showed a lighter tint).
     var shownWindowOpacity: Double {
-        _ = BackdropRevision.shared.value // Observed: re-read when the picture changes.
+        _ = store.backdropRevision.value // Observed: re-read when the picture changes.
         guard backdropSelection != nil else { return input.backgroundOpacity }
         let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
                                       tuning: appearanceTuning, tintOpacity: backdropTintOpacity)

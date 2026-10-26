@@ -44,6 +44,7 @@ extension SidebarListViewComponents {
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
+        if let drag, drag.group.map({ $0.revision != model.sectionsRevision }) == true { rebaseGroupDrag(drag) }
         let settled = settleDrop()
         // A drag's look hands over to the model on the same spring (DESIGN "Drag feel" 6).
         // Also a non-animated reload (provisional rows, a space switch) under a held drag or a settle: rows never snap then.
@@ -93,7 +94,7 @@ extension SidebarListViewComponents {
         case let .item(item):
             o.excludedItem = item
         }
-        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, drag.group == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }
@@ -105,10 +106,20 @@ extension SidebarListViewComponents {
         // The one indent rule (`SidebarIndent`): from the drawn tree, a top-level group's rows flush with ungrouped
         // rows (#23975), each deeper level one gutter in, capped in a narrow list.
         let gutter = indentOffset(for: row)
+        // A group header reaches left over its members' rail (`groupRailReach`): the rail and the bar share one left edge.
+        let reach = railReach(for: row)
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
-        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
-                      height: row.height)
+        return NSRect(x: inset + gutter - reach, y: row.y,
+                      width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim) + reach, height: row.height)
+    }
+    /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
+    /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
+    func railReach(for row: SidebarRow) -> CGFloat {
+        guard case .group = row.key else { return 0 }
+        let membersX = inset + indentOffset(for: row)
+        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
+        return membersX - min(membersX, max(barX, SidebarStyle.groupEdgePadding))
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -288,6 +299,8 @@ extension SidebarListViewComponents {
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
+            // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
+            if !model.showsColors { group.tint = .none }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):
@@ -299,7 +312,14 @@ extension SidebarListViewComponents {
                     details.unreadCount = true
                 }
             }
-            view.configure(group, row: row, details: details, animated: animated)
+            // Lawrence msg 11983: open or collapsed, the header rolls up its whole subtree's most urgent state.
+            // A collapsed header's group already holds its subgroups' members (above).
+            var subtree = group
+            if !row.isCollapsed {
+                subtree.workspaces += (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }.flatMap(\.workspaces)
+            }
+            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed), animated: animated)
+            view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }

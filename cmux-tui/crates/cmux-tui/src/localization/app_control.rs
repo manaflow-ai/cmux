@@ -6,6 +6,10 @@
 pub(crate) struct AppControlMessages {
     pub action_describe_usage: &'static str,
     pub action_run_usage: &'static str,
+    pub action_batch_stdin: &'static str,
+    pub action_batch_line: &'static str,
+    pub action_batch_empty: &'static str,
+    pub action_batch_not_object: &'static str,
     pub agent_open_usage: &'static str,
     pub agent_open_tab_usage: &'static str,
     pub settings_usage: &'static str,
@@ -47,6 +51,10 @@ pub(crate) struct AppControlMessages {
     pub skew_classic: &'static str,
     pub skew_other: &'static str,
     pub skew_use_cli: &'static str,
+    /// `cmux machine list` without the app's Cloud machines (cli/cloud_machines.rs).
+    pub cloud_machines_unlisted: &'static str,
+    /// The app answered `cloud.machines` without a `machines` list.
+    pub cloud_machines_malformed: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
 }
@@ -68,8 +76,12 @@ pub(crate) struct VersionLabels {
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
-    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
-    agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]",
+    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (stdin: a JSON array, or one JSON object per line, of action.run params:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}; they run in order as ONE transaction:\n         every op is checked before any runs, and the app applies them in one frame.\n         At most 64 ops per transaction; --no-atomic applies more as consecutive transactions)",
+    action_batch_stdin: "action run -: cannot read stdin: {error}",
+    action_batch_line: "action run -: op {line} of stdin is not a JSON object of action.run params ({error}); nothing ran",
+    action_batch_empty: "action run -: stdin has no op; nothing ran",
+    action_batch_not_object: "not an object",
+    agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]",
     agent_open_tab_usage: "usage: cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]",
     settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--confirm] | reset PATH [--confirm] | unset PATH [--confirm] | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)",
     settings_confirm_hint: "add --confirm to ask for approval in cmux",
@@ -97,7 +109,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
     chats_open_usage: "usage: cmux chats open HARNESS:SESSION_ID [--cwd DIR]; `cmux chats list` shows the keys",
-    browser_page_usage: "usage: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [SELECTOR] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out PATH|-] [--selector S|--full-page] | press KEY [--selector S] | hover|check|uncheck|scroll-into-view SELECTOR | select SELECTOR VALUE | scroll [SELECTOR] [--dx N] [--dy N] | cookies [get|set NAME VALUE|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX] [--secure] [--http-only] | storage [local|session] [get [KEY]|set KEY VALUE|clear] | drag SELECTOR TARGET | upload SELECTOR FILE… | passkey [SELECTOR] (ask the person for a passkey: their click brings the tab forward, then SELECTOR is clicked) ; any input verb takes --agent NAME (default $CMUX_AGENT_NAME, Claude or Codex): the name on its cursor; right is the browser right of the Home chat (the agent's own tab there, opened when needed; only reads run on the person's shown tab unless --take, given only when the person handed it over; `right release` gives it back)",
+    browser_page_usage: "usage: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [SELECTOR] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out PATH|-] [--selector S|--full-page] | press KEY [--selector S] | hover|check|uncheck|scroll-into-view SELECTOR | select SELECTOR VALUE | scroll [SELECTOR] [--dx N] [--dy N] | cookies [get|set NAME VALUE|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX] [--secure] [--http-only] | storage [local|session] [get [KEY]|set KEY VALUE|clear] | drag SELECTOR TARGET | upload SELECTOR FILE… [--timeout-ms N] (clicks SELECTOR and answers the file chooser it opens) | download list [--limit N] | download [wait] [--id ID] [--path P] [--timeout-ms N] (the next download from this tab ends; page: any tab; --path copies the file there) | passkey [SELECTOR] (ask the person for a passkey: their click brings the tab forward, then SELECTOR is clicked) | mirror [--pane P] [--off] (show the tab in a second pane too, default right of the Home chat: the same live page; --off takes it out) ; any input verb takes --agent NAME (default $CMUX_AGENT_NAME, Claude or Codex): the name on its cursor; right is the browser right of the Home chat (the agent's own tab there, opened when needed; only reads run on the person's shown tab unless --take, given only when the person handed it over; `right release` gives it back)",
     screenshot_write_failed: "could not write the screenshot to {path} ({error})",
     app_call_usage: "usage: cmux [--app-socket PATH] app call METHOD [JSON_OBJECT] (debug builds only)",
     app_call_bad_json: "app call: the params must be one JSON object, for example '{\"window\":\"win_1\"}'",
@@ -105,6 +117,8 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     skew_classic: "this cmux-next CLI ({cli}) sent {method}, but the app at {socket} is the classic cmux app{version}, which does not speak cmux-next methods. Run this in a cmux-next terminal, or use the classic app's own CLI.",
     skew_other: "this CLI ({cli}) sent {method}, but {app}{version} at {socket} does not support it. Use the CLI that ships with {app}, or quit {app} and open the app this CLI ships with.",
     skew_use_cli: "Its CLI: {path}",
+    cloud_machines_unlisted: "note: Cloud machines are not listed: {reason}",
+    cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     version: VersionLabels {
         cli: "CLI",
         app: "App",
@@ -126,8 +140,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
-    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
-    agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ]",
+    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]\n       cmux action run - [--no-wait] [--no-atomic] < ops\n         (標準入力: action.run のパラメーターの JSON 配列、または 1 行に 1 つの JSON オブジェクト:\n         {\"action\": ID, \"target\": ID, \"args\": {...}}。1 つのトランザクションとして順に実行します。\n         実行前にすべての操作を検査し、アプリは 1 フレームで適用します。\n         1 トランザクションは最大 64 操作です。--no-atomic はそれを超える分を連続したトランザクションで適用します)",
+    action_batch_stdin: "action run -: 標準入力を読めません: {error}",
+    action_batch_line: "action run -: 標準入力の操作 {line} は action.run パラメーターの JSON オブジェクトではありません ({error})。何も実行していません",
+    action_batch_empty: "action run -: 標準入力に操作がありません。何も実行していません",
+    action_batch_not_object: "オブジェクトではありません",
+    agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ] [--focus]",
     agent_open_tab_usage: "使い方: cmux agent open-tab <セッション ID> [--target ペインまたはタブ] [--host ホスト] [--focus]",
     settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--confirm] | reset パス [--confirm] | unset パス [--confirm] | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)",
     settings_confirm_hint: "--confirm を付けると cmux で承認を求めます",
@@ -155,7 +173,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
     chats_open_usage: "使い方: cmux chats open ハーネス:セッションID [--cwd フォルダ]。キーは `cmux chats list` で表示",
-    browser_page_usage: "使い方: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [セレクタ] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out パス|-] [--selector S|--full-page] | press キー [--selector S] | hover|check|uncheck|scroll-into-view セレクタ | select セレクタ 値 | scroll [セレクタ] [--dx N] [--dy N] | cookies [get|set 名前 値|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX秒] [--secure] [--http-only] | storage [local|session] [get [キー]|set キー 値|clear] | drag セレクタ 移動先 | upload セレクタ ファイル… | passkey [セレクタ] (パスキーをユーザーに依頼します: クリックでタブを前面に出し、セレクタをクリックします) ; 入力の各コマンドは --agent 名前 を受け付けます (既定は $CMUX_AGENT_NAME、Claude または Codex): カーソルに表示する名前。right は Home チャットの右のブラウザです (そこにあるエージェント自身のタブ、必要なら新しく開きます。ユーザーが表示中のタブでは読み取りだけを実行します。ユーザーが任せた場合だけ --take を付けます。`right release` で返します)",
+    browser_page_usage: "使い方: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [セレクタ] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out パス|-] [--selector S|--full-page] | press キー [--selector S] | hover|check|uncheck|scroll-into-view セレクタ | select セレクタ 値 | scroll [セレクタ] [--dx N] [--dy N] | cookies [get|set 名前 値|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX秒] [--secure] [--http-only] | storage [local|session] [get [キー]|set キー 値|clear] | drag セレクタ 移動先 | upload セレクタ ファイル… [--timeout-ms N] (セレクタをクリックし、開いたファイル選択画面にファイルを渡します) | download list [--limit N] | download [wait] [--id ID] [--path パス] [--timeout-ms N] (このタブの次のダウンロードの完了を待ちます。page はすべてのタブ。--path でファイルをそこにコピーします) | passkey [セレクタ] (パスキーをユーザーに依頼します: クリックでタブを前面に出し、セレクタをクリックします) | mirror [--pane P] [--off] (タブを 2 つ目のペインにも表示します。既定は Home チャットの右です。同じライブのページです。--off で外します) ; 入力の各コマンドは --agent 名前 を受け付けます (既定は $CMUX_AGENT_NAME、Claude または Codex): カーソルに表示する名前。right は Home チャットの右のブラウザです (そこにあるエージェント自身のタブ、必要なら新しく開きます。ユーザーが表示中のタブでは読み取りだけを実行します。ユーザーが任せた場合だけ --take を付けます。`right release` で返します)",
     screenshot_write_failed: "スクリーンショットを {path} に書き込めませんでした ({error})",
     app_call_usage: "使い方: cmux [--app-socket パス] app call メソッド [JSON オブジェクト] (デバッグビルドのみ)",
     app_call_bad_json: "app call: パラメータは 1 つの JSON オブジェクトにしてください (例: '{\"window\":\"win_1\"}')",
@@ -163,6 +181,8 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_classic: "この cmux-next CLI ({cli}) は {method} を送りましたが、{socket} のアプリは従来の cmux アプリ{version} で、cmux-next のメソッドを話しません。cmux-next のターミナルで実行するか、従来のアプリ自身の CLI を使ってください。",
     skew_other: "この CLI ({cli}) は {method} を送りましたが、{socket} の {app}{version} はこのメソッドに対応していません。{app} に同梱された CLI を使うか、{app} を終了してこの CLI が同梱されたアプリを開いてください。",
     skew_use_cli: "その CLI: {path}",
+    cloud_machines_unlisted: "注意: Cloud マシンは一覧にありません: {reason}",
+    cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     version: VersionLabels {
         cli: "CLI",
         app: "アプリ",
