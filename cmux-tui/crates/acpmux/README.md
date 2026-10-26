@@ -133,7 +133,8 @@ in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
 For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
-`peer_version_skew` with `acpmux host update NAME`.
+`peer_version_skew` with `acpmux host update NAME`; status adds the peer's
+target and `--binary-dir DIR` form when it differs from this build.
 
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
@@ -845,7 +846,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
-acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
@@ -914,7 +915,8 @@ with 5 s each, and lists this machine first. Each row has:
 
 An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
 A peer on an older build that lacks the method shows as reachable, and names
-`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+`acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
+its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
 (`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
 `session export HOST/name` and `session import DIR` bring a session here.
 

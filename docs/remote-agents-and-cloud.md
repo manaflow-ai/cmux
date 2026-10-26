@@ -106,8 +106,10 @@ profile, not the PATH-discovered harness alone. Verify the remote harness with
 `acpmux daemon harnesses` on that host and a real session prompt.
 
 `host enroll` installs the invoking binary too. Use it only for a compatible
-remote OS and architecture. For a Linux host reached from a Mac, use the Linux
-installation and `host add` steps above instead.
+remote OS and architecture. `host update` checks the peer target; for a
+different target, pass `--binary-dir DIR` where `DIR/acpmux-<target>` is the
+matching release bundle, or rebuild acpmux on the host for its OS and
+architecture. Same-target peers can use the plain `acpmux host update NAME`.
 
 ## Work with a remote session
 
