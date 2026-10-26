@@ -25,7 +25,9 @@ use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(test)]
+use std::io::{BufRead, BufReader};
+use std::io::{Read, Write};
 #[cfg(test)]
 use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
@@ -157,6 +159,8 @@ mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
+#[cfg(test)]
+use line_connection::line_limits;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
@@ -594,7 +598,7 @@ pub(crate) use protocol_key::{
 };
 
 mod wire_values;
-use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
+use wire_values::{default_renderer_capability_ttl_ms, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {

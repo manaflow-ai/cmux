@@ -4,19 +4,24 @@ use super::*;
 
 #[test]
 fn json_line_limit_excludes_the_newline_delimiter() {
-    let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
-    assert_eq!(json_line_payload_len(&exact_payload), MAX_JSON_LINE_BYTES);
-
-    let mut exact_line = exact_payload;
-    exact_line.push('\n');
-    assert_eq!(json_line_payload_len(&exact_line), MAX_JSON_LINE_BYTES);
-
-    let oversized_payload = "x".repeat(MAX_JSON_LINE_BYTES + 1);
-    assert!(json_line_payload_len(&oversized_payload) > MAX_JSON_LINE_BYTES);
-
-    let mut oversized_line = oversized_payload;
-    oversized_line.push('\n');
-    assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    let line = |payload: usize, delimited: bool| {
+        let mut reader = cmux_ipc::FrameReader::new(line_limits());
+        reader.push("x".repeat(payload).as_bytes());
+        if delimited {
+            reader.push(b"\n");
+        } else {
+            reader.mark_eof();
+        }
+        reader.next_message().map(|message| match message {
+            Some(cmux_ipc::Message::Json(text)) => text.len(),
+            other => panic!("expected a line, got {other:?}"),
+        })
+    };
+    assert_eq!(line(MAX_JSON_LINE_BYTES, false), Ok(MAX_JSON_LINE_BYTES));
+    assert_eq!(line(MAX_JSON_LINE_BYTES, true), Ok(MAX_JSON_LINE_BYTES));
+    let too_long = Err(cmux_ipc::BadMessage::LineTooLong { max: MAX_JSON_LINE_BYTES });
+    assert_eq!(line(MAX_JSON_LINE_BYTES + 1, false), too_long);
+    assert_eq!(line(MAX_JSON_LINE_BYTES + 1, true), too_long);
 }
 
 #[test]

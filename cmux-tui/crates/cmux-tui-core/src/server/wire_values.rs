@@ -15,10 +15,6 @@ pub(super) fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
     })
 }
 
-pub(super) fn json_line_payload_len(line: &str) -> usize {
-    line.strip_suffix('\n').map_or(line.len(), str::len)
-}
-
 pub(super) fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }

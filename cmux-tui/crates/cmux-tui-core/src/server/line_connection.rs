@@ -1,8 +1,41 @@
-//! The JSON-lines connection loop shared by the local socket and the remote
-//! entry: one message per line, every line seen by the connection's
-//! admission before anything parses or dispatches it.
+//! The connection loop shared by the local socket and the remote entry.
+//!
+//! A [`FrameReader`] (cmux-ipc) cuts the bytes into JSON lines, exactly as
+//! `read_line` did, and into binary frames (plans/cmux-next/chrome-parity/
+//! p05-ipc.md, section 3.2) once this connection holds the
+//! [`IPC_FRAMES_CAPABILITY`] grant; a frame before that is a bad message.
+//! Every line is seen by the connection's admission before anything parses
+//! or dispatches it.
+//!
+//! A local socket is read with one `recvmsg` per read, bytes and descriptors
+//! together, as Mojo's `ChannelPosix::OnFileCanReadWithoutBlocking`
+//! (chromium mojo/core/channel_posix.cc) does. No frame kind carries
+//! descriptors yet, so a descriptor that arrives is a bad message: it is
+//! refused where the kernel would otherwise drop it unseen.
+//!
+//! A bad message closes the connection, as Chrome's `ReportBadMessage`
+//! (mojo/public/cpp/bindings/message.h) ends the sender: nothing after the
+//! bad byte is interpreted.
+
+use std::fmt;
+
+use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, MAGIC, Message, ReaderLimits};
 
 use super::*;
+
+/// The grant that lets a connection send frames. p05-ipc-060 decides who
+/// gets it (a local Unix peer at this daemon's api_revision); this loop only
+/// reads it from the client's record.
+pub(super) const IPC_FRAMES_CAPABILITY: &str = "ipc-frames-v2";
+
+/// A JSON line's payload may be `MAX_JSON_LINE_BYTES` long, its `\n`
+/// excluded, as with `read_line`; frames keep the wire's 32 MiB bound.
+pub(super) fn line_limits() -> ReaderLimits {
+    ReaderLimits { max_line: MAX_JSON_LINE_BYTES, ..ReaderLimits::default() }
+}
+
+/// Bytes one read asks for: the reader's own minimum chunk.
+const READ_CHUNK: usize = 64 * 1024;
 
 pub(super) fn handle_connection_with_permit(
     mux: Arc<Mux>,
@@ -20,8 +53,9 @@ pub(super) fn handle_connection_with_permit(
     );
 }
 
-/// One JSON line per message. `admission` sees every line before anything
-/// parses or dispatches it, and may answer it instead (the remote entry).
+/// One JSON line per message, and frames once granted. `admission` sees
+/// every line before anything parses or dispatches it, and may answer it
+/// instead (the remote entry).
 pub(super) fn serve_line_connection(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
@@ -30,10 +64,102 @@ pub(super) fn serve_line_connection(
     transport: ClientTransport,
     admission: &dyn admission::LineAdmission,
 ) {
-    let Ok(mut write_half) = stream.try_clone_box() else { return };
-    let Ok(control) = write_half.try_clone_box() else { return };
+    let _ = serve_connection(
+        mux,
+        stream,
+        render_service,
+        connection_permit,
+        transport,
+        admission,
+        &mut UnroutedFrames,
+    );
+}
+
+/// What a connection does with frames: whether it may send them yet, and
+/// where each one goes.
+pub(super) trait FrameLane {
+    /// Whether `client` holds the frames grant now. Asked only while a 0xFF
+    /// byte waits unread on a connection that has not negotiated frames.
+    fn granted(&self, mux: &Mux, client: u64) -> bool;
+
+    /// Takes one frame; an error closes the connection with it.
+    fn route(&mut self, frame: Frame) -> Result<(), ConnectionBadMessage>;
+}
+
+/// Production: the grant is the client's recorded capability, and no frame
+/// kind has a route yet (REQUEST and CANCEL get theirs in p05-ipc-071), so
+/// a granted frame is still a bad message.
+struct UnroutedFrames;
+
+impl FrameLane for UnroutedFrames {
+    fn granted(&self, mux: &Mux, client: u64) -> bool {
+        mux.control_clients.supports_capability(client, IPC_FRAMES_CAPABILITY)
+    }
+
+    fn route(&mut self, frame: Frame) -> Result<(), ConnectionBadMessage> {
+        Err(ConnectionBadMessage::UnroutedKind { kind: frame.header().kind() })
+    }
+}
+
+/// Why a connection was closed as a bad message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ConnectionBadMessage {
+    /// The bytes broke the wire's rules (cmux-ipc reader).
+    Wire(BadMessage),
+    /// A valid frame of a kind this daemon does not route.
+    UnroutedKind { kind: FrameKind },
+    /// A descriptor arrived; no frame kind carries one yet.
+    UnexpectedFds,
+}
+
+impl ConnectionBadMessage {
+    /// The `bad_message` reason, stable for logs and counters.
+    pub(super) fn reason(&self) -> &'static str {
+        match self {
+            ConnectionBadMessage::Wire(bad) => bad.reason(),
+            ConnectionBadMessage::UnroutedKind { .. } => "unrouted_kind",
+            ConnectionBadMessage::UnexpectedFds => "unexpected_fds",
+        }
+    }
+}
+
+impl fmt::Display for ConnectionBadMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConnectionBadMessage::Wire(bad) => write!(f, "{bad}"),
+            ConnectionBadMessage::UnroutedKind { kind } => {
+                write!(f, "no route for {} frames", kind.name())
+            }
+            ConnectionBadMessage::UnexpectedFds => write!(f, "a file descriptor arrived"),
+        }
+    }
+}
+
+/// How a connection ended.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ConnectionEnd {
+    /// The peer closed after whole messages: accepted work drains.
+    PeerClosed,
+    /// A read failed, setup failed, admission refused, or a handler closed
+    /// the connection.
+    Dropped,
+    /// The peer sent a bad message.
+    BadMessage(ConnectionBadMessage),
+}
+
+pub(super) fn serve_connection(
+    mux: Arc<Mux>,
+    stream: Box<dyn transport::Stream>,
+    render_service: Arc<RenderService>,
+    connection_permit: Option<ConnectionPermit>,
+    transport: ClientTransport,
+    admission: &dyn admission::LineAdmission,
+    frames: &mut dyn FrameLane,
+) -> ConnectionEnd {
+    let Ok(mut write_half) = stream.try_clone_box() else { return ConnectionEnd::Dropped };
+    let Ok(control) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
-        return;
+        return ConnectionEnd::Dropped;
     }
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
@@ -56,7 +182,7 @@ pub(super) fn serve_line_connection(
         })
     else {
         writer.close();
-        return;
+        return ConnectionEnd::Dropped;
     };
     let peer_key = stream.peer_process_key();
     let peer_token = stream.peer_token();
@@ -67,34 +193,40 @@ pub(super) fn serve_line_connection(
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
         let _ = writer_thread.join();
-        return;
+        return ConnectionEnd::Dropped;
     }
     let mut hello = client_hello::HelloGate::new(transport);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
-    let mut reader = BufReader::new(stream);
-    let mut drain_accepted = true;
-    loop {
-        let mut line = String::new();
-        // read_line includes the trailing LF. Read one byte beyond the largest
-        // valid payload plus its delimiter so an oversized payload is visible.
-        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 2) as u64).read_line(&mut line)
-        {
-            Ok(read) => read,
-            Err(_) => {
-                drain_accepted = false;
-                break;
+    let mut input = ConnectionInput::new(stream);
+    let end = loop {
+        input.negotiate_frames_if(|| frames.granted(&mux, client));
+        let buffered = input.messages.buffered_len();
+        let mut line = match input.messages.next_message() {
+            Ok(Some(Message::Json(line))) => {
+                // Dispatch sees the line with its `\n`, as `read_line` gave
+                // it: serde's error positions in `bad request` replies name
+                // it. Only a last line cut at end of stream has none.
+                let mut text = String::with_capacity(line.len() + 1);
+                text.push_str(line);
+                if line.len() < buffered {
+                    text.push('\n');
+                }
+                text
             }
+            Ok(Some(Message::Frame(frame))) => match frames.route(frame) {
+                Ok(()) => continue,
+                Err(bad) => break ConnectionEnd::BadMessage(bad),
+            },
+            Ok(None) if input.ended => break ConnectionEnd::PeerClosed,
+            Ok(None) => match input.fill() {
+                Ok(()) => continue,
+                Err(end) => break end,
+            },
+            Err(bad) => break ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(bad)),
         };
-        if read == 0 {
-            break;
-        }
-        if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
-            drain_accepted = false;
-            break;
-        }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
@@ -106,12 +238,9 @@ pub(super) fn serve_line_connection(
                 writer.send_control(&refusal).is_ok()
             }
             None => {
-                let peer = || {
-                    let stream = reader.get_ref();
-                    client_hello::Peer {
-                        key: stream.peer_process_key(),
-                        token: stream.peer_token(),
-                    }
+                let peer = || client_hello::Peer {
+                    key: input.stream.peer_process_key(),
+                    token: input.stream.peer_token(),
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
@@ -128,11 +257,14 @@ pub(super) fn serve_line_connection(
         };
         zeroize_string(&mut line);
         if !keep_open {
-            drain_accepted = false;
-            break;
+            break ConnectionEnd::Dropped;
         }
+    };
+    input.release();
+    if let ConnectionEnd::BadMessage(bad) = &end {
+        eprintln!("cmux-tui: client {client} closed: bad_message {}: {bad}", bad.reason());
     }
-    if drain_accepted {
+    if end == ConnectionEnd::PeerClosed {
         surface_scheduler.finish_and_wait();
     } else {
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
@@ -140,4 +272,127 @@ pub(super) fn serve_line_connection(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);
+    end
 }
+
+/// The read side of one connection: the socket, the reader that cuts its
+/// bytes, and on a local socket the descriptor FIFO `recvmsg` fills.
+struct ConnectionInput {
+    stream: Box<dyn transport::Stream>,
+    messages: FrameReader,
+    #[cfg(unix)]
+    fds: cmux_ipc::fds::FdReceiver,
+    /// One read's bytes, zeroed once the reader copied them: lines can
+    /// carry credentials.
+    chunk: Vec<u8>,
+    /// The peer closed its side.
+    ended: bool,
+    frames_negotiated: bool,
+    /// A 0xFF byte arrived before frames were negotiated. It starts a frame
+    /// or breaks a line's UTF-8, so the connection ends at it unless the
+    /// grant comes first; until then the grant is asked before each message.
+    frame_byte_unread: bool,
+}
+
+impl ConnectionInput {
+    fn new(stream: Box<dyn transport::Stream>) -> Self {
+        ConnectionInput {
+            stream,
+            messages: FrameReader::new(line_limits()),
+            #[cfg(unix)]
+            fds: cmux_ipc::fds::FdReceiver::default(),
+            chunk: Vec::new(),
+            ended: false,
+            frames_negotiated: false,
+            frame_byte_unread: false,
+        }
+    }
+
+    fn negotiate_frames_if(&mut self, granted: impl FnOnce() -> bool) {
+        if self.frame_byte_unread && !self.frames_negotiated && granted() {
+            self.frames_negotiated = true;
+            self.messages.negotiate_frames();
+        }
+    }
+
+    /// One read into the reader; at end of stream marks it ended.
+    fn fill(&mut self) -> Result<(), ConnectionEnd> {
+        self.chunk.clear();
+        let read = self.read_chunk();
+        if !self.frames_negotiated && self.chunk.contains(&MAGIC) {
+            self.frame_byte_unread = true;
+        }
+        self.messages.push(&self.chunk);
+        self.chunk.fill(0);
+        self.chunk.clear();
+        match read {
+            Ok(_) if self.descriptors_queued() => {
+                Err(ConnectionEnd::BadMessage(ConnectionBadMessage::UnexpectedFds))
+            }
+            Ok(0) => {
+                self.ended = true;
+                self.messages.mark_eof();
+                Ok(())
+            }
+            Ok(_) => Ok(()),
+            Err(error) if is_descriptor_refusal(&error) => {
+                Err(ConnectionEnd::BadMessage(ConnectionBadMessage::UnexpectedFds))
+            }
+            Err(_) => Err(ConnectionEnd::Dropped),
+        }
+    }
+
+    #[cfg(unix)]
+    fn read_chunk(&mut self) -> std::io::Result<usize> {
+        match self.stream.socket_fd() {
+            Some(fd) => self.fds.recv(fd, &mut self.chunk, READ_CHUNK, |_| {}),
+            None => self.read_chunk_plain(),
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn read_chunk(&mut self) -> std::io::Result<usize> {
+        self.read_chunk_plain()
+    }
+
+    fn read_chunk_plain(&mut self) -> std::io::Result<usize> {
+        self.chunk.resize(READ_CHUNK, 0);
+        let read = loop {
+            match self.stream.read(&mut self.chunk) {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                result => break result,
+            }
+        };
+        self.chunk.truncate(*read.as_ref().unwrap_or(&0));
+        read
+    }
+
+    #[cfg(unix)]
+    fn descriptors_queued(&self) -> bool {
+        self.fds.queued() > 0
+    }
+
+    #[cfg(not(unix))]
+    fn descriptors_queued(&self) -> bool {
+        false
+    }
+
+    /// Zeroes the line the reader still lends (it does so on its next call).
+    fn release(&mut self) {
+        self.messages.push(&[]);
+    }
+}
+
+#[cfg(unix)]
+fn is_descriptor_refusal(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|source| source.is::<cmux_ipc::fds::FdBadMessage>())
+}
+
+#[cfg(not(unix))]
+fn is_descriptor_refusal(_error: &std::io::Error) -> bool {
+    false
+}
+
+#[cfg(all(test, unix))]
+#[path = "line_connection_tests.rs"]
+mod tests;
