@@ -89,7 +89,10 @@ The page bridge leaves DevTools: the host takes the sender's browser, frame and 
 delivered the message, never from the payload.
 
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
-`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
+`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`
+(`PageProcessGroups`, owned by `WebUIHost`, task 015). Agent pages always share, as the old agent host did;
+`privileged` and `viewer` pages share only with the `pageProcessGroups` feature (default off). A Chromium page's
+WebKit view never loads, so it joins no group.
 
 Fork implementation, proposed (task 011, manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff`, on spike 091's branch).
 Nobody has built or run it: the mechanism comes from reading Chromium 154.0.8037.98, not from a measurement. Do not
