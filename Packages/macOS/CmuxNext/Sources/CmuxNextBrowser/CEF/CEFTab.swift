@@ -159,12 +159,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
-
-    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
-    nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
-        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
-    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -202,6 +196,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
+    /// HTTP sign-ins answered since the last commit, by server and realm (``CEFPageDialogs``).
+    @ObservationIgnored var signInAttempts: [BrowserHTTPCredentialKey: Int] = [:]
     @ObservationIgnored private(set) var isClosed = false
     /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
     @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()

@@ -4,13 +4,15 @@ import Foundation
 /// HTTP basic, digest and NTLM sign-in for browser tabs (R96): a cmux dialog
 /// that blocks only the asking tab and names the server. Engine-neutral: the
 /// WebKit tab uses it (before, WebKit's default handling had no UI and
-/// sign-in failed silently), and the CEF auth handler is to use it too.
+/// sign-in failed silently), and Chromium tabs use it too (`CEFPageDialogs`).
 /// Cancel lets the server's 401 page load. Nothing is remembered past this
 /// app session unless the user checks "Remember password"; then the tab
 /// saves it in cmux's Keychain store (`BrowserHTTPCredentialStore`).
 enum BrowserHTTPAuth {
     static let methods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
+    /// Failed tries of one server and realm after which a tab stops asking and the server's page loads.
+    static let attemptLimit = 5
 
     static func spec(host: String, realm: String?, isSecure: Bool, failedBefore: Bool, user: String?) -> CmuxDialogSpec {
         var lines = [String(localized: "browser.auth.message", defaultValue: "The server asks for a user name and password.", bundle: .module)]

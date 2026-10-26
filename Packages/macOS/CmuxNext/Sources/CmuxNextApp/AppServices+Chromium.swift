@@ -104,6 +104,7 @@ extension AppServices {
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
+        chromiumRuntime.source.asksPageDialogs = features.isEnabled(.chromiumPageDialogs) // p01-process-063
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,

@@ -48,15 +48,16 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case prefGet = 167, prefSetBool = 168, prefWatch = 169, bookmarksSync = 170, pageSchemeAdd = 171
     case pageSchemeAddFirstParty = 172, pageSchemeAddFirstPartyDynamic = 173, pageResourceRespond = 174
     case memoryPressureVote = 175, setCursorEvents = 176, tabSetVisibility = 177, extLoadLaterSupported = 178
-    case extLoadCommandLine = 179, addDocumentScript = 180, addPageChannel = 181, tabEvaluate = 182
-    case tabSetFrozen = 183, tabSendClick = 184, tabSetColorScheme = 185, pageSchemeSetGroup = 186, tabDiscard = 187
-    case widgetSetGeometry = 188, widgetDismiss = 189, widgetSendInput = 190, browserImeSetComposition = 191
-    case browserImeCommitText = 192, browserImeFinishComposing = 193, browserImeCancelComposition = 194
+    case extLoadCommandLine = 179, setPageDialogs = 180, jsDialogReply = 181, authReply = 182
+    case addDocumentScript = 183, addPageChannel = 184, tabEvaluate = 185, tabSetFrozen = 186, tabSendClick = 187
+    case tabSetColorScheme = 188, pageSchemeSetGroup = 189, tabDiscard = 190, widgetSetGeometry = 191
+    case widgetDismiss = 192, widgetSendInput = 193, browserImeSetComposition = 194, browserImeCommitText = 195
+    case browserImeFinishComposing = 196, browserImeCancelComposition = 197
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "5a6ccb9d8232fc689eeca3d51504bec9befa6927903297b164c0decf64e9a6c3"
+    static let abiIdentity = "75842dbd9236aab36e10c04f338bd8e9a933f31fb462fabfc2366d6924c55c9c"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "fa0388d619c3c2597eec268f7a201311e8d77adc8578eb04883fe6f6fccae7c3"
+    static let wireIdentity = "59d4eacd90dc74140d04ee218e8de7de8454e4ec1f5bd99eec66ccf3d83c91b4"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -375,6 +376,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .int32], [.int32]),
         Row(.mirror, [], [.int32]),
         Row(.async, [.string, .int32, .string], [.int32]),
+        Row(.preinit, [.int32], []),
+        Row(.post, [.int32, .int32, .string], [.int32]),
+        Row(.post, [.int32, .int32, .string, .string], [.int32]),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
@@ -512,7 +516,8 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
-    case pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53
+    case jsDialog = 60, jsDialogDismissed = 61, auth = 62, authDismissed = 63, pageMessage = 49, evaluateResult = 50
+    case createFailed = 51, widgetContext = 52, widgetGone = 53
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

@@ -86,6 +86,7 @@ extension CEFRuntime {
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
             if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
+        case .jsDialog, .jsDialogsDismissed, .auth, .authDismissed: CEFPageDialogs(runtime: self).handle(event)
         case .pageResource(let browser, let token, let url):
             answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
         case .pageMessage(let browser, let mainFrame, let channel, let payload):
@@ -456,7 +457,8 @@ extension CEFShimEvent {
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
+             .fileDialog(let b, _, _, _, _), .pageView(let b, _), .jsDialog(let b, _, _), .jsDialogsDismissed(let b),
+             .auth(let b, _, _), .authDismissed(let b),
              .pageMessage(let b, _, _, _), .widgetGone(let b, _):
             b
         case .widgetContext(let context):

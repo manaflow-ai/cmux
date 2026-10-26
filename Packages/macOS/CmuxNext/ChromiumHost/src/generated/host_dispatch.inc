@@ -187,31 +187,34 @@ enum Op : uint16_t {
   kOpTabSetVisibility = 177,
   kOpExtLoadLaterSupported = 178,
   kOpExtLoadCommandLine = 179,
-  kOpAddDocumentScript = 180,  // optional
-  kOpAddPageChannel = 181,  // optional
-  kOpTabEvaluate = 182,  // optional
-  kOpTabSetFrozen = 183,  // optional
-  kOpTabSendClick = 184,  // optional
-  kOpTabSetColorScheme = 185,  // optional
-  kOpPageSchemeSetGroup = 186,  // optional
-  kOpTabDiscard = 187,  // optional
-  kOpWidgetSetGeometry = 188,  // optional
-  kOpWidgetDismiss = 189,  // optional
-  kOpWidgetSendInput = 190,  // optional
-  kOpBrowserImeSetComposition = 191,  // optional
-  kOpBrowserImeCommitText = 192,  // optional
-  kOpBrowserImeFinishComposing = 193,  // optional
-  kOpBrowserImeCancelComposition = 194,  // optional
+  kOpSetPageDialogs = 180,
+  kOpJsDialogReply = 181,
+  kOpAuthReply = 182,
+  kOpAddDocumentScript = 183,  // optional
+  kOpAddPageChannel = 184,  // optional
+  kOpTabEvaluate = 185,  // optional
+  kOpTabSetFrozen = 186,  // optional
+  kOpTabSendClick = 187,  // optional
+  kOpTabSetColorScheme = 188,  // optional
+  kOpPageSchemeSetGroup = 189,  // optional
+  kOpTabDiscard = 190,  // optional
+  kOpWidgetSetGeometry = 191,  // optional
+  kOpWidgetDismiss = 192,  // optional
+  kOpWidgetSendInput = 193,  // optional
+  kOpBrowserImeSetComposition = 194,  // optional
+  kOpBrowserImeCommitText = 195,  // optional
+  kOpBrowserImeFinishComposing = 196,  // optional
+  kOpBrowserImeCancelComposition = 197,  // optional
 };
-inline constexpr uint16_t kOpCount = 194;
+inline constexpr uint16_t kOpCount = 197;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 56;
-inline constexpr char kShimAbiID[] = "5a6ccb9d8232fc689eeca3d51504bec9befa6927903297b164c0decf64e9a6c3";
+inline constexpr int kEventKindCount = 60;
+inline constexpr char kShimAbiID[] = "75842dbd9236aab36e10c04f338bd8e9a933f31fb462fabfc2366d6924c55c9c";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "fa0388d619c3c2597eec268f7a201311e8d77adc8578eb04883fe6f6fccae7c3";
+inline constexpr char kWireID[] = "59d4eacd90dc74140d04ee218e8de7de8454e4ec1f5bd99eec66ccf3d83c91b4";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1699,6 +1702,34 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpSetPageDialogs: {
+      const auto arg_enabled = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      cmux_shim_set_page_dialogs(arg_enabled);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpJsDialogReply: {
+      const auto arg_token = r.I32();
+      const auto arg_accept = r.I32();
+      const std::optional<std::string> arg_text = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_js_dialog_reply(arg_token, arg_accept, arg_text ? arg_text->c_str() : nullptr);
+      (void)call_result;
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpAuthReply: {
+      const auto arg_token = r.I32();
+      const auto arg_accept = r.I32();
+      const std::optional<std::string> arg_username = r.Str();
+      const std::optional<std::string> arg_password = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_auth_reply(arg_token, arg_accept, arg_username ? arg_username->c_str() : nullptr, arg_password ? arg_password->c_str() : nullptr);
+      (void)call_result;
+      ctx.Ack(wire_token);
       return true;
     }
     case kOpAddDocumentScript: {

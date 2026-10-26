@@ -81,6 +81,8 @@ final class CEFRuntime {
     var pointerFrames: FrameInputCoalescers?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
+    /// The last `CEFEngine`'s feature `chromiumPageDialogs` (``CEFPageDialogs``), read at start.
+    var asksPageDialogs = false
     /// The last `CEFEngine`'s features `cefLayerHosting` and `cefAttachedPages` (`CEFLayerHosting.Policy`).
     var pageHosting = CEFLayerHosting.Policy()
     /// A tab registered with no input tap: logged once.
@@ -538,10 +540,7 @@ final class CEFRuntime {
             let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(shim)
             if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
         }
-        // Google Chrome's native messaging hosts after cmux's own.
-        for folder in inputs.nativeMessagingFolders {
-            _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
-        }
+        applyPreinit(shim, nativeMessagingFolders: inputs.nativeMessagingFolders)
         let arguments = CEFSwitchArguments(switchSet.arguments)
         switchArguments = arguments
         let locale = library.locale

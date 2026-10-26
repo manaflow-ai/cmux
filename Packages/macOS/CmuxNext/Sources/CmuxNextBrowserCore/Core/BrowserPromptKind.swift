@@ -47,6 +47,19 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     public var isBeforeUnload: Bool {
         if case .beforeUnload = self { true } else { false }
     }
+
+    /// A page's alert, confirm or prompt.
+    public var isJavaScriptDialog: Bool {
+        switch self {
+        case .alert, .confirm, .textInput: true
+        default: false
+        }
+    }
+
+    /// An HTTP sign-in (`credentials`).
+    public var isSignIn: Bool {
+        if case .credentials = self { true } else { false }
+    }
 }
 
 /// The user's answer to a prompt.

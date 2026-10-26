@@ -124,6 +124,16 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
     /// The page's cursor or tooltip changed, or it answered a drag (CURSOR, TOOLTIP, DRAG_OPERATION; host mode).
     case pageView(browser: Int32, CEFPageViewEvent)
+    /// A page's alert, confirm or prompt (JS_DIALOG; only after `setPageDialogs(1)`), answered once with
+    /// `jsDialogReply(token, ...)` (``CEFPageDialogs``); Chromium may end it first (`jsDialogsDismissed`).
+    case jsDialog(browser: Int32, token: Int32, dialog: CEFJSDialog)
+    /// Chromium ended the browser's waiting JavaScript dialogs itself (JS_DIALOG_DISMISSED).
+    case jsDialogsDismissed(browser: Int32)
+    /// A server or a proxy asks for a user name and password (AUTH; only after `setPageDialogs(1)`),
+    /// answered once with `authReply(token, ...)` (``CEFPageDialogs``).
+    case auth(browser: Int32, token: Int32, challenge: CEFAuthChallenge)
+    /// The browser's waiting sign-in questions are gone: a new main-frame navigation (AUTH_DISMISSED).
+    case authDismissed(browser: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -197,6 +207,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 54: self = .pageView(browser: browser, .cursor(CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1)))
         case 55: self = .pageView(browser: browser, .dragOperation(a))
         case 57: self = .pageView(browser: browser, .tooltip(s1))
+        case 60: self = .jsDialog(browser: browser, token: request, dialog: CEFJSDialog(wireKind: a, message: s1, details: s2))
+        case 61: self = .jsDialogsDismissed(browser: browser)
+        case 62: self = .auth(browser: browser, token: request, challenge: CEFAuthChallenge(host: s1, port: a, flags: b, details: s2))
+        case 63: self = .authDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

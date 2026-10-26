@@ -133,6 +133,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tryClose: @convention(c) (Int32) -> Int32
     /// Answers BEFORE_UNLOAD_DIALOG (token, 1 = Leave).
     let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32
+    /// `cmux_shim_set_page_dialogs`: 1 sends alert, confirm, prompt (JS_DIALOG) and HTTP authentication (AUTH)
+    /// to cmux (``CEFPageDialogs``); before `cmux_shim_initialize`.
+    let setPageDialogs: @convention(c) (Int32) -> Void
+    /// Answers JS_DIALOG (token, 1 = OK, a prompt's text).
+    let jsDialogReply: (Int32, Int32, String?) -> Int32
+    /// Answers AUTH (token, 1 = sign in, the user name, the password; 0 cancels).
+    let authReply: (Int32, Int32, String?, String?) -> Int32
     let devToolsCall: (Int32, String?, String?) -> Int32
     /// Raw DevTools protocol (`CEFDevToolsRawMessage`): watch a browser's
     /// events, send a message with an id from 2^30 (1 sent, 0 gone, -1 refused).

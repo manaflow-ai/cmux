@@ -4387,6 +4387,77 @@
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
       "reason": "Answered by CMUX_SHIM_REPLY with the caller's reply id once the fork installed the extension and its background page finished its first load (p13-webui-055); the profile's first browser tab waits for it. The host's wire:REPLY under the op's token carries the start result: a start other than 1 ends that load at once instead of at its deadline (CEFBuiltInExtensionLoader awaits it, as profileWrite does, task 021)."
+    },
+    {
+      "name": "cmux_shim_set_page_dialogs",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "CEFRuntime.start turns JS dialogs and HTTP authentication over to cmux before cmux_shim_initialize (feature chromiumPageDialogs, task p01-process-063): the shim decides disable-chrome-login-prompt in OnBeforeCommandLineProcessing, so the host applies it before CefInitialize."
+    },
+    {
+      "name": "cmux_shim_js_dialog_reply",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int"
+        },
+        {
+          "name": "accept",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Answers a JS_DIALOG token; 0 for an answered or dismissed token is never read."
+    },
+    {
+      "name": "cmux_shim_auth_reply",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int"
+        },
+        {
+          "name": "accept",
+          "type": "int"
+        },
+        {
+          "name": "username",
+          "type": "const char*"
+        },
+        {
+          "name": "password",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Answers an AUTH token; 0 for an answered or dismissed token is never read. The password crosses the control channel once, as Chrome's LoginHandler::SetAuth hands it to the network service."
     }
   ],
   "events": [
@@ -4700,6 +4771,28 @@
       "value": 57,
       "refreshes": [],
       "reason": "The page's tooltip (OnTooltip, task 054): the host's page windows never show, so cmux's page view shows it, as Chrome's app shim view shows RenderWidgetHostNSView::SetTooltipText."
+    },
+    {
+      "kind": "CMUX_SHIM_JS_DIALOG",
+      "value": 60,
+      "refreshes": [],
+      "reason": "A page's alert, confirm or prompt (OnJSDialog, task 063), answered by js_dialog_reply: cmux asks in a CmuxDialogSpec over the tab, as Chrome's TabModalDialogManager asks in a tab-modal dialog."
+    },
+    {
+      "kind": "CMUX_SHIM_JS_DIALOG_DISMISSED",
+      "value": 61,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_AUTH",
+      "value": 62,
+      "refreshes": [],
+      "reason": "HTTP authentication (GetAuthCredentials on the IO thread, posted to the UI thread, task 063), answered by auth_reply: cmux's sign-in dialog, as Chrome's LoginHandler shows its LoginView."
+    },
+    {
+      "kind": "CMUX_SHIM_AUTH_DISMISSED",
+      "value": 63,
+      "refreshes": []
     }
   ],
   "optional_exports": [

@@ -97,6 +97,11 @@ nonisolated extension CEFShimLibrary {
         close = try r("cmux_shim_close")
         tryClose = try r("cmux_shim_try_close")
         beforeUnloadReply = try r("cmux_shim_before_unload_reply")
+        setPageDialogs = try r("cmux_shim_set_page_dialogs")
+        let cJSDialogReply: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_js_dialog_reply")
+        jsDialogReply = { a0, a1, a2 in unsafe Self.withCString(a2) { s2 in unsafe cJSDialogReply(a0, a1, s2) } }
+        let cAuthReply: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_auth_reply")
+        authReply = { a0, a1, a2, a3 in unsafe Self.withCString(a2) { s2 in unsafe Self.withCString(a3) { s3 in unsafe cAuthReply(a0, a1, s2, s3) } } }
         let cDevToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_devtools_call")
         devToolsCall = { a0, a1, a2 in unsafe Self.withCString(a1) { s1 in unsafe Self.withCString(a2) { s2 in unsafe cDevToolsCall(a0, s1, s2) } } }
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")

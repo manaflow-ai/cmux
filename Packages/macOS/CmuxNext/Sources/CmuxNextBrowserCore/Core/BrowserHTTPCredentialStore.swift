@@ -53,3 +53,12 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
     }
 }
 
+/// Remembers nothing: browser stores that must not reach the person's Keychain (tests, a debug window).
+package nonisolated struct NoRememberedHTTPCredentials: BrowserHTTPCredentialStoring {
+    package func login(for key: BrowserHTTPCredentialKey) -> BrowserHTTPRememberedLogin? { nil }
+    package func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) {}
+    package func forget(_ key: BrowserHTTPCredentialKey) {}
+
+    package init() {}
+}
+

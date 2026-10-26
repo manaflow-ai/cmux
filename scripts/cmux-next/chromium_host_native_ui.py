@@ -14,10 +14,15 @@ by the Chromium host and shown by cmux from their layer contexts (ChromiumHostWi
 Each row passes when `debug.cef` `host_widgets` lists a shown widget of its kind with a non-empty screen frame
 within the row's deadline; it records the widget and how long it took to show. Without a widget host (`host_widgets`
 null: host mode not live in this build, or the feature off) every row says so and the mode fails: it could not run.
+
+The page dialog rows (alert, confirm, prompt, http_auth; chromium_host_page_dialogs.py, p01-process-063) run with or
+without a widget host: those questions show in cmux's dialogs, not in a widget.
 """
 import json
 import os
 import time
+
+import chromium_host_page_dialogs
 
 PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <style>body{margin:0;font:16px system-ui} input,button{position:fixed;left:40px;width:240px;height:32px;font-size:16px}</style>
@@ -25,7 +30,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <input id=list list=opts autocomplete=off style="top:100px">
 <datalist id=opts><option value=alpha><option value=bravo><option value=charlie></datalist>
 <button id=pop style="top:160px" onclick="window.open('about:blank#native-ui-popup', '', 'popup,width=420,height=320')">popup</button>
-"""
+""" + chromium_host_page_dialogs.PAGE
 
 EXTENSIONS = (
     ("Native UI Popup", {"action": {"default_popup": "popup.html"}}),
@@ -58,7 +63,8 @@ def write_extensions(root):
 
 def launch_env(extension_paths):
     """What the app needs for these rows: the feature, and the test extensions."""
-    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets", "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
+    return {"CMUX_ENABLE_FEATURES": ",".join(["chromiumHostWidgets", chromium_host_page_dialogs.FEATURE]),
+            "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
 def host_widgets(rpc):
@@ -88,10 +94,6 @@ def run(rpc, wait, page_eval, url):
     opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     if not wait(lambda: page_eval("document.readyState === 'complete' && !!document.getElementById('pop')"), 60, 0.5):
         return {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}, False
-    if host_widgets(rpc) is None:
-        reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
-        return {name: {"ok": False, "not_run": reason} for name in
-                ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel")}, False
 
     def center(element):
         rect = page_eval(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); "
@@ -100,6 +102,14 @@ def run(rpc, wait, page_eval, url):
 
     def click(element):
         rpc("debug.mouse", {"target": "page", **center(element)})
+
+    rows.update(chromium_host_page_dialogs.rows(rpc, wait, page_eval, click))
+    if host_widgets(rpc) is None:
+        reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
+        rows.update({name: {"ok": False, "not_run": reason} for name in
+                     ("date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup", "side_panel")})
+        rows["http_auth"] = chromium_host_page_dialogs.auth_row(rpc, wait, page_eval)
+        return rows, False
 
     def dismiss_page_popup():
         rpc("debug.key", {"target": "page", "key": "escape"})
@@ -136,4 +146,6 @@ def run(rpc, wait, page_eval, url):
         rows[row] = wait_shown(rpc, wait, (kind,))
         if kind == "extension_popup":
             rpc("debug.extensions.popup", {"hide": True})
+    # Last: it navigates the probe tab away.
+    rows["http_auth"] = chromium_host_page_dialogs.auth_row(rpc, wait, page_eval)
     return rows, all(row.get("ok") for row in rows.values())

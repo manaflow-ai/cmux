@@ -3,6 +3,9 @@
 
 #import <AppKit/AppKit.h>
 
+#include <atomic>
+
+#include "include/cef_auth_callback.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
 #include "include/cef_image.h"
@@ -16,6 +19,7 @@
 #include "host_key_seqs.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
+#include "page_dialog_state.h"
 #include "page_scheme_registration.h"
 #include "renderer_end.h"
 #include "shim_internal.h"
@@ -79,6 +83,10 @@
     case CMUX_SHIM_CURSOR:
     case CMUX_SHIM_DRAG_OPERATION:
     case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_JS_DIALOG:
+    case CMUX_SHIM_JS_DIALOG_DISMISSED:
+    case CMUX_SHIM_AUTH:
+    case CMUX_SHIM_AUTH_DISMISSED:
       return true;
   }
   return false;
@@ -111,6 +119,71 @@ void SendHostKeyEvent(int browser_id, uint32_t seq, const CefKeyEvent& event) {
 
 namespace {
 
+// cmux_shim_set_page_dialogs: alert, confirm, prompt and HTTP authentication
+// go to the host. Set on the UI thread before initialize; GetAuthCredentials
+// reads it on the IO thread.
+std::atomic<bool> page_dialogs{false};
+
+// Chrome's own login prompt (LoginHandler) is a Views dialog over the tab;
+// with this CEF switch every challenge reaches GetAuthCredentials instead
+// (ChromeContentBrowserClientCef::CreateLoginDelegate).
+constexpr char kDisableChromeLoginPrompt[] = "disable-chrome-login-prompt";
+
+// The JS_DIALOG and AUTH questions the host has not answered (UI thread only).
+PageQuestions<CefRefPtr<CefJSDialogCallback>>& js_dialogs() {
+  static PageQuestions<CefRefPtr<CefJSDialogCallback>> questions;
+  return questions;
+}
+
+PageQuestions<CefRefPtr<CefAuthCallback>>& auth_questions() {
+  static PageQuestions<CefRefPtr<CefAuthCallback>> questions;
+  return questions;
+}
+
+// Forgets the browser's waiting JavaScript dialogs (a released callback ends
+// its dialog as a Cancel); `report` tells the host when one waited.
+void DropJsDialogs(int browser_id, bool report) {
+  if (!js_dialogs().TakeAll(browser_id).empty() && report) Emit(CMUX_SHIM_JS_DIALOG_DISMISSED, browser_id);
+}
+
+// The same for HTTP authentication (a released callback cancels the request).
+void DropAuthQuestions(int browser_id, bool report) {
+  if (!auth_questions().TakeAll(browser_id).empty() && report) Emit(CMUX_SHIM_AUTH_DISMISSED, browser_id);
+}
+
+// One challenge from the IO thread, asked on the UI thread, where the host's
+// events and answers run.
+class AskForCredentials : public CefTask {
+ public:
+  AskForCredentials(int browser_id, CefRefPtr<CefAuthCallback> callback, bool is_proxy, std::string host, int port,
+                    std::string details)
+      : browser_id_(browser_id),
+        callback_(std::move(callback)),
+        is_proxy_(is_proxy),
+        host_(std::move(host)),
+        port_(port),
+        details_(std::move(details)) {}
+
+  void Execute() override {
+    // The browser closed while the task waited: nobody can answer.
+    if (!BrowserById(browser_id_)) {
+      callback_->Cancel();
+      return;
+    }
+    const int token = auth_questions().Add(browser_id_, callback_);
+    Emit(CMUX_SHIM_AUTH, browser_id_, token, port_, AuthFlags(is_proxy_), host_, details_);
+  }
+
+ private:
+  int browser_id_;
+  CefRefPtr<CefAuthCallback> callback_;
+  bool is_proxy_;
+  std::string host_;
+  int port_;
+  std::string details_;
+  IMPLEMENT_REFCOUNTING(AskForCredentials);
+};
+
 class App : public CefApp, public CefBrowserProcessHandler {
  public:
   explicit App(std::vector<std::string> switches) : switches_(std::move(switches)) {}
@@ -140,6 +213,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
         command_line->AppendSwitchWithValue(name, value);
       }
     }
+    if (page_dialogs.load(std::memory_order_relaxed)) command_line->AppendSwitch(kDisableChromeLoginPrompt);
   }
 
   void OnContextInitialized() override {
@@ -285,7 +359,7 @@ class Client : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
-  // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
+  // beforeunload always; alert, confirm and prompt after cmux_shim_set_page_dialogs(1).
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
@@ -346,10 +420,47 @@ class Client : public CefClient,
     return true;
   }
 
-  // Chromium dropped the page's dialogs (a crash, a navigation, the close):
-  // a question still waiting goes away unanswered.
+  // MARK: alert, confirm, prompt
+
+  // Chrome asks in a tab-modal dialog (TabModalDialogManager,
+  // components/javascript_dialogs/tab_modal_dialog_manager.cc), whose widget
+  // never shows in the Chromium Host. The host asks in its own dialog over
+  // the tab instead (JS_DIALOG) and answers with cmux_shim_js_dialog_reply.
+  // Off until the host takes them.
+  bool OnJSDialog(CefRefPtr<CefBrowser> browser, const CefString& origin_url, JSDialogType dialog_type,
+                  const CefString& message_text, const CefString& default_prompt_text,
+                  CefRefPtr<CefJSDialogCallback> callback, bool& suppress_message) override {
+    suppress_message = false;
+    if (!page_dialogs.load(std::memory_order_relaxed)) return false;
+    const int id = browser->GetIdentifier();
+    Emit(CMUX_SHIM_JS_DIALOG, id, js_dialogs().Add(id, callback), static_cast<int64_t>(dialog_type), 0,
+         message_text.ToString(), JsDialogDetails(origin_url.ToString(), default_prompt_text.ToString()));
+    return true;
+  }
+
+  // Chromium dropped the page's dialogs (a crash, a navigation, the close,
+  // an answer from DevTools): a question still waiting goes away unanswered.
   void OnResetDialogState(CefRefPtr<CefBrowser> browser) override {
-    if (DropBeforeUnload(browser->GetIdentifier())) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, browser->GetIdentifier());
+    const int id = browser->GetIdentifier();
+    if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
+    DropJsDialogs(id, true);
+  }
+
+  // MARK: HTTP authentication
+
+  // Chrome asks in its login dialog (LoginHandler,
+  // chrome/browser/ui/login/login_handler.cc), a Views widget that never
+  // shows in the Chromium Host. With disable-chrome-login-prompt every
+  // challenge comes here, on the IO thread: the host asks (AUTH) and answers
+  // with cmux_shim_auth_reply. Off until the host takes them; a request with
+  // no browser (a CefURLRequest) is cancelled, as CEF does with no handler.
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString& origin_url, bool is_proxy,
+                          const CefString& host, int port, const CefString& realm, const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    if (!browser || !page_dialogs.load(std::memory_order_relaxed)) return false;
+    CefPostTask(TID_UI, new AskForCredentials(browser->GetIdentifier(), callback, is_proxy, host.ToString(), port,
+                                              AuthDetails(origin_url.ToString(), scheme.ToString(), realm.ToString())));
+    return true;
   }
 
   // MARK: Chromium commands
@@ -373,6 +484,9 @@ class Client : public CefClient,
                       bool user_gesture, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
+    // A new main-frame navigation ends the page's requests, so their sign-in
+    // questions go, as Chrome closes its login dialog (LoginTabHelper).
+    if (!is_redirect) DropAuthQuestions(id, true);
     std::string url = request->GetURL().ToString();
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
@@ -455,8 +569,9 @@ class Client : public CefClient,
                                  const CefString& error_string) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
-    // A crash cancels dialogs without OnResetDialogState: the question goes too.
+    // A crash cancels dialogs without OnResetDialogState: the questions go too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
+    DropJsDialogs(id, true);
     CancelFileDialogs(id);
     Emit(CMUX_SHIM_RENDER_TERMINATED, id, ReportRendererEnd(browser), status, error_code, error_string.ToString());
   }
@@ -625,6 +740,8 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     host_key_seqs().Forget(id);
     DropBeforeUnload(id);
+    DropJsDialogs(id, false);
+    DropAuthQuestions(id, false);
     CancelFileDialogs(id);
     TakeHostClose(id);
     host().embedder_focus.Forget(id);
@@ -894,6 +1011,29 @@ int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delaye
 
 void cmux_shim_set_cursor_events(int enabled) {
   cursor_events = enabled != 0;
+}
+
+void cmux_shim_set_page_dialogs(int enabled) {
+  page_dialogs.store(enabled != 0, std::memory_order_relaxed);
+}
+
+int cmux_shim_js_dialog_reply(int token, int accept, const char* text) {
+  // Taken first: Continue re-enters the handler (OnResetDialogState).
+  auto callback = js_dialogs().Take(token);
+  if (!callback) return 0;
+  (*callback)->Continue(accept != 0, CefString(text ? text : ""));
+  return 1;
+}
+
+int cmux_shim_auth_reply(int token, int accept, const char* username, const char* password) {
+  auto callback = auth_questions().Take(token);
+  if (!callback) return 0;
+  if (accept != 0) {
+    (*callback)->Continue(CefString(username ? username : ""), CefString(password ? password : ""));
+  } else {
+    (*callback)->Cancel();
+  }
+  return 1;
 }
 
 }  // extern "C"

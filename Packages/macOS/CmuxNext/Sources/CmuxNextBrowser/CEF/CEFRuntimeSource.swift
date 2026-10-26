@@ -31,6 +31,10 @@ public final class CEFRuntimeSource {
     /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
     /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
     public var fencesHostResizes = false
+    /// A page's alert, confirm, prompt and HTTP sign-in ask in cmux's dialogs over the tab instead of
+    /// Chromium's (feature `chromiumPageDialogs`, set by the App; ``CEFPageDialogs``), in process and in
+    /// host mode. Read when the runtime adopts the source, before Chromium starts.
+    public var asksPageDialogs = false
 
     /// Creates a source.
     ///

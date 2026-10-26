@@ -209,6 +209,30 @@ typedef enum {
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
   CMUX_SHIM_TOOLTIP = 57,
+  // 58 and 59 are kept for the popup menu events (p01-process-060).
+  // A page's alert, confirm or prompt (CefJSDialogHandler::OnJSDialog), only
+  // after cmux_shim_set_page_dialogs(1); Chromium shows no dialog of its own.
+  // request = the question's token; a = 0 alert, 1 confirm, 2 prompt
+  // (cef_jsdialog_type_t); s1 = the message; s2 = the URL of the frame that
+  // asks, a newline, then the prompt's default text ("" for the others). The
+  // page waits for cmux_shim_js_dialog_reply (during the event or later).
+  CMUX_SHIM_JS_DIALOG = 60,
+  // Chromium ended the browser's waiting JS_DIALOG questions itself (a
+  // navigation, the renderer ended, DevTools answered). Not sent after the
+  // host's answer.
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 61,
+  // A server or a proxy asks for a user name and password
+  // (CefRequestHandler::GetAuthCredentials), only after
+  // cmux_shim_set_page_dialogs(1); Chromium shows no sign-in dialog of its
+  // own. request = the question's token; a = the port; b = 1 for a proxy;
+  // s1 = the host; s2 = the URL of the request's origin, a newline, the
+  // scheme ("basic", "digest", "ntlm", "negotiate"), a newline, then the
+  // realm ("" when the server sends none). The request waits for
+  // cmux_shim_auth_reply.
+  CMUX_SHIM_AUTH = 62,
+  // The browser's waiting AUTH questions are gone (a new main-frame
+  // navigation started). Not sent after the host's answer.
+  CMUX_SHIM_AUTH_DISMISSED = 63,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -1227,6 +1251,20 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// 1: a page's alert, confirm and prompt come to the host as
+// CMUX_SHIM_JS_DIALOG and HTTP authentication as CMUX_SHIM_AUTH, and Chromium
+// shows no dialog of its own (Chrome's login prompt is turned off with
+// disable-chrome-login-prompt). 0 (the default): Chromium's dialogs. Call
+// before cmux_shim_initialize, where the login switch is decided. Main thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_page_dialogs(int enabled);
+// Answers a JS_DIALOG: accept 1 is OK, 0 Cancel; text is a prompt's answer
+// (NULL is ""). Returns 1, or 0 for a token that was answered, dismissed or
+// never sent. Main thread.
+CMUX_SHIM_EXPORT int cmux_shim_js_dialog_reply(int token, int accept, const char* text);
+// Answers an AUTH: accept 1 signs in with username and password (NULL is
+// ""); 0 cancels, and the server's own 401 page loads. Returns 1, or 0 for a
+// token that was answered, dismissed or never sent. Main thread.
+CMUX_SHIM_EXPORT int cmux_shim_auth_reply(int token, int accept, const char* username, const char* password);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

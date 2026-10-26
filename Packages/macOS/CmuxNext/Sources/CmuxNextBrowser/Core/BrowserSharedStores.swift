@@ -21,6 +21,10 @@ public final class BrowserSharedStores {
     public let siteSettings: SiteSettingsRegistry
     /// Zoom per site and profile (``SiteZoomLevels``).
     public let siteZoom: SiteZoomLevels
+    /// HTTP sign-ins the person chose to remember, one store for both engines' tabs (``BrowserHTTPSignIn``),
+    /// so a login remembered in a WebKit tab answers a Chromium one: cmux's Keychain items, none in
+    /// ``inMemory()`` stores. Its calls block: tabs make them off the main actor.
+    package var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
 
     /// Stores over `offTheRecord`.
     ///
@@ -47,12 +51,14 @@ public final class BrowserSharedStores {
     }
 
     /// Stores that keep everything in memory (tests, a debug window): nothing reaches the person's
-    /// files.
+    /// files or Keychain.
     public static func inMemory() -> BrowserSharedStores {
         let offTheRecord = OffTheRecordProfiles()
-        return BrowserSharedStores(
+        let stores = BrowserSharedStores(
             offTheRecord: offTheRecord,
             siteSettings: SiteSettingsRegistry(persistence: { _ in MemorySitePermissionPersistence() }, offTheRecord: offTheRecord),
             siteZoom: SiteZoomLevels(directory: nil, offTheRecord: offTheRecord))
+        stores.httpCredentials = NoRememberedHTTPCredentials()
+        return stores
     }
 }
