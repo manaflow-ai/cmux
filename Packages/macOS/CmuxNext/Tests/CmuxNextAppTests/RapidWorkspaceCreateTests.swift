@@ -54,13 +54,37 @@ struct RapidWorkspaceCreateTests {
 
     /// `sessionEvents`: the connection follows `session.events`, as the app's does (the sidebar document's items and
     /// the personal rows and groups come on it).
-    static func launch(sessionEvents: Bool = false) async throws -> Launched {
+    static func launch(sessionEvents: Bool = false, preseedWorkspaceNames: [String] = []) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        if !preseedWorkspaceNames.isEmpty {
+            do {
+                _ = try await launcher.ensure()
+                let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                                            endpointProvider: launcher.endpointProvider)
+                do {
+                    _ = try await seed.start()
+                    for name in preseedWorkspaceNames {
+                        _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+                    }
+                } catch {
+                    if let identity = await seed.identity {
+                        _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                    timeout: .seconds(10))
+                    }
+                    await seed.close()
+                    throw error
+                }
+                await seed.close()
+            } catch {
+                // A failed handshake may leave the owned daemon alive; retain its state for recovery.
+                throw error
+            }
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
