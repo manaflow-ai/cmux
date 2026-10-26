@@ -8,6 +8,10 @@
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
+    // Chromium's SetCurrentTaskDefaultRole: echo is on a person's input path.
+    if let Err(error) = cmux_threads::process_role::set_default_role() {
+        eprintln!("cmux-holder: {error}");
+    }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match cmux_holder::serve(&args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
