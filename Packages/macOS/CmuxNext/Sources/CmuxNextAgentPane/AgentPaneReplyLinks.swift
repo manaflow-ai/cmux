@@ -44,6 +44,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
         await AgentPaneReplyImages.local($0)
     }
+    /// Reads a path chip's text preview off the main actor (``AgentPaneReplyTextPreview/read(_:accept:)``);
+    /// tests stand in for it.
+    var readTextPreview: @Sendable (_ path: String, _ accept: @Sendable (String) -> Bool) async
+        -> Result<AgentPaneReplyTextPreview, AgentPaneReplyError> = { await AgentPaneReplyTextPreview.read($0, accept: $1) }
     /// Writes a dragged SVG's rebuilt copy off the main actor (``AgentPaneImageCopies/rebuild(_:to:)``);
     /// tests stand in for it.
     var rebuildCopy: @Sendable (_ file: URL, _ copy: URL) async -> Bool = { await AgentPaneImageCopies.rebuild($0, to: $1) }

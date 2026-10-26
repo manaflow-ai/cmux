@@ -228,6 +228,44 @@ struct AgentPaneReplyTextPreviewTests {
         }
     }
 
+    /// The read runs off the main actor; a chat that turns remote while it runs gets none of this
+    /// Mac's lines, only `{remote: true}`, and a chat that stays local still gets them.
+    @Test func aReadThatOutlivesTheChatTurningRemoteSendsNothing() async throws {
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let notes = rig.project.appendingPathComponent("notes.log")
+            try "local secret\n".write(to: notes, atomically: true, encoding: .utf8)
+            let local = await rig.preview(notes.path)
+            #expect(Self.lines(local) == ["local secret"], "\(wireOnly): \(local)")
+
+            let model = rig.model
+            let opened = Opened()
+            rig.model.replyLinks.readTextPreview = { path, accept in
+                await Self.turnRemote(model, wireOnly: wireOnly, into: opened)
+                return await AgentPaneReplyTextPreview.read(path, accept: accept)
+            }
+            let reply = await rig.preview(notes.path)
+            #expect(Self.errorCode(reply) == nil, "\(wireOnly): \(reply)")
+            #expect(Self.lines(reply) == nil, "\(wireOnly): \(reply)")
+            #expect((reply["value"] as? [String: Any])?["remote"] as? Bool == true, "\(wireOnly): \(reply)")
+            if let connection = opened.connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    @MainActor private final class Opened {
+        var connection: Int?
+    }
+
+    private static func turnRemote(_ model: AgentPaneModel, wireOnly: Bool, into opened: Opened) async {
+        guard wireOnly else {
+            model.remoteChat = true
+            return
+        }
+        let wire = AgentPaneRelayedAllowTests.RemoteWire()
+        opened.connection = try? await model.transport.open(.remote(AgentPaneRemoteRoute(machine: "host") { wire }))
+    }
+
     @Test func aWholeOneLineFileLongerThanTheCapReadsAsCut() {
         let line = String(repeating: "y", count: AgentPaneReplyTextPreview.maximumLineLength + 1)
         let data = Data(line.utf8)

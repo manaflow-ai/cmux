@@ -84,9 +84,10 @@ extension AgentPaneModel {
     /// A chat on another machine reads nothing here (the same guard as a reply image's,
     /// ``loadReplyImage(_:)``): its agent names paths on that machine, and a file here with the
     /// same spelling is not its file. It answers `{remote: true}`, so the card says where the file
-    /// is instead of showing nothing.
+    /// is instead of showing nothing. The read runs off the main actor, so the guard runs again
+    /// after it: a chat that turned remote while it ran gets none of this Mac's lines.
     func previewReplyPath(_ text: String) async -> [String: Any] {
-        guard !remoteChat, !transport.remoteWire else { return AgentPaneReply.success(["remote": true]) }
+        guard !chatIsElsewhere else { return AgentPaneReply.success(["remote": true]) }
         let paths = replyPaths()
         guard let resolved = paths.resolve(text) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
@@ -102,7 +103,9 @@ extension AgentPaneModel {
         guard !paths.isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
         let inside = resolved.place == .root
         let accept: @Sendable (String) -> Bool = { real in !paths.isDenied(real) && (!inside || paths.isInsideRoot(real)) }
-        switch await AgentPaneReplyTextPreview.read(canonical, accept: accept) {
+        let read = await replyLinks.readTextPreview(canonical, accept)
+        guard !chatIsElsewhere else { return AgentPaneReply.success(["remote": true]) }
+        switch read {
         case .success(let preview):
             return AgentPaneReply.success(["lines": preview.lines, "truncated": preview.truncated])
         case .failure:
