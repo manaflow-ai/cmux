@@ -36,7 +36,8 @@ public protocol LaterTabWarmupHost: AnyObject, Sendable {
 /// The later-tab warm-ups over their host: the posts of ``LaunchServicePosts/laterTabs(chromiumWarmup:spareHooks:agentPageWarmup:spareProbe:spareWarming:pageHostPool:agentTabImport:rightSidebarIcons:)``
 /// and the gates that keep Home's web objects to the ones the launch can use (plans/cmux-next/chrome-parity/
 /// p13-webui.md D1 and D2, HomeWebFootprintTests). Chrome warms only the process the next navigation takes
-/// (content/browser/renderer_host/spare_render_process_host_manager_impl.cc).
+/// (content/browser/renderer_host/spare_render_process_host_manager_impl.cc): the page host pool builds its
+/// WebKit spare at launch only while Settings, History or Cloud open in WebKit.
 ///
 /// ```swift
 /// LaterTabWarmups(host: services).posts().post(on: startup)
@@ -61,8 +62,9 @@ public struct LaterTabWarmups {
             spareWarming: { [weak host] in host?.warmNewTabPreload() },
             pageHostPool: { [weak host] in
                 guard let host else { return }
+                // The pool still follows the windows: a later WebKit open builds its spare (PageHostPool.claim).
                 host.followWindowsForPageHosts()
-                host.preloadPageHost()
+                if host.pooledPagesOpenInWebKit { host.preloadPageHost() }
             },
             agentTabImport: { [weak host] in
                 guard let host else { return }
