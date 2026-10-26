@@ -18,6 +18,7 @@ final class SidebarScrollView: NSScrollView {
     private var paging = false
 
     override func scrollWheel(with event: NSEvent) {
+        stopContentSpring()
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
             if let onWheelPage, !event.hasPreciseScrollingDeltas {
                 switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: false) {

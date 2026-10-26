@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import QuartzCore
 @testable import CmuxNextSidebar
 import Testing
 
@@ -8,6 +9,9 @@ import Testing
 /// a new row opens one. Before, the move waited on `ui.animations.newWorkspace`, a switch for new
 /// workspace rows, so with it off every reorder snapped and a leaving row vanished over a gap.
 /// With motion off (Reduce Motion, the master switch) every change lands in one frame.
+/// The rows move on the render server (p03-rendering-103): each model frame is at its slot in the
+/// change's turn and an additive spring carries what shows, so a slide is read from the layer's
+/// presentation (`inFlight`), not from the frame.
 @MainActor
 struct SidebarPriorityMotionTests {
     /// The motion-off check only needs a screen. A test that sees a row move needs a display
@@ -46,6 +50,25 @@ struct SidebarPriorityMotionTests {
     }
 
     private static func near(_ x: CGFloat, _ y: CGFloat) -> Bool { abs(x - y) < 0.5 }
+
+    /// The additive springs the render server runs on `row`'s layer.
+    private static func springs(_ row: NSView) -> Int {
+        guard let layer = row.layer else { return 0 }
+        return (layer.animationKeys() ?? []).filter { key in (layer.animation(forKey: key) as? CASpringAnimation)?.isAdditive ?? false }.count
+    }
+
+    /// How far what shows of `row` is from its model frame (position and size, the largest part).
+    private static func offset(_ row: NSView) -> CGFloat {
+        guard let layer = row.layer, let shown = layer.presentation() else { return 0 }
+        return max(abs(shown.position.x - layer.position.x), abs(shown.position.y - layer.position.y),
+                   abs(shown.bounds.width - layer.bounds.width), abs(shown.bounds.height - layer.bounds.height))
+    }
+
+    /// `row` still shows away from its model frame.
+    private static func inFlight(_ row: NSView) -> Bool { offset(row) > 0.5 }
+
+    /// The height of `row` that shows (its layer's presentation).
+    private static func shownHeight(_ row: NSView) -> CGFloat { row.layer?.presentation()?.bounds.height ?? row.frame.height }
     private static func near(_ r: NSRect, _ s: NSRect) -> Bool {
         near(r.minX, s.minX) && near(r.minY, s.minY) && near(r.width, s.width) && near(r.height, s.height)
     }
@@ -94,12 +117,15 @@ struct SidebarPriorityMotionTests {
         let (a, c) = (try Self.row("a", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
-        // The change's own frame: the rows are still on their way, not at their new slots.
-        #expect(c.frame.minY > 0, "c jumped to the top instead of sliding there")
-        #expect(a.frame.minY < rowHeight, "a jumped down instead of sliding")
-        try await Self.runFrames { Self.near(c.frame.minY, 0) && Self.near(a.frame.minY, rowHeight) }
-        #expect(Self.near(c.frame.minY, 0), "c did not reach the top slot: \(c.frame)")
-        #expect(Self.near(a.frame.minY, rowHeight))
+        // The change's own turn: the model frames are at the new slots, the render server carries what shows.
+        #expect(c.frame.minY == 0 && a.frame.minY == rowHeight, "the model frames are not at the new slots: a \(a.frame) c \(c.frame)")
+        #expect(Self.springs(c) > 0, "c jumped to the top instead of sliding there")
+        #expect(Self.springs(a) > 0, "a jumped down instead of sliding")
+        try await Self.runFrames(for: .milliseconds(32))
+        #expect(Self.inFlight(c), "c showed at the top slot at once")
+        try await Self.runFrames { !Self.inFlight(c) && !Self.inFlight(a) }
+        #expect(!Self.inFlight(c), "c did not reach the top slot: \(Self.offset(c)) pt away")
+        #expect(!Self.inFlight(a))
     }
 
     @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
@@ -112,8 +138,9 @@ struct SidebarPriorityMotionTests {
         let slot = b.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "c"])) }
         #expect(b.superview != nil, "b vanished over a gap instead of closing its slot")
-        #expect(c.frame.minY > slot.minY, "c jumped up instead of sliding")
-        try await Self.runFrames { b.superview == nil && Self.near(c.frame.minY, slot.minY) && c.alphaValue == 1 }
+        #expect(Self.springs(b) > 0, "b closed at once instead of closing its slot")
+        #expect(Self.springs(c) > 0, "c jumped up instead of sliding")
+        try await Self.runFrames { b.superview == nil && !Self.inFlight(c) && c.alphaValue == 1 }
         #expect(b.superview == nil, "the closed row stayed after its move")
         #expect(Self.near(c.frame.minY, slot.minY), "c did not take b's slot: \(c.frame)")
         #expect(c.alphaValue == 1)
@@ -129,9 +156,9 @@ struct SidebarPriorityMotionTests {
         let slot = c.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"])) }
         let b = try Self.row("b", in: view)
-        #expect(b.frame.height < slot.height, "b showed whole instead of opening its slot: \(b.frame)")
-        #expect(c.frame.minY < slot.maxY, "c jumped down instead of sliding")
-        try await Self.runFrames { Self.near(b.frame, slot) && Self.near(c.frame.minY, slot.maxY) && b.alphaValue == 1 }
+        #expect(Self.springs(b) > 0 && b.alphaValue < 1, "b showed whole instead of opening its slot: \(b.frame)")
+        #expect(Self.springs(c) > 0, "c jumped down instead of sliding")
+        try await Self.runFrames { !Self.inFlight(b) && !Self.inFlight(c) && b.alphaValue == 1 }
         #expect(Self.near(b.frame, slot), "b did not open to c's old slot: \(b.frame)")
         #expect(Self.near(c.frame.minY, slot.maxY))
         #expect(b.alphaValue == 1)
@@ -172,10 +199,11 @@ struct SidebarPriorityMotionTests {
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
         try await Self.runFrames(for: .milliseconds(80))
-        #expect(!Self.near(c.frame.minY, 0), "the first slide ended before the second change")
+        #expect(Self.inFlight(c), "the first slide ended before the second change")
         Self.withSidebarMotion { view.show(Self.panel(["b", "c", "a"])) }
-        try await Self.runFrames { Self.near(b.frame.minY, 0) && Self.near(c.frame.minY, rowHeight) && Self.near(a.frame.minY, rowHeight * 2) }
+        try await Self.runFrames { ![a, b, c].contains { Self.inFlight($0) } }
         try await Self.runFrames(for: .milliseconds(200))
+        #expect(![a, b, c].contains { Self.inFlight($0) }, "a row still shows away from its slot")
         #expect(Self.near(b.frame.minY, 0), "b: \(b.frame)")
         #expect(Self.near(c.frame.minY, rowHeight), "c: \(c.frame)")
         #expect(Self.near(a.frame.minY, rowHeight * 2), "a: \(a.frame)")
@@ -194,7 +222,9 @@ struct SidebarPriorityMotionTests {
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
         try await Self.runFrames(for: .milliseconds(50))
         Self.withSidebarMotion(sidebarOff: true) { view.show(Self.panel(["b", "a", "c"])) }
-        let landed = { Self.near(b.frame.minY, 0) && Self.near(a.frame.minY, rowHeight) && Self.near(c.frame.minY, rowHeight * 2) }
+        #expect([a, b, c].allSatisfy { Self.springs($0) == 0 }, "the earlier slide's springs stayed on with motion off")
+        let landed = { Self.near(b.frame.minY, 0) && Self.near(a.frame.minY, rowHeight) && Self.near(c.frame.minY, rowHeight * 2)
+            && ![a, b, c].contains { Self.inFlight($0) } }
         #expect(landed(), "with motion off the change did not land at once: a \(a.frame) b \(b.frame) c \(c.frame)")
         var moved: [String] = []
         try await Self.runFrames(for: .milliseconds(600)) { if !landed() { moved.append("a \(a.frame) b \(b.frame) c \(c.frame)") } }
@@ -217,10 +247,10 @@ struct SidebarPriorityMotionTests {
         let whole = SidebarPriorityRowView.height(hasPreview: true)
         var spilled: [CGFloat] = []
         try await Self.runFrames(for: .milliseconds(900)) {
-            if b.frame.height < whole - 0.5, !b.clipsToBounds { spilled.append(b.frame.height) }
+            if Self.shownHeight(b) < whole - 0.5, !b.clipsToBounds { spilled.append(Self.shownHeight(b)) }
         }
         #expect(spilled.isEmpty, "b drew unclipped while it opened, at heights \(spilled.prefix(3)) of \(whole)")
-        #expect(Self.near(b.frame.height, whole), "b did not open whole: \(b.frame)")
+        #expect(Self.near(b.frame.height, whole) && Self.near(Self.shownHeight(b), whole), "b did not open whole: \(b.frame)")
         #expect(!b.clipsToBounds, "b still clips after its open ended")
     }
 
@@ -233,10 +263,12 @@ struct SidebarPriorityMotionTests {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
         let b = try Self.row("b", in: view)
+        let slot = b.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "c"])) }
         let document = try #require(b.superview)
-        #expect(b.frame.height > 2, "b closed at once: \(b.frame)")
-        let inWindow = document.convert(NSPoint(x: b.frame.midX, y: b.frame.minY + 1), to: nil)
+        #expect(Self.springs(b) > 0, "b closed at once: \(b.frame)")
+        // Where b still shows while it closes.
+        let inWindow = document.convert(NSPoint(x: slot.midX, y: slot.minY + 1), to: nil)
         let hit = view.hitTest(try #require(view.superview).convert(inWindow, from: nil))
         #expect(!(hit.map { $0 === b || $0.isDescendant(of: b) } ?? false), "a click on the closing row reached it: \(String(describing: hit))")
     }
