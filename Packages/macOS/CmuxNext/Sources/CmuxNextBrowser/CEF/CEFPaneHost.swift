@@ -161,6 +161,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        suggestionsFollowShownBrowser(tab.browserID)
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
@@ -200,6 +201,7 @@ final class CEFPaneHost {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
         visibleTab = nil
+        suggestionsFollowShownBrowser(nil)
     }
 
     // MARK: Creation
@@ -444,6 +446,7 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        suggestionsFollowShownBrowser(visibleTab?.browserID)
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.

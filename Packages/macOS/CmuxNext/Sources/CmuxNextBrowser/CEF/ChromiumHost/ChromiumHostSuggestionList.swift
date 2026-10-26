@@ -97,6 +97,16 @@ final class ChromiumHostSuggestionList {
         return Self.screenRect(of: shown.suggestions.field, in: view)
     }
 
+    /// The page view shows `browser` now (nil: none). Rows of another browser close, as Chrome's popup
+    /// hides when its tab hides or leaves the view (`AutofillPopupHideHelper`,
+    /// chrome/browser/ui/autofill/autofill_popup_hide_helper.cc); Chromium hears a dismiss while
+    /// `isAlive` says the rows' browser lives.
+    func shownBrowserChanged(to browser: Int32?, isAlive: (Int32) -> Bool) {
+        guard let shown, shown.browser != browser else { return }
+        close()
+        if isAlive(shown.browser) { wire?.send(.dismiss, token: shown.suggestions.token, row: 0, browser: shown.browser) }
+    }
+
     /// The Chromium Host ended: its rows went with it, and nothing is answered.
     func hostEnded() {
         guard shown != nil else { return }

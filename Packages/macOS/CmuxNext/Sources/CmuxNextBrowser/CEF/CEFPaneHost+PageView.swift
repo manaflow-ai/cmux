@@ -24,6 +24,13 @@ extension CEFPaneHost {
         }
     }
 
+    /// The pane shows `browser` now (nil: no tab): suggestions of another browser close, and Chromium
+    /// hears they were dismissed while that browser lives (task 061).
+    func suggestionsFollowShownBrowser(_ browser: Int32?) {
+        guard let page = hostedPageView else { return }
+        page.suggestions.shownBrowserChanged(to: browser) { self.runtime.tabsByBrowser[$0] != nil }
+    }
+
     /// `page` takes drags into the shown tab's page when the host takes drops (feature
     /// `chromiumHostDragIn`). The pane's `CEFHostView` takes the drags while the page view takes no
     /// events of its own (``ChromiumHostPageView/InputTarget/pageWindow``) and hands them to it.

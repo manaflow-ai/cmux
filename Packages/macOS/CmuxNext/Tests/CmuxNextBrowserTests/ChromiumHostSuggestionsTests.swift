@@ -246,6 +246,35 @@ import Testing
         withExtendedLifetime(window) {}
     }
 
+    @Test func rowsCloseWhenTheirBrowserLeavesThePageView() {
+        let (window, view) = Self.pageView()
+        let presenter = Presenter()
+        let list = ChromiumHostSuggestionList(view: view, presenter: presenter)
+        let wire = Recorder()
+        list.handle(.show(Self.rows()), browser: 7, wire: wire)
+        list.shownBrowserChanged(to: 7) { _ in true }
+        #expect(presenter.isShown, "the rows' own browser shown again keeps them")
+
+        // The pane shows browser 8 (another tab, or 7 moved to another pane): 7's rows close, and Chromium hears it.
+        list.shownBrowserChanged(to: 8) { _ in true }
+        #expect(!presenter.isShown)
+        #expect(list.shown == nil)
+        #expect(wire.sent == ["shown 41 0 7", "dismiss 41 0 7"])
+        // The HIDE that follows, sent to the pane 7 went to, finds nothing here.
+        list.handle(.hide(token: 41), browser: 7, wire: wire)
+        #expect(wire.sent.count == 2)
+
+        // The tab closed: its rows close, and a gone browser is answered nothing.
+        list.handle(.show(Self.rows(token: 42)), browser: 7, wire: wire)
+        list.shownBrowserChanged(to: nil) { _ in false }
+        #expect(!presenter.isShown)
+        #expect(list.shown == nil)
+        #expect(wire.sent == ["shown 41 0 7", "dismiss 41 0 7", "shown 42 0 7"])
+        presenter.onPick?(0)
+        #expect(wire.sent.count == 3, "clicks on closed rows send nothing")
+        withExtendedLifetime(window) {}
+    }
+
     // MARK: The rows
 
     @Test func theRowsViewDrawsEachKindAndOnlyAutocompleteEntriesHaveADeleteButton() throws {
@@ -295,6 +324,28 @@ import Testing
         #expect(SuggestionSpy.calls == ["7 77 4 0"])
         #expect(CEFPaneSuggestionWire(pane: host).suggestionBrowser == nil, "in process: the rows never come to cmux")
     }
+
+    /// The feature alone does not send the rows to cmux: below fork API 31 Chromium still draws them
+    /// (a `<datalist>` as a hosted page popup), so the pane answers nothing and `debug.cef` reports null.
+    @Test func cmuxDrawsTheRowsOnlyWithTheFeatureAndAForkThatSendsThem() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cef-suggestions-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { SuggestionSpy.forkAPI = 0 }
+        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(SuggestionSpy.symbol), storage: CEFProfileStorage(root: root))
+        // A pane's scheduled work reads the runtime through an unowned reference.
+        _ = Unmanaged.passRetained(runtime)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        SuggestionSpy.forkAPI = CEFShimSuggestionOps.forkAPI
+        #expect(!runtime.drawsSuggestionsInCmux, "in process")
+
+        runtime.adoptHost(SilentSuggestionHost(), drawsSuggestions: true)
+        SuggestionSpy.forkAPI = CEFShimSuggestionOps.forkAPI - 1
+        #expect(!runtime.drawsSuggestionsInCmux, "the fork's popup still draws them")
+        #expect(CEFPaneSuggestionWire(pane: host).suggestionBrowser == nil)
+
+        SuggestionSpy.forkAPI = CEFShimSuggestionOps.forkAPI
+        #expect(runtime.drawsSuggestionsInCmux)
+    }
 }
 
 /// Stand-in shim functions: the suggestion action records itself; every other function does
@@ -302,16 +353,29 @@ import Testing
 private nonisolated enum SuggestionSpy {
     // crash-allow: only aPaneWithoutAPageViewDismissesTheRows reads and writes it, synchronously on the main actor
     nonisolated(unsafe) static var calls: [String] = []
+    // crash-allow: only the suite's main-actor tests set it, and the runtime reads it on the same actor
+    nonisolated(unsafe) static var forkAPI: Int32 = 0
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
         let action: @convention(c) (Int32, Int64, Int32, Int32) -> Int32 = { browser, token, action, index in
             SuggestionSpy.calls.append("\(browser) \(token) \(action) \(index)")
             return 1
         }
+        let forkAPIVersion: @convention(c) () -> Int32 = { SuggestionSpy.forkAPI }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_browser_suggestion_action": unsafeBitCast(action, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }
+}
+
+/// A host supervisor that never attaches: the runtime is in host mode and never starts.
+@MainActor private final class SilentSuggestionHost: ChromiumHostSupervising {
+    func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
+        throw .cannotStart("not started in this test")
+    }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }

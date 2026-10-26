@@ -23,6 +23,15 @@ nonisolated struct CEFShimSuggestionOps {
     }
 }
 
+extension CEFRuntime {
+    /// The host sends its suggestions to cmux's list: host mode with feature `chromiumHostSuggestions`
+    /// and a fork whose suggestion handler sends them (``CEFShimSuggestionOps/forkAPI``). Below that
+    /// fork Chromium still draws them itself (a `<datalist>` as a hosted page popup).
+    var drawsSuggestionsInCmux: Bool {
+        hostStart?.drawsSuggestions == true && forkAPIVersion >= CEFShimSuggestionOps.forkAPI
+    }
+}
+
 /// A pane's page view answers the suggestions of the browser its pane shows
 /// (``ChromiumHostSuggestionWire``), through the runtime's shim: the remote shim in host mode.
 final class CEFPaneSuggestionWire: ChromiumHostSuggestionWire {
@@ -34,8 +43,7 @@ final class CEFPaneSuggestionWire: ChromiumHostSuggestionWire {
 
     /// The shown tab's browser, while the host draws its suggestions in cmux.
     var suggestionBrowser: Int32? {
-        guard let pane, pane.runtime.hostStart?.drawsSuggestions == true,
-              pane.runtime.forkAPIVersion >= CEFShimSuggestionOps.forkAPI else { return nil }
+        guard let pane, pane.runtime.drawsSuggestionsInCmux else { return nil }
         return pane.visibleTab?.browserID
     }
 

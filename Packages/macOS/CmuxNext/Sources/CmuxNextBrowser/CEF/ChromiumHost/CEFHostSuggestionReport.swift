@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// One page view's shown suggestions, for `debug.cef` `host_suggestions` (chromium-host-bench.py
 /// `--native-ui` autofill and password rows, task 061).
@@ -29,11 +29,11 @@ extension ChromiumHostSuggestionList {
 }
 
 extension CEFEngine {
-    /// Every page view's shown suggestions; nil unless the host draws them in cmux (host mode with
-    /// feature `chromiumHostSuggestions`).
+    /// Every page view's shown suggestions; nil unless the host draws them in cmux
+    /// (``CEFRuntime/drawsSuggestionsInCmux``).
     public var hostSuggestions: [CEFHostSuggestionReport]? {
         let runtime = CEFRuntime.shared
-        guard runtime.hostStart?.drawsSuggestions == true else { return nil }
+        guard runtime.drawsSuggestionsInCmux else { return nil }
         return runtime.hosts.values.compactMap { $0.hostedPageView?.suggestions.report }
     }
 }
