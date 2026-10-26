@@ -101,6 +101,8 @@ public final class ChromiumHostPageView: NSView {
     var cursorHoles: [CGRect] = [] {
         didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
     }
+    /// The drag the page started that this view's session carries (ChromiumHostPageView+Drag.swift).
+    var pageDrag: ChromiumHostPageDrag?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously

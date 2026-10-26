@@ -58,6 +58,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
+    /// A page's drag out and back over it (task p01-process-051, CEFShimLibrary+PageDrag.swift).
+    let pageDrag: PageDrag
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -335,6 +337,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
+        pageDrag = try PageDrag(r)
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")

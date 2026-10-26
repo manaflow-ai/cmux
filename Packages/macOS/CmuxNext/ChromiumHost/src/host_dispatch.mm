@@ -165,7 +165,7 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op)) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpDragSourceWatch) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -175,6 +175,10 @@ void HostContext::Handle(control::Message& message) {
       if (message.op == kOpInitialize) return Bad("a second initialize");
       if (message.op == kOpTextInputWatch) {
         if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
+        return;
+      }
+      if (message.op == kOpDragSourceWatch) {
+        if (!HandleDragSourceWatch(message)) Bad("a malformed drag source watch");
         return;
       }
       if (message.op == kOpTextInputStats) {
@@ -251,6 +255,25 @@ bool HostContext::HandleTextInputWatch(const control::Message& message) {
   text_input_.Forget(browser);
   ReplyResult(message.token, cmux_shim_browser_text_input_watch(browser, nullptr, nullptr));
   return true;
+}
+
+bool HostContext::HandleDragSourceWatch(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t installed = r.I32();
+  if (!r.ok() || !r.AtEnd() || (installed != 0 && installed != 1)) return false;
+  // Without cmux's handler the fork starts Chromium's own drag session, as in process.
+  cmux_shim_set_drag_source_handler(installed ? &HostContext::OnDragSource : nullptr, installed ? this : nullptr);
+  Ack(message.token);
+  return true;
+}
+
+void HostContext::OnDragSource(void* ctx, int browser_id, const void* drag) {
+  auto* host = static_cast<HostContext*>(ctx);
+  DragSource read;
+  const bool sent = host->state_ != State::kEnded && ReadForkDragSource(drag, &read) &&
+                    host->Post(MessageOf(kOpDragStart, false, 0, EncodeDragStart(host->ClientOf(browser_id), read)));
+  // The fork starts no other drag until this one ends: one cmux never gets ends now, with no drop.
+  if (!sent) cmux_shim_browser_drag_source_ended(browser_id, 0, 0, 0, 0, 0);
 }
 
 int HostContext::ArmTextInputWatch(int chromium_id) {

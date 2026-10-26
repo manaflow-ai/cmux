@@ -6,6 +6,9 @@
 #   host_dispatch_test.cpp  the dispatcher alone, frame by frame
 #   host_text_input_test.cpp  the text input pushes, alone and through the
 #                           dispatcher (task p01-process-044)
+#   host_drag_test.cpp      a page's drag out, alone and through the
+#                           dispatcher (task p01-process-051); then the
+#                           fork struct's offsets cmux's Swift reads
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
@@ -17,8 +20,8 @@
 # Linux and macOS.
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
-# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, the generator's host output or
-# the ops JSON.
+# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_drag.h,
+# CEFPageDragData.swift's offsets, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -78,6 +81,24 @@ sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_text_input_test" "$host/tests/host_text_input_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_text_input_test"
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_drag_test" "$host/tests/host_drag_test.cpp" \
+  -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
+"$work/host_drag_test"
+
+# cmux reads the fork's cmux_drag_source_t at the offsets host_drag.h asserts (CEFPageDragData.swift).
+python3 -I - "$host/src/host_drag.h" \
+  "$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageDragData.swift" <<'PY'
+import re, sys
+header, swift = (open(p).read() for p in sys.argv[1:3])
+c = {name: int(value) for name, value in re.findall(r"offsetof\(ForkDragSource, (\w+)\) == (\d+)", header)}
+c["size"] = int(re.search(r"sizeof\(ForkDragSource\) == (\d+)", header).group(1))
+camel = lambda name: re.sub(r"_(\w)", lambda m: m.group(1).upper(), name)
+s = {name: int(value) for name, value in re.findall(r"static let (\w+) = (\d+)", swift.split("enum Offset", 1)[1].split("}", 1)[0])}
+want = {camel(name): value for name, value in c.items()}
+if s != want:
+    sys.exit(f"FAIL: CEFPageDragData.Offset {s} is not host_drag.h's {want}")
+print(f"cmux_drag_source_t: {len(want)} offsets agree")
+PY
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"

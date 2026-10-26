@@ -195,6 +195,38 @@ void cmux_shim_set_accessibility(int browser_id, int enabled) {
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
+// After cmux_shim_browser_drag_target_enter_source (the page's own drag back over it, task
+// p01-process-051), as WebContentsViewMac forwards the session's moves and drop to the page's
+// drop target (content/browser/web_contents/web_contents_view_mac.mm, DraggingUpdated, DragPerform).
+int cmux_shim_browser_drag_target_over(int browser_id, int x, int y, int allowed_operations, int modifiers) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 0;
+  CefMouseEvent event;
+  event.x = x;
+  event.y = y;
+  event.modifiers = static_cast<uint32_t>(modifiers);
+  host->DragTargetDragOver(event, static_cast<cef_drag_operations_mask_t>(allowed_operations));
+  return 1;
+}
+
+int cmux_shim_browser_drag_target_leave(int browser_id) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 0;
+  host->DragTargetDragLeave();
+  return 1;
+}
+
+int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 0;
+  CefMouseEvent event;
+  event.x = x;
+  event.y = y;
+  event.modifiers = static_cast<uint32_t>(modifiers);
+  host->DragTargetDrop(event);
+  return 1;
+}
+
 int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   if (!fork_api().browser_set_embedder_visibility) return 0;
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);

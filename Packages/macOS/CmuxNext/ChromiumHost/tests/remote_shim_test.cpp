@@ -438,6 +438,108 @@ void TestOrderingThroughTheRuntime() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   ::close(host.fd);
 }
+
+// What the page drag handler got (task p01-process-051).
+struct SeenDrag {
+  int calls = 0;
+  int browser = 0;
+  cmux_host::DragSource drag;
+  bool read = false;
+} seen_drag;
+
+void OnDrag(void*, int browser_id, const void* drag) {
+  ++seen_drag.calls;
+  seen_drag.browser = browser_id;
+  seen_drag.read = cmux_host::ReadForkDragSource(drag, &seen_drag.drag);
+}
+
+Message DragStart(int32_t browser, const cmux_host::DragSource& drag) {
+  Message message;
+  message.op = cmux_host::kOpDragStart;
+  message.fields = cmux_host::EncodeDragStart(browser, drag);
+  return message;
+}
+
+// The drag handler through the real runtime (task p01-process-051): one set before the host's
+// HELLO reaches it right after the HELLO's queue, and again on every new host; a DRAG_START
+// reaches the handler as the fork's struct; one with no handler set ends the page's drag; a
+// malformed one ends the host. (Shared-memory fields are chromium_host_control_test's.)
+void TestDragThroughTheRuntime() {
+  cmux_shim_set_drag_source_handler(&OnDrag, nullptr);
+  Host host;
+  CHECK(AttachNew(&host) == 1);
+  const int ready = seen.ready;
+  host.Send(Hello(cmux_remote::kWireID));
+  CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+  bool watched = false;
+  ReadThrough(&host, [&](const Message& m) {
+    if (m.op != cmux_host::kOpDragSourceWatch) return false;
+    TlvReader r(m.fields);
+    watched = r.I32() == 1 && r.ok() && r.AtEnd() && m.token == 0;
+    return true;
+  });
+  CHECK(watched);
+  cmux_shim_set_drag_source_handler(&OnDrag, nullptr);  // no change: nothing sent
+
+  cmux_host::DragSource drag;
+  drag.allowed_operations = 1 | 16;
+  drag.url = "https://example.com/cat.png";
+  drag.image_png.assign(30000, 'p');
+  drag.image_scale = 2;
+  drag.cursor_offset_x = 3;
+  const int browser = cmux_remote::kFirstMintedBrowserID;
+  host.Send(DragStart(browser, drag));
+  CHECK(PumpUntil([] { return seen_drag.calls == 1; }));
+  CHECK(seen_drag.browser == browser && seen_drag.read && seen_drag.drag == drag);
+
+  cmux_shim_set_drag_source_handler(nullptr, nullptr);
+  bool unwatched = false;
+  ReadThrough(&host, [&](const Message& m) {
+    if (m.op != cmux_host::kOpDragSourceWatch) return false;
+    TlvReader r(m.fields);
+    unwatched = r.I32() == 0 && r.ok() && r.AtEnd();
+    return true;
+  });
+  CHECK(unwatched);
+  // Removed while a drag came: the page's drag ends at once, with no operation.
+  host.Send(DragStart(browser, drag));
+  PumpUntil([] { return false; }, std::chrono::milliseconds(200));
+  bool ended = false;
+  ReadThrough(&host, [&](const Message& m) {
+    if (m.op != cmux_remote::kOpBrowserDragSourceEnded) return false;
+    TlvReader r(m.fields);
+    ended = r.I32() == browser && r.F64() == 0 && r.F64() == 0 && r.F64() == 0 && r.F64() == 0 && r.I32() == 0 && r.ok();
+    return true;
+  });
+  CHECK(ended && seen_drag.calls == 1);
+
+  seen.ended = -1;
+  Message bad;
+  bad.op = cmux_host::kOpDragStart;
+  host.Send(bad);
+  CHECK(PumpUntil([] { return seen.ended >= 0; }));
+  CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+  ::close(host.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+
+  // A new host takes the handler's state at its HELLO: removed, so nothing is sent; set, so it is.
+  cmux_shim_set_drag_source_handler(&OnDrag, nullptr);
+  Host next;
+  CHECK(AttachNew(&next) == 1);
+  const int ready_next = seen.ready;
+  next.Send(Hello(cmux_remote::kWireID));
+  CHECK(PumpUntil([&] { return seen.ready == ready_next + 1; }));
+  bool rewatched = false;
+  ReadThrough(&next, [&](const Message& m) {
+    rewatched = m.op == cmux_host::kOpDragSourceWatch;
+    return rewatched;
+  });
+  CHECK(rewatched);
+  cmux_shim_set_drag_source_handler(nullptr, nullptr);
+  cmux_remote_shim_detach();
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+  ::close(next.fd);
+}
 }  // namespace
 
 int main() {
@@ -878,6 +980,7 @@ int main() {
   ::close(third.fd);
 
   TestOrderingThroughTheRuntime();
+  TestDragThroughTheRuntime();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

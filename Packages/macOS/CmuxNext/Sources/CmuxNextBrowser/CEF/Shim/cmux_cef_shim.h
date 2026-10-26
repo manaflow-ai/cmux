@@ -418,6 +418,14 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double 
 // page's data; continue with the DragTarget* calls.
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
                                                                 int allowed_operations, int modifiers);
+// The rest of a drop target drag over the page (CefBrowserHost::DragTargetDragOver,
+// DragTargetDragLeave, DragTargetDrop): (x, y) in the page view's DIP from its top left,
+// allowed_operations the NSDragOperation bits the drag's source allows, modifiers
+// cef_event_flags_t. 0 for an unknown browser. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_over(int browser_id, int x, int y, int allowed_operations,
+                                                        int modifiers);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_leave(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers);
 // Fork API 31 (p01-process task 227): Chromium's own windows for these would
 // open in the helper-app browser process, which has no visible window, so the
 // app shows its own UI from data and answers by token. Each returns 0 when

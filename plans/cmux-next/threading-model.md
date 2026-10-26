@@ -581,7 +581,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.chromium-runtime.download` (OperationQueue, utility, serial; the runtime download's URLSession
   delegate queue), `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request),
   `com.cmuxterm.next.browser.certificate-probe` (OperationQueue, user-initiated, serial, one per probe; the TLS
-  probe's URLSession delegate queue: the page load waits on it)
+  probe's URLSession delegate queue: the page load waits on it),
+  `com.cmuxterm.next.browser.page-drag-file` (OperationQueue, user-initiated, serial, one per page drag of a file;
+  the file promise writes the dragged file where the drop asks: the person waits for the dropped file;
+  p01-process-051)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal` (utility),
   `com.cmuxterm.app.next.agent-pane.inbound` (user-initiated),
   `cmux.next.agent-pane.acpmux-exit.<pid>` (user-initiated; the version handoff waits on the old daemon's exit),

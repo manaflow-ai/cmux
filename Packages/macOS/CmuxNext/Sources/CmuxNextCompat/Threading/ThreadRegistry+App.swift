@@ -72,6 +72,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-runtime.download", match: .operationQueue, qos: .utility),
         ThreadDeclaration("cmux-next webkit setup probe", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.browser.certificate-probe", match: .operationQueue, qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.browser.page-drag-file", match: .operationQueue, qos: .userInitiated),
         // Agents.
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated),

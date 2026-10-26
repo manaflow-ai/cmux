@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostDragOut",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, a link, image or text dragged out of a page starts a drag in cmux, so it drops on Finder, a terminal or another app; dragged back over the page it drops there as the page's own drag.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

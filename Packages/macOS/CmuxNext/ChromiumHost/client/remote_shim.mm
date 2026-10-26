@@ -13,11 +13,15 @@
 //                 kOpAck      `token`'s op ran: its pending marks clear
 //                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
 //                             its op ran, so its pending marks clear first
+//                 kOpDragStart  a page's drag (host_drag.h), to the local class's drag handler
+//                             (remote_shim_local.h), which gets the transport at the HELLO
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
+#include "host_drag.h"
+#include "remote_shim_local.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -551,7 +555,20 @@ class Runtime {
     mirror_.Clear();
     awaiting_.clear();
     host_exports_.clear();
+    ::cmux_remote::Detach();
   }
+
+  // The local class's sends (remote_shim_local.h). Only the drag handler's state goes to the host
+  // yet: nothing here routes a TEXT_INPUT_STATE push or a reveal's REPLY to the local class, so a
+  // text input watch and a reveal are refused, as with no host.
+  static bool SendTextInputWatch(void*, int, bool) { return false; }
+  static bool SendPasswordReveal(void*, uint32_t, const char*, const char*) { return false; }
+  static bool SendDragSourceHandler(void* context, bool installed) {
+    TlvWriter args;
+    args.I32(installed ? 1 : 0);
+    return static_cast<Runtime*>(context)->Post(cmux_host::kOpDragSourceWatch, 0, args);
+  }
+  static uint32_t NextLocalToken(void* context) { return static_cast<Runtime*>(context)->NextToken(); }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
     CMUX_REMOTE_ASSERT_MAIN();
@@ -631,7 +648,18 @@ class Runtime {
         host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
         hello_ = true;
         Flush();
+        // After the queue: what the local class sends follows what was posted before the HELLO.
+        ::cmux_remote::Attach(&local_transport_);
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
+        return true;
+      }
+      case cmux_host::kOpDragStart: {
+        int32_t browser = 0;
+        cmux_host::DragSource drag;
+        if (!cmux_host::DecodeDragStart(message.fields, &browser, &drag)) return false;
+        const cmux_host::ForkDragSource view = cmux_host::ForkViewOf(drag);
+        // No handler (it was removed while the drag came): the page's drag ends, with no drop.
+        if (!::cmux_remote::DeliverDragStart(browser, &view)) cmux_shim_browser_drag_source_ended(browser, 0, 0, 0, 0, 0);
         return true;
       }
       default:
@@ -680,6 +708,8 @@ class Runtime {
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
+  const LocalTransport local_transport_{this, &SendTextInputWatch, &SendDragSourceHandler, &SendPasswordReveal,
+                                        &NextLocalToken};
 };
 
 Runtime& R() {

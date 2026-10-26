@@ -122,5 +122,6 @@ fi
 
 test_libs=(-pthread)
 "${cxx[@]}" "${flags[@]}" -DCMUX_TEST_ABI_ID="\"$abi\"" -o "$work/remote-shim-test" \
-  "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc" "${test_libs[@]}"
+  "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc" -x c++ "$host/client/remote_shim_local.mm" \
+  "${test_libs[@]}"
 "$work/remote-shim-test"

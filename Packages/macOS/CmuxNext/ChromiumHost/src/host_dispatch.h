@@ -31,6 +31,9 @@
 //                                              (host_text_input.h)
 //   kOpTextInputStats                           no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpDragSourceWatch                          i32 installed: the page drags go to
+//                                              cmux (kOpDragStart) or to Chromium's
+//                                              own session (host_drag.h)
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -44,6 +47,8 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpDragStart  a drag a page started, while cmux's drag handler is set
+//              (host_drag.h)
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -62,6 +67,7 @@
 
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
+#include "host_drag.h"
 #include "host_mirror.h"
 #include "host_text_input.h"
 
@@ -158,6 +164,9 @@ class HostContext {
   // cmux_shim_browser_text_input_watch's fn; ctx is this HostContext and
   // `state` the fork's cmux_text_input_state_t.
   static void OnTextInput(void* ctx, int browser_id, const void* state);
+  // cmux_shim_set_drag_source_handler's fn while cmux's handler is set; ctx is
+  // this HostContext and `drag` the fork's cmux_drag_source_t.
+  static void OnDragSource(void* ctx, int browser_id, const void* drag);
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
@@ -211,6 +220,7 @@ class HostContext {
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
+  bool HandleDragSourceWatch(const control::Message& message);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
