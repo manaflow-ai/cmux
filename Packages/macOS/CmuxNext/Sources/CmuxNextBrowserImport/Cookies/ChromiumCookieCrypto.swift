@@ -17,26 +17,28 @@ public struct ChromiumCookieCrypto: Sendable {
         case notUTF8
     }
 
-    private let key: Data
+    private let key: [UInt8]
 
     public init(safeStoragePassword: Data) {
         key = Self.deriveKey(safeStoragePassword)
     }
 
-    static func deriveKey(_ password: Data) -> Data {
+    static func deriveKey(_ password: Data) -> [UInt8] {
+        let secret = password.map { CChar(bitPattern: $0) }
         let salt = Array("saltysalt".utf8)
         var key = [UInt8](repeating: 0, count: kCCKeySizeAES128)
-        let status = password.withUnsafeBytes { raw in
-            CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), raw.baseAddress?.assumingMemoryBound(to: Int8.self), password.count,
-                                 salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003, &key, key.count)
-        }
+        let length = key.count
+        // SAFETY: CommonCrypto reads secret.count and salt.count bytes of those arrays and writes `length`
+        // (key.count) bytes into `key`; Swift lends each array's storage for the call only.
+        let status = unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), secret, secret.count, salt, salt.count,
+                                                 CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003, &key, length)
         // An empty key never decrypts: decrypt and encrypt then throw `badPadding`
         // (CCCrypt refuses the key length) instead of the process trapping.
-        guard status == kCCSuccess else { return Data() }
-        return Data(key)
+        guard status == kCCSuccess else { return [] }
+        return key
     }
 
-    static let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+    static let iv = [UInt8](repeating: 0x20, count: kCCBlockSizeAES128)
 
     /// Decrypts one `encrypted_value`. `hostKey` and `databaseVersion` come
     /// from the row and the `meta` table.
@@ -58,28 +60,27 @@ public struct ChromiumCookieCrypto: Sendable {
         return Data("v10".utf8) + (try Self.crypt(CCOperation(kCCEncrypt), key: key, data: plain))
     }
 
-    private static func crypt(_ operation: CCOperation, key: Data, data: Data) throws -> Data {
-        var output = Data(count: data.count + kCCBlockSizeAES128)
-        var written = 0
+    private static func crypt(_ operation: CCOperation, key: [UInt8], data: Data) throws -> Data {
+        let input = [UInt8](data)
+        var output = [UInt8](repeating: 0, count: input.count + kCCBlockSizeAES128)
         let capacity = output.count
-        let status = output.withUnsafeMutableBytes { out in
-            data.withUnsafeBytes { input in
-                key.withUnsafeBytes { keyBytes in
-                    iv.withUnsafeBytes { ivBytes in
-                        CCCrypt(operation, CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
-                                keyBytes.baseAddress, key.count, ivBytes.baseAddress,
-                                input.baseAddress, data.count, out.baseAddress, capacity, &written)
-                    }
-                }
-            }
-        }
+        var written = 0
+        // SAFETY: CCCrypt reads key.count bytes of `key`, one block (iv.count) of `iv` and input.count
+        // bytes of `input`, and writes at most `capacity` (output.count) bytes into `output` and that
+        // count into `written`; Swift lends each array's storage for the call only.
+        let status = unsafe CCCrypt(operation, CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                                    key, key.count, iv, input, input.count, &output, capacity, &written)
         guard status == kCCSuccess else { throw Failure.badPadding }
-        return output.prefix(written)
+        return Data(output.prefix(written))
     }
 
     private static func sha256(_ data: Data) -> Data {
+        let bytes = [UInt8](data)
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes { _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &digest) }
+        // SAFETY: CC_SHA256 reads bytes.count bytes of `bytes` and writes CC_SHA256_DIGEST_LENGTH
+        // (digest.count) bytes into `digest`; both are lent for the call, and the returned pointer
+        // (to `digest`) is dropped unread.
+        _ = unsafe CC_SHA256(bytes, CC_LONG(bytes.count), &digest)
         return Data(digest)
     }
 }
