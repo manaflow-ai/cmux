@@ -101,7 +101,25 @@ pub(crate) fn policy_is_full_access(policy: PermissionPolicy) -> bool {
     policy == PermissionPolicy::ApproveAll
 }
 
+/// Tests only: a pause right before a family message is written to its agent, so a test can
+/// push MDM's off while one waits there: `arrived` fires there, the write waits for `release`.
+/// Empty: no pause.
+#[cfg(test)]
+pub(super) type WriteSeam = std::sync::Mutex<
+    Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>,
+>;
+
 impl Hub {
+    /// Tests only: waits at the pause a test set (`WriteSeam`), once.
+    #[cfg(test)]
+    pub(super) async fn pause_at_family_write(&self) {
+        let seam = self.family_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((arrived, release)) = seam {
+            let _ = arrived.send(());
+            let _ = release.await;
+        }
+    }
+
     /// Whether a mode or policy that skips every approval may run now: the settings file under
     /// the value MDM or the team policy forces (`full_access_allowed_by`).
     pub fn full_access_allowed(&self) -> bool {
@@ -282,6 +300,45 @@ mod tests {
         let r = hub.receiver_check(&parent, &child).await;
         assert!(r.is_err(), "an approve-all parent messaged an approve-edits child under the off");
         assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
+    }
+
+    /// Review 33 of #23322: a family message checked under the old bound (an approve-all
+    /// parent to an approve-edits child) and not yet written to its agent holds an off push
+    /// until it is written: no message the old bound let through reaches an agent after the
+    /// push returns. A message checked after the push is refused (the test above).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_for_a_family_message_checked_under_the_old_bound() {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+        let send = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                let text = vec![json!({"type": "text", "text": "hello"})];
+                hub.send_family_prompt(&parent, &child, text, None, false, false, None, None).await
+            })
+        };
+        let wait = std::time::Duration::from_secs(10);
+        tokio::time::timeout(wait, arrived)
+            .await
+            .expect("the message reaches its write")
+            .expect("the seam fires");
+        let push = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(wait, push).await.expect("the push returns").unwrap();
+        let _ = tokio::time::timeout(wait, send).await;
+        assert!(
+            !returned,
+            "an off push returned while a message checked under the old bound was still unwritten"
+        );
     }
 
     /// Review 26 of #23322: a second push of the same off waits, as the first does, for an ask

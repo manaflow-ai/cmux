@@ -482,6 +482,9 @@ impl Hub {
         Self::hold_stalled_count(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
+        // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
+        #[cfg(test)]
+        self.pause_at_family_write().await;
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
         let mut result = super::steer_end::agent_prompt_hook(
