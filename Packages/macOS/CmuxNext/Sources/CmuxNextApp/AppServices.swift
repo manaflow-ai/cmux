@@ -415,7 +415,7 @@ final class AppServices {
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
-    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
+    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, deadlines: mainDeadlines)
     /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
     /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
