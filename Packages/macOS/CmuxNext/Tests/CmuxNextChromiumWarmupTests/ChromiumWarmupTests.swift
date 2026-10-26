@@ -94,10 +94,10 @@ import Testing
         warmup.stop()
     }
 
-    /// p07-memory-047, Chrome's spare rule: a warning holds the spare windows (the untaken ones
-    /// close) and no spare step runs, neither when one is asked for nor at the next idle moment;
-    /// critical keeps the hold; back at normal the hold lets go and the next idle moment, never the
-    /// level's turn, builds the spare again.
+    /// p07-memory-047, Chrome's spare rule: a warning holds the spare windows (the untaken one
+    /// stays, p13-webui-047) and no spare step runs, neither when one is asked for nor at the next
+    /// idle moment; critical keeps the hold and closes the untaken one; back at normal the hold lets
+    /// go and the next idle moment, never the level's turn, builds the spare again.
     @Test func noSpareWindowUnderPressureAndNoRefillUntilNormal() {
         let engine = FakeWarmupEngine()
         let memory = ManualMemoryLevelRegistry()
@@ -110,14 +110,18 @@ import Testing
         #expect(engine.prepared == [false])
 
         memory.send(.warning)
-        #expect(engine.holds == [true], "a warning holds the spares and closes the untaken one")
-        #expect(engine.spareWindowCount == 0)
+        #expect(engine.holds == [true], "a warning holds the spares")
+        #expect(engine.closes == 0, "a warning closed the untaken spare")
+        #expect(engine.spareWindowCount == 1)
         engine.onSpareWindowNeeded?()
         passIdleMoment(warmup)
         #expect(engine.prepared == [false], "no refill at warning")
         #expect(input.liveSubscriptions == 0, "no idle wait is armed for a spare at warning")
 
         memory.send(.critical)
+        #expect(engine.holds == [true, true], "critical keeps the hold")
+        #expect(engine.closes == 1, "critical closes the untaken spare once")
+        #expect(engine.spareWindowCount == 0)
         engine.onSpareWindowNeeded?()
         passIdleMoment(warmup)
         #expect(engine.prepared == [false], "no refill at critical")
@@ -236,6 +240,8 @@ import Testing
     private(set) var droppedPages = 0
     /// The argument of each `holdSpareWindows` call.
     private(set) var holds: [Bool] = []
+    /// How many times the untaken spares were closed (`closeUntakenSpareWindows`).
+    private(set) var closes = 0
     private(set) var spareWindowCount = 0
     var onSpareWindowNeeded: (@MainActor () -> Void)?
 
@@ -254,6 +260,10 @@ import Testing
 
     func holdSpareWindows(_ held: Bool) {
         holds.append(held)
-        if held { spareWindowCount = 0 }
+    }
+
+    func closeUntakenSpareWindows() {
+        closes += 1
+        spareWindowCount = 0
     }
 }

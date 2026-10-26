@@ -38,7 +38,17 @@
       "args": {
         "method": "sidebar.section.add",
         "params": {
-          "section": {}
+          "section": {
+            "id": "sec_oracle",
+            "kind": {
+              "type": "custom"
+            },
+            "title": "Oracle"
+          },
+          "place": {
+            "region": "top",
+            "index": 0
+          }
         },
         "idempotencyKey": "sidebar-section-add-ok.call"
       },
@@ -50,7 +60,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a custom section lands first in the top region"
     }
   ],
   "invariants": [

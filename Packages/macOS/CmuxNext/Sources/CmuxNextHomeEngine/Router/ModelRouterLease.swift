@@ -68,6 +68,7 @@ package import os
                 }
                 routerPID = pid
                 failures = 0
+                // wall-clock: the token's `exp` is Unix seconds (RFC 7519).
                 let remaining = TimeInterval(expiresAt) - Date().timeIntervalSince1970
                 forceRefresh = remaining <= Self.renewMargin * 2
                 wait = .seconds(max(10, remaining - Self.renewMargin))

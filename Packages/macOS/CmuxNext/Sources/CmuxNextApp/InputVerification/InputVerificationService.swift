@@ -26,7 +26,7 @@ final class InputVerificationService {
     /// Configures the journal, subscribes it to the input tap and installs the
     /// monitor's triggers (the `InputVerification.start` launch post, p08-startup-031).
     /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
-    /// installs it (`startNoActivateGuard(tap:)`), before the app activates.
+    /// installs it (`startNoActivateGuard(tap:work:mainWork:)`), before the app activates.
     func start(services: AppServices) {
         self.services = services
         let journal = InputJournal.shared

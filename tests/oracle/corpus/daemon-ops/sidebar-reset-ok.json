@@ -29,6 +29,50 @@
   ],
   "steps": [
     {
+      "id": "remove-home",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.item.remove",
+        "params": {
+          "id": "itm_home"
+        },
+        "idempotencyKey": "sidebar-reset-ok.remove-home"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "add-section",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.section.add",
+        "params": {
+          "section": {
+            "id": "sec_oracle",
+            "kind": {
+              "type": "custom"
+            },
+            "title": "Oracle"
+          }
+        },
+        "idempotencyKey": "sidebar-reset-ok.add-section"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -48,7 +92,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the default sections come back: Home returns to the top and the custom section goes"
     }
   ],
   "invariants": [

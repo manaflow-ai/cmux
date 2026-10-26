@@ -83,7 +83,7 @@ public extension TerminalSessionDelegate {
             NSWorkspace.shared.revealInBackground([safeURL])
             return true
         }
-        NSWorkspace.shared.open(safeURL, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openInBackground(safeURL)
         return true
     }
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {

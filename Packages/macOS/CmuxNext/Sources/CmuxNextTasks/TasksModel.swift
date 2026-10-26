@@ -69,6 +69,7 @@ public final class TasksModel {
                                          labels: Array(labels.values), projects: Array(projects.values),
                                          tasks: Array(confirmed.values), sessions: Array(sessions.values))
         let intents = pending.map { TasksPreview.Intent(key: $0.key, op: $0.wire.op, params: $0.wire.params) }
+        // wall-clock: the preview compares task dates, Unix ms.
         let request = TasksPreview.Request(mirror: mirror, intents: intents, now: Int64(Date().timeIntervalSince1970 * 1000))
         return TasksPreview.run(request)?.tasks ?? Array(confirmed.values)
     }

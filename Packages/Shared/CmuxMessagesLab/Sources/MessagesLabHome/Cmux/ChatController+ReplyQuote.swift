@@ -111,7 +111,7 @@ extension ChatController {
 extension MessagesWindowView {
     /// Shows message `id` (`revealHostMessage`) and flashes `words` in it with the system find
     /// highlight. False when the message is not shown or does not hold the words.
-    func flashQuote(_ words: String, in id: ID) -> Bool {
+    @MainActor func flashQuote(_ words: String, in id: ID) -> Bool {
         var targets: [(layer: CALayer, body: CGRect, spec: RowSpec)] = []
         func collect() {
             targets = []
@@ -143,7 +143,7 @@ extension MessagesWindowView {
         return flashed
     }
 
-    private static func quoteRange(_ words: String, _ spec: RowSpec) -> NSRange? {
+    @MainActor private static func quoteRange(_ words: String, _ spec: RowSpec) -> NSRange? {
         guard let g = TranscriptSelection.geometry(spec) else { return nil }
         return ReplyQuote.locate(words, in: g.substring(NSRange(location: 0, length: g.length)))
     }

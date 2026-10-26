@@ -10,11 +10,14 @@ import CmuxNextWakeups
 /// another parent. Anything in the main window's view tree, and any app
 /// child window shown before such a re-add, is then below the page. The
 /// host keeps one transparent child panel per main window (`OverlayHostPanel`,
-/// the size of the window) above every page window: it re-asserts that order
-/// whenever the window's children change (`childWindowsDidChange(of:)`, called
-/// by the window's `addChildWindow` override) and on every event cycle of the
-/// window while it shows. Overlays presented on it (tooltips, popovers,
-/// toasts, menus, drag ghosts, dialogs) are therefore always above pages.
+/// the size of the window) above every page window: while the panel is
+/// attached it re-asserts that order when a child is added
+/// (`childWindowsDidChange(of:)`, called by the `addChildWindow` override of
+/// every window that shows pages: `ShellWindow`, `BrowserPopupWindow`,
+/// `CEFDevToolsWindow`), and when the window shows again, takes key or
+/// enters or leaves full screen; never per event cycle. Overlays presented
+/// on it (tooltips, popovers, toasts, menus, drag ghosts, dialogs) are
+/// therefore always above pages.
 ///
 /// The panel ignores the mouse except over interactive overlays (and the
 /// whole window under a modal or dimming overlay, or a tab-region
@@ -35,8 +38,10 @@ public final class WindowOverlayHost {
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
     var observers: [any NSObjectProtocol] = []
-    /// Window notification observers held while the panel is attached.
-    var windowObservers: [any NSObjectProtocol] = []
+    /// Window notice subscriptions held while the panel is attached.
+    var windowObservers: [EventSubscription] = []
+    /// Order checks run on a window notice (tests).
+    private(set) var orderChecks = 0
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
     /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
     var mouseRouting: InputSubscription? {
@@ -98,6 +103,8 @@ public final class WindowOverlayHost {
     var occluders: [String: NSRect] = [:]
     /// `interactiveRegions()`, rebuilt on present, layout, dismiss, occluder and content frame changes.
     var cachedRegions: [NSRect]?
+    /// The container bounds, then each overlay's frame in window coordinates, `cachedRegions` was built from.
+    var cachedRegionsFrames: [NSRect] = []
     /// The window that gets the rest of a click the panel passed on.
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
@@ -131,6 +138,9 @@ public final class WindowOverlayHost {
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
         hoverFrames = (window as? HoverFrameInputHosting)?.hoverFrameInput
         panel.hoverFrameInput = hoverFrames
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.onLayout = { [weak self] in self?.containerDidLayout() }
+        }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -172,7 +182,9 @@ public final class WindowOverlayHost {
 
     /// `window`'s children changed (a page window was added or re-added):
     /// the panel goes back above every page window before the window
-    /// server composites a frame.
+    /// server composites a frame. Every window class that shows Chromium
+    /// pages calls it from its `addChildWindow` override: nothing else
+    /// catches a page the fork re-adds above the panel.
     public static func childWindowsDidChange(of window: NSWindow) {
         existingHost(for: window)?.reassertOrder()
     }
@@ -316,25 +328,36 @@ public final class WindowOverlayHost {
     /// AppKit's private child window classes (`isAppKitChrome`).
     public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
+    /// The window's own notices while the panel is attached, through its ``WindowEvents``. The
+    /// order is checked when it can break: a child window was added (``childWindowsDidChange(of:)``,
+    /// from the `addChildWindow` override of every window that shows pages), the window shows
+    /// again, takes key or enters or leaves full screen; never per event cycle.
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
-        let center = NotificationCenter.default
-        windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.reassertOrder() }
-        })
+        let events = WindowEvents.of(window)
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
-            windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.windowGeometryDidChange() }
+            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.geometry") { [weak self] in
+                self?.windowGeometryDidChange()
+            })
+        }
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
+                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
+            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.order") { [weak self] in
+                self?.checkOrder()
             })
         }
     }
 
     private func stopObservingWindow() {
-        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
+    }
+
+    /// One order check (``reassertOrder()``) from a window notice.
+    private func checkOrder() {
+        orderChecks += 1
+        reassertOrder()
     }
 
     private func windowGeometryDidChange() {

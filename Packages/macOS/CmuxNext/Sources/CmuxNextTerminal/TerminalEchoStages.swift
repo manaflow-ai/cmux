@@ -26,6 +26,6 @@ public final class TerminalEchoStages {
     func makeStage() -> TerminalEchoStage? {
         guard TypingFrameProbe.hooksEveryLayer, let sink else { return nil }
         return TerminalEchoStage(sink: sink, gate: contentsGate,
-                                 deadline: DemandEchoDeadline(timer: DemandTimer(owner: "terminal.echo-deadline")))
+                                 deadline: DemandEchoDeadline())
     }
 }

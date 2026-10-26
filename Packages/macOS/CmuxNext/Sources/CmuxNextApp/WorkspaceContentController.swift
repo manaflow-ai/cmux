@@ -49,6 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
+    // wall-clock: an id seed, not a time: Unix ms keeps ids from an earlier launch and the daemon's apart.
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
     /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
@@ -161,6 +162,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         _ = layoutView  // built here, then the bar and the content view, as before
         // Divider, column-edge and row-edge drags move the layout once per frame (feature `pointerFrameDrags`).
         layoutView.dragFrameInput = services.dragFrameInput
+        layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).

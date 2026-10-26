@@ -364,6 +364,23 @@ import Testing
         budget.resetStats()
         #expect(budget.turns.snapshot().turns == 0, "debug.main_budget reset clears the turns too")
     }
+
+    /// p06-scheduler-221: a window's layout depth is counted only in the turn that began its pass, by
+    /// this number: it holds through one turn (the render phase included) and moves when the next begins.
+    @Test func theTurnNumberMovesOncePerTurn() {
+        let clock = TurnClock()
+        let turns = MainTurnMeter(uptimeNanos: clock.read)
+        let before = turns.turnNumber
+        turns.loopWoke()
+        let first = turns.turnNumber
+        #expect(first == before + 1)
+        turns.inputDispatch { clock.advance(ms: 1) }
+        turns.loopWillWait()
+        #expect(turns.turnNumber == first, "the render phase is another turn")
+        turns.loopDidRender()
+        turns.loopWoke()
+        #expect(turns.turnNumber == first + 1)
+    }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).

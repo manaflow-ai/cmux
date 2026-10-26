@@ -86,7 +86,8 @@ Each item cites the Chromium source that the design copies.
 12. **Measurement.** `docs/memory/key_concepts.md` (vmmap is the Darwin reference);
     `base/trace_event/memory_dump_provider.h` (each subsystem reports its own bytes);
     `process_memory_metrics_emitter.cc` (PMF UMA histograms); the Task Manager; the Memory Saver chip.
-13. **Spares and discardable memory.** `SpareRenderProcessHostManager` keeps no spare under pressure.
+13. **Spares and discardable memory.** `SpareRenderProcessHostManager` makes no new spare under pressure
+    and keeps an existing one (`kKillSpareRenderOnMemoryPressure` is off by default; p13-webui.md section 1).
     Decoded image caches live in discardable memory, so the kernel takes pages back with no browser
     wakeup. `sql::Database::TrimMemory()` calls `sqlite3_db_release_memory` per connection.
     Low-memory devices turn the back-forward cache off (`BackForwardCacheMemoryControls`).
@@ -325,6 +326,11 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
   browser tabs share a process above the renderer limit.
 - No page renderer before first show; overlay pages released 5 min after close.
 - Spares key on pressure level (no spare at warning or critical); at most one Chromium-side spare.
+  PL-memory hand-off from p13-webui-047: every web object is a coordinator consumer (WebUIHost's preload
+  slot is the spare `webui-preload`; no `memoryPressure.observe` is left in the p13 D7 scope).
+  `SpareMemoryConsumer.Closing` says when untaken spares close: page pools at any pressure, Chromium's spare
+  windows only at critical (warning keeps them and refuses new ones, Chrome's default, see section 1.13).
+  Critical then runs BrowserHibernation's one ranked pass on the next release slice.
 - Hidden Chromium pages flush BFCache at freeze and at warning; Page lifecycle hide in occluded
   windows at once.
 - With F2 the Chromium host exits 5 min after its last live page.
@@ -1075,6 +1081,21 @@ All IDs below are `p07-memory-NNN`.
 - Acceptance: debug.memory at Home idle shows Chromium renderers and WebKit WebContent equal to visible
   pages; a test per change asserts no PageWebView before the show event.
 - Test: fleet bench_memory Home row; swift test PageLaziness.
+- As built (differs from the change above): the PageWebView is made at open, as before; what
+  waits for the first show is its renderer. Until then the view makes no engine call: no load, no
+  script, no function call or picture, so WebKit launches no WebContent process and no Chromium page
+  is asked for. This is Chrome's split for a tab that has not shown: the WebContents exists, its
+  renderer starts at `WasShown` (`NavigationControllerImpl::SetNeedsReload`, `LoadIfNecessary`).
+  A stand-in would give the 23 MQ-PAGEVIEW callers, which set routes, handlers and appearance on
+  the returned view at once, a type that is not the page. "Shown" is the page's node in the
+  visibility tree: its tab's node once a pane shows it (tab, pane, workspace, window, app), else
+  its window's node (occlusion and minimize included); a page with no tab node counts by its
+  window and its own `isHidden`, not by a walk of its ancestors. The acceptance test is therefore "no
+  renderer, no engine call before the show event" (PageLazinessTests: no load, no script at the
+  bridge, `_webProcessIdentifier` 0, no Chromium page). The in-app cost of an unstarted
+  PageWebView (WKWebView with no process, its configuration and user scripts, router, bridge) is
+  not measured yet; the fleet bench_memory Home row with and without `pageRendererAtFirstShow`
+  measures it.
 
 ### 049 One Chromium renderer for cmux pages
 - Files: cef-cmux fork (ShouldUseProcessPerSite for the page scheme behind

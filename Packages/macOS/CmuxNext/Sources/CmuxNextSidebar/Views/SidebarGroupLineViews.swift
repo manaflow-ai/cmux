@@ -20,6 +20,7 @@ final class SidebarGroupLineViews {
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
+    // memory: fixed not a cache: one entry per open group whose line is on screen now (`views`, set by `update`).
     /// Each shown line (not one fading out) by group: its frame and opacity.
     var shown: [GroupID: (frame: CGRect, alpha: CGFloat)] {
         views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }

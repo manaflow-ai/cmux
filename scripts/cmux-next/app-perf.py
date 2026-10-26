@@ -42,16 +42,24 @@ Fleet (alone on an owned mini's console; the allowlisted entry builds the tagged
 
 On a capture mini over ssh (outside the console's GUI session), --open starts the app through LaunchServices.
 
+Percentiles are scripts/perf-lab/perf_stats.py's (linear interpolation); the per-gesture totals are their median
+(perf_stats p50). Without --open the app launches through bench_launch.BenchApp. With --story
+(scripts/perf-lab/stories.d, engine none; not with --open, whose launch env BenchApp does not know) a RESULT PASS run
+writes cmux-perf-result/v1 into --out (BenchApp.record), per workspace count and gesture:
+app_perf.<n>ws.<gesture>.frame_interval and .main_busy (ms, every frame), .drop120 (count per gesture) and .commit (the
+app's press-to-commit ms, new-top and switch). A RESULT FAIL run writes none.
+
 Usage: app-perf.py --tag <tag> --app PATH [--workspaces 10,50] [--scenarios ...] [--rounds 5] [--settle 1.0]
        [--scrollback 2000] [--input key|action] [--open] [--sha SHA] [--json PATH] [--markdown PATH] [--out DIR]
+       [--story app-perf]
 """
 import argparse, glob, json, math, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import LaunchError, launch_app  # noqa: E402
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402
 import bench_memory  # noqa: E402  (process lookups for --open)
+import split_pane_bench_report as sp_report  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 SCENARIOS = ["split-right", "split-down", "right-sidebar", "sidebar", "new-top", "switch"]
 parser = argparse.ArgumentParser()
@@ -69,7 +77,16 @@ parser.add_argument("--sha", default="", help="the measured commit, for the tabl
 parser.add_argument("--json")
 parser.add_argument("--markdown")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--story", help="write a RESULT PASS run as cmux-perf-result/v1 under this story (not with --open)")
+parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
 opts, _unknown = parser.parse_known_args()
+ENGINE = "none"  # the gestures run over terminal workspaces
+if opts.story:
+    if opts.open:
+        parser.error("--story does not go with --open: a LaunchServices launch's env is not BenchApp's")
+    STORY_PROBLEM = story_problem(opts.story, ENGINE)
+    if STORY_PROBLEM:
+        parser.error(STORY_PROBLEM)
 # LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
 TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -83,6 +100,7 @@ WINDOW = (80, 80, 1600, 1000)
 FRAME_120 = 1000 / 120
 REPORT = {"tag": TAG, "runs": [], "summary": []}
 app = None
+bench_app = None  # the BenchApp of a launch without --open, for record()
 
 
 def rpc(method, params=None, timeout=30):
@@ -389,13 +407,12 @@ def incomplete(count, scenarios):
 
 
 def pct(values, p):
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))] if ordered else None
+    """The lab's one percentile (perf_stats.pct, linear interpolation); None when there is no value."""
+    return sp_report.perf_stats.pct(list(values), p)
 
 
 def median(values):
-    values = sorted(v for v in values if v is not None)
-    return values[len(values) // 2] if values else None
+    return sp_report.perf_stats.pct(list(values), 0.5)
 
 
 def top_classes(runs, limit=6):
@@ -425,9 +442,11 @@ def summarize():
             "frame_p99_ms": pct(intervals, 0.99), "frame_max_ms": max(intervals) if intervals else None,
             "missed": median(r["missed"] for r in runs), "drop120": median(r["drop120"] for r in runs),
             "drop120_max": max((r["drop120"] for r in runs), default=None),
-            "main_p50_ms": pct(busy, 0.5), "main_p95_ms": pct(busy, 0.95), "main_max_ms": max(busy) if busy else None,
+            "main_p50_ms": pct(busy, 0.5), "main_p95_ms": pct(busy, 0.95), "main_p99_ms": pct(busy, 0.99),
+            "main_max_ms": max(busy) if busy else None,
             "main_total_ms": median(r["main_total_ms"] for r in runs),
-            "view_layouts_per_frame_p95": pct(views, 0.95), "view_layouts_per_frame_max": max(views) if views else None,
+            "view_layouts_per_frame_p95": pct(views, 0.95), "view_layouts_per_frame_p99": pct(views, 0.99),
+            "view_layouts_per_frame_max": max(views) if views else None,
             "view_layouts_total": median(r["view_layouts_total"] for r in runs),
             "window_layouts_total": median(r["window_layouts_total"] for r in runs),
             "gaps_over_8_3ms": median(r["gaps_over_8_3ms"] for r in runs),
@@ -528,8 +547,20 @@ def started(process):
     app = process
 
 
+def record():
+    """A RESULT PASS run's series as result-v1 (--story); False when none could be written."""
+    written = sp_report.record_all(bench_app, opts.story, ENGINE, sp_report.app_perf_series(REPORT["runs"]))
+    REPORT["recorded"] = written
+    for metric, path in written.items():
+        print(f"result-v1 {metric}: {path}", flush=True)
+    if not sp_report.any_written(written):
+        print("RESULT-V1 FAIL: no series was written", flush=True)
+        return False
+    return True
+
+
 def main():
-    global app, SOCKET
+    global app, bench_app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -546,10 +577,15 @@ def main():
             return False
     else:
         # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+        # BenchApp writes the scratch config (with the bench defaults) and Ghostty config and sets the bench env; this
+        # run adds only its window. cleanup() quits the app and ends its daemon's terminals, so no BenchApp teardown.
+        bench_app = BenchApp(APP, out=opts.out, config={}, window=WINDOW, screen="last",
+                             log_name=os.path.basename(log_path), teardown=False, perf_session=opts.session)
         try:
-            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+            bench_app.launch(timeout=120, on_start=started)
         except LaunchError:
             return False
+        SOCKET = bench_app.socket
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     REPORT["sha"] = (opts.sha or subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip())[:12] or "?"
@@ -592,7 +628,9 @@ def main():
         open(opts.markdown, "w").write(table + "\n")
     for failure in failures:
         print(f"FAIL {failure}", flush=True)
-    return not failures
+    if failures:
+        return False
+    return record() if opts.story else True
 
 
 ok = False

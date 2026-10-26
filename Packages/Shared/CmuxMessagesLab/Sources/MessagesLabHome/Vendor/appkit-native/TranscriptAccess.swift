@@ -260,7 +260,7 @@ final class TranscriptSelection {
     /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
     /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
     /// their TextLayout; offsets are the display string's in every case.
-    static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
+    nonisolated static func geometry(_ spec: RowSpec) -> RowTextGeometry? {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
         return p.geometry(width: spec.width)
     }
@@ -304,7 +304,7 @@ final class TranscriptSelection {
     }
 
     /// The offset in one row for a point in the same coordinates as `body`.
-    static func position(at p: CGPoint, body: CGRect, key: String, geometry g: RowTextGeometry) -> TextPosition {
+    nonisolated static func position(at p: CGPoint, body: CGRect, key: String, geometry g: RowTextGeometry) -> TextPosition {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         if p.y < body.minY { return TextPosition(key: key, offset: 0) }
         if p.y > body.maxY { return TextPosition(key: key, offset: g.length) }
         let local = CGPoint(x: p.x - body.minX, y: p.y - body.minY)
@@ -348,7 +348,7 @@ final class TranscriptSelection {
     /// Highlight rects of one row's selected range, in the coordinates of `body`, only the
     /// lines inside `visible` (same coordinates). Drawn from the row's own geometry, so a
     /// markdown, plain or long row highlights exactly its drawn glyphs, inside its bubble.
-    static func highlightRects(_ sel: NSRange, body: CGRect, geometry g: RowTextGeometry, visible: ClosedRange<CGFloat>) -> [CGRect] {
+    nonisolated static func highlightRects(_ sel: NSRange, body: CGRect, geometry g: RowTextGeometry, visible: ClosedRange<CGFloat>) -> [CGRect] {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         let v0 = visible.lowerBound - body.minY, v1 = visible.upperBound - body.minY
         guard v1 >= 0, v0 <= body.height else { return [] }
         return g.selectionRects(sel, visible: max(0, v0)...max(0, v1)).compactMap { rect in

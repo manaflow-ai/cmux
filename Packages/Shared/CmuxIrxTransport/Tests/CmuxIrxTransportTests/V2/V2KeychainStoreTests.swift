@@ -350,4 +350,29 @@ struct V2KeychainStoreTests {
             dataProtection: true
         ) == legacyKey.secretKey)
     }
+
+    /// p02-threads-053: the blocking form (which the Mac host runs on a blocking-work lane, off the actor's pool
+    /// thread) makes the key once, and the actor form then reads that same key.
+    @Test
+    func identityStoreBlockingFormSharesTheActorFormsKey() async throws {
+        let access = V2KeychainTestAccess(supportsLegacyFileKeychain: false)
+        let store = V2KeychainStore(service: "dev.cmux.test.cmux-iroh-v2.endpoint-keys", access: access)
+        let identity = V2Identity(
+            appNamespace: "dev.cmux.test",
+            buildTag: "release",
+            deviceID: "device",
+            environment: "production",
+            projectID: "project",
+            teamID: "team",
+            userID: "user"
+        )
+        let identityStore = V2IdentityKeyStore(applicationNamespace: "dev.cmux.test", keychain: store)
+
+        let made = try identityStore.loadOrCreateBlocking(identity: identity)
+        let again = try identityStore.loadOrCreateBlocking(identity: identity)
+        let read = try await identityStore.loadOrCreate(identity: identity)
+
+        #expect(again.endpointID == made.endpointID)
+        #expect(read.endpointID == made.endpointID)
+    }
 }

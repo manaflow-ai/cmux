@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextInput
 import CoreGraphics
 import Foundation
 import Observation
@@ -101,7 +102,6 @@ extension BrowserHibernation {
         savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
-        cache.previews.remove(key)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
@@ -136,29 +136,58 @@ extension BrowserHibernation {
         }
     }
 
-    /// The picture a hibernated tab shows: its compressed one, else the decoded one in `previews`
-    /// (`HibernationTunables.compressedSnapshots` off).
+    /// The picture a hibernated tab shows, compressed or decoded (`HibernationTunables.compressedSnapshots` off).
     func snapshotImage(_ key: String) -> CGImage? {
-        snapshots.image(for: key) ?? cache?.previews.image(for: key)
+        snapshots.image(for: key)
     }
 
     /// Keeps a hibernating page's picture until it wakes or closes.
     func keep(_ picture: HibernationSnapshots.Picture, for key: String) {
-        if picture.data != nil { snapshots.insert(picture, for: key) } else { cache?.previews.insert(picture.image, for: key) }
+        snapshots.insert(picture, for: key)
     }
 
-    /// A fresh picture (never one from an earlier sleep). Compressed whole into `snapshots` by
-    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
-    /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
+    /// A fresh picture (never one from an earlier sleep), kept in `snapshots`: compressed whole by
+    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that four fit
+    /// the store. None, and no capture, when the store would not keep it (the critical memory limit, for
+    /// a tab beside no shown tab).
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return nil }
+        guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
         if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
-        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
-        let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
+        // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
+        let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
         let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)
     }
+}
+
+/// The hover-dwell prewarm's warmer (p04-input-043): a frozen or hibernated hidden page is cold, and its
+/// prewarm thaws it or restores it hidden (`warm`), as a hovered neighbor wakes. A prewarm adds no hold,
+/// so a cancelled one only plans again: the page sleeps by the normal rules.
+extension BrowserHibernation: IntentPrewarmWarming {
+    /// Wakes a hidden page early (a neighbor, a hovered tab, an intent prewarm): thaws a frozen one,
+    /// restores a hibernated one in the background (the lifecycle keeps it hidden until selected).
+    func warm(_ key: String) {
+        guard let cache else { return }
+        thaw(key, prewarm: true)
+        if cache.lifecycle.phase(key) == .hibernated {
+            cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
+            prewarmedCount += 1
+            cache.trace(key, "prewarmed (restore)")
+        }
+    }
+
+    func isCold(_ key: String) -> Bool {
+        guard let cache, cache.browsers[key] != nil else { return false }
+        return frozen.contains(key) || cache.lifecycle.phase(key) == .hibernated
+    }
+
+    func startPrewarm(_ key: String, trigger: IntentPrewarmTrigger) {
+        warm(key)
+        cache?.trace(key, "intent prewarm (\(trigger.rawValue))")
+    }
+
+    func cancelPrewarm(_ key: String) { replan() }
 }
 
 /// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times,
