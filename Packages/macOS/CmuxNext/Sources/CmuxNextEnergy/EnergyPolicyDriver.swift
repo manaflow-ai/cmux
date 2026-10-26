@@ -61,6 +61,15 @@ public final class EnergyPolicyDriver {
         publish()
     }
 
+    /// Why the saver would be on if "Turn Off for Now" ended now, or nil when it would stay off (or
+    /// the setting or the inputs are not known yet).
+    var saverReasonWithoutHold: EnergyPolicy.Reason? {
+        guard let setting, let inputs else { return nil }
+        var released = resolver
+        released.turnOnNow()
+        return released.reason(setting: setting, inputs: inputs)
+    }
+
     private func publish() {
         guard let setting, let inputs else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)

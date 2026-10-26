@@ -5,19 +5,40 @@ public import CmuxNextActions
 ///
 /// As in Chrome's battery saver bubble (chrome/browser/ui/views/performance_controls/
 /// battery_saver_bubble_view.cc), "Turn Off for Now" is offered only while the saver is on, and "Turn On
-/// Again" only while "Turn Off for Now" holds.
+/// Again" only while ending "Turn Off for Now" would turn the saver back on. The palette hides a row
+/// that cannot act (``paletteHiddenActionIDs``); `action.run` returns its ``EnergySaverActionRefusal``.
 extension EnergyPolicyDriver {
-    /// Binds `energy.saver.turnOffForNow` and `energy.saver.turnOnNow` to this driver.
+    /// Binds ``EnergySaverAction/turnOffForNow`` and ``EnergySaverAction/turnOnNow`` to this driver.
     public func bindActions(into registry: ActionRegistry) {
-        registry.bindEffect("energy.saver.turnOffForNow", isEnabled: { [self] in
-            isEnabled && source.policy.isSaver
+        registry.bindEffect(EnergySaverAction.turnOffForNow.id, unavailable: { [self] in
+            refusal(.turnOffForNow)?.reason
         }, effect: { [self] _ in
             turnOffForNow()
             return .done
         })
-        registry.bindEffect("energy.saver.turnOnNow", isEnabled: { [self] in isOffForSession }, effect: { [self] _ in
+        registry.bindEffect(EnergySaverAction.turnOnNow.id, unavailable: { [self] in
+            refusal(.turnOnNow)?.reason
+        }, effect: { [self] _ in
             turnOnNow()
             return .done
         })
+    }
+
+    /// Why `action` cannot run now, or nil when it can.
+    public func refusal(_ action: EnergySaverAction) -> EnergySaverActionRefusal? {
+        guard isEnabled else { return .featureOff }
+        switch action {
+        case .turnOffForNow:
+            return source.policy.isSaver ? nil : .saverIsOff
+        case .turnOnNow:
+            guard isOffForSession else { return .notTurnedOff }
+            return saverReasonWithoutHold == nil ? .wouldStayOff : nil
+        }
+    }
+
+    /// The actions the palette leaves out now: each one that cannot act, so neither row shows while the
+    /// `energySaver` feature is off. The App reads it each time the palette opens.
+    public var paletteHiddenActionIDs: Set<ActionID> {
+        Set(EnergySaverAction.allCases.filter { refusal($0) != nil }.map(\.id))
     }
 }
