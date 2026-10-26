@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -55,6 +56,7 @@ import Testing
         let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), mainWork: mainWork)
         let page = engine.makeWebKitTab()
         defer { page.close() }
+        #expect(engine.deadlines.work === mainWork)
         #expect(page.mainWork === mainWork)
         #expect(page.titleTimer.workClass == .visible)
         #expect(page.pageBaseHold.workClass == .visible)
@@ -76,22 +78,79 @@ import Testing
         #expect(events.deliveries(NSWindow.willCloseNotification) == 1)
     }
 
-    /// R-hop: a rechecked host's TLS probe runs off main, and the load's decision lands in a posted `visible` task,
-    /// never in the call.
-    @Test func aCertificateRecheckDecidesInAPostedTask() async throws {
-        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+    /// R-hop: a rechecked host's TLS probe runs off main, and the load's decision is one `visible` task of owner
+    /// `WebKitEngine.certificateAdmission` on the engine's scheduler: nothing decides before that posted turn runs.
+    @Test func aCertificateRecheckDecidesInAPostedVisibleTask() async throws {
+        let turns = Turns()
+        let mainWork = MainWorkScheduler.testing(performTurn: { turns.queue($0) }) { _ in Link() }
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), mainWork: mainWork)
         let page = engine.makeWebKitTab()
         defer { page.close() }
         let url = try #require(URL(string: "https://rechecked.example/"))
         engine.certificateRechecks[page.profileID] = ["rechecked.example"]
-        engine.certificateProbe = { _ in .trusted }
-        final class Decision { var value: Bool? }
+        let probe = ProbeThread()
+        engine.certificateProbe = { _ in
+            probe.onMain.store(pthread_main_np() != 0 ? 1 : 0, ordering: .releasing)
+            return .trusted
+        }
         let decision = Decision()
-        engine.admitMainFrameLoad(url, in: page) { decision.value = $0 }
+        engine.admitMainFrameLoad(url, in: page) {
+            decision.value = $0
+            decision.task = mainWork.budget.board.running
+            turns.wake()
+        }
         #expect(decision.value == nil, "the load was decided in the call")
-        var tries = 0
-        while decision.value == nil, tries < 500 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
+        // The probe answers off main, then the decision is posted; an unclassed main-actor task decides instead.
+        await turns.firstTurnOrWake()
+        #expect(decision.value == nil, "the load was decided outside a posted turn of the engine's scheduler")
+        #expect(mainWork.postedCount(.visible) == 1, "the decision is not one posted visible task")
+        #expect(probe.onMain.load(ordering: .acquiring) == 0, "the TLS probe ran on main")
+        turns.runAll()
         #expect(decision.value == true)
+        #expect(decision.task?.workClass == .visible)
+        #expect(decision.task?.owner == "WebKitEngine.certificateAdmission")
         #expect(engine.needsCertificateRecheck("rechecked.example", profile: page.profileID) == false)
+    }
+
+    @MainActor final class Decision {
+        var value: Bool?
+        var task: MainTaskBoard.Task?
+    }
+
+    /// Where the probe ran: -1 not yet, 1 on main, 0 off main.
+    final class ProbeThread: Sendable {
+        let onMain = Atomic<Int>(-1)
+    }
+
+    /// The scheduler's posted turns, run by hand; ``firstTurnOrWake()`` returns once a turn is queued or ``wake()`` ran.
+    @MainActor final class Turns {
+        private var pending: [@MainActor () -> Void] = []
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var woken = false
+
+        func queue(_ turn: @escaping @MainActor () -> Void) {
+            pending.append(turn)
+            wake()
+        }
+
+        func wake() {
+            woken = true
+            waiter?.resume()
+            waiter = nil
+        }
+
+        func firstTurnOrWake() async {
+            guard !woken else { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+
+        func runAll() {
+            while !pending.isEmpty { pending.removeFirst()() }
+        }
+    }
+
+    @MainActor final class Link: FrameLink {
+        var isPaused = false
+        func invalidate() {}
     }
 }

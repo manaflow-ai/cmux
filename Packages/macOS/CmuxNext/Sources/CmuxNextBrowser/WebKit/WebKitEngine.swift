@@ -94,10 +94,38 @@ public final class WebKitEngine: BrowserEngine {
     ///     writer; the default, fixed off, is for tests and fixtures.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
     ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
-    ///   - mainWork: The app's one main-thread scheduler; the default, a scheduler of its own, is for tests and fixtures.
-    ///   - appEvents: App-wide notices its tabs follow; the default observes `NotificationCenter.default` for this
-    ///     engine's tabs.
+    ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
+    ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
     public init(
+        fileInput: any WebFileInputAnswering,
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
+        faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
+        downloadsDirectory: URL = DownloadDestination.defaultDirectory,
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
+        energy: EnergyPolicySource = EnergyPolicySource(),
+        waitDeadlines: MainWakeUpQueue? = nil,
+        deadlines: MainDeadlineScheduler,
+        appEvents: AppEvents
+    ) {
+        self.fileInput = fileInput
+        mainWork = deadlines.work
+        self.deadlines = deadlines
+        self.appEvents = appEvents
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
+        self.stores = stores
+        self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
+        self.faviconLoader = faviconLoader
+        self.downloadsDirectory = downloadsDirectory
+        self.applicationNameForUserAgent = applicationNameForUserAgent
+        energySaver = energy.policy.pageSaver
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
+    }
+
+    /// An engine on a main-thread scheduler and app notices of its own (tests and fixtures; internal, so the app,
+    /// which must pass its one ``MainDeadlineScheduler`` and ``AppEvents``, cannot reach it).
+    convenience init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
         profileStore: WebKitProfileStore? = nil,
@@ -109,18 +137,9 @@ public final class WebKitEngine: BrowserEngine {
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
         appEvents: AppEvents = AppEvents(center: .default)
     ) {
-        self.fileInput = fileInput
-        self.mainWork = mainWork
-        deadlines = MainDeadlineScheduler(work: mainWork)
-        self.appEvents = appEvents
-        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
-        self.stores = stores
-        self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
-        self.faviconLoader = faviconLoader
-        self.downloadsDirectory = downloadsDirectory
-        self.applicationNameForUserAgent = applicationNameForUserAgent
-        energySaver = energy.policy.pageSaver
-        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
+        self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
+                  downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
