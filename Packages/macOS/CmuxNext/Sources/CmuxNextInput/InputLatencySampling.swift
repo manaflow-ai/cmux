@@ -10,10 +10,12 @@ public import Foundation
 /// - key down: a key press, at the keyboard focus. Key ups and modifier changes open none.
 /// - mouse down and up: a press at the view under the pointer, a release where its press went (AppKit sends the up
 ///   to the view that took the down).
-/// - drag: the first drag of each frame interval since the press; later drags in the same interval join its slot.
+/// - drag: the first drag of each frame interval, counted from the press; later drags in the same interval are
+///   coalesced into it (``InputLatencyDispatch`` counts them on its slot).
 /// - scroll: began, each changed (the first after began is ``CmuxNextInputCore/InputEventKind/scrollFirstUpdate``) and
-///   momentum, all at the view the gesture began over; a mouse-wheel notch is an update at the view under it. A
-///   touch (`mayBegin`), end or cancel opens none.
+///   each moving momentum event (Chrome's `kInertialGestureScrollUpdate`), all at the view the gesture began over; a
+///   mouse-wheel notch is an update at the view under it. A touch (`mayBegin`), end, cancel or momentum end opens
+///   none.
 /// - plain pointer moves and other gestures: none.
 public nonisolated struct InputLatencySampling: Equatable, Sendable {
     /// Where the slot's target comes from.
@@ -38,8 +40,10 @@ public nonisolated struct InputLatencySampling: Equatable, Sendable {
 
     /// The last scroll began, and no update came since.
     private var awaitingFirstScrollUpdate = false
-    /// The frame interval index of the last drag that opened a slot; nil since the last press.
+    /// The frame interval index (since the press) of the last drag that opened a slot; nil since the last press.
     private var lastDragFrame: UInt64?
+    /// The last press's time: frame intervals count from it.
+    private var pressTimestamp: TimeInterval = 0
 
     public init() {}
 
@@ -58,11 +62,12 @@ public nonisolated struct InputLatencySampling: Equatable, Sendable {
             return .open(.keyPress, target: .keyboardFocus)
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             lastDragFrame = nil
+            pressTimestamp = timestamp
             return .open(.mousePress, target: .underPointer)
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             return .open(.mouseRelease, target: .latched)
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            let frame = UInt64(max(0, timestamp) / max(frameInterval, 0.001))
+            let frame = UInt64(max(0, timestamp - pressTimestamp) / max(frameInterval, 0.001))
             guard frame != lastDragFrame else { return .coalesceDrag }
             lastDragFrame = frame
             return .open(.drag, target: .latched)
@@ -86,7 +91,7 @@ public nonisolated struct InputLatencySampling: Equatable, Sendable {
             return .open(.scrollMomentum, target: .latched)
         case .none:
             return .open(.scrollUpdate, target: .underPointer)
-        case .mayBegin, .ended, .cancelled:
+        case .mayBegin, .ended, .cancelled, .momentumEnd:
             awaitingFirstScrollUpdate = false
             return .skip
         }

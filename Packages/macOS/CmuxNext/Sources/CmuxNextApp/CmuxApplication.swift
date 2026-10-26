@@ -91,18 +91,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent) {
-        if event.type == .keyDown {
-            let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
-        }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
-        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
-        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
         if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
         // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
         frameInput.willDispatch(event.type)
@@ -111,6 +105,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
+        // key.frame or key.scroll_frame interval (InputLatencyDispatch).
+        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
+        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
         guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
         dispatchScope(event) { dispatch(event) }
     }

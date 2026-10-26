@@ -36,6 +36,9 @@ public enum InputScrollPhase: UInt8, Hashable, Sendable {
     /// Not a scroll event, or a wheel notch with no phase.
     case none
     case mayBegin, began, changed, ended, cancelled
-    /// Momentum (the coast after the fingers lifted).
+    /// Momentum that moves (the coast after the fingers lifted: its first and later updates).
     case momentum
+    /// A momentum event that moves nothing: the coast's end, or a momentum may-begin or stationary event (Chrome
+    /// maps the end to `GestureScrollEnd`, not an inertial update).
+    case momentumEnd
 }

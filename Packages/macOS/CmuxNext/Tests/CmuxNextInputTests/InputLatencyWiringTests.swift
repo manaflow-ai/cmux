@@ -1,15 +1,38 @@
 import AppKit
 @testable import CmuxNextInput
 import CmuxNextInputCore
+import CmuxNextSignposts
+import ObjectiveC
 import Testing
 
 /// The input latency wiring of `sendEvent` (p04-input-005): which events open a slot and as what kind, where they
-/// land, the layout's scroll take, synthetic input, frame updates, and drags once per frame. Slots close through
-/// ``InputLatencyTrackerTests/Harness``'s fake commit boundary.
+/// land, the layout's scroll take, synthetic input, frame updates, drags once per frame, and the `key.frame` and
+/// `key.scroll_frame` intervals the slots carry. Slots close through ``InputLatencyTrackerTests/Harness``'s fake
+/// commit boundary.
 @MainActor
 struct InputLatencyWiringTests {
     final class TerminalFake: NSView {
         override var acceptsFirstResponder: Bool { true }
+    }
+
+    final class FocusableFake: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    /// Records the frame intervals the tracker begins and ends.
+    @MainActor
+    final class FrameIntervalRecorder: InputFrameIntervals {
+        var begun: [(interval: InputFrameInterval, target: InputTarget)] = []
+        var ended: [(target: InputTarget, outcome: CommitBoundary.Outcome)] = []
+
+        func begin(_ token: InputLatencyToken, _ interval: InputFrameInterval, target: InputTarget,
+                   eventTimestamp: TimeInterval) {
+            begun.append((interval, target))
+        }
+
+        func end(_ token: InputLatencyToken, target: InputTarget, outcome: CommitBoundary.Outcome) {
+            ended.append((target, outcome))
+        }
     }
 
     final class AgentFake: NSView {}
@@ -41,9 +64,20 @@ struct InputLatencyWiringTests {
         ])
     }
 
-    private func wiring(_ harness: InputLatencyTrackerTests.Harness, windowChanged: Bool = false) -> InputLatencyDispatch {
+    private func wiring(_ harness: InputLatencyTrackerTests.Harness,
+                        windowChanged: @escaping @MainActor (NSWindow) -> Bool = { _ in false }) -> InputLatencyDispatch {
         InputLatencyDispatch(tracker: harness.tracker, classifier: Self.classifier(), frameInterval: { _ in 0.01 },
-                             windowChanged: { _ in windowChanged })
+                             windowChanged: windowChanged)
+    }
+
+    /// A real scroll event with the CGEvent scroll phase (1 began, 2 changed, 4 ended) and momentum phase (1 began,
+    /// 2 continue, 3 end) fields.
+    private func scrollEvent(phase: Int64, momentum: Int64) throws -> NSEvent {
+        let event = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                         wheel1: momentum == 3 ? 0 : -4, wheel2: 0, wheel3: 0))
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+        return try #require(NSEvent(cgEvent: event))
     }
 
     /// One event through the wiring as `sendEvent` runs it: open the slot, dispatch, finish the slot.
@@ -125,12 +159,13 @@ struct InputLatencyWiringTests {
         #expect(scroll.hitTests == 1, "the gesture's target is found once, at its begin")
     }
 
-    @Test("Scroll phases: began, the first update, later updates and momentum open slots; touch, end and cancel none")
+    @Test("Scroll phases: began, the first update, later updates and moving momentum open slots; touch, end, cancel and the coast's end none")
     func scrollPhases() {
         let harness = InputLatencyTrackerTests.Harness()
         let wiring = wiring(harness)
         let pointer = Pointer(.chromiumPage)
-        for phase in [InputScrollPhase.mayBegin, .began, .changed, .changed, .ended, .momentum, .momentum, .began, .changed, .cancelled] {
+        for phase in [InputScrollPhase.mayBegin, .began, .changed, .changed, .ended, .momentum, .momentum, .momentumEnd,
+                      .began, .changed, .cancelled] {
             send(wiring, .scrollWheel, phase: phase, pointer: pointer)
         }
         send(wiring, .scrollWheel, phase: .none, pointer: pointer)
@@ -141,25 +176,32 @@ struct InputLatencyWiringTests {
         #expect(pointer.hitTests == 3, "one per gesture begin and one per wheel notch")
     }
 
-    @Test("The first drag of each frame opens a slot; later drags of that frame join it; a new press starts over")
+    @Test("The first drag of each frame interval since the press opens a slot; later drags join it, or the next one after its turn committed")
     func dragOncePerFrame() throws {
         let harness = InputLatencyTrackerTests.Harness()
         let wiring = wiring(harness)
         let pointer = Pointer(.layout)
-        send(wiring, .leftMouseDown, at: 0.500, pointer: pointer)
-        let first = send(wiring, .leftMouseDragged, at: 0.501, pointer: pointer)
-        #expect(first?.kind == .drag)
-        #expect(send(wiring, .leftMouseDragged, at: 0.503, pointer: pointer) == nil)
-        #expect(send(wiring, .leftMouseDragged, at: 0.506, pointer: pointer) == nil)
-        #expect(send(wiring, .leftMouseDragged, at: 0.512, pointer: pointer)?.kind == .drag, "the next frame interval")
-        send(wiring, .leftMouseUp, at: 0.513, pointer: pointer)
-        send(wiring, .leftMouseDown, at: 0.514, pointer: pointer)
-        #expect(send(wiring, .leftMouseDragged, at: 0.515, pointer: pointer)?.kind == .drag, "a new press, same interval")
+        // Frame intervals of 10 ms count from the press at 0.505: [0.505, 0.515), [0.515, 0.525), ...
+        send(wiring, .leftMouseDown, at: 0.505, pointer: pointer)
+        #expect(send(wiring, .leftMouseDragged, at: 0.506, pointer: pointer)?.kind == .drag)
+        harness.commit()  // a drag usually comes in its own run-loop turn, after the last one committed
+        #expect(send(wiring, .leftMouseDragged, at: 0.509, pointer: pointer) == nil)
+        harness.commit()
+        #expect(send(wiring, .leftMouseDragged, at: 0.512, pointer: pointer) == nil, "the same interval since the press")
+        harness.commit()
+        #expect(send(wiring, .leftMouseDragged, at: 0.514, pointer: pointer) == nil)
+        #expect(send(wiring, .leftMouseDragged, at: 0.516, pointer: pointer)?.kind == .drag, "the next frame interval")
+        #expect(send(wiring, .leftMouseDragged, at: 0.518, pointer: pointer) == nil, "joins the open slot of its turn")
+        send(wiring, .leftMouseUp, at: 0.519, pointer: pointer)
+        send(wiring, .leftMouseDown, at: 0.520, pointer: pointer)
+        #expect(send(wiring, .leftMouseDragged, at: 0.521, pointer: pointer)?.kind == .drag, "a new press starts over")
         harness.commit()
 
         #expect(harness.emitted.map(\.kind) == [.mousePress, .drag, .drag, .mouseRelease, .mousePress, .drag])
-        #expect(harness.emitted[1].coalescedCount == 3, "the frame's first drag and the two that joined it")
-        #expect(harness.emitted[2].coalescedCount == 1)
+        #expect(harness.emitted[1].coalescedCount == 1, "its turn committed before the next drag came")
+        #expect(harness.emitted[2].coalescedCount == 5,
+                "itself, the three drags that came after the first slot closed, and the one of its own turn")
+        #expect(harness.emitted[5].coalescedCount == 1, "a new press carries nothing over")
         #expect(harness.emitted.allSatisfy { $0.target == .layout })
         #expect(pointer.hitTests == 2, "one per press; drags and releases keep its target")
     }
@@ -188,7 +230,7 @@ struct InputLatencyWiringTests {
         #expect(harness.emitted.prefix(2).allSatisfy(\.causedFrameUpdate), "a layout scroll moved the layout")
     }
 
-    @Test("A key with no visible change still closes as a key; a click is marked by what its dispatch changed")
+    @Test("A frame update is what the dispatch left for the commit, never the target alone; a key closes either way")
     func frameUpdates() throws {
         let unchanged = InputLatencyTrackerTests.Harness()
         let still = wiring(unchanged)
@@ -196,17 +238,112 @@ struct InputLatencyWiringTests {
         send(still, .keyDown, window: window, keyWindow: window)
         send(still, .leftMouseDown, window: window, pointer: Pointer(.sidebar))
         send(still, .leftMouseDown, window: window, pointer: Pointer(.terminal))
+        send(still, .scrollWheel, window: window, pointer: Pointer(.chromiumPage))
         unchanged.commit()
-        #expect(unchanged.emitted.map(\.kind) == [.keyPress, .mousePress, .mousePress], "the key closes with no frame update")
-        #expect(unchanged.emitted.map(\.causedFrameUpdate) == [false, false, true],
-                "a terminal draws outside AppKit's display pass, so its input counts as a frame update")
+        #expect(unchanged.emitted.map(\.kind) == [.keyPress, .mousePress, .mousePress, .scrollUpdate],
+                "the key closes with no frame update")
+        #expect(unchanged.emitted.allSatisfy { !$0.causedFrameUpdate },
+                "a terminal or a page marks its own slot when its frame lands; its target alone is no frame")
 
         let changed = InputLatencyTrackerTests.Harness()
-        let moving = wiring(changed, windowChanged: true)
+        let moving = wiring(changed, windowChanged: { $0 === window })
         send(moving, .leftMouseDown, window: window, pointer: Pointer(.sidebar))
         send(moving, .leftMouseDown, pointer: Pointer(.sidebar))
+        send(moving, .leftMouseDown, window: self.window(content: NSView()), pointer: Pointer(.sidebar))
         changed.commit()
-        #expect(changed.emitted.map(\.causedFrameUpdate) == [true, false], "a window-less click changed no window")
+        #expect(changed.emitted.map(\.causedFrameUpdate) == [true, false, false],
+                "only a click whose window holds a change for the commit")
+    }
+
+    @Test("A press whose dispatch runs a nested run loop closes at that loop's commit, a frame its input produced")
+    func nestedLoopCommitIsAFrameUpdate() throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let wiring = wiring(harness)
+        // A right click whose dispatch opens a context menu: the menu's tracking loop commits inside the dispatch.
+        let slot = try #require(wiring.open(.rightMouseDown, scrollPhase: .none, timestamp: 0.5, window: nil,
+                                            synthetic: false, keyWindow: nil, underPointer: Pointer(.terminal).hit))
+        harness.commit()
+        wiring.didDispatch(slot, layoutTookScroll: false)
+        let closed = try #require(harness.emitted.first)
+        #expect(harness.emitted.count == 1)
+        #expect(closed.kind == .mousePress && closed.target == .terminal)
+        #expect(closed.causedFrameUpdate, "the ledger keeps it")
+        #expect(!closed.reached(.dispatchEnd), "it closed before its dispatch returned")
+        #expect(harness.tracker.pendingCount == 0)
+
+        let missed = InputLatencyTrackerTests.Harness()
+        let idle = self.wiring(missed)
+        let waiting = try #require(idle.open(.leftMouseDown, scrollPhase: .none, timestamp: 0.5, window: nil,
+                                             synthetic: false, keyWindow: nil, underPointer: Pointer(.sidebar).hit))
+        missed.commit(.missed)
+        idle.didDispatch(waiting, layoutTookScroll: false)
+        #expect(missed.emitted.map(\.causedFrameUpdate) == [false], "a missed commit is idle time, not a frame")
+    }
+
+    @Test("A page window's slot is presented by the cmux window that holds it; a change in either window counts")
+    func ownerWindowPresents() throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let owner = window(content: NSView())
+        let page = window(content: NSView())
+        owner.addChildWindow(page, ordered: .above)
+        defer { owner.removeChildWindow(page) }
+        let wiring = wiring(harness, windowChanged: { $0 === owner })
+        let slot = try #require(send(wiring, .leftMouseDown, window: page, pointer: Pointer(.chromiumPage)))
+        #expect(slot.window === owner, "the owner's display link and vsync, not a new link for the page window")
+        #expect(slot.eventWindow === page)
+        #expect(send(wiring, .leftMouseDown, window: owner, pointer: Pointer(.layout))?.window === owner)
+        harness.commit()
+        #expect(harness.emitted.map(\.causedFrameUpdate) == [true, true])
+    }
+
+    @Test("Real scroll events: moving momentum is momentum; the coast's end moves nothing and opens no slot")
+    func realMomentumPhases() throws {
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 1, momentum: 0)) == .began)
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 2, momentum: 0)) == .changed)
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 4, momentum: 0)) == .ended)
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 0, momentum: 1)) == .momentum)
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 0, momentum: 2)) == .momentum)
+        #expect(try InputEventRecord.scrollPhase(of: scrollEvent(phase: 0, momentum: 3)) == .momentumEnd)
+
+        let harness = InputLatencyTrackerTests.Harness()
+        let wiring = wiring(harness)
+        let coast = try scrollEvent(phase: 0, momentum: 2)
+        #expect(wiring.willDispatch(coast, synthetic: false, keyWindow: nil)?.kind == .scrollMomentum)
+        let end = try scrollEvent(phase: 0, momentum: 3)
+        #expect(wiring.willDispatch(end, synthetic: false, keyWindow: nil) == nil,
+                "Chrome's GestureScrollEnd, not an inertial update")
+        harness.commit()
+        #expect(harness.emitted.map(\.kind) == [.scrollMomentum])
+    }
+
+    @Test("Key presses and scroll slots carry key.frame and key.scroll_frame, ended at the slot's commit with its target")
+    func frameIntervals() {
+        let recorder = FrameIntervalRecorder()
+        let harness = InputLatencyTrackerTests.Harness(frameIntervals: recorder)
+        let wiring = wiring(harness)
+        let layout = LayoutFake(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let terminal = TerminalFake(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        layout.addSubview(terminal)
+        let window = window(content: layout)
+        #expect(window.makeFirstResponder(terminal))
+
+        send(wiring, .keyDown, window: window, keyWindow: window)
+        send(wiring, .leftMouseDown, pointer: Pointer(.terminal))
+        send(wiring, .scrollWheel, phase: .began, layoutTook: true, pointer: Pointer(.terminal))
+        send(wiring, .scrollWheel, phase: .changed, pointer: Pointer(.terminal))
+        send(wiring, .scrollWheel, phase: .ended, pointer: Pointer(.terminal))
+        send(wiring, .scrollWheel, phase: .none, pointer: Pointer(.webkitPage))
+        #expect(recorder.ended.isEmpty, "they end at the commit")
+        harness.commit()
+
+        #expect(recorder.begun.map { $0.interval } == [.key, .scroll(.began), .scroll(.changed), .scroll(.wheel)],
+                "no interval for a click or a scroll end")
+        #expect(recorder.begun.first?.target == .terminal, "key.frame target=terminal")
+        #expect(recorder.ended.map { $0.target } == [.terminal, .layout, .layout, .webkitPage],
+                "the layout's scroll ends target=layout, the page's target=content")
+        #expect(recorder.ended.allSatisfy { $0.outcome == .committed })
+        #expect(InputFrameSignposts.ageMilliseconds(eventTimestamp: 10, now: 10.0125) > 12.49)
+        #expect(InputFrameSignposts.ageMilliseconds(eventTimestamp: 0, now: 10) == -1)
     }
 
     // MARK: Classifier
@@ -234,6 +371,77 @@ struct InputLatencyWiringTests {
         page.isReleasedWhenClosed = false
         #expect(classifier.classify(view: plain, in: page) == .chromiumPage, "a page window outranks the layout")
         #expect(classifier.classify(view: nil, in: page) == .chromiumPage)
+    }
+
+    @Test("The window's field editor is classified each time; a responder moved to another surface is classified again")
+    func keyTargetFollowsFieldEditorAndMoves() {
+        let classifier = Self.classifier()
+        let layout = LayoutFake(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let terminal = TerminalFake(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        layout.addSubview(terminal)
+        let window = window(content: layout)
+        // AppKit keeps the field editor inside the edited field; the field moves, the editor and its superview stay.
+        let field = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        let editor = NSTextView(frame: field.bounds)
+        editor.isFieldEditor = true
+        field.addSubview(editor)
+        terminal.addSubview(field)
+        #expect(window.makeFirstResponder(editor))
+        #expect(classifier.keyTarget(in: window) == .terminal)
+        field.removeFromSuperview()
+        layout.addSubview(field)
+        #expect(window.makeFirstResponder(editor))
+        #expect(classifier.keyTarget(in: window) == .textView, "the same editor and superview, another surface")
+
+        let focusable = FocusableFake(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        terminal.addSubview(focusable)
+        #expect(window.makeFirstResponder(focusable))
+        #expect(classifier.keyTarget(in: window) == .terminal)
+        focusable.removeFromSuperview()
+        layout.addSubview(focusable)
+        #expect(window.makeFirstResponder(focusable))
+        #expect(classifier.keyTarget(in: window) == .layout, "moved to another superview")
+    }
+
+    @Test("A page window an agent pane owns is the agent pane; other page windows stay pages; one ask per window")
+    func pageWindowOwner() {
+        let agentPage = PageWindowFake(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless],
+                                       backing: .buffered, defer: true)
+        let browserPage = PageWindowFake(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless],
+                                         backing: .buffered, defer: true)
+        agentPage.isReleasedWhenClosed = false
+        browserPage.isReleasedWhenClosed = false
+        var asks = 0
+        let classifier = InputTargetClassifier(rules: [
+            .view(TerminalFake.self, is: .terminal),
+            .windowClassNamed(NSStringFromClass(PageWindowFake.self), is: .chromiumPage, owner: { window in
+                asks += 1
+                return window === agentPage ? .agentPane : nil
+            }),
+            .view(LayoutFake.self, is: .layout),
+        ])
+        #expect(classifier.classify(view: NSView(), in: agentPage) == .agentPane)
+        #expect(classifier.classify(view: nil, in: agentPage) == .agentPane)
+        #expect(asks == 1, "the answer is kept for the same window")
+        #expect(classifier.classify(view: NSView(), in: browserPage) == .chromiumPage)
+        #expect(classifier.classify(view: nil, in: agentPage) == .agentPane)
+        #expect(asks == 3)
+        #expect(classifier.classify(view: TerminalFake(), in: agentPage) == .terminal, "a more specific view rule still wins")
+    }
+
+    @Test("A named window class that loads after launch is found at its first window")
+    func lateLoadedWindowClass() throws {
+        let name = "CmuxNextInputTestsLateWindow\(UInt32.random(in: 0...UInt32.max))"
+        let classifier = InputTargetClassifier(rules: [.windowClassNamed(name, is: .chromiumPage)])
+        let plain = window(content: NSView())
+        #expect(classifier.classify(view: nil, in: plain) == .other)
+        #expect(classifier.classify(view: nil, in: plain) == .other, "a window of the class it missed on")
+        let late: AnyClass = try #require(objc_allocateClassPair(NSWindow.self, name, 0))
+        objc_registerClassPair(late)
+        let page = window(content: NSView())
+        _ = object_setClass(page, late)
+        #expect(classifier.classify(view: nil, in: page) == .chromiumPage)
+        #expect(classifier.classify(view: nil, in: plain) == .other)
     }
 
     @Test("A key's target follows its window's first responder")

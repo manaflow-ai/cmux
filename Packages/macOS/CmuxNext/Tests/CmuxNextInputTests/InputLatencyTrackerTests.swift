@@ -23,7 +23,8 @@ struct InputLatencyTrackerTests {
         var batches: [[InputLatencySlot]] = []
         private(set) var tracker: InputLatencyTracker!
 
-        init(ringCapacity: Int = 256, batches wantsBatches: Bool = false, records: Bool = true) {
+        init(ringCapacity: Int = 256, batches wantsBatches: Bool = false, records: Bool = true,
+             frameIntervals: (any InputFrameIntervals)? = nil) {
             let clock = clock
             tracker = InputLatencyTracker(
                 table: InputLatencySlotTable(), ring: InputLatencyRing(capacity: ringCapacity), presentation: presentation,
@@ -34,7 +35,7 @@ struct InputLatencyTrackerTests {
                 },
                 emit: { [weak self] slot in if records { self?.emitted.append(slot) } },
                 batchSink: wantsBatches ? { [weak self] batch in self?.batches.append(batch) } as InputLatencyTracker.BatchSink : nil,
-                now: { clock.load(ordering: .relaxed) })
+                frameIntervals: frameIntervals, now: { clock.load(ordering: .relaxed) })
         }
 
         /// Moves the clock `nanos` ahead and returns the new time.

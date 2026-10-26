@@ -6,10 +6,18 @@ public import CmuxNextInputCore
 ///
 /// ``InputLatencySampling`` decides which events open a slot and their kind, ``InputTargetClassifier`` where they
 /// land. After the dispatch the slot gets `dispatchEnd`, the layout's target when the layout took the scroll, and
-/// whether the dispatch changed what is on screen (Chrome's `caused_frame_update`, which the ledger reads to drop
-/// pointer and scroll slots that changed nothing; key slots are kept either way). The app's own synthetic input
-/// (`SyntheticInput`, `debug.key`, `debug.mouse`) is labelled ``CmuxNextInputCore/InputEntrypoint/automation`` so the
-/// person's histograms leave it out.
+/// whether the dispatch left a change for the turn's commit to show (Chrome's `caused_frame_update`, which the ledger
+/// reads to drop pointer and scroll slots that changed nothing; key slots are kept either way). The app's own
+/// synthetic input (`SyntheticInput`, `debug.key`, `debug.mouse`) is labelled
+/// ``CmuxNextInputCore/InputEntrypoint/automation`` so the person's histograms leave it out. Key presses and scrolls
+/// also carry the older `key.frame` and `key.scroll_frame` intervals (``InputFrameInterval``), so `sendEvent` has one
+/// classification and one commit boundary per turn for all three.
+///
+/// A slot's frame update comes from what AppKit holds for the commit once the dispatch returned (views marked for
+/// display or layout, in the event's window or the window that presents it) or the layout taking the scroll (it
+/// moves its content in the turn), or from the commit itself when it ran inside the dispatch (the tracker). A surface
+/// that draws outside AppKit (the terminal's Metal layer, a Chromium or WebKit page) marks its own slot when its frame
+/// lands (``InputLatencyTracker/markCausedFrameUpdate(_:)``); nothing is assumed for it here.
 ///
 /// ```swift
 /// let slot = inputLatency.willDispatch(event, synthetic: isSynthetic, keyWindow: keyWindow)
@@ -27,8 +35,11 @@ public final class InputLatencyDispatch {
         public let token: InputLatencyToken
         public let kind: InputEventKind
         public let target: InputTarget
-        /// The event's window: the one its frame update is looked for in.
+        /// The window that presents the response: the event's window, or the cmux window that holds it when it is a
+        /// Chromium page's child window (`InputEventRecord.ownerWindow(of:)`).
         public let window: NSWindow?
+        /// The event's own window (a page, a popover, a panel).
+        public let eventWindow: NSWindow?
     }
 
     /// The tracker the slots open in.
@@ -45,6 +56,8 @@ public final class InputLatencyDispatch {
     private var dragFrameInterval: TimeInterval = 1.0 / 60
     /// The slot of the current frame interval's first drag, which later drags in that interval join.
     private var dragToken: InputLatencyToken?
+    /// Drags of a frame interval whose drag slot already closed (its turn committed): the next drag slot counts them.
+    private var carriedDrags: UInt16 = 0
 
     /// - Parameters:
     ///   - tracker: The tracker the slots open in.
@@ -75,28 +88,57 @@ public final class InputLatencyDispatch {
                     keyWindow: keyWindow(), underPointer: { classifier.pointerTarget(of: event) })
     }
 
+    /// ``willDispatch(_:synthetic:keyWindow:)`` for a synthesized event the app delivers to `view` in `window` itself
+    /// instead of through `sendEvent` (`debug.mouse` scrolls, whose events have no window).
+    ///
+    /// - Parameters:
+    ///   - event: The synthesized event.
+    ///   - window: The window it is delivered in.
+    ///   - view: The view it is delivered to.
+    /// - Returns: The open slot, as ``willDispatch(_:synthetic:keyWindow:)``.
+    public func willDeliver(_ event: NSEvent, in window: NSWindow, to view: NSView?) -> Slot? {
+        guard let type = InputEventType(event.type) else { return nil }
+        let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
+        return open(type, scrollPhase: phase, timestamp: event.timestamp, window: window, synthetic: true,
+                    keyWindow: window, underPointer: { classifier.classify(view: view, in: window) })
+    }
+
     /// ``willDispatch(_:synthetic:keyWindow:)`` with the event's fields; `underPointer` hit-tests the event's point.
     func open(_ type: InputEventType, scrollPhase: InputScrollPhase, timestamp: TimeInterval, window: NSWindow?,
               synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?,
               underPointer: () -> InputTarget) -> Slot? {
-        if type.isButtonDown { dragFrameInterval = frameInterval(window) }
+        if type.isButtonDown {
+            dragFrameInterval = frameInterval(window)
+            dragToken = nil
+            carriedDrags = 0
+        }
         let kind: InputEventKind
         let target: InputTarget
         switch sampling.decide(type, scrollPhase: scrollPhase, timestamp: timestamp, frameInterval: dragFrameInterval) {
         case .skip:
             return nil
         case .coalesceDrag:
-            if let dragToken { tracker.table.addCoalesced(dragToken, 1) }
+            // Joins the frame's drag slot while its turn has not committed; after that, the next drag slot counts it.
+            if let dragToken, tracker.table.addCoalesced(dragToken, 1) { return nil }
+            carriedDrags = carriedDrags == .max ? .max : carriedDrags + 1
             return nil
         case let .open(decided, source):
             kind = decided
             target = resolve(source, kind: decided, keyWindow: keyWindow(), underPointer: underPointer)
         }
+        let presenting = window.map(InputEventRecord.ownerWindow(of:))
         let token = tracker.begin(kind: kind, target: target, entrypoint: synthetic ? .automation : .person,
-                                  eventTimestamp: timestamp, window: window)
-        if kind == .drag { dragToken = token }
+                                  eventTimestamp: timestamp, window: presenting,
+                                  frameInterval: Self.frameInterval(of: kind, scrollPhase: scrollPhase))
+        if kind == .drag {
+            dragToken = token
+            if let token, carriedDrags > 0 {
+                tracker.table.addCoalesced(token, carriedDrags)
+                carriedDrags = 0
+            }
+        }
         guard let token else { return nil }
-        return Slot(token: token, kind: kind, target: target, window: window)
+        return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window)
     }
 
     /// Finishes `slot` after its event's dispatch returned.
@@ -108,15 +150,17 @@ public final class InputLatencyDispatch {
     // perf-hot: 0.2us key-dispatch
     public func didDispatch(_ slot: Slot, layoutTookScroll: Bool) {
         tracker.endDispatch(slot.token)
-        var target = slot.target
-        if layoutTookScroll, target != .layout {
-            target = .layout
+        if layoutTookScroll, slot.target != .layout {
             tracker.table.setTarget(slot.token, .layout)
             scrollTarget = .layout
         }
-        var updated = Self.drawsItself(target) || layoutTookScroll
-        if !updated, let window = slot.window { updated = windowChanged(window) }
-        if updated { tracker.markCausedFrameUpdate(slot.token) }
+        if layoutTookScroll || changed(slot.eventWindow) || (slot.window !== slot.eventWindow && changed(slot.window)) {
+            tracker.markCausedFrameUpdate(slot.token)
+        }
+    }
+
+    private func changed(_ window: NSWindow?) -> Bool {
+        window.map(windowChanged) ?? false
     }
 
     private func resolve(_ source: InputLatencySampling.TargetSource, kind: InputEventKind,
@@ -137,12 +181,22 @@ public final class InputLatencyDispatch {
         }
     }
 
-    /// Surfaces that draw outside AppKit's display pass (Metal, Chromium's and WebKit's compositors): AppKit's flags
-    /// never see their frames, so an input they take counts as a frame update.
-    static func drawsItself(_ target: InputTarget) -> Bool {
-        switch target {
-        case .terminal, .chromiumPage, .webkitPage, .agentPane: true
-        case .textView, .layout, .sidebar, .palette, .other: false
+    /// The older interval a slot of `kind` carries: `key.frame` for a key press, `key.scroll_frame` with the scroll's
+    /// phase for a scroll slot; nil for the others.
+    nonisolated static func frameInterval(of kind: InputEventKind, scrollPhase: InputScrollPhase) -> InputFrameInterval? {
+        switch kind {
+        case .keyPress:
+            return .key
+        case .scrollBegin, .scrollFirstUpdate, .scrollUpdate, .scrollMomentum:
+            switch scrollPhase {
+            case .began: return .scroll(.began)
+            case .changed: return .scroll(.changed)
+            case .momentum: return .scroll(.momentum)
+            case .none: return .scroll(.wheel)
+            case .mayBegin, .ended, .cancelled, .momentumEnd: return nil
+            }
+        case .keyRelease, .flags, .mousePress, .mouseRelease, .pointerMove, .drag, .scrollEnd, .magnify:
+            return nil
         }
     }
 

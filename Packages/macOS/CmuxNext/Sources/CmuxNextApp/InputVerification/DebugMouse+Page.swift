@@ -40,8 +40,8 @@ extension DebugMouse {
     /// slides other pages under it. It takes the layout's part of a real scroll's path over a page: the
     /// layout's routing sees it first as an event of that page window
     /// (``LayoutRootView/handleMonitoredScroll(_:from:at:)``), and an event the layout does not take goes to
-    /// the page view under the point. Both run inside the app's input dispatch context, so the scroll is timed
-    /// to its frame (`key.scroll_frame`). `delivered_to` names who took it, as for a plain scroll; an error
+    /// the page view under the point. Both run inside the app's input dispatch context with a latency slot, so
+    /// the scroll is timed to its frame (`key.scroll_frame`). `delivered_to` names who took it, as for a plain scroll; an error
     /// when no page is under the point.
     ///
     /// Not on the path: `NSApp.sendEvent`, `NSWindow.sendEvent` and every other local event monitor (the
@@ -78,11 +78,13 @@ extension DebugMouse {
               let target = frame.hitTest(frame.convert(location, from: nil)) else {
             return .object(["error": .string("could not synthesize the page scroll")])
         }
+        let latencySlot = services.inputLatency.willDeliver(event, in: page, to: target)
         let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
             if root.handleMonitoredScroll(event, from: page, at: location) == nil { return true }
             target.scrollWheel(with: event)
             return false
         }
+        if let latencySlot { services.inputLatency.didDispatch(latencySlot, layoutTookScroll: layoutTook) }
         if params["hover"]?.boolValue != false { LayoutRootView.setDebugPointer(mainPoint, in: window) }
         let top = InputJournal.topLeftPoint(mainPoint, in: window, relativeTo: window)
         return .object(["window": .string(controller.state.id), "x": .number(top.x), "y": .number(top.y),

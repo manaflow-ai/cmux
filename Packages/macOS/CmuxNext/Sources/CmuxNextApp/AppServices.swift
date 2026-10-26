@@ -325,18 +325,20 @@ final class AppServices {
     private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
-    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
-    let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
+    /// Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (`inputLatency`).
+    let inputDispatch = InputDispatchContext()
     let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
-    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by cmux's surfaces, most specific
-    /// first: a terminal or agent pane inside the layout keeps its own rows; Chromium pages are `CefNSWindow`s.
-    let inputLatency = InputLatencyDispatch(
+    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface, most specific first;
+    /// an agent chat's Chromium page window (`CefNSWindow`) is the agent pane's.
+    private(set) lazy var inputLatency = InputLatencyDispatch(
         tracker: InputLatencyTracker(presentation: PresentationClock()),
         classifier: InputTargetClassifier(rules: [
             .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
-            .windowClassNamed("CefNSWindow", is: .chromiumPage), .view(WKWebView.self, is: .webkitPage),
-            .textInputClient(is: .textView), .view(SidebarContainerView.self, is: .sidebar),
-            .view(LayoutRootView.self, is: .layout),
+            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { [weak self] page in
+                self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true ? .agentPane : nil
+            }),
+            .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
+            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout),
         ]))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
