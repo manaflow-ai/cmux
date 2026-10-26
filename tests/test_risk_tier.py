@@ -6,7 +6,6 @@ import sys
 import tempfile
 import time
 import unittest
-import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -501,28 +500,6 @@ class ShipReceiptTests(unittest.TestCase):
         line = f"Review (subagent): SHIP at {HEAD}"
         self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
         self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
-
-
-class PrModeOutputs(unittest.TestCase):
-    def test_the_risk_labels_it_read_are_an_output(self):
-        # risk-tier.yml's label step uses these instead of reading the pull request again.
-        pr = {"base": {"sha": "b" * 40}, "head": {"sha": "a" * 40}, "body": "", "user": {"login": "x"},
-              "labels": [{"name": "risk:normal"}, {"name": "bug"}, {"name": "risk:human-ok"}]}
-        files = [{"filename": "docs/readme.md", "patch": ""}]
-        with tempfile.TemporaryDirectory() as directory:
-            out = Path(directory) / "out"
-            args = risk.argparse.Namespace(repo="o/r", number="7", repo_dir=None, summary=None,
-                                           github_output=str(out))
-            original = risk.gh_items, risk.gh_json
-            risk.gh_items, risk.gh_json = (lambda *a, **k: files), (lambda *a, **k: pr)
-            try:
-                with open(os.devnull, "w") as sink, unittest.mock.patch("sys.stdout", sink):
-                    risk.pr_mode(args)
-            finally:
-                risk.gh_items, risk.gh_json = original
-            lines = out.read_text().splitlines()
-        self.assertIn("labels_read=true", lines)
-        self.assertIn("risk_labels=risk:human-ok risk:normal", lines)
 
 
 if __name__ == "__main__":

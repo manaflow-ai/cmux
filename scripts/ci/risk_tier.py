@@ -507,10 +507,6 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
-            # The pull request's risk labels from the read above, so the label step needs no
-            # read of its own (risk-tier.yml; GITHUB_TOKEN budget, 2026-10-25).
-            current = sorted(label["name"] for label in pr.get("labels", []) if re.fullmatch(r"risk:[a-z-]+", label["name"]))
-            out.write(f"labels_read=true\nrisk_labels={' '.join(current)}\n")
     return 0
 
 

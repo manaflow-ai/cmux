@@ -74,11 +74,9 @@ jobs:
           sys.path.insert(0, "scripts/ci")
           import gallery_select, pr_status
           repo, pr = os.environ["REPOSITORY"], int(os.environ["PR"])
-          # One comment read for both the stale check and the write (GITHUB_TOKEN budget).
-          comments = pr_status.list_comments(pr_status.http_api, repo, pr)
-          text = gallery_select.stale(pr_status.section_in(comments, "gallery"), os.environ["HEAD_SHA"])
+          text = gallery_select.stale(pr_status.section(repo, pr, "gallery"), os.environ["HEAD_SHA"])
           if text is not None:
-              print(pr_status.upsert(repo, pr, "gallery", text, comments=comments))
+              print(pr_status.upsert(repo, pr, "gallery", text))
           PY
 
   capture:

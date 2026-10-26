@@ -14,13 +14,9 @@ Each writer owns one section (SECTIONS, in display order) and replaces only that
 
 A section set to None on a pull request with no status comment writes nothing, so a clean
 pull request gets no comment at all. GitHub has no compare-and-swap on comments, so two
-writers can race. Every write folds a duplicate status comment (two writers that both found
-none) into the oldest one. A section another writer's stale copy overwrote comes back when its
-own job next writes (on each push, for most). Sections written once (CONFIRMED), a write that creates
-the status comment, and any writer that passes confirm=True or sets PR_STATUS_CONFIRM=1, are checked: upsert re-reads the comment
-after a short wait and writes again when its section was lost. For the others that re-read is
-off: it doubled every writer's reads of the GITHUB_TOKEN budget all workflows share, which ran
-out on 2026-10-25. `legacy` names the marker of the comment a writer posted before this
+writers can race: upsert re-reads the comment after a short wait and writes again when its
+section was lost, and folds a duplicate status comment (two writers that both found none)
+into the oldest one. `legacy` names the marker of the comment a writer posted before this
 existed; that comment is deleted once the section is written, so a pull request in flight
 does not show both.
 
@@ -67,9 +63,6 @@ BEAD = re.compile(r"cx-[a-z0-9]{2,8}(?:\.[0-9]+)*")
 SHA = re.compile(r"[0-9a-f]{40}")
 PREVIEW_FEED = "https://github.com/manaflow-ai/cmuxterm-hq/issues/2098"
 ATTEMPTS = 4
-# Sections written once and never refreshed by a later push (the receipt; the bead and preview
-# lines, dispatched once by bead-autoclose.py and hq's pr-preview): a write is read back and redone if lost.
-CONFIRMED = frozenset({"receipt", "bead", "preview"})
 
 Api = Callable[[str, str, "dict | None"], object]
 
@@ -204,24 +197,18 @@ def plan(repo: str, pr: int, comments: list[dict], key: str, text: str | None,
 
 def apply(read: Callable[[], list[dict]], call: Callable[[str, str, "dict | None"], object],
           repo: str, pr: int, key: str, text: str | None, *, legacy: str | None = None,
-          sleep: Callable[[float], None] | None = time.sleep, confirm: bool | None = None,
-          comments: list[dict] | None = None) -> str:
-    """Read (or use `comments`, a read the caller already made), plan, write. With confirm
-    (default: PR_STATUS_CONFIRM=1) and unless sleep is None (a dry run), then wait, read again and
+          sleep: Callable[[float], None] | None = time.sleep) -> str:
+    """Read, plan, write; then (unless sleep is None, as in a dry run) wait, read again and
     write again while another writer's stale copy replaced this section."""
-    if confirm is None:
-        confirm = key in CONFIRMED or os.environ.get("PR_STATUS_CONFIRM") == "1"
     did = "unchanged"
-    for attempt in range(ATTEMPTS):
-        current = comments if attempt == 0 and comments is not None else read()
-        writes = plan(repo, pr, current, key, text, legacy)
+    for _ in range(ATTEMPTS):
+        writes = plan(repo, pr, read(), key, text, legacy)
         if not writes:
             return did
         for method, path, payload in writes:
             call(method, path, payload)
         did = "written"
-        # A new status comment is read back too: two writers that both found none made two.
-        if sleep is None or not (confirm or any(method == "POST" for method, _, _ in writes)):
+        if sleep is None:
             return did
         # Another writer may have read the comment before this write and write over it.
         sleep(float(os.environ.get("PR_STATUS_SETTLE_SECONDS") or random.uniform(1.5, 3.0)))
@@ -229,23 +216,16 @@ def apply(read: Callable[[], list[dict]], call: Callable[[str, str, "dict | None
 
 
 def upsert(repo: str, pr: int, key: str, text: str | None, *, legacy: str | None = None,
-           api: Api = http_api, sleep: Callable[[float], None] | None = time.sleep,
-           confirm: bool | None = None, comments: list[dict] | None = None) -> str:
-    """Set (or with None, remove) one section over the REST API; returns what it did. Pass the
-    `comments` a caller already listed (section_in) to save that read."""
+           api: Api = http_api, sleep: Callable[[float], None] | None = time.sleep) -> str:
+    """Set (or with None, remove) one section over the REST API; returns what it did."""
     return apply(lambda: list_comments(api, repo, pr), lambda m, p, b: api(m, "/" + p.lstrip("/"), b),
-                 repo, pr, key, text, legacy=legacy, sleep=sleep, confirm=confirm, comments=comments)
-
-
-def section_in(comments: list[dict], key: str) -> str | None:
-    """The section's text in comments already listed (list_comments), or None."""
-    found = bot_comments(comments, MARKER)
-    return parse(found[0]["body"]).get(key) if found else None
+                 repo, pr, key, text, legacy=legacy, sleep=sleep)
 
 
 def section(repo: str, pr: int, key: str, *, api: Api = http_api) -> str | None:
     """The section's current text, or None."""
-    return section_in(list_comments(api, repo, pr), key)
+    found = bot_comments(list_comments(api, repo, pr), MARKER)
+    return parse(found[0]["body"]).get(key) if found else None
 
 
 def b64url(data: bytes) -> str:

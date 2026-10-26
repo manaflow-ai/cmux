@@ -125,9 +125,9 @@ class FailureAttributionCalls(unittest.TestCase):
     def test_a_green_run_with_a_comment_still_updates_it(self) -> None:
         gh = CountingGitHub(comments=[BOT_COMMENT])
         act(gh, report([], conclusion="success"))
-        # The comments are read once, before the write: the settle re-read after it is opt-in
-        # (PR_STATUS_CONFIRM, scripts/ci/pr_status.py), as it doubled the GITHUB_TOKEN reads.
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])
+        # The comments are read once before the write, and once after it: the status comment's
+        # other lines belong to other jobs, so a write is checked (scripts/ci/pr_status.py).
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])
         self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
 
     def test_a_green_run_with_a_comment_on_a_moved_head_marks_it_pending(self) -> None:
@@ -171,7 +171,7 @@ class FailureAttributionCalls(unittest.TestCase):
         gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker("c" * 40, "failed")}])
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertTrue(cf.act_requested(gh, writer, run)["line"].startswith("marked pending"))  # type: ignore[arg-type]
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])  # no settle re-read (PR_STATUS_CONFIRM)
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])  # the last checks the write
         gh = CountingGitHub(comments=[BOT_COMMENT], state="closed")
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertEqual(cf.act_requested(gh, writer, run)["line"],  # type: ignore[arg-type]
