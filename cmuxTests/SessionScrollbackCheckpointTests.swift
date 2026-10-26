@@ -590,6 +590,15 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(store.directoryURL.path == "/tmp/cmux/session-com.cmuxterm.app-scrollback")
     }
 
+    @Test func anUnreadableCheckpointDirectoryIsNotAnEmptyListing() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-checkpoint-list-blocker-\(UUID().uuidString)")
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let store = SessionScrollbackCheckpointStore(directoryURL: blocker)
+        #expect(store.checkpointedPanelIds() == nil)
+    }
+
     @Test func listsPanelsThatHaveCheckpointFiles() throws {
         let store = makeStore()
         defer { cleanUp(store) }

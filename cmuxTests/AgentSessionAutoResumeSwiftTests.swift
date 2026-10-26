@@ -421,6 +421,35 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
+    @Test func agentPIDSweepPreservesARecordMovedToAnotherPanel() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let originalPanelId = try #require(workspace.focusedPanelId)
+        let nextPanelId = UUID()
+        let pid = getpid()
+        let identity = try #require(Workspace.agentPIDProcessIdentity(pid: pid))
+        workspace.adoptDetachedAgentRuntimeState(.init(
+            panelId: originalPanelId,
+            statusEntries: [:],
+            agentPIDs: ["moved-agent": pid],
+            agentPIDProcessIdentities: ["moved-agent": identity],
+            agentPIDKeys: ["moved-agent"]
+        ))
+        let probes = workspace.agentPIDLivenessProbes()
+        workspace.adoptDetachedAgentRuntimeState(.init(
+            panelId: nextPanelId,
+            statusEntries: [:],
+            agentPIDs: ["moved-agent": pid],
+            agentPIDProcessIdentities: ["moved-agent": identity],
+            agentPIDKeys: ["moved-agent"]
+        ))
+
+        #expect(!workspace.clearStaleAgentPIDs(confirmedStale: probes, refreshPorts: false))
+        #expect(workspace.agentPIDs["moved-agent"] == pid)
+        #expect(workspace.agentPIDPanelIdsByKey["moved-agent"] == nextPanelId)
+    }
+
+    @MainActor
     @Test func claudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
