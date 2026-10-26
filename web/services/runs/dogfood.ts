@@ -27,7 +27,7 @@ import {
   type RunSource,
 } from "./repository";
 import { SANDBOX_VM_MARKER_KEY, sandboxVmIdempotencyKey } from "./model";
-import { runSandboxAttempt } from "./sandboxLauncher";
+import { runSandboxAttempt, sandboxJournalKind } from "./sandboxLauncher";
 
 /**
  * The first internal dogfood adapter deliberately goes through the existing
@@ -412,18 +412,16 @@ export async function launchSandboxRun(input: {
     events: (attempt, signal) => adapter.events(attempt, 0, signal),
     ingest: async (lease, event) => {
       const current = await renewAttemptLease({ ...ids, ...lease, ttlMs: leaseTtlMs });
-      const terminal = event.kind === "state" && event.payload.status !== "running";
+      // The renewal above fences a cancel even for an event that is not journaled.
+      const kind = sandboxJournalKind(event);
+      if (!kind) return;
       await ingestRunEvent({
         ...ids,
         leaseToken: current.leaseToken,
         leaseGeneration: current.leaseGeneration,
         externalId: event.eventId,
         attemptSequence: event.seq,
-        kind: event.kind === "output"
-          ? "attempt.output"
-          : terminal
-            ? event.payload.status === "succeeded" ? "attempt.succeeded" : "attempt.failed"
-            : "attempt.started",
+        kind,
         payload: { ...event.payload },
       });
     },

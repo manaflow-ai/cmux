@@ -4,7 +4,7 @@ import type { ProviderId } from "../vms/drivers";
 import type { RunSnapshotRow } from "./view";
 import { isArtifactDigest, type RunStatus, type SandboxRunOutcome, type SandboxRunReceipt } from "./model";
 
-/** Characters of terminal output a receipt keeps; the full output stays in the Run journal. */
+/** Characters of terminal output a receipt keeps (redacted); a sandbox journals no raw output. */
 export const SANDBOX_REPLY_MAX_CHARS = 4_000;
 
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CloudVmAttemptRef, CloudVmPreparedAttempt, CloudVmRunEvent } from "../services/vms/cloudVmRunAdapter";
 import type { SandboxRunOutcome } from "../services/runs/model";
-import { OutputTail, runSandboxAttempt, type SandboxLauncherPorts } from "../services/runs/sandboxLauncher";
+import { OutputTail, runSandboxAttempt, sandboxJournalKind, type SandboxLauncherPorts } from "../services/runs/sandboxLauncher";
 import { sandboxReply } from "../services/runs/sandbox";
 
 // A sandboxed Run (hq#3367) destroys its VM on every exit path. These drive the launcher
@@ -301,6 +301,22 @@ describe("sandbox run lifecycle", () => {
     const splitMarker = tail([pad, pad, pem.slice(0, cut), pem.slice(cut), "done\n"]);
     expect(splitMarker).not.toContain(body);
     expect(splitMarker).toBe("[redacted private key]\ndone\n");
+    // A marker split by a long run of escapes, and an escape split across chunks, still count.
+    const escapedPem = pem.replace("-----BEGIN PRIVATE KEY-----", `-----BEGIN ${"\u001b[0m".repeat(200)}PRIVATE KEY-----`);
+    const escapeCut = escapedPem.indexOf("\u001b[0m") + 2;
+    const longEscapes = tail([pad, pad, escapedPem.slice(0, 600), escapedPem.slice(600), "done\n"]);
+    expect(longEscapes).not.toContain(body);
+    expect(longEscapes).toBe("[redacted private key]\ndone\n");
+    const halfEscape = tail([pad, pad, escapedPem.slice(0, escapeCut), escapedPem.slice(escapeCut), "done\n"]);
+    expect(halfEscape).toBe("[redacted private key]\ndone\n");
+  });
+
+  test("a sandbox journals its states, never its raw terminal output", () => {
+    expect(sandboxJournalKind(output("-----BEGIN PRIVATE KEY-----\n", 1))).toBeNull();
+    expect(sandboxJournalKind({ kind: "state", eventId: "state-running", seq: 2, payload: { terminalId: "term-1", status: "running" } })).toBe("attempt.started");
+    expect(sandboxJournalKind(state("succeeded", 0))).toBe("attempt.succeeded");
+    expect(sandboxJournalKind(state("failed", 1))).toBe("attempt.failed");
+    expect(sandboxJournalKind(state("cancelled"))).toBe("attempt.failed");
   });
 
   test("a failure is redacted whole before it is cut to 500 characters", async () => {

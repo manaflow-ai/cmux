@@ -22,8 +22,21 @@ const SANDBOX_LATE_CREATE_MS = 60_000;
  */
 const KEY_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY/g;
 const KEY_END = /-----END [A-Z0-9 ]*PRIVATE KEY/g;
-/** How much of a dropped line is kept to find a key marker split across chunks (escapes included). */
+/** How much of a dropped line (escapes removed) is kept to find a key marker split across chunks. */
 const KEY_MARKER_WINDOW = 256;
+/** A terminal escape sequence, whole, at the start of the text. */
+const WHOLE_ESCAPE = /^(?:\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_])/;
+/** The longest unfinished escape sequence carried to the next chunk; a longer one is dropped. */
+const ESCAPE_CARRY_MAX = 4_096;
+
+/** `text` split before an escape sequence it ends in the middle of (carried to the next chunk). */
+function splitUnfinishedEscape(text: string): [string, string] {
+  const start = text.lastIndexOf("\u001b");
+  if (start < 0) return [text, ""];
+  const rest = text.slice(start);
+  if (WHOLE_ESCAPE.test(rest) || rest.length > ESCAPE_CARRY_MAX) return [text, ""];
+  return [text.slice(0, start), rest];
+}
 
 function lastIndexOf(pattern: RegExp, text: string): number {
   let last = -1;
@@ -35,8 +48,10 @@ export class OutputTail {
   private kept = "";
   private pending = "";
   private skippingLine = false;
-  /** The end of the text dropped so far on the line being skipped. */
+  /** The end of the text dropped so far on the line being skipped, escapes removed. */
   private skippedTail = "";
+  /** An escape sequence the last dropped chunk ended in the middle of. */
+  private escapeCarry = "";
   private inKeyBlock = false;
 
   constructor(private readonly handles: () => readonly (string | null | undefined)[] = () => []) {}
@@ -50,6 +65,7 @@ export class OutputTail {
       next = next.slice(end + 1);
       this.skippingLine = false;
       this.skippedTail = "";
+      this.escapeCarry = "";
     }
     this.pending += next;
     let newline = this.pending.indexOf("\n");
@@ -70,8 +86,12 @@ export class OutputTail {
    * whose BEGIN line was dropped must not have its body kept.
    */
   private skip(text: string): void {
-    const seen = this.skippedTail + text;
-    const scan = stripTerminalEscapes(seen);
+    // Markers are matched on text with escapes removed, carried across chunks in that form, so
+    // no run of escapes can push half a marker out of the window; an escape a chunk ends in the
+    // middle of waits for the rest of it.
+    const [whole, carry] = splitUnfinishedEscape(this.escapeCarry + text);
+    this.escapeCarry = carry;
+    const scan = this.skippedTail + stripTerminalEscapes(whole);
     const begin = lastIndexOf(KEY_BEGIN, scan);
     const end = lastIndexOf(KEY_END, scan);
     if (begin > end) this.inKeyBlock = true;
@@ -79,7 +99,7 @@ export class OutputTail {
       this.inKeyBlock = false;
       this.keep("[redacted private key]\n");
     }
-    this.skippedTail = seen.slice(-KEY_MARKER_WINDOW);
+    this.skippedTail = scan.slice(-KEY_MARKER_WINDOW);
   }
 
   private complete(raw: string): void {
@@ -110,6 +130,16 @@ export class OutputTail {
     const tail = this.inKeyBlock ? "[redacted private key]" : redactReceiptText(this.pending, this.handles());
     return this.kept + tail;
   }
+}
+
+/**
+ * The journal kind of a sandbox's event, or null for terminal output: events are served as
+ * stored, so a sandbox journals no raw output; the receipt's redacted tail is its output.
+ */
+export function sandboxJournalKind(event: CloudVmRunEvent): "attempt.started" | "attempt.succeeded" | "attempt.failed" | null {
+  if (event.kind === "output") return null;
+  const status = event.payload.status;
+  return status === "running" ? "attempt.started" : status === "succeeded" ? "attempt.succeeded" : "attempt.failed";
 }
 
 function exitOf(receipt: { readonly exitCode?: number; readonly signal?: number }, exitCode: number | null, signal: number | null) {
