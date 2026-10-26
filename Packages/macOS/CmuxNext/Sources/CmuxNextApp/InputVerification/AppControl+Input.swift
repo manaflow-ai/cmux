@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -47,9 +48,12 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugTabDrag.report(services: services))
             },
+            // Each refactor-switch site's count of the arm it ran (p15-oracle-027); `reset` zeroes after the read.
+            .mainActor("debug.oracle.switch_hits") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(Self.switchHitsReply(services.switchHits.report(reset: call.params["reset"]?.boolValue == true)))
+            },
         ])
-        // The oracle's methods (p15-oracle.md section 3C), next to the input checks they extend.
-        services.registerOracleSwitchHits(on: service?.router)
         #endif
     }
 
@@ -90,6 +94,15 @@ extension AppControl {
             "stats": encode(journal.stats),
             "entries": encode(journal.entries(last: last)),
         ])
+    }
+
+    /// `{"switches": {KEY: {"old": N, "new": N, "sites": {SITE: {"old": N, "new": N}}}}}`
+    /// (scripts/cmux-next/oracle/switches.py --hits reads it).
+    private static func switchHitsReply(_ report: [String: SwitchHits.Entry]) -> JSONValue {
+        func arms(_ old: Int, _ new: Int) -> [String: JSONValue] { ["old": JSONValue(old), "new": JSONValue(new)] }
+        return ["switches": .object(report.mapValues { entry -> JSONValue in
+            .object(arms(entry.old, entry.new).merging(["sites": .object(entry.sites.mapValues { .object(arms($0.old, $0.new)) })]) { $1 })
+        })]
     }
 
     static func encode(_ value: some Encodable) -> JSONValue {

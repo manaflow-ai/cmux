@@ -147,8 +147,8 @@ final class AppServices {
         resizes.onSend = { [weak trace] in trace?.noteSend($0, columns: $1.cols, rows: $1.rows) }
         return trace
     }()
-    let switchHits = SwitchHits() // each refactor-switch site's arm counts (`switchHit(_:site:)`, debug.oracle.switch_hits)
     #endif
+    let switchHits = SwitchHits(counting: ControlRouter.debugMethodsAllowed) // refactor-switch sites' arm counts (debug.oracle.switch_hits)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = {

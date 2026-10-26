@@ -8,8 +8,8 @@
 /// (base/feature_list.cc, `FieldTrial::Activate` in base/metrics/field_trial.cc), and only active
 /// trials are reported, so a configured but never-reached arm reports nothing.
 ///
-/// The composition root hands a site a counted hit in DEBUG and bench builds and ``init(key:)``
-/// (counts nothing) in Release and tests. ``ran(new:)`` is one relaxed atomic add, safe from any
+/// A site gets its hit from the composition root's ``SwitchHits``: counted in DEBUG and bench builds,
+/// ``init(key:)`` (counts nothing) in Release. ``ran(new:)`` is one relaxed atomic add, safe from any
 /// thread and on a per-frame path.
 public struct RefactorSwitchHit: Sendable {
     public let key: RefactorSwitchKey

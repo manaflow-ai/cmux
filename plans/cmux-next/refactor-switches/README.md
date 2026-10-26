@@ -34,8 +34,8 @@ Lifecycle: register the file, land the new path at default `old`, run `oracle.py
 `switches.py --expired` prints one deletion line per switch whose day has come.
 
 Each guarded app site counts the arm it ran: it holds a `RefactorSwitchHit` from
-`AppServices.switchHit(_:site:)` next to its frozen arm and calls `ran(new:)` on the branch it took.
-`debug.oracle.switch_hits` (DEBUG and bench builds) reports the counts per switch and site, and
+`AppServices.switchHits.hit(_:site:)` (`CmuxNextCompat/SwitchHits.swift`) next to its frozen arm and
+calls `ran(new:)` on the branch it took. `debug.oracle.switch_hits` (DEBUG and bench builds) reports the counts per switch and site, and
 `switches.py --hits FILE --switch NAME --arm ARM` calls a run with 0 hits on the requested arm
 `arm-not-exercised` and one with hits on both arms `arm-mixed` (task p15-oracle-027).
 
