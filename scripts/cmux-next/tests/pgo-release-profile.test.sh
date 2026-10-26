@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# PGO in the Release compile (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052), without a build:
-# pgo/fetch-profdata.sh gives a profile only when its sha256 matches the pin, and check-release-compile.sh hands it
-# to Package.swift (CMUX_PGO_PROFDATA) only with CMUX_NEXT_PGO_USE=1. A stub xcodebuild records what it got.
+# PGO in the Release builds (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052), without a build:
+# pgo/fetch-profdata.sh gives a profile only when its sha256 matches the pin, and pgo/release-env.sh hands it to
+# Package.swift (CMUX_PGO_PROFDATA) only when the switch is on: Resources/build/cmux-next.pgo.conf, or
+# CMUX_NEXT_PGO_USE for one build. Both Release paths share it: check-release-compile.sh and the Nightly's
+# scripts/ci/run-with-helper-prebuild.py. A stub xcodebuild records what it got.
 #   bash scripts/cmux-next/tests/pgo-release-profile.test.sh
 # shellcheck disable=SC2015 # every `A && B || fail`: fail exits, so it runs only when A or B fails
 set -euo pipefail
@@ -111,7 +113,68 @@ compile CMUX_NEXT_PGO_USE=1 CMUX_PGO_CACHE_DIR="$TMP/cc-miss" CMUX_PGO_PIN="$TMP
 compile "${on[@]}" CMUX_PGO_COMPANIONS=thinlto,fast
 [[ $status -eq 2 && ! -e "$TMP/seen" ]] || fail "an unknown companion was not refused (exit $status)"
 
-# 10. Package.swift reads exactly these variables and gives the flag in Release only, to both settings groups.
+# 10. The switch's sources: the committed conf is off; a conf with use=1 turns it on with no environment; the
+# environment overrides the conf both ways, and an explicit empty CMUX_PGO_COMPANIONS drops the conf's companions.
+conf="$ROOT/Resources/build/cmux-next.pgo.conf"
+grep -qx 'use=0' "$conf" && grep -qx 'companions=' "$conf" || fail "the committed switch is not off by default"
+printf '# on\nuse=1\ncompanions=thinlto\n' > "$TMP/conf-on"
+pin_src=(CMUX_PGO_PIN="$TMP/pin" CMUX_PGO_SOURCE="$TMP/src/cmux-next.profdata")
+compile CMUX_PGO_CONF="$TMP/conf-on" "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen "profdata=$TMP/cc/$sha/cmux-next.profdata" && seen 'companions=thinlto' \
+  && seen 'setting=LLVM_LTO=YES_THIN' || fail "use=1 in the conf did not turn PGO on (exit $status): $(cat "$TMP/seen" 2>/dev/null)"
+compile CMUX_PGO_CONF="$TMP/conf-on" CMUX_NEXT_PGO_USE=0 "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen 'profdata=<unset>' && ! seen 'setting=LLVM_LTO=YES_THIN' \
+  || fail "CMUX_NEXT_PGO_USE=0 did not override use=1 (exit $status)"
+compile CMUX_PGO_CONF="$TMP/conf-on" CMUX_PGO_COMPANIONS= "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen "profdata=$TMP/cc/$sha/cmux-next.profdata" && seen 'companions=<unset>' \
+  && ! seen 'setting=LLVM_LTO=YES_THIN' || fail "an empty CMUX_PGO_COMPANIONS did not override the conf (exit $status)"
+compile CMUX_PGO_CONF="$TMP/missing-conf" "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen 'profdata=<unset>' || fail "a missing conf did not mean off (exit $status)"
+printf 'use=yes\n' > "$TMP/conf-bad"
+compile CMUX_PGO_CONF="$TMP/conf-bad" "${pin_src[@]}"
+[[ $status -eq 2 && ! -e "$TMP/seen" ]] || fail "a switch other than 0 or 1 was not refused (exit $status)"
+
+# 11. --print, the form the Nightly's wrapper reads: one `export` or `setting` line per result, nothing when off.
+print_env() {
+  status=0
+  out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" CMUX_PGO_CACHE_DIR="$TMP/cc" "$@" \
+    /bin/bash "$ROOT/scripts/cmux-next/pgo/release-env.sh" --print 2>"$TMP/out") || status=$?
+}
+print_env CMUX_PGO_CONF="$TMP/conf-on" "${pin_src[@]}"
+want=$(printf 'export CMUX_PGO_PROFDATA=%s\nexport CMUX_PGO_COMPANIONS=thinlto\nsetting LLVM_LTO=YES_THIN' \
+  "$TMP/cc/$sha/cmux-next.profdata")
+[[ $status -eq 0 && "$out" == "$want" ]] || fail "--print on: exit $status, '$out'"
+print_env CMUX_PGO_PROFDATA=/elsewhere/x.profdata "${pin_src[@]}"
+[[ $status -eq 0 && -z "$out" ]] || fail "--print off printed '$out' (exit $status)"
+
+# 12. The Nightly's Release build (nightly.yml runs run-with-helper-prebuild.py, which runs the build command):
+# the same switch gives the same profile and LLVM_LTO; off, an ambient CMUX_PGO_PROFDATA is dropped; a Debug
+# build never runs the PGO setup. The wrapper runs from a copy with a stub prebuild helper and the real pgo dir.
+mkdir -p "$TMP/repo/scripts/ci" "$TMP/repo/scripts/cmux-next"
+cp "$ROOT/scripts/ci/run-with-helper-prebuild.py" "$TMP/repo/scripts/ci/"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/repo/scripts/ci/prebuild-app-helpers.sh"
+chmod +x "$TMP/repo/scripts/ci/prebuild-app-helpers.sh"
+ln -s "$ROOT/scripts/cmux-next/pgo" "$TMP/repo/scripts/cmux-next/pgo"
+nightly() { # CONFIGURATION ENV...
+  local configuration="$1"; shift
+  rm -f "$TMP/seen"; status=0
+  env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_PGO_CACHE_DIR="$TMP/cc" "$@" \
+    python3 "$TMP/repo/scripts/ci/run-with-helper-prebuild.py" --derived-data "$TMP/dd" \
+    --configuration "$configuration" --archs arm64 --log "$TMP/helper.log" -- \
+    xcodebuild -scheme cmux -configuration "$configuration" build >"$TMP/out" 2>&1 || status=$?
+}
+nightly Release CMUX_PGO_CONF="$TMP/conf-on" "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen "profdata=$TMP/cc/$sha/cmux-next.profdata" && seen 'companions=thinlto' \
+  && seen 'setting=LLVM_LTO=YES_THIN' || fail "the Nightly's Release build did not get PGO (exit $status): $(cat "$TMP/seen" 2>/dev/null)"
+nightly Release CMUX_PGO_PROFDATA=/elsewhere/x.profdata CMUX_PGO_COMPANIONS=thinlto "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen 'profdata=<unset>' && seen 'companions=<unset>' && ! seen 'setting=LLVM_LTO=YES_THIN' \
+  || fail "the Nightly with the switch off still passed PGO (exit $status): $(cat "$TMP/seen" 2>/dev/null)"
+nightly Debug CMUX_PGO_CONF="$TMP/conf-bad" CMUX_PGO_PROFDATA=/elsewhere/x.profdata "${pin_src[@]}"
+[[ $status -eq 0 ]] && seen 'profdata=<unset>' || fail "a Debug build ran the PGO setup or kept an ambient profile (exit $status)"
+nightly Release CMUX_PGO_CONF="$TMP/conf-bad" "${pin_src[@]}"
+[[ $status -ne 0 && ! -e "$TMP/seen" ]] || fail "the Nightly built with a bad switch (exit $status)"
+
+# 13. Package.swift reads exactly these variables and gives the flag in Release only, to both settings groups.
 pkg="$ROOT/Packages/macOS/CmuxNext/Package.swift"
 grep -q 'Context.environment\["CMUX_PGO_PROFDATA"\]' "$pkg" || fail "Package.swift does not read CMUX_PGO_PROFDATA"
 grep -q '"-profile-use=\\(profile)"' "$pkg" || fail "Package.swift does not build -profile-use from the path"

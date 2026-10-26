@@ -3,7 +3,7 @@
 #
 # Prints the absolute path of the cmux-next Swift PGO profile that the pin names, fetched by its sha256 and
 # checked against it (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052). The Release build
-# (check-release-compile.sh) passes that path to Package.swift as CMUX_PGO_PROFDATA, which gives the
+# (pgo/release-env.sh) passes that path to Package.swift as CMUX_PGO_PROFDATA, which gives the
 # CmuxNext targets -profile-use; it never passes a file whose sha256 differs from the pin.
 #
 # Chrome does the same with chrome/build/mac-arm.pgo.txt: the checkout names one profile, and

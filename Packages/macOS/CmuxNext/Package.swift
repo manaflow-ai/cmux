@@ -183,9 +183,10 @@ let stabilitySwiftSettings: [SwiftSetting] = [
 ]
 
 /// Release-only profile-guided optimization of the CmuxNext Swift targets (plans/cmux-next/chrome-parity/p08-startup.md,
-/// section F, task 052). `scripts/cmux-next/check-release-compile.sh` sets `CMUX_PGO_PROFDATA` only when the
-/// repository variable is on and the profile's sha256 matches Resources/build/cmux-next.profdata.sha256, at a path
-/// that names that sha256, so a new profile is a new flag. A flag here reaches this package's targets and no remote
+/// section F, task 052). `scripts/cmux-next/pgo/release-env.sh` (check-release-compile.sh and the Nightly's Release
+/// build) sets `CMUX_PGO_PROFDATA` only when the switch in Resources/build/cmux-next.pgo.conf is on and the profile's
+/// sha256 matches Resources/build/cmux-next.profdata.sha256, at a path that names that sha256, so a new profile is a
+/// new flag. A flag here reaches this package's targets and no remote
 /// package (startup-DESIGN.md section 9, `scope-xcodebuild`). `CMUX_PGO_COMPANIONS` adds task 110's adopted
 /// variants (startup-DESIGN.md section 10), which ship only with the profile, as Chrome ships PGO only on ThinLTO.
 let releaseProfileSwiftSettings: [SwiftSetting] = {

@@ -39,14 +39,13 @@
 #   Release path on owned runners; the binary-module guard and the one-time
 #   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
 #
-# PGO (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052): with CMUX_NEXT_PGO_USE=1 (the
-# repository variable of that name, off when unset) the script fetches the profile that
-# Resources/build/cmux-next.profdata.sha256 pins (pgo/fetch-profdata.sh, by sha256) and exports its path
-# as CMUX_PGO_PROFDATA; Package.swift then gives only the CmuxNext Swift targets
-# `-profile-use=<path>` in Release. CMUX_PGO_COMPANIONS lists task 110's adopted variants
-# (`thinlto`, `cmo`, comma-separated; startup-DESIGN.md section 10), which ship only with the profile,
-# as Chrome ships PGO only on ThinLTO builds (docs/pgo.md). Without the switch, or when no profile matches
-# the pin, the build is the plain Release and says why.
+# PGO (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052): pgo/release-env.sh, which the
+# Nightly's Release build shares (scripts/ci/run-with-helper-prebuild.py), reads the switch and task 110's
+# companions from Resources/build/cmux-next.pgo.conf (CMUX_NEXT_PGO_USE and CMUX_PGO_COMPANIONS in the
+# environment override it for one build). With the switch on it fetches the profile that
+# Resources/build/cmux-next.profdata.sha256 pins (pgo/fetch-profdata.sh, by sha256) and exports its path as
+# CMUX_PGO_PROFDATA; Package.swift then gives only the CmuxNext Swift targets `-profile-use=<path>` in
+# Release. Without the switch, or when no profile matches the pin, the build is the plain Release and says why.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -126,36 +125,12 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-# Only this block sets the variables Package.swift reads, so an ambient value never reaches the build.
-pgo_companions="${CMUX_PGO_COMPANIONS:-}"
-unset CMUX_PGO_PROFDATA CMUX_PGO_COMPANIONS
-pgo_build_settings=()
-pgo_label=''
-IFS=, read -r -a pgo_companion_list <<<"$pgo_companions"
-for companion in "${pgo_companion_list[@]+"${pgo_companion_list[@]}"}"; do
-  case "$companion" in
-    thinlto|cmo) ;;
-    *) echo "check-release-compile: CMUX_PGO_COMPANIONS takes thinlto and cmo, got '$companion'" >&2; exit 2 ;;
-  esac
-done
-if [[ "${CMUX_NEXT_PGO_USE:-}" == 1 ]]; then
-  if pgo_profdata="$("$repo_root/scripts/cmux-next/pgo/fetch-profdata.sh")"; then
-    export CMUX_PGO_PROFDATA="$pgo_profdata"
-    pgo_label=", PGO ${pgo_profdata}"
-    if [[ -n "$pgo_companions" ]]; then
-      export CMUX_PGO_COMPANIONS="$pgo_companions"
-      pgo_label+=" with $pgo_companions"
-      # ThinLTO needs the link too; the Swift flags come from Package.swift (lto-ab.sh's thinlto variant).
-      if [[ ",$pgo_companions," == *,thinlto,* ]]; then
-        pgo_build_settings+=(LLVM_LTO=YES_THIN)
-      fi
-    fi
-  else
-    echo "check-release-compile: PGO is on but no profile matches the pin; compiling the plain Release"
-  fi
-fi
+# Only pgo/release-env.sh sets the variables Package.swift reads, so an ambient value never reaches the build.
+# shellcheck source=scripts/cmux-next/pgo/release-env.sh
+source "$repo_root/scripts/cmux-next/pgo/release-env.sh"
+cmux_pgo_release_env || exit $?
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label$pgo_label)"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label$CMUX_PGO_LABEL)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
@@ -169,7 +144,7 @@ build() {
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
-    "${pgo_build_settings[@]+"${pgo_build_settings[@]}"}" \
+    "${CMUX_PGO_BUILD_SETTINGS[@]+"${CMUX_PGO_BUILD_SETTINGS[@]}"}" \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
