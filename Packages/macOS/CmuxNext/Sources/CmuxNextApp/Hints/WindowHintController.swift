@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextFocusUI
 
 /// Hint mode (`hints.show`, Cmd-J; cx-zjtn.1): every clickable control in
 /// the window gets a one or two letter label (``LinkHintSession``'s Vimium
@@ -33,10 +34,16 @@ final class WindowHintController {
         var keys: [NSEvent] = []
     }
 
-    private var session: Session?
-    private var pending: Pending?
+    private var session: Session? { didSet { noteActive() } }
+    private var pending: Pending? { didSet { noteActive() } }
 
     var isActive: Bool { session != nil || pending != nil }
+
+    /// The key router's modes: while labels show or wait, the router asks this controller first for typing keys too
+    /// (``KeyRouterMode/windowHints``). `AppServices` passes the router's instance.
+    var keyModes: KeyRouterModes? { didSet { noteActive() } }
+
+    private func noteActive() { keyModes?.set(.windowHints, isActive) }
 
     /// Labels the controls of `controller`'s window, or ends a session that
     /// shows (the action toggles). Returns false when nothing is clickable.

@@ -59,8 +59,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.event.producer_id is a fixed placeholder, not a fixture object; session/_tuning.json tunes it"
   ]
 }

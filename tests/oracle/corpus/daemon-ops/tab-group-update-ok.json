@@ -81,7 +81,9 @@
         "method": "tab_group.update",
         "params": {
           "tab_group": "$step:fx-tab-group#/value/id",
-          "name": "oracle"
+          "name": "renamed",
+          "color": "red",
+          "collapsed": true
         },
         "idempotencyKey": "tab-group-update-ok.call"
       },
@@ -93,7 +95,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "name, color and collapsed of the group change in one commit"
     }
   ],
   "invariants": [

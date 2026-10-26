@@ -22,6 +22,9 @@ final class AgentPermissionsService {
         self.requests = requests
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
+        }, appIcon: { [weak setup] kind in
+            // cmux's own icon is in memory; the helper's is read on the system lane when the helper is found.
+            kind.heldByComputerUseHelper ? setup?.helperAppIcon : NSApp.applicationIconImage
         })
         presenter.start()
     }

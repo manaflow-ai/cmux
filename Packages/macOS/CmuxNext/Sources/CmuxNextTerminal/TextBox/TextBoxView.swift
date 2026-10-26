@@ -45,6 +45,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         self.model = model
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 36))
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         separator.boxType = .separator
         addSubview(separator)
 

@@ -57,6 +57,7 @@ extension WorkspaceRowView {
         if themedToolTip != tip { themedToolTip = tip }
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             // An idle workspace nobody named reads quiet until it is selected, hovered or busy.

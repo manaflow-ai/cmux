@@ -84,6 +84,7 @@ final class BrowserSwipeIndicatorView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = frame.height / 2
         layer?.cornerCurve = .continuous
         arrow.frame = bounds
