@@ -47,31 +47,6 @@ extension AgentPageHibernation {
         }
     }
 
-    /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
-    /// is still the same hidden page.
-    func release(_ key: String) {
-        guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
-        read(view, frame: true) { [weak self] wake, frame in
-            guard let self else { return }
-            releasing.remove(key)
-            // A connected page that did not say what it holds (a large attachment still encoding)
-            // stays: letting it go would drop its chips. The next plan asks again.
-            if wake == nil, view.model.hasHandshake {
-                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
-                return
-            }
-            // The page may have shown, changed or got busy (a turn started) while it was asked
-            // for its frame or the frame was encoded: then it stays, and the next plan decides.
-            guard isDue(key, view, in: tabs) else { return replan() }
-            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
-            guard isDue(key, view, in: tabs) else {
-                tabs.launchImages.drop(key)
-                return replan()
-            }
-            letGo(key, view, wake: wake, in: tabs)
-        }
-    }
-
     /// Lets the least recently shown pages of `live` that may go, go until at most
     /// ``liveHiddenLimit`` stay. A page hidden less than ``minimumHidden`` waits, and one still in
     /// its window is looked at again as in the timeout.
@@ -128,7 +103,13 @@ extension AgentPageHibernation {
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 
-    func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
-        hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil
+    /// The page as last drawn; nil when it does not answer in time (it then shows its loading
+    /// state when it comes back).
+    static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
+        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
+            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
+        }
+        return frame.flatMap { $0 }
     }
 }
