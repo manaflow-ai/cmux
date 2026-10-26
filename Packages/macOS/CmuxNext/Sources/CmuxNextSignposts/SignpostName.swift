@@ -86,11 +86,16 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
     case scrollToFrame = 8
-    /// Reserved (task 040, PL-typing; perf-hot `omnibar-suggest`). One omnibar suggestion pass for a typed
-    /// key, from the query to the reduced result list. Ring: B/E; end arg0 the result count.
+    /// One synchronous pass of the omnibar's suggestions for a typed key (task 040, PL-typing; perf-hot
+    /// `omnibar-key`; ``Signposter/begin(_:searchPass:)``): the reducer pass that takes the query
+    /// (`OmnibarStep.refreshSuggestions`), or the one that reduces its rows when they land. Begin message
+    /// `pass=<code>`, end message `results=<count>`. Ring: B/E; begin arg0 the ``Signposter/KeySearchPass``
+    /// code (1 query, 2 rows, 3 more rows), end arg0 the popup's rows at the pass's end.
     case keyOmnibarSuggest = 19
-    /// Reserved (task 040, PL-typing; perf-hot `palette-search`). One palette search for a typed key, from
-    /// the query to the ranked rows. Ring: B/E; end arg0 the result count.
+    /// One synchronous pass of a Command Palette search for a typed key (task 040; perf-hot `palette-key`;
+    /// ``Signposter/begin(_:searchPass:)``): `PaletteModel.search` handing the query to the ranker, or the
+    /// pass that shows its ranked rows when they land. Messages as ``keyOmnibarSuggest``. Ring: B/E; begin arg0
+    /// the ``Signposter/KeySearchPass`` code (1 query, 2 rows), end arg0 the page's rows at the pass's end.
     case keyPaletteSearch = 20
 
     // MARK: key echo hops (reserved: task 102, PL-trace)
