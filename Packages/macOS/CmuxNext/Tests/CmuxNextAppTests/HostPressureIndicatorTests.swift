@@ -27,7 +27,7 @@ import Testing
                                   notifications: notifications,
                                   windowVisible: { _ in visibility.visible },
                                   service: {
-                                      let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: store)
+                                      let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
                                       made(service)
                                       return service
                                   }) {}
@@ -121,7 +121,7 @@ import Testing
     }
 
     @Test func aSubscriptionReleasedWithoutCancelStillUnsubscribes() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: Self.store(forcing: nil, enabled: true))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil, enabled: true))
         var subscription: HostPressureSubscription? = HostPressureSubscription(service)
         #expect(service.subscriberCount == 1)
         #expect(subscription != nil)
@@ -135,7 +135,7 @@ import Testing
     /// Joining and leaving in one main-actor turn queues a start and then a stop: the start
     /// must not run the monitor (and its timer) at all.
     @Test func aStartOvertakenByTheLastLeaveStartsNothing() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: Self.store(forcing: nil, enabled: true))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil, enabled: true))
         service.subscribe()
         service.unsubscribe()
         #expect(await !service.monitorIsRunning())
@@ -154,7 +154,7 @@ import Testing
     }
 
     @Test func aForcedLevelShowsItsSampleNumbers() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: Self.store(forcing: .critical))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: .critical))
         await Task.yield()
         for _ in 0 ..< 20 where service.level != .critical { await Task.yield() }
         #expect(service.level == .critical)
@@ -165,7 +165,7 @@ import Testing
     }
 
     @Test func offFollowsTheHost() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: Self.store(forcing: nil))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil))
         await Task.yield()
         #expect(service.level == .normal)
         #expect(service.verdict == nil)
@@ -194,7 +194,7 @@ import Testing
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: store)
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
         #expect(service.criticalSpell == 0)
         func force(_ force: HostPressureForce, until done: () -> Bool) async {
             _ = store.set(HostPressureTunables.force.key, force.tunableValue)
@@ -227,7 +227,7 @@ import Testing
         let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
                                                   store: store, windowVisible: { _ in false },
                                                   service: {
-                                                      let service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: store)
+                                                      let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
                                                       made = service
                                                       return service
                                                   }) {}
@@ -279,7 +279,7 @@ import Testing
             for key in [HostPressureTunables.enabled.key, HostPressureTunables.banner.key] { _ = store.set(key, true.tunableValue) }
             _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
             toasts = CmuxToastCenter(host: host)
-            service = HostPressureService(acpmux: nil, memoryPressure: { _ in {} }, store: store)
+            service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
         }
 
         /// A window whose indicator samples (it counts as seen while it is in one).

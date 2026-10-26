@@ -8,6 +8,8 @@ private actor ScriptedSource: HostPressureSource {
     var shared: HostBudgetVerdict?
     var local = ScriptedSource.verdict()
     private(set) var localReads = 0
+    /// The memory pressure the monitor passed to the last local read.
+    private(set) var localPressure: HostMemoryPressure?
 
     static func verdict(load: Double = 2, pressure: HostMemoryPressure = .normal, swap: Double = 0) -> HostBudgetVerdict {
         HostBudgetVerdict(host: "gray", cores: 12, load1: load, pressure: pressure, availableRAMFraction: 0.5, swapMBPerMin: swap)
@@ -16,33 +18,51 @@ private actor ScriptedSource: HostPressureSource {
     func set(local: HostBudgetVerdict) { self.local = local }
     func set(shared: HostBudgetVerdict?) { self.shared = shared }
     func acpmuxVerdict() -> HostBudgetVerdict? { shared }
-    func localVerdict() -> HostBudgetVerdict {
+    func localVerdict(pressure: HostMemoryPressure) -> HostBudgetVerdict {
         localReads += 1
+        localPressure = pressure
         return local
     }
 }
 
-/// The app's shared memory pressure feed as the test drives it: `send(_:)` calls every subscriber.
+/// The app's shared memory pressure feed as the test drives it: `send(_:)` sets its level and calls
+/// every subscriber.
 private final class Feed: Sendable {
-    private let handlers = OSAllocatedUnfairLock<[UUID: @Sendable (HostMemoryPressure) -> Void]>(initialState: [:])
+    private struct State {
+        var handlers: [UUID: @Sendable (HostMemoryPressure) -> Void] = [:]
+        var level: HostMemoryPressure
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(level: HostMemoryPressure = .normal) {
+        state = OSAllocatedUnfairLock(initialState: State(level: level))
+    }
 
     var subscription: HostPressureMonitor.MemoryPressureSubscription {
-        { [handlers] handler in
+        { [state] handler in
             let id = UUID()
-            handlers.withLock { $0[id] = handler }
-            return { handlers.withLock { $0[id] = nil } }
+            let level = state.withLock { state in
+                state.handlers[id] = handler
+                return state.level
+            }
+            return (level, { state.withLock { $0.handlers[id] = nil } })
         }
     }
 
-    var subscribers: Int { handlers.withLock { $0.count } }
+    var subscribers: Int { state.withLock { $0.handlers.count } }
 
     func send(_ pressure: HostMemoryPressure) {
-        for handler in handlers.withLock({ Array($0.values) }) { handler(pressure) }
+        let handlers = state.withLock { state in
+            state.level = pressure
+            return Array(state.handlers.values)
+        }
+        for handler in handlers { handler(pressure) }
     }
 }
 
-/// A feed that never changes, for tests that drive `memoryPressureChanged(_:)` themselves.
-private let noFeed: HostPressureMonitor.MemoryPressureSubscription = { _ in {} }
+/// A feed that stays normal, for tests that drive `memoryPressureChanged(_:)` themselves.
+private let noFeed: HostPressureMonitor.MemoryPressureSubscription = { _ in (.normal, {}) }
 
 @MainActor private final class Delivered {
     var levels: [HostPressureLevel] = []
@@ -109,20 +129,64 @@ struct HostPressureMonitorTests {
         await monitor.stop()
     }
 
-    @Test func theEventPressureBeatsTheSampledOne() async {
+    /// The feed's level is the only memory level: the local read gets it, and it beats a level
+    /// in the source's verdict.
+    @Test func theFeedsLevelBeatsTheSourcesOne() async {
         let source = ScriptedSource()
+        await source.set(local: ScriptedSource.verdict(pressure: .critical))
         let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         await monitor.memoryPressureChanged(.warn)
         await monitor.read()
+        #expect(await source.localPressure == .warn)
         #expect(await monitor.verdict?.pressure == .warn)
         #expect(await monitor.level == .warning)
         await monitor.stop()
     }
 
+    /// A run starts at the feed's level now, before any change: critical while the monitor was
+    /// stopped, with no change since, is critical on the first read.
+    @Test func aRunStartsAtTheFeedsCurrentLevel() async {
+        let feed = Feed(level: .critical)
+        let source = ScriptedSource()
+        let monitor = HostPressureMonitor(source: source, memoryPressure: feed.subscription, ticks: false)
+        await monitor.start { _, _ in }
+        await monitor.read()
+        #expect(await source.localPressure == .critical)
+        #expect(await monitor.verdict?.pressure == .critical)
+        #expect(await monitor.level == .critical)
+        await monitor.stop()
+    }
+
+    /// The feed's changes apply in the order it sent them: a burst of changes reaches the main
+    /// actor as the same sequence of levels, and the last one stays.
+    @Test(.timeLimit(.minutes(1))) func theFeedsChangesApplyInOrder() async {
+        let feed = Feed()
+        let monitor = HostPressureMonitor(source: ScriptedSource(), memoryPressure: feed.subscription, calmSamples: 1, ticks: false)
+        let (stream, onChange) = changes()
+        var levels = stream.makeAsyncIterator()
+        await monitor.start(onChange: onChange)
+        await monitor.read()
+
+        let cycles = 200
+        for _ in 0 ..< cycles {
+            feed.send(.warn)
+            feed.send(.critical)
+            feed.send(.normal)
+        }
+        var received: [HostPressureLevel] = []
+        for _ in 0 ..< cycles * 3 {
+            guard let level = await levels.next() else { break }
+            received.append(level)
+        }
+        #expect(received == Array(repeating: [HostPressureLevel.warning, .critical, .normal], count: cycles).flatMap { $0 })
+        #expect(await monitor.verdict?.pressure == .normal)
+        await monitor.stop()
+    }
+
     @Test func aStoppedMonitorAppliesNothing() async {
         let source = ScriptedSource()
-        await source.set(local: ScriptedSource.verdict(pressure: .critical))
+        await source.set(local: ScriptedSource.verdict(load: 13, swap: 100))
         let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         await monitor.stop()
@@ -136,7 +200,7 @@ struct HostPressureMonitorTests {
     /// and delivered when the run goes on.
     @MainActor @Test(arguments: [true, false]) func aChangeQueuedBeforeStopIsDropped(stops: Bool) async {
         let source = ScriptedSource()
-        await source.set(local: ScriptedSource.verdict(pressure: .critical))
+        await source.set(local: ScriptedSource.verdict(load: 13, swap: 100))
         let held = Held()
         let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false) { held.add($0) }
         let delivered = Delivered()
@@ -160,7 +224,7 @@ struct HostPressureMonitorTests {
         await monitor.start { _, _ in }
         await monitor.read()
         await monitor.memoryPressureChanged(.critical, generation: ended)
-        await source.set(local: ScriptedSource.verdict(pressure: .critical))
+        await source.set(local: ScriptedSource.verdict(load: 13, swap: 100))
         await monitor.read(generation: ended)
         #expect(await monitor.level == .normal)
         await monitor.memoryPressureChanged(.critical, generation: await monitor.generation)

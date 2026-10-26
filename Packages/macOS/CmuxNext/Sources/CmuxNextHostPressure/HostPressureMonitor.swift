@@ -8,8 +8,9 @@ import os
 public protocol HostPressureSource: Sendable {
     /// acpmux's verdict, nil while the daemon does not report one.
     func acpmuxVerdict() async -> HostBudgetVerdict?
-    /// The local verdict (`HostSampler` through the formula).
-    func localVerdict() async -> HostBudgetVerdict
+    /// The local verdict (`HostSampler` through the formula) at memory pressure `pressure`, the
+    /// shared feed's level: the source reads no memory level of its own.
+    func localVerdict(pressure: HostMemoryPressure) async -> HostBudgetVerdict
 }
 
 /// The host's own numbers, read through the shared formula, and acpmux's
@@ -44,11 +45,11 @@ public actor LocalHostPressureSource: HostPressureSource {
         return verdict
     }
 
-    public func localVerdict() -> HostBudgetVerdict {
+    public func localVerdict(pressure: HostMemoryPressure) -> HostBudgetVerdict {
         let formula = formula
         let cores = sampler.cores(formula.cores)
         let rate = sampler.swappedOutBytes().flatMap { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) }
-        return HostBudgetVerdict(host: host, cores: cores.count, coresKind: cores.kind, load1: sampler.load1(), pressure: sampler.memoryPressure(),
+        return HostBudgetVerdict(host: host, cores: cores.count, coresKind: cores.kind, load1: sampler.load1(), pressure: pressure,
                                  availableRAMFraction: sampler.availableRAMFraction(), swapMBPerMin: rate, formula: formula)
     }
 }
@@ -56,10 +57,13 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// Watches the host's pressure off the main thread and tells the main actor
 /// only when the level changes (`HostPressureTracker`).
 ///
-/// Memory pressure comes from the app's one shared pressure feed
-/// (`memoryPressure`, event-driven). The monitor has no kernel source of its
-/// own: Chrome's `MemoryPressureListener`s share one monitor the same way
-/// (base/memory/memory_pressure_listener.cc). Load and swap, and acpmux's
+/// Memory pressure comes only from the app's one shared pressure feed
+/// (`memoryPressure`, event-driven): its level when the run subscribes, then
+/// each change in the order the feed sent it. The monitor has no kernel source
+/// or sysctl read of its own: Chrome's `MemoryPressureListener`s share one
+/// monitor the same way and read its level from it
+/// (base/memory/memory_pressure_listener.cc,
+/// base/memory/memory_pressure_monitor.h `GetCurrentPressureLevel`). Load and swap, and acpmux's
 /// verdict, are read on one timer every `interval` (15 s), never per frame.
 /// Stop condition: `stop()`, which the app calls when its last window closes
 /// or it quits; cleanup: it ends the pressure subscription, cancels the timer
@@ -67,11 +71,11 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// already queued from it is dropped.
 public actor HostPressureMonitor {
     public typealias Change = @MainActor @Sendable (HostPressureLevel, HostBudgetVerdict) -> Void
-    /// Subscribes a handler to the shared memory pressure feed and returns the call that ends
-    /// the subscription. The app passes its one `MemoryPressureEvents.hostPressureSubscription`;
-    /// a test passes a feed it drives.
+    /// Subscribes a handler to the shared memory pressure feed and returns the feed's level now
+    /// with the call that ends the subscription. The app passes its one
+    /// `MemoryPressureEvents.hostPressureSubscription`; a test passes a feed it drives.
     public typealias MemoryPressureSubscription =
-        @Sendable (@escaping @Sendable (HostMemoryPressure) -> Void) -> @Sendable () -> Void
+        @Sendable (@escaping @Sendable (HostMemoryPressure) -> Void) -> (current: HostMemoryPressure, end: @Sendable () -> Void)
     /// How a level change reaches the main actor: a hop by default; tests hold it to run later.
     public typealias Delivery = @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
     public static let mainActorHop: Delivery = { work in
@@ -87,7 +91,10 @@ public actor HostPressureMonitor {
     private var tracker: HostPressureTracker
     private var endMemoryPressure: (@Sendable () -> Void)?
     private var timer: (any DispatchSourceTimer)?
-    private var eventPressure: HostMemoryPressure?
+    /// The feed's level: seeded when a run subscribes, then each change.
+    private var eventPressure = HostMemoryPressure.normal
+    /// The run's one reader of the feed's changes, so they apply in the order they were sent.
+    private var pressureChanges: Task<Void, Never>?
     private var reading: Task<HostBudgetVerdict, Never>?
     private var onChange: Change?
     private var running = false
@@ -125,10 +132,18 @@ public actor HostPressureMonitor {
             state += 1
             return state
         }
-        endMemoryPressure = memoryPressure { [weak self] pressure in
-            guard let self else { return }
-            // task-owner: one hop per pressure change into the monitor; it ends when the change is applied
-            Task { await self.memoryPressureChanged(pressure, generation: generation) }
+        let (changes, continuation) = AsyncStream<HostMemoryPressure>.makeStream()
+        let subscription = memoryPressure { pressure in continuation.yield(pressure) }
+        eventPressure = subscription.current
+        endMemoryPressure = {
+            subscription.end()
+            continuation.finish()
+        }
+        // task-owner: the run's one reader of the feed; it ends when stop() finishes the stream and cancels it
+        pressureChanges = Task { [weak self] in
+            for await pressure in changes {
+                await self?.memoryPressureChanged(pressure, generation: generation)
+            }
         }
         guard ticks else { return }
         timer = Self.makeTimer(for: self, generation: generation, queue: queue, interval: interval)
@@ -160,12 +175,14 @@ public actor HostPressureMonitor {
         run.withLock { $0 += 1 }
         endMemoryPressure?()
         endMemoryPressure = nil
+        pressureChanges?.cancel()
+        pressureChanges = nil
         timer?.cancel()
         timer = nil
         reading?.cancel()
         reading = nil
         onChange = nil
-        eventPressure = nil
+        eventPressure = .normal
         tracker = HostPressureTracker(calmSamples: tracker.calmSamples)
     }
 
@@ -178,19 +195,19 @@ public actor HostPressureMonitor {
     func read(generation: Int? = nil) async {
         guard isLive(generation), reading == nil else { return }
         let generation = self.generation
-        let source = source
+        let (source, pressure) = (source, eventPressure)
         // task-owner: this read; stop() cancels it, and a cancelled read applies nothing
         let task = Task { () -> HostBudgetVerdict in
             if let shared = await source.acpmuxVerdict() { return shared }
-            return await source.localVerdict()
+            return await source.localVerdict(pressure: pressure)
         }
         reading = task
         let verdict = await task.value
         // A stop() and start() during the read may have begun a newer one.
         if reading == task { reading = nil }
         guard isLive(generation), !task.isCancelled else { return }
-        // The feed's level is newer than a sampled one until its next change.
-        apply(eventPressure.map { verdict.with(pressure: $0) } ?? verdict)
+        // The feed's level is the one memory level, over acpmux's too (and it may have changed during the read).
+        apply(verdict.with(pressure: eventPressure))
     }
 
     func memoryPressureChanged(_ pressure: HostMemoryPressure, generation: Int? = nil) {

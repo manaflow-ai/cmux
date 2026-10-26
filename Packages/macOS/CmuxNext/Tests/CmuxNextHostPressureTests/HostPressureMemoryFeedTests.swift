@@ -43,14 +43,15 @@ private final class DrivenPressureSource: MemoryPressureSource {
         let source = DrivenPressureSource()
         let events = MemoryPressureEvents(source: source)
         let received = OSAllocatedUnfairLock<[HostMemoryPressure]>(initialState: [])
-        let end = events.hostPressureSubscription { pressure in received.withLock { $0.append(pressure) } }
+        let subscription = events.hostPressureSubscription { pressure in received.withLock { $0.append(pressure) } }
+        #expect(subscription.current == .normal)
 
         source.send(.warning)
         source.send(.critical)
         source.send(.normal)
         #expect(received.withLock { $0 } == [.warn, .critical, .normal])
 
-        end()
+        subscription.end()
         source.send(.critical)
         #expect(received.withLock { $0 } == [.warn, .critical, .normal])
     }
@@ -68,12 +69,26 @@ private final class DrivenPressureSource: MemoryPressureSource {
         #expect(await levels.next() == .critical)
         await monitor.stop()
     }
+
+    /// A monitor started while the shared feed is already critical, with no change after it,
+    /// reads critical: the level comes from the feed's `currentLevel`, not a sampler of its own.
+    @Test func theMonitorStartsAtTheSharedEventsCurrentLevel() async {
+        let source = DrivenPressureSource()
+        let events = MemoryPressureEvents(source: source)
+        source.send(.critical)
+        let monitor = HostPressureMonitor(source: StaticHostSource(), memoryPressure: events.hostPressureSubscription, ticks: false)
+        await monitor.start { _, _ in }
+        await monitor.read()
+        #expect(await monitor.level == .critical)
+        #expect(await monitor.verdict?.pressure == .critical)
+        await monitor.stop()
+    }
 }
 
 /// A calm host: acpmux has no verdict, the local one is normal.
 private struct StaticHostSource: HostPressureSource {
     func acpmuxVerdict() async -> HostBudgetVerdict? { nil }
-    func localVerdict() async -> HostBudgetVerdict {
-        HostBudgetVerdict(host: "gray", cores: 12, load1: 2, pressure: .normal, availableRAMFraction: 0.5, swapMBPerMin: 0)
+    func localVerdict(pressure: HostMemoryPressure) async -> HostBudgetVerdict {
+        HostBudgetVerdict(host: "gray", cores: 12, load1: 2, pressure: pressure, availableRAMFraction: 0.5, swapMBPerMin: 0)
     }
 }

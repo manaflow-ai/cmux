@@ -1,8 +1,9 @@
 public import CmuxNextCompat
 
 extension MemoryPressureEvents {
-    /// This feed as ``HostPressureMonitor`` subscribes to it: each level in the host budget's
-    /// words, until the returned call cancels the registration.
+    /// This feed as ``HostPressureMonitor`` subscribes to it: ``currentLevel`` when it subscribes,
+    /// then each change, in the host budget's words, until the returned `end` cancels the
+    /// registration. It registers before it reads the level, so no change falls between the two.
     ///
     /// ```swift
     /// HostPressureMonitor(source: LocalHostPressureSource(), memoryPressure: services.memoryPressure.hostPressureSubscription)
@@ -10,7 +11,7 @@ extension MemoryPressureEvents {
     public var hostPressureSubscription: HostPressureMonitor.MemoryPressureSubscription {
         { [self] handler in
             let registration = observe { level in handler(HostMemoryPressure(level)) }
-            return { registration.cancel() }
+            return (HostMemoryPressure(currentLevel), { registration.cancel() })
         }
     }
 }
