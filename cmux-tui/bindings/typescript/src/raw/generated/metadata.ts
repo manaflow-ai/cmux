@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785" as const;
+export const SDK_IR_SHA256 = "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3087,7 +3087,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -11458,6 +11458,278 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsIpc": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start; streams, received, sent and writes cover the control socket's connections (local and remote entry), not WebSocket connections.",
+      "sequence_depth samples the requests in a connection's sequence as each request enters it.",
+      "received and sent list only kinds seen at least once, line first, then frames in wire order.",
+      "bad_message counts connections closed for a malformed message (a JSON line over the size limit, or a bad frame)."
+    ],
+    "fields": {
+      "bad_message": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "parses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParses"
+        }
+      },
+      "received": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsIpcKind"
+          },
+          "kind": "array"
+        }
+      },
+      "ring": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcRing"
+        }
+      },
+      "sent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsIpcKind"
+          },
+          "kind": "array"
+        }
+      },
+      "sequence_depth": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "streams": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcStreams"
+        }
+      },
+      "writes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcWrites"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcKind": {
+    "additional_properties": false,
+    "constraints": [
+      "kind is line (a JSON line; bytes count its delimiter) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "messages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcParse": {
+    "additional_properties": false,
+    "constraints": [
+      "json_parses counts every JSON parse of a request message's bytes, the hello gate's and each answering feature route's included; json_parses_per_request is 0 before the first request."
+    ],
+    "fields": {
+      "json_parses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "json_parses_per_request": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "requests": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcParses": {
+    "additional_properties": false,
+    "constraints": [
+      "lines counts local JSON-line requests (Unix socket and WebSocket), not remote relay lines; frames counts binary REQUEST frames."
+    ],
+    "fields": {
+      "frames": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParse"
+        }
+      },
+      "lines": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParse"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcRing": {
+    "additional_properties": false,
+    "constraints": [
+      "resyncs counts shared output ring gaps a reader resynchronized after; laps counts spans the ring writer overwrote while a reader still held them."
+    ],
+    "fields": {
+      "laps": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "resyncs": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcStreams": {
+    "additional_properties": false,
+    "constraints": [
+      "Every connection's stream 0 counts, and each stream a client opens on it; open is the number open now and peak its highest value."
+    ],
+    "fields": {
+      "open": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "opened": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "peak": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcWrites": {
+    "additional_properties": false,
+    "constraints": [
+      "messages counts messages handed to the connection writers and syscalls their write calls; stalls counts write calls that blocked for at least 1 ms on a full peer receive buffer."
+    ],
+    "fields": {
+      "messages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "stalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "syscalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "syscalls_per_message": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -12115,7 +12387,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "write_path is present only when the request names it in include.",
       "request_path_io is present only when the request names it in include.",
       "slow_requests is present only when the request names it in include.",
-      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
+      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+      "ipc is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -12132,6 +12405,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "ipc": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpc"
         }
       },
       "journal_writer": {

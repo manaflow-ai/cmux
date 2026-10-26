@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1181,6 +1181,52 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
+export type ServerStatsIpc = {
+  "bad_message": bigint;
+  "parses": ServerStatsIpcParses;
+  "received": Array<ServerStatsIpcKind>;
+  "ring": ServerStatsIpcRing;
+  "sent": Array<ServerStatsIpcKind>;
+  "sequence_depth": ServerStatsHistogram;
+  "streams": ServerStatsIpcStreams;
+  "writes": ServerStatsIpcWrites;
+};
+
+export type ServerStatsIpcKind = {
+  "bytes": bigint;
+  "kind": string;
+  "messages": bigint;
+};
+
+export type ServerStatsIpcParse = {
+  "json_parses": bigint;
+  "json_parses_per_request": number;
+  "requests": bigint;
+};
+
+export type ServerStatsIpcParses = {
+  "frames": ServerStatsIpcParse;
+  "lines": ServerStatsIpcParse;
+};
+
+export type ServerStatsIpcRing = {
+  "laps": bigint;
+  "resyncs": bigint;
+};
+
+export type ServerStatsIpcStreams = {
+  "open": bigint;
+  "opened": bigint;
+  "peak": bigint;
+};
+
+export type ServerStatsIpcWrites = {
+  "messages": bigint;
+  "stalls": bigint;
+  "syscalls": bigint;
+  "syscalls_per_message": number;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1280,6 +1326,7 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "ipc"?: ServerStatsIpc;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;

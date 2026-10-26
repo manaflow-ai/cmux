@@ -21044,6 +21044,163 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/ipc": {
+        "ty": "object"
+      },
+      "/data/ipc/bad_message": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/frames": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/frames/json_parses": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/frames/json_parses_per_request": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/ipc/parses/frames/requests": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/lines": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/parses/lines/json_parses": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/parses/lines/json_parses_per_request": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/ipc/parses/lines/requests": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/received": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/ipc/received/*": {
+        "ty": "object"
+      },
+      "/data/ipc/received/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/received/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc/received/*/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/ring": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/ring/laps": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/ring/resyncs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/ipc/sent/*": {
+        "ty": "object"
+      },
+      "/data/ipc/sent/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sent/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc/sent/*/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/sequence_depth/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/streams/open": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams/opened": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/streams/peak": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/writes/messages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/stalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/syscalls": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/writes/syscalls_per_message": {
+        "ty": "float64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

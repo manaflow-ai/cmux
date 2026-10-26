@@ -1709,6 +1709,66 @@ class ServerStatsHistogram:
 
 
 @dataclass(frozen=True)
+class ServerStatsIpc:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpc'
+    bad_message: int
+    parses: ServerStatsIpcParses
+    received: List[ServerStatsIpcKind]
+    ring: ServerStatsIpcRing
+    sent: List[ServerStatsIpcKind]
+    sequence_depth: ServerStatsHistogram
+    streams: ServerStatsIpcStreams
+    writes: ServerStatsIpcWrites
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcKind'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    kind: str
+    messages: int
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcParse:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcParse'
+    json_parses: int
+    json_parses_per_request: float
+    requests: int
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcParses:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcParses'
+    frames: ServerStatsIpcParse
+    lines: ServerStatsIpcParse
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcRing:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcRing'
+    laps: int
+    resyncs: int
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcStreams:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcStreams'
+    open: int
+    opened: int
+    peak: int
+
+
+@dataclass(frozen=True)
+class ServerStatsIpcWrites:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsIpcWrites'
+    messages: int
+    stalls: int
+    syscalls: int
+    syscalls_per_message: float
+
+
+@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1831,6 +1891,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
@@ -6841,6 +6902,13 @@ __all__ = [
     'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
+    'ServerStatsIpc',
+    'ServerStatsIpcKind',
+    'ServerStatsIpcParse',
+    'ServerStatsIpcParses',
+    'ServerStatsIpcRing',
+    'ServerStatsIpcStreams',
+    'ServerStatsIpcWrites',
     'ServerStatsJournalWriter',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',

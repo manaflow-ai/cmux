@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
+pub const ir_sha256 = "98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2170,6 +2170,52 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsIpc = struct {
+    bad_message: u64,
+    parses: ServerStatsIpcParses,
+    received: []const ServerStatsIpcKind,
+    ring: ServerStatsIpcRing,
+    sent: []const ServerStatsIpcKind,
+    sequence_depth: ServerStatsHistogram,
+    streams: ServerStatsIpcStreams,
+    writes: ServerStatsIpcWrites,
+};
+
+pub const ServerStatsIpcKind = struct {
+    bytes: u64,
+    kind: []const u8,
+    messages: u64,
+};
+
+pub const ServerStatsIpcParse = struct {
+    json_parses: u64,
+    json_parses_per_request: f64,
+    requests: u64,
+};
+
+pub const ServerStatsIpcParses = struct {
+    frames: ServerStatsIpcParse,
+    lines: ServerStatsIpcParse,
+};
+
+pub const ServerStatsIpcRing = struct {
+    laps: u64,
+    resyncs: u64,
+};
+
+pub const ServerStatsIpcStreams = struct {
+    open: u64,
+    opened: u64,
+    peak: u64,
+};
+
+pub const ServerStatsIpcWrites = struct {
+    messages: u64,
+    stalls: u64,
+    syscalls: u64,
+    syscalls_per_message: f64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -2273,6 +2319,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    ipc: ?ServerStatsIpc = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
     request_latency_us: ?ServerStatsRequestLatency = null,
@@ -2285,6 +2332,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "ipc",
         "request_latency_us",
         "request_path_io",
         "resource_projection",

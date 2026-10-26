@@ -70,6 +70,11 @@ pub(super) fn handle_connection_frame_at(
             watched.as_ref(),
         );
     }
+    // Every local request line counts its JSON parses (`server-stats` `ipc`).
+    let _parses = crate::diagnostics::JsonParseScope::enter(
+        mux.ipc_stats(),
+        crate::diagnostics::IpcTransport::Lines,
+    );
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending
@@ -111,6 +116,8 @@ pub(super) fn handle_connection_frame_at(
         if request.is_err()
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
+            // The answering route parsed the line; counted as one parse.
+            crate::diagnostics::note_json_parse();
             return span.answered(keep_open);
         }
         // Debug timing marks of a resource create, from the arrival of its
@@ -142,12 +149,15 @@ pub(super) fn handle_connection_frame_at(
     let mut routed =
         (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
     if let Some(keep_open) = route_line(mux, client, message, writer, &stage) {
+        // The answering route parsed the line; counted as one parse.
+        crate::diagnostics::note_json_parse();
         return match routed.as_mut() {
             Some(span) => span.answered(keep_open),
             None => keep_open,
         };
     }
     stage(FrameStage::Route);
+    crate::diagnostics::note_json_parse();
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => {

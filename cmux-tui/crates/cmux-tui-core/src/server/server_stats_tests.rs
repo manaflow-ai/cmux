@@ -220,3 +220,82 @@ fn server_stats_include_reports_slow_requests() {
     assert!(section["watchdog_wakeups"].is_u64(), "{full}");
     assert_eq!(section["recent"], json!([]), "{full}");
 }
+
+/// `ipc` over a real connection loop: after a few request lines every
+/// traffic counter has moved, and the section decodes through the SDK.
+#[cfg(unix)]
+#[test]
+fn server_stats_include_reports_ipc_after_traffic() {
+    use crate::server::client_hello::tests::Client;
+    let mux = Mux::new_for_test("server-stats-ipc", crate::SurfaceOptions::default());
+    let mut client = Client::connect(&mux, "ipc");
+    let plain = client.request(json!({"cmd": "server-stats"}));
+    assert!(plain["data"].get("ipc").is_none(), "{plain}");
+    for _ in 0..3 {
+        assert_eq!(client.request(json!({"cmd": "ping"}))["ok"], true);
+    }
+    let full = client.request(json!({"cmd": "server-stats", "include": ["ipc"]}));
+    let ipc = &full["data"]["ipc"];
+    assert_eq!(ipc["streams"]["open"], json!(1), "{ipc}");
+    assert_eq!(ipc["streams"]["opened"], json!(1), "{ipc}");
+    assert!(ipc["sequence_depth"]["count"].as_u64().unwrap() >= 4, "{ipc}");
+    let line = |direction: &str| ipc[direction][0].clone();
+    assert_eq!(line("received")["kind"], "line", "{ipc}");
+    assert!(line("received")["messages"].as_u64().unwrap() >= 5, "{ipc}");
+    assert!(line("received")["bytes"].as_u64().unwrap() > 0, "{ipc}");
+    assert_eq!(line("sent")["kind"], "line", "{ipc}");
+    assert!(line("sent")["messages"].as_u64().unwrap() >= 4, "{ipc}");
+    let lines = &ipc["parses"]["lines"];
+    let requests = lines["requests"].as_u64().unwrap();
+    assert!(requests >= 4, "{ipc}");
+    assert!(lines["json_parses"].as_u64().unwrap() >= requests, "every line parses: {ipc}");
+    assert!(lines["json_parses_per_request"].as_f64().unwrap() >= 1.0, "{ipc}");
+    assert_eq!(ipc["parses"]["frames"]["requests"], json!(0), "{ipc}");
+    let writes = &ipc["writes"];
+    assert!(writes["messages"].as_u64().unwrap() >= 4, "{ipc}");
+    assert!(writes["syscalls"].as_u64().unwrap() >= 4, "{ipc}");
+    assert!(writes["syscalls_per_message"].as_f64().unwrap() >= 1.0, "{ipc}");
+    assert_eq!(ipc["bad_message"], json!(0), "{ipc}");
+
+    let decoded: ::cmux::raw::ServerStatsResult =
+        serde_json::from_value(full["data"].clone()).expect("the SDK decodes the ipc section");
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), full["data"]);
+
+    drop(client);
+    assert_eq!(mux.ipc_stats().snapshot().streams.open, 0, "the stream closes with its connection");
+}
+
+/// A line over the size limit closes its connection as a bad message.
+#[cfg(unix)]
+#[test]
+fn server_stats_ipc_counts_an_oversized_line_as_bad_message() {
+    use std::io::Write;
+    let mux = Mux::new_for_test("server-stats-ipc-bad", crate::SurfaceOptions::default());
+    let directory = std::env::temp_dir().join(format!("cmux-ipc-bad-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("s.sock");
+    let listener = transport::listen(&path).unwrap();
+    let mut client = transport::connect(&path).unwrap();
+    let server = listener.accept().unwrap();
+    let server_mux = mux.clone();
+    let handler = std::thread::spawn(move || {
+        serve_line_connection(
+            server_mux,
+            server,
+            Arc::new(RenderService::new()),
+            None,
+            ClientTransport::Unix,
+            &admission::LocalAdmission,
+        );
+    });
+    let oversized = vec![b'x'; MAX_JSON_LINE_BYTES + 1];
+    // The daemon closes as soon as it has read past the limit, so the
+    // write may fail.
+    let _ = client.write_all(&oversized).and_then(|()| client.write_all(b"\n"));
+    handler.join().unwrap();
+    let _ = std::fs::remove_dir_all(&directory);
+    let ipc = mux.ipc_stats().snapshot();
+    assert_eq!(ipc.bad_message, 1);
+    assert_eq!(ipc.streams.open, 0);
+    assert_eq!(ipc.received[0].kind, "line");
+}

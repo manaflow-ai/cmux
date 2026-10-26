@@ -42,10 +42,16 @@ pub(super) fn serve_line_connection(
     );
     let writer_outbound = outbound;
     let writer_close = writer.clone();
+    let writer_ipc = mux.ipc_stats().clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
+                if let OutboundItem::Text(text) = &item {
+                    writer_ipc.line_sent(text.len() + 1);
+                }
+                if write_line_outbound_item(&mut writer_ipc.counted(&mut *write_half), item)
+                    .is_err()
+                {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
@@ -62,6 +68,9 @@ pub(super) fn serve_line_connection(
     let peer_token = stream.peer_token();
     let peer_uid = stream.peer_uid();
     let client = mux.control_clients.register(transport, writer.clone());
+    // The connection's stream 0, open until the connection ends.
+    let ipc = mux.ipc_stats().clone();
+    let _stream = ipc.stream_opened();
     origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token, peer_uid);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
@@ -94,7 +103,9 @@ pub(super) fn serve_line_connection(
         if read == 0 {
             break;
         }
+        ipc.line_received(read);
         if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
+            ipc.bad_message();
             drain_accepted = false;
             break;
         }

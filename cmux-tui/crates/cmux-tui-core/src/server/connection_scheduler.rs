@@ -209,8 +209,10 @@ impl ConnectionSurfaceScheduler {
             retained_bytes,
             _bytes_permit: bytes_permit,
         });
+        let depth = state.requests.len();
         self.changed.notify_all();
         drop(state);
+        mux.ipc_stats().sequence_depth(depth);
 
         if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
             self.finish_dispatcher();

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785.
+// cmux-tui mux protocol 12, IR 98361af25b05526f72fdb923aa08991db43dc2680fb6a38b296a780618450698.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1938,6 +1938,66 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpc {
+    pub bad_message: u64,
+    pub parses: ServerStatsIpcParses,
+    pub received: Vec<ServerStatsIpcKind>,
+    pub ring: ServerStatsIpcRing,
+    pub sent: Vec<ServerStatsIpcKind>,
+    pub sequence_depth: ServerStatsHistogram,
+    pub streams: ServerStatsIpcStreams,
+    pub writes: ServerStatsIpcWrites,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcKind {
+    pub bytes: u64,
+    pub kind: String,
+    pub messages: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcParse {
+    pub json_parses: u64,
+    pub json_parses_per_request: f64,
+    pub requests: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcParses {
+    pub frames: ServerStatsIpcParse,
+    pub lines: ServerStatsIpcParse,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcRing {
+    pub laps: u64,
+    pub resyncs: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcStreams {
+    pub open: u64,
+    pub opened: u64,
+    pub peak: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcWrites {
+    pub messages: u64,
+    pub stalls: u64,
+    pub syscalls: u64,
+    pub syscalls_per_message: f64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -2057,6 +2117,8 @@ pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<ServerStatsHistogram>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ipc: Option<ServerStatsIpc>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
