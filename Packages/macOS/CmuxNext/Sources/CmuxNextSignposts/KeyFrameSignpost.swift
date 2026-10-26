@@ -8,6 +8,9 @@ public import Foundation
 /// commit carries the typed character; for a terminal it carries the key's own work only, and the echo comes back
 /// from the shell in a later frame, so `target=terminal` rows are the main thread's share of the key.
 ///
+/// It runs on every key for every user, so the signpost itself makes no heap allocation: the typed begin and end
+/// (``Signposter/begin(_:target:ageMicros:)``) format numbers into a stack buffer, never a `String`.
+///
 /// ```swift
 /// KeyFrameSignpost().begin(target: .view, eventTimestamp: event.timestamp)
 /// ```
@@ -33,8 +36,13 @@ public struct KeyFrameSignpost: Sendable {
     public func begin(target: Target, eventTimestamp: TimeInterval, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         let signposter = Signposter.key
         guard signposter.isEnabled else { return }
-        let age = eventTimestamp > 0 ? max(0, now - eventTimestamp) * 1000 : -1
-        let interval = signposter.begin(.keyToFrame, "target=\(target.rawValue) age_ms=\(String(format: "%.2f", age))")
+        let interval = signposter.begin(.keyToFrame, target: target,
+                                        ageMicros: Self.ageMicros(eventTimestamp: eventTimestamp, now: now))
         CommitBoundary().after { outcome in signposter.end(.keyToFrame, interval, outcome) }
+    }
+
+    /// The key's age in microseconds (rounded) when its dispatch began (never negative), -1 when it has no timestamp.
+    static func ageMicros(eventTimestamp: TimeInterval, now: TimeInterval) -> Int64 {
+        eventTimestamp > 0 ? Int64((max(0, now - eventTimestamp) * 1_000_000).rounded()) : -1
     }
 }

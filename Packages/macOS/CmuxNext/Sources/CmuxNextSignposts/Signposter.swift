@@ -1,3 +1,4 @@
+import CmuxNextSignpostsC
 public import os
 
 /// Always-on signpost intervals for one ``SignpostCategory``, the same in Debug and Release.
@@ -123,6 +124,35 @@ public nonisolated struct Signposter: Sendable {
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
     }
 
+    /// Begins a ``SignpostName/keyToFrame`` interval for a key-down with no heap allocation: os_signpost's C
+    /// macros format `target=<view|terminal> age_ms=<age, 2 decimals>` into a stack buffer (CmuxNextSignpostsC),
+    /// where `OSSignposter.beginInterval` returns a heap `OSSignpostIntervalState` per key.
+    ///
+    /// - Parameters:
+    ///   - name: ``SignpostName/keyToFrame``.
+    ///   - target: What has the keyboard.
+    ///   - ageMicros: The key's age when its dispatch began, in microseconds, or -1 without a timestamp.
+    /// - Returns: The interval to end with the ``KeyFrameInterval`` overload of `end(_:_:_:)`.
+    public func begin(_ name: SignpostName, target: KeyFrameSignpost.Target, ageMicros: Int64) -> KeyFrameInterval {
+        assert(name == .keyToFrame && category == .key, "\(name) is not key.frame on the key category")
+        let id = cmux_signpost_key_frame_id()
+        cmux_signpost_key_frame_begin(id, target == .terminal ? 1 : 0, ageMicros < 0 ? -1 : Double(ageMicros) / 1_000)
+        return KeyFrameInterval(id: id, metricKitID: mirror.begin(name))
+    }
+
+    /// Ends a ``SignpostName/keyToFrame`` interval that ``CommitBoundary`` closed, as the ``SignpostInterval``
+    /// overload does: a missed end carries `commit=missed` and is not mirrored to MetricKit.
+    public func end(_ name: SignpostName, _ interval: KeyFrameInterval, _ outcome: CommitBoundary.Outcome) {
+        assert(name == .keyToFrame && category == .key, "\(name) is not key.frame on the key category")
+        switch outcome {
+        case .committed:
+            cmux_signpost_key_frame_end(interval.id, 0)
+            if let id = interval.metricKitID { mirror.end(name, id: id) }
+        case .missed:
+            cmux_signpost_key_frame_end(interval.id, 1)
+        }
+    }
+
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
@@ -194,16 +224,36 @@ public nonisolated struct Signposter: Sendable {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
     }
 
-    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
-    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`).
+    /// Records a ``SignpostName/stallOverBudget`` point event with the task's fields, formatted by the log
+    /// system only when something reads them (`class=<class> owner=<owner> ms=<task time, 2 decimals>
+    /// budget_ms=<the class's budget, 2 decimals>`), so the caller builds no `String`.
     ///
     /// - Parameters:
-    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...).
+    ///   - name: A catalog name of this signposter's category.
+    ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
+    ///   - owner: The batch owner or control method that scheduled the task.
+    ///   - milliseconds: The task's own time.
+    ///   - budgetMilliseconds: Its class's per-frame budget.
+    public func event(_ name: SignpostName, taskClass: String, owner: String, milliseconds: Double, budgetMilliseconds: Double) {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        signposter.emitEvent(
+            name.staticName,
+            "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public) ms=\(milliseconds, format: .fixed(precision: 2), privacy: .public) budget_ms=\(budgetMilliseconds, format: .fixed(precision: 2), privacy: .public)"
+        )
+    }
+
+    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
+    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`). os_signpost's C macros format
+    /// it into a stack buffer (CmuxNextSignpostsC), so a hop makes no heap allocation.
+    ///
+    /// - Parameters:
+    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...), a literal passed as its C string.
     ///   - flow: The key press's flow id.
     ///   - ageMicroseconds: The key event's age at this hop, or -1.
-    public func flowHop(_ hop: String, flow: UInt64, ageMicroseconds: Int64 = -1) {
+    public func flowHop(_ hop: StaticString, flow: UInt64, ageMicroseconds: Int64 = -1) {
         assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
-        signposter.emitEvent(SignpostName.keyFlow.staticName,
-                             "hop=\(hop, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
+        hop.utf8Start.withMemoryRebound(to: CChar.self, capacity: hop.utf8CodeUnitCount + 1) {
+            cmux_signpost_key_flow_hop($0, flow, ageMicroseconds)
+        }
     }
 }

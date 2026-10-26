@@ -229,7 +229,8 @@ public final class MainFrameBudget {
                 over = true
                 stats.overBudgetTasks[index] += 1
                 if signposts {
-                    Signposter.stall.event(.stallOverBudget, "class=\(task.workClass) owner=\(task.owner.name) ms=\(Self.milliseconds(own)) budget_ms=\(Self.milliseconds(task.budgetNanos))")
+                    Signposter.stall.event(.stallOverBudget, taskClass: task.workClass.description, owner: task.owner.name,
+                                           milliseconds: Self.milliseconds(own), budgetMilliseconds: Self.milliseconds(task.budgetNanos))
                 }
             }
         }
@@ -307,7 +308,7 @@ public final class MainFrameBudget {
         return UInt64(clamping: seconds) &* 1_000_000_000 &+ UInt64(clamping: attoseconds / 1_000_000_000)
     }
 
-    private static func milliseconds(_ nanos: UInt64) -> String {
-        String(format: "%.2f", Double(nanos) / 1_000_000)
+    private static func milliseconds(_ nanos: UInt64) -> Double {
+        Double(nanos) / 1_000_000
     }
 }

@@ -43,7 +43,7 @@ public final class TypingLatencyProbe: Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
 
         /// The `key.flow` hop this mark records.
-        var hopName: String {
+        var hopName: StaticString {
             switch self {
             case .dispatchStart: "app.key.dispatch"
             case .dispatchEnd: "app.key.dispatched"
@@ -141,7 +141,7 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Records a `key.flow` hop of the open press that no CSV column has (`app.key.terminal`: the key
     /// router handed the key to a terminal). Nothing while flows are off or no press is open.
-    public func hop(_ name: String) {
+    public func hop(_ name: StaticString) {
         guard let flows, let flow = state.withLock({ $0.open?.flow }) else { return }
         flows.flowHop(name, flow: flow)
     }
