@@ -18,11 +18,15 @@ import CmuxNextWakeups
 /// delay instead of fading before the band closes; that hold does not
 /// count as engagement.
 ///
-/// The open share is the width of `driver`, a constraint animated with the
-/// sidebar's tokens: every animation frame lays the window root out, which
-/// places the band and the strips under it in the same pass, the same way
-/// the sidebar's own width drives the band. A change mid-animation
-/// retargets from what is on screen. Reduce Motion (or speed off) snaps.
+/// Main lays the window root out once per change, then the render server
+/// moves the band: `presence` is the committed share the root lays out
+/// with, and the band's visible width is a clip that springs on the
+/// render server (`RenderClip`), so no frame of the motion lays out.
+/// An open commits at once and the clip grows from what shows; a close
+/// clips the band away and commits when it lands, so the band never
+/// shrinks under its own clip. A change mid-flight retargets the additive
+/// spring, so the shown width stays continuous. Reduce Motion (or speed
+/// off, or no screen) commits at once with no clip.
 @MainActor
 final class CollapsedBandReveal {
     /// How long the band stays open after the pointer leaves.
@@ -44,39 +48,36 @@ final class CollapsedBandReveal {
     /// The band is open (or opening) over the hidden sidebar.
     private(set) var isOpen = false
     /// Whether the last open or close animated (false under Reduce Motion,
-    /// speed off, or a window with no screen).
+    /// speed off, a window with no screen, or nothing left to show).
     private(set) var lastChangeAnimated = false
-    /// Carries the open share as its width; takes no clicks, draws nothing.
-    let driver = PassThroughView(frame: .zero)
-    private var width: NSLayoutConstraint?
+    /// The open share the root lays out with: 0 closed, 1 open. It changes
+    /// once per open (at its start) and once per close (when its clip lands).
+    private(set) var presence: CGFloat = 0 {
+        didSet { if presence != oldValue { root?.needsLayout = true } }
+    }
     /// The close delay's one-shot deadline.
     private let closeTimer: DemandTimer
-    /// The band's share on screen now (the sidebar's or this driver's), so
+    private let clip: any RenderClipMotion
+    private weak var root: NSView?
+    private weak var band: NSView?
+    /// A clip is on the band (a spring runs or has not landed yet).
+    private var clipping = false
+    /// Bumped by every change, so only the latest clip's landing commits.
+    private var change = 0
+    /// The band's share on screen now (the sidebar's or this reveal's), so
     /// an open starts from it instead of from 0.
     var shownPresence: () -> CGFloat = { 0 }
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter clip: Where the band's clip springs (tests pass a recorder).
+    init(clock: any Clock<Duration> = ContinuousClock(), clip: (any RenderClipMotion)? = nil) {
         closeTimer = DemandTimer(owner: "CollapsedBandReveal.close", clock: clock)
-        driver.setAccessibilityElement(false)
+        self.clip = clip ?? RenderClip(gate: Motion.sidebar)
     }
 
-    /// Adds the driver to `root` (top-leading, 0 tall).
-    func install(in root: NSView) {
-        driver.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(driver)
-        let width = driver.widthAnchor.constraint(equalToConstant: 0)
-        NSLayoutConstraint.activate([
-            driver.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            driver.topAnchor.constraint(equalTo: root.topAnchor),
-            driver.heightAnchor.constraint(equalToConstant: 0),
-            width,
-        ])
-        self.width = width
-    }
-
-    /// The open share on screen: 0 closed, 1 open, in between while it animates.
-    var presence: CGFloat {
-        min(1, max(0, driver.frame.width / TitlebarToolbarBand.width))
+    /// `root` lays out with ``presence``; `band` is the view the clip shows.
+    func install(in root: NSView, band: NSView) {
+        self.root = root
+        self.band = band
     }
 
     func setEngaged(_ value: Bool) {
@@ -88,6 +89,8 @@ final class CollapsedBandReveal {
     func setSidebarHidden(_ value: Bool) {
         guard sidebarHidden != value else { return }
         sidebarHidden = value
+        // A shown sidebar shows the whole band: a clip in flight opens back up from what it shows.
+        if !value, clipping { reopenClip() }
         reconcile()
     }
 
@@ -110,24 +113,53 @@ final class CollapsedBandReveal {
             ownHold = reveal.hold()
         }
         let full = TitlebarToolbarBand.width
-        guard let width else { return }
-        lastChangeAnimated = animates
-        guard lastChangeAnimated else { width.constant = full; return }
-        // Start from what shows (a sidebar that is still sliding out), so the band never dips.
-        let start = max(presence, shownPresence()) * full
-        if start > width.constant {
-            Motion.withoutAnimation { Motion.animator(width, in: driver).constant = start }
+        // Read before the commit: a sidebar still sliding out, so the band never dips.
+        // A clip in flight continues from what it shows (the additive retarget).
+        let start: CGFloat? = clipping ? nil : min(full, shownPresence() * full)
+        change += 1
+        presence = 1
+        guard let band, clip.animates(in: band), start.map({ $0 < full }) ?? true else {
+            lastChangeAnimated = false
+            return land()
         }
-        Motion.sidebar.animateTimed(.appear, in: driver) { Motion.animator(width, in: driver).constant = full }
+        lastChangeAnimated = true
+        run(on: band, from: start, to: full, token: .appear)
     }
 
     private func close() {
         isOpen = false
         releaseHold()
-        guard let width else { return }
-        lastChangeAnimated = animates
-        guard lastChangeAnimated else { width.constant = 0; return }
-        Motion.sidebar.animateExit(.disappear, in: driver) { Motion.animator(width, in: driver).constant = 0 }
+        change += 1
+        // With the sidebar shown, its own width shows the band: nothing to clip.
+        guard sidebarHidden, presence > 0, let band, clip.animates(in: band) else {
+            lastChangeAnimated = false
+            return land()
+        }
+        lastChangeAnimated = true
+        run(on: band, from: clipping ? nil : TitlebarToolbarBand.width, to: 0, token: .disappear)
+    }
+
+    private func reopenClip() {
+        change += 1
+        guard let band, clip.animates(in: band) else { return land() }
+        run(on: band, from: nil, to: TitlebarToolbarBand.width, token: .appear)
+    }
+
+    private func run(on band: NSView, from start: CGFloat?, to width: CGFloat, token: MotionSpring) {
+        clipping = true
+        let landing = change
+        clip.clip(band, from: start, to: width, token: token) { [weak self] in
+            guard let self, landing == change else { return }
+            land()
+        }
+    }
+
+    /// Commits the model and removes the clip: one layout when the share changed.
+    private func land() {
+        presence = isOpen ? 1 : 0
+        guard clipping else { return }
+        clipping = false
+        if let band { clip.unclip(band) }
     }
 
     private func releaseHold() {
@@ -135,6 +167,4 @@ final class CollapsedBandReveal {
         ownHold = nil
         hold?.release()
     }
-
-    private var animates: Bool { Motion.sidebar.policy.animatesMovement && Motion.canAnimate(in: driver) }
 }
