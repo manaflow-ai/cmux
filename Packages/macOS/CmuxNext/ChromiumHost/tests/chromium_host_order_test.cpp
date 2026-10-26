@@ -1,15 +1,19 @@
 // One ordered input stream (task p01-process-092; chromium_host_wire.h, "One
 // ordered input stream"): the ordered frame's order word, the outbox keeping
-// a state op that input was written after, the OrderedStream's two checks,
-// and the ordering case: 10,000 keys interleaved with focus changes, IME
-// commits and resizes across 2 pages, the two streams arriving in random
-// interleavings, land on the active page in send order. The same delivery
-// with no barrier must misroute keys, so the case fails without the fix.
+// a state op that input was written after, the ring queue never folding input
+// across a control seq, the OrderedStream's two checks, and the ordering case:
+// 10,000 keys interleaved with focus changes, IME commits and resizes across 2
+// pages, the control messages through a real control::Outbox and the two
+// streams arriving in random interleavings, land on the active page in send
+// order. The same delivery with no barrier must misroute keys, so the case
+// fails without the fix. remote_shim_test.cpp runs the same case through the
+// remote shim's runtime, its channel and the host's FrameQueue.
 // Built and run by scripts/cmux-next/tests/chromium-host-wire.test.sh.
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <optional>
 #include <random>
 #include <string>
 #include <utility>
@@ -99,6 +103,70 @@ static void TestOrderedFrame() {
   control::Message barrier_only = Control(0x10, 0, 4);
   std::vector<uint8_t> refused;
   Check(!control::Encode(barrier_only, &refused) && refused.empty(), "an input barrier with no control seq is refused");
+}
+
+// The host's ring queue folds moves, wheels and geometry only within one
+// control seq and one page: a wheel must still meet the state it was written
+// against.
+static void TestFrameQueueKeepsInputAcrossControl() {
+  cmux_host::FrameQueue queue(16);
+  queue.MarkReady();
+  auto wheel = [](uint32_t seq, uint32_t ctl_seq, uint32_t page, int32_t dy) {
+    Header h;
+    h.kind = cmux_host::kWheel;
+    h.seq = seq;
+    h.v[3] = dy;
+    h.t1 = page;
+    cmux_host::SetCtlSeq(&h, ctl_seq);
+    return h;
+  };
+  queue.Add(wheel(1, 0, 1, 3), {});
+  queue.Add(wheel(2, 0, 1, 4), {});
+  Check(queue.size() == 1 && queue.coalesced() == 1, "two wheels with one control seq fold");
+  queue.Add(wheel(3, 1, 1, 5), {});  // an ordered op (control seq 1) came between
+  Check(queue.size() == 2, "wheel, ordered op, wheel stay two frames");
+  queue.Add(wheel(4, 1, 2, 6), {});
+  Check(queue.size() == 3, "a wheel for another page is its own frame");
+  Header geometry;
+  geometry.kind = cmux_host::kGeometry;
+  geometry.seq = 5;
+  queue.Add(geometry, {});
+  geometry.seq = 6;
+  cmux_host::SetCtlSeq(&geometry, 2);
+  queue.Add(geometry, {});
+  Check(queue.size() == 5, "geometry across a control seq stays two frames");
+  const std::deque<cmux_host::QueuedFrame> taken = queue.Take();
+  Check(taken.size() == 5 && taken[0].header.v[3] == 7 && taken[0].header.seq == 2 && taken[1].header.v[3] == 5 &&
+            cmux_host::CtlSeqOf(taken[1].header) == 1,
+        "the folded wheel sums its run's deltas; the next keeps its own");
+}
+
+// Ring frames that are not input (kPing, kStats: `seq` is a request id) keep
+// their place in the ring and are never checked as input seqs.
+static void TestStreamPassesNonInputKinds() {
+  std::vector<std::string> log;
+  control::OrderedStream stream([&log](std::vector<control::Message> run) {
+    for (const control::Message& m : run) log.push_back("c" + std::to_string(m.fields.at(0).integer));
+  });
+  stream.AttachInput([&log](const Header& h) { log.push_back(std::to_string(h.kind) + ":" + std::to_string(h.seq)); });
+  stream.OpenInput();
+  Header ping;
+  ping.kind = cmux_host::kPing;
+  ping.seq = 0;
+  Check(stream.AddInput(ping) == Result::kOk, "a ping with seq 0 is not malformed");
+  Header stats;
+  stats.kind = cmux_host::kStats;
+  stats.seq = 7;  // its request id
+  Check(stream.AddInput(stats) == Result::kOk && stream.AddInput(stats) == Result::kOk,
+        "a repeated stats request id is not malformed");
+  Check(stream.AddInput(Input(1, 1, 1)) == Result::kOk, "input 1 waits for control 1");
+  stats.seq = 3;
+  Check(stream.AddInput(stats) == Result::kOk, "a stats request behind it waits in ring order");
+  Check(stream.AddControl({Control(1, 1, 0, 1)}) == Result::kOk, "control 1");
+  Check(log == std::vector<std::string>({"7:0", "8:7", "8:7", "c1", "5:1", "8:3"}),
+        "non-input kinds go in ring order with no seq check");
+  Check(stream.dispatched_input() == 1, "only input seqs count as dispatched");
+  Check(stream.AddInput(Input(1, 0)) == Result::kMalformed, "an input kind still needs a new seq");
 }
 
 static void TestOutboxKeepsStateAcrossInput() {
@@ -244,7 +312,7 @@ enum Op : uint16_t { kActivate = 1, kIme = 2, kGeometry = 3, kNavigate = 4 };
 
 // What cmux sent, in send order, and what the host must see.
 struct Sent {
-  std::deque<control::Message> controls;  // after the outbox: coalesced geometry dropped
+  std::deque<control::Message> controls;  // as the outbox let them out: coalesced geometry dropped
   std::deque<Header> inputs;
   std::vector<std::string> order;  // keys and IME commits: "k<id>" / "m<id>"
   std::vector<int32_t> key_page;   // by key id: the active page when it was sent
@@ -252,9 +320,28 @@ struct Sent {
 };
 
 // cmux's side: the remote shim's counters (remote_shim.mm Post and OrderInput)
-// and the outbox's rule for geometry (same page, no input between).
+// and a real control::Outbox, which the socket empties at random times. The
+// geometry here is a keyed ordered op, as kOpDevtoolsSetPlacement is.
 static Sent Send(std::mt19937& rng, size_t key_count) {
   Sent s;
+  control::Outbox outbox(SIZE_MAX, SIZE_MAX);
+  // The socket takes what waits: each frame decoded as the host reads it.
+  auto drain = [&] {
+    while (control::Outbox::Entry* entry = outbox.Front()) {
+      std::deque<int> fds;
+      control::Message m;
+      size_t used = 0;
+      const control::Parse parse = control::Decode(entry->bytes.data(), entry->bytes.size(), &fds, &m, &used);
+      Check(parse == control::Parse::kFrame && used == entry->bytes.size(), "an outbox frame decodes whole");
+      s.controls.push_back(std::move(m));
+      outbox.PopFront();
+    }
+  };
+  auto push = [&](const control::Message& m, std::optional<uint64_t> key, uint32_t boundary) {
+    std::vector<uint8_t> bytes;
+    Check(control::Encode(m, &bytes), "a control message encodes");
+    if (outbox.Push(std::move(bytes), {}, key, 0, boundary)) ++s.coalesced;
+  };
   uint32_t ctl = 0, input = 0;
   int32_t active = 1;
   int32_t width[3] = {0, 800, 800};
@@ -271,9 +358,10 @@ static Sent Send(std::mt19937& rng, size_t key_count) {
   int32_t ime_id = 0;
   while (s.keys < key_count) {
     const int roll = pick(rng);
+    if (pick(rng) < 10) drain();
     if (roll < 8) {
       active = 3 - active;  // focus moves to the other page
-      s.controls.push_back(ordered(kActivate, active, 0));
+      push(ordered(kActivate, active, 0), std::nullopt, input);
       ++s.focus_changes;
     } else if (roll < 14) {
       const int32_t id = ++ime_id;
@@ -281,30 +369,21 @@ static Sent Send(std::mt19937& rng, size_t key_count) {
       if (pick(rng) < 5) {
         // Not sent (the host lacks it): its place goes as a seq mark.
         m.op = control::kOpSeqMark;
+        m.fields.clear();
         ++s.marks;
       } else {
         s.order.push_back("m" + std::to_string(id));
         ++s.ime_commits;
       }
-      s.controls.push_back(std::move(m));
+      push(m, std::nullopt, input);
     } else if (roll < 22) {
       const int32_t page = 1 + pick(rng) % 2;
       width[page] = 400 + pick(rng) * 10;
-      control::Message m = ordered(kGeometry, page, width[page]);
       // The outbox replaces a waiting geometry of the page with no input written since.
-      for (auto it = s.controls.rbegin(); it != s.controls.rend(); ++it) {
-        if (it->op == kGeometry && it->fields[0].integer == page) {
-          if (it->after_input == m.after_input) {
-            s.controls.erase(std::next(it).base());
-            ++s.coalesced;
-          }
-          break;
-        }
-      }
-      s.controls.push_back(std::move(m));
+      push(ordered(kGeometry, page, width[page]), control::StateKey(kGeometry, page), input);
       ++s.resizes;
     } else if (roll < 25) {
-      s.controls.push_back(control::Message{kNavigate, false, 0, {control::Field::I32(0, active)}, {}, 0, 0});
+      push(control::Message{kNavigate, false, 0, {control::Field::I32(0, active)}, {}, 0, 0}, std::nullopt, input);
     } else {
       input = cmux_host::NextSeq(input);
       Header h;
@@ -325,6 +404,7 @@ static Sent Send(std::mt19937& rng, size_t key_count) {
       s.inputs.push_back(h);
     }
   }
+  drain();
   return s;
 }
 
@@ -439,7 +519,9 @@ int main() {
   TestSeqHelpers();
   TestOrderedFrame();
   TestOutboxKeepsStateAcrossInput();
+  TestFrameQueueKeepsInputAcrossControl();
   TestStreamChecks();
+  TestStreamPassesNonInputKinds();
   TestOrderingCase();
   if (failures != 0) {
     std::fprintf(stderr, "chromium_host_order_test: %d failures\n", failures);

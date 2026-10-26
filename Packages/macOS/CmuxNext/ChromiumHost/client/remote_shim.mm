@@ -193,6 +193,12 @@ bool IsOrderedOp(uint16_t op) {
   }
 }
 
+// Input that goes on the control channel, not the ring: PostInput's ops, and the scripted click.
+// Each is a coalescing boundary: a state op never replaces a waiting one across it.
+bool IsControlInputOp(uint16_t op) {
+  return op == kOpTabSendClick;
+}
+
 // The symbol of an optional op (kOptionalExports), nullptr for a header op.
 const char* OptionalExportName(uint16_t op) {
   for (const OptionalExport& entry : kOptionalExports) {
@@ -265,6 +271,7 @@ class Runtime {
 
   bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
+    if (IsControlInputOp(op)) ++boundary_;
     Message message = MakeMessage(op, token, args.fields());
     // Detached, the op is dropped: a seq it took would never reach the next host, and input
     // stamped with it would wait there.
@@ -277,11 +284,23 @@ class Runtime {
     return Route(std::move(message), key);
   }
 
+  // Input on the control channel until the ring lands (041, 042): it keeps its place among the
+  // posts, and a state op posted after it does not replace one posted before it.
+  bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    ++boundary_;
+    return Post(op, token, args);
+  }
+
   // The input ring's writer (tasks 041 and 042), for the frame it writes next: its input seq,
-  // and in `ctl_seq` the control seq of the last ordered op posted before it (CtlSeqOf).
+  // and in `ctl_seq` the control seq of the last ordered op posted before it (CtlSeqOf). 0 with
+  // no host attached: the frame is not written, as a seq it took would never reach a host.
   uint32_t OrderInput(uint32_t* ctl_seq) {
     CMUX_REMOTE_ASSERT_MAIN();
+    if (ctl_seq != nullptr) *ctl_seq = 0;
+    if (link_ != Link::kAttached) return 0;
     input_seq_ = cmux_host::NextSeq(input_seq_);
+    ++boundary_;
     if (ctl_seq != nullptr) *ctl_seq = ctl_seq_;
     return input_seq_;
   }
@@ -399,11 +418,12 @@ class Runtime {
   struct Queued {
     Message message;
     std::optional<uint64_t> key;  // StateKeyFor
+    uint32_t boundary = 0;        // boundary_ when it was posted
     bool live = true;             // false: replaced by a newer state op
   };
 
-  bool Send(const Message& message, std::optional<uint64_t> key = std::nullopt) {
-    if (channel_->Send(message, key)) return true;
+  bool Send(const Message& message, std::optional<uint64_t> key = std::nullopt, uint32_t boundary = 0) {
+    if (channel_->Send(message, key, boundary)) return true;
     KeepPlace(message);
     return Dropped(message.token);
   }
@@ -430,20 +450,20 @@ class Runtime {
           Enqueue(std::move(message), key);
           return true;
         }
-        return SendOrRefuse(message, key);
+        return SendOrRefuse(message, key, boundary_);
       case Link::kDetached:
         return Dropped(message.token);
     }
     return false;
   }
 
-  bool SendOrRefuse(const Message& message, std::optional<uint64_t> key) {
+  bool SendOrRefuse(const Message& message, std::optional<uint64_t> key, uint32_t boundary) {
     const char* optional = OptionalExportName(message.op);
     if (optional != nullptr && host_exports_.count(optional) == 0) {
       KeepPlace(message);
       return Refused(message.token);
     }
-    return Send(message, key);
+    return Send(message, key, boundary);
   }
 
   // Never drops: past the channel's quota the excess is counted, as the channel counts it
@@ -452,13 +472,13 @@ class Runtime {
   void Enqueue(Message message, std::optional<uint64_t> key) {
     if (key) {
       const auto it = queued_keys_.find(*key);
-      if (it != queued_keys_.end() && it->second->message.after_input == message.after_input) {
+      if (it != queued_keys_.end() && it->second->boundary == boundary_) {
         it->second->live = false;
         --queued_live_;
         ++stats_.coalesced;
       }
     }
-    queued_.push_back(Queued{std::move(message), key, true});
+    queued_.push_back(Queued{std::move(message), key, boundary_, true});
     if (key) queued_keys_[*key] = &queued_.back();  // a deque keeps element addresses on push_back
     if (++queued_live_ > cmux_host::control::kQuotaMessages) ++stats_.quota_excess;
   }
@@ -474,7 +494,7 @@ class Runtime {
       }
       if (front.live) {
         --queued_live_;
-        SendOrRefuse(front.message, front.key);
+        SendOrRefuse(front.message, front.key, front.boundary);
       }
       queued_.pop_front();
     }
@@ -654,9 +674,13 @@ class Runtime {
 #endif
   uint64_t next_view_token_ = 1;
   uint32_t token_ = 0;
-  // Task 092: the last ordered op's control seq, and the last input frame's input seq.
+  // Task 092: the last ordered op's control seq, and the last input frame's input seq. Reset
+  // only at Disconnect: ops queued before the first attach keep the seqs they took, and with no
+  // host attached OrderInput stamps nothing and a detached Post takes no seq.
   uint32_t ctl_seq_ = 0;
   uint32_t input_seq_ = 0;
+  // Input written so far, on the ring or the control channel: the coalescing boundary.
+  uint32_t boundary_ = 0;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -680,7 +704,7 @@ bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
 bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
   // On the control channel until the ring lands (041, 042), in order with every ordered op, so
   // it takes no input seq; on the ring it is written with OrderInput's seqs.
-  return R().Post(op, token, args);
+  return R().PostInput(op, token, args);
 }
 bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostForReply(op, token, args);

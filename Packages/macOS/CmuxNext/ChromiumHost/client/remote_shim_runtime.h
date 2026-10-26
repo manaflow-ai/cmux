@@ -91,10 +91,12 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 CMUX_REMOTE_EXPORT int cmux_remote_shim_host_has_export(const char* name);
 CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
 // Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
-// each frame it writes, in write order: returns the frame's input seq (Header::seq) and puts in
+// each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
+// `seq` as their request id): returns the frame's input seq (Header::seq) and puts in
 // `ctl_seq` the control seq to stamp (SetCtlSeq), that of the last ordered op posted before it.
 // Ordered ops carry the returned seq as the input they follow (task 092; chromium_host_wire.h,
-// "One ordered input stream"). Both seqs start again at each attach.
+// "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
+// writes nothing for that frame. Both seqs start again with the next host.
 CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
 
 }  // extern "C"

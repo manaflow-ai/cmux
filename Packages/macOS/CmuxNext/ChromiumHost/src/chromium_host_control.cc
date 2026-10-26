@@ -478,13 +478,13 @@ void Outbox::CloseFds(Entry* entry) {
 }
 
 bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key,
-                  size_t shared_bytes, uint32_t after_input) {
+                  size_t shared_bytes, uint32_t boundary) {
   bool replaced = false;
   if (key) {
     auto found = keyed_.find(*key);
     if (found != keyed_.end()) {
       Entry& waiting = entries_[found->second - removed_];
-      if (waiting.offset == 0 && waiting.after_input == after_input) {
+      if (waiting.offset == 0 && waiting.boundary == boundary) {
         Drop(&waiting);
         replaced = true;
       }
@@ -493,7 +493,7 @@ bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optiona
   }
   bytes_ += bytes.size() + shared_bytes;
   ++messages_;
-  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true, shared_bytes, after_input});
+  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true, shared_bytes, boundary});
   if (key) keyed_[*key] = removed_ + entries_.size() - 1;
   if (dead_ > 64 && dead_ > messages_) Compact();
   return replaced;
@@ -986,7 +986,7 @@ Channel::~Channel() {
   if (core_->reader.joinable()) core_->reader.join();
 }
 
-bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
+bool Channel::Send(const Message& message, std::optional<uint64_t> state_key, uint32_t boundary) {
   const std::vector<size_t> shared = SharedFields(message);
   std::vector<uint8_t> bytes;
   if (!EncodeShared(message, shared, &bytes)) return false;
@@ -1021,7 +1021,7 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
   }
   fds.insert(fds.end(), regions.begin(), regions.end());  // the outbox owns them from here
   const bool was_empty = core.outbox.empty();
-  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key, shared_bytes, message.after_input)) {
+  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key, shared_bytes, boundary)) {
     ++core.coalesced;
   }
   if (was_empty) {
@@ -1109,10 +1109,12 @@ OrderedStream::Result OrderedStream::AddControl(std::vector<Message> batch) {
 OrderedStream::Result OrderedStream::AddInput(const Header& frame) {
   if (malformed_) return Result::kMalformed;
   if (!dispatch_ || inputs_.size() >= limits_.held_input) return Result::kFull;
-  if (frame.seq == 0 || (last_input_ != 0 && SeqAtOrBefore(frame.seq, last_input_))) {
-    return Malformed("an input seq not after the one before it");
+  if (IsOrderedInput(frame)) {
+    if (frame.seq == 0 || (last_input_ != 0 && SeqAtOrBefore(frame.seq, last_input_))) {
+      return Malformed("an input seq not after the one before it");
+    }
+    last_input_ = frame.seq;
   }
-  last_input_ = frame.seq;
   inputs_.push_back(frame);
   return Run();
 }
@@ -1126,6 +1128,7 @@ OrderedStream::Result OrderedStream::OpenInput() {
 // The first check: the control message the frame names is applied, or will
 // never come (a later ordered one is first in line).
 bool OrderedStream::InputReady(const Header& frame) const {
+  if (!IsOrderedInput(frame)) return true;  // its seq is a request id: only its place in the ring
   const uint32_t needs = CtlSeqOf(frame);
   if (needs == 0) return true;
   uint32_t settled = applied_;
@@ -1140,7 +1143,12 @@ bool OrderedStream::InputReady(const Header& frame) const {
 bool OrderedStream::ControlReady(const Message& message) const {
   if (message.ctl_seq == 0 || message.after_input == 0) return true;
   uint32_t settled = dispatched_;
-  if (!inputs_.empty()) settled = LaterSeq(settled, SeqBefore(inputs_.front().seq));
+  // The first held ordered input; frames before it carry no input seq.
+  for (const Header& frame : inputs_) {
+    if (!IsOrderedInput(frame)) continue;
+    settled = LaterSeq(settled, SeqBefore(frame.seq));
+    break;
+  }
   return settled != 0 && SeqAtOrBefore(message.after_input, settled);
 }
 
@@ -1170,7 +1178,7 @@ OrderedStream::Result OrderedStream::Run() {
       if (malformed_) break;
       const Header frame = inputs_.front();
       inputs_.pop_front();
-      dispatched_ = frame.seq;
+      if (IsOrderedInput(frame)) dispatched_ = frame.seq;
       dispatch_(frame);
       continue;
     }

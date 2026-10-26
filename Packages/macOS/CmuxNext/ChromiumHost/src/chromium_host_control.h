@@ -187,10 +187,9 @@ inline uint64_t StateKey(uint16_t op, int32_t browser) {
 // Frames the socket has not taken yet, oldest first. A partly written front
 // frame keeps its place (it is in flight, not waiting); a waiting state op is
 // replaced by a newer one with the same key, which goes to the tail, unless
-// an input frame was written between them (another `after_input`): the input
-// must still meet the older value, as a click after a resize must hit the
-// resized page (task 092). Writes go
-// in batches, one sendmsg each, as ChannelPosix::WriteOutgoingMessagesWithWritev
+// the sender wrote input between them (another `boundary`), on the ring or on
+// this channel: the input must still meet the older value, as a click after a
+// resize must hit the resized page (task 092). Writes go in batches, one sendmsg each, as ChannelPosix::WriteOutgoingMessagesWithWritev
 // batches messages without handles: a frame with descriptors starts a batch,
 // since they go with its first byte. Owns the duplicated descriptors.
 class Outbox {
@@ -205,7 +204,7 @@ class Outbox {
     // quota, so a peer that stops reading reaches the ceiling as with
     // inline bytes.
     size_t shared_bytes = 0;
-    uint32_t after_input = 0;  // Message::after_input: coalescing never crosses an input frame
+    uint32_t boundary = 0;  // the sender's input count (Channel::Send): coalescing never crosses input
   };
 
   Outbox(size_t quota_bytes, size_t quota_messages);
@@ -213,10 +212,10 @@ class Outbox {
   Outbox(const Outbox&) = delete;
   Outbox& operator=(const Outbox&) = delete;
 
-  // True when it replaced a waiting entry with the same key and `after_input`
+  // True when it replaced a waiting entry with the same key and `boundary`
   // (a partly written one is never replaced).
   bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key, size_t shared_bytes = 0,
-            uint32_t after_input = 0);
+            uint32_t boundary = 0);
   // The oldest live entry, nullptr when empty.
   Entry* Front();
   // The next batch, at most `max` buffers: the front entry's unwritten bytes,
@@ -234,8 +233,8 @@ class Outbox {
   size_t messages() const { return messages_; }
   size_t bytes() const { return bytes_; }
   bool OverQuota() const { return bytes_ > quota_bytes_ || messages_ > quota_messages_; }
-  // Waiting entries with this key: live and not started (0 or 1 per input
-  // frame written between them).
+  // Waiting entries with this key: live and not started (0 or 1 per
+  // boundary).
   size_t CountKey(uint64_t key) const;
   // Closes an entry's descriptors (once sent, or when it is dropped).
   static void CloseFds(Entry* entry);
@@ -302,13 +301,15 @@ class Channel {
   // Queues `message` (its descriptors duplicated) and writes it when the
   // socket takes it; fields too large for a frame go in shared memory
   // (SharedFields), created on the calling thread. `state_key`: a waiting
-  // message with the same key is replaced. False when the channel has ended
-  // or the message breaks a bound (then nothing is sent).
-  bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt);
+  // message with the same key and `boundary` is replaced; `boundary` is the
+  // sender's count of input written so far (the remote shim's), so a state
+  // op never moves past input sent between the two. False when the channel
+  // has ended or the message breaks a bound (then nothing is sent).
+  bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt, uint32_t boundary = 0);
   void Close();
   Stats stats() const;
-  // Waiting messages with this state key (0 or 1 per input frame written
-  // between them); one the socket has taken part of is in flight, not waiting.
+  // Waiting messages with this state key (0 or 1 per boundary); one the
+  // socket has taken part of is in flight, not waiting.
   size_t PendingWithKey(uint64_t state_key) const;
 
  private:
@@ -328,6 +329,10 @@ class Channel {
 // A seq that never arrives (a key cmux coalesced, a message the outbox
 // replaced) is settled once a later one of its stream is first in line: each
 // stream is in order, so nothing before that one can still come.
+//
+// Only ring frames of an input kind (IsOrderedInput) carry an input seq;
+// another kind (kPing, kStats: `seq` is their request id) keeps its place in
+// the ring and is dispatched with no seq check.
 //
 // Malformed (bad_message: the host ends): a stream's seq not after the one
 // before it, or the two first-in-line items each waiting for the other (each
@@ -359,9 +364,9 @@ class OrderedStream {
   void AttachInput(DispatchInput dispatch);
   // A batch from the control channel, in order: kOk or kMalformed.
   Result AddControl(std::vector<Message> batch);
-  // One frame from the input ring: kFull, not taken (the ring keeps it, and
-  // takes it again after the next AddControl or OpenInput); kMalformed, the
-  // host ends.
+  // One frame from the input ring, of any cmux -> host kind: kFull, not taken
+  // (the ring keeps it, and takes it again after the next AddControl or
+  // OpenInput); kMalformed, the host ends.
   Result AddInput(const Header& frame);
   // Input may be dispatched from here on: kOk or kMalformed.
   Result OpenInput();
