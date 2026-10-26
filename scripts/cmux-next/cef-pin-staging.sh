@@ -1,11 +1,15 @@
 #!/bin/bash
 # A CEF pin before it is a release (plans/cmux-next/cef-layer-hosting-DESIGN.md; chrome-parity p01-process task 003).
 #
-#   cef-pin-staging.sh pin --arm64 JOB [--x86_64 JOB] [--rb-host-step STEP] [--min-api N] [--fork-branch NAME]
+#   cef-pin-staging.sh pin --arm64 JOB [--x86_64 JOB] [--rb-host-step STEP] [--min-api N] [--accept-missing-api N,N]
+#                          [--fork-branch NAME]
 #     Stages finished `cmux-ci build cef` jobs of one fork commit as scripts/cmux-next/cef-manifest.json, and with
-#     --rb-host-step the remote browser host built against it as remote-browser-host.pin.json. No R2 upload and no
-#     GitHub release: the pin names the fleet artifacts by sha256, which the controller store serves for 14 days
-#     (cef_pin_staging.py has the checks). The fork's release train (task 178) replaces the pin. The steps:
+#     --rb-host-step the remote browser host built against it as remote-browser-host.pin.json (required unless the
+#     host pin already links the staged build). No R2 upload and no GitHub release: the pin names the fleet
+#     artifacts by sha256, which the controller store serves for 14 days (cef_pin_staging.py has the checks). Both
+#     files get a `staging` object, which ensure-cef.sh, ensure-remote-browser-host.sh and check-pinned-assets.sh
+#     enforce: fleet builds only, no Release build, a hard failure after store_expires, and no landing on
+#     feat-cmux-next or main. The fork's release train (task 178) replaces the pin. The steps:
 #       cmux-ci build cef --arch arm64 --ref FORK_SHA --tag cef-stage-<sha12>-arm64        (and --arch x86_64)
 #       cmux-ci run --class isolated --script scripts/ci/cmux-remote-browser-host-build.sh --ref <host source> \
 #         --cef sha256:<arm64 artifact> --artifact .build/artifacts/cmux-remote-browser-host --arg=--build-only
@@ -14,8 +18,8 @@
 #   cef-pin-staging.sh [check]
 #     The staging check of a tagged app built on the pin: cef-layer-verify.py with layer hosting on and off
 #     (window-server images of the page, real CGEvents at the page's screen points), the app's debug.cef fork API
-#     against the manifest's cmux_cef_api_version (fork-api), then the Chromium page live checks (internal pages,
-#     restore). Run inside
+#     against the manifest's cmux_cef_api_version and the app's fork API gates against its missing_api (fork-api),
+#     then the Chromium page live checks (internal pages, restore). Run inside
 #       nx-remote --needs input --app-from-fleet cmux --tag T --ref SHA -- bash scripts/cmux-next/cef-pin-staging.sh
 #     or through the allowlisted fleet entry: split-spring.sh --arg=--suite=cef-pin-staging.
 #     STAGING_PARTS=verify,api,internal,restore picks parts (a baseline of the current pin runs internal,restore);

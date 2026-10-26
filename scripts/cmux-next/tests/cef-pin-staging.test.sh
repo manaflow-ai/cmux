@@ -14,6 +14,7 @@ HOST_SRC=$(git -C "$ROOT" rev-parse HEAD)
 mkdir -p "$TMP/jobs" "$TMP/store"
 
 # dist <name> <arch> <api> <fork ref> <dcheck json value> [cpu]: a fleet cef.tar in $TMP/store/<sha>, prints the sha.
+# Its cef_cmux.h history lists 1..api except the numbers in SKIP_API (comma separated).
 dist() {
   python3 - "$TMP/store" "$@" <<'PY'
 import hashlib, io, json, os, sys, tarfile
@@ -21,10 +22,13 @@ store, name, arch, api, ref, dcheck = sys.argv[1:7]
 cpu = {"arm64": 0x0100000C, "x86_64": 0x01000007}[sys.argv[7] if len(sys.argv) > 7 else arch]
 folder = f"{name}-macos-{arch}"
 gn = {"arm64": "arm64", "x86_64": "x64"}[arch]
+skip = {int(n) for n in os.environ.get("SKIP_API", "").split(",") if n}
+history = "".join(f"// {n:3d}: entry {n}\n//      1 of the fork lines then.)\n" for n in range(1, int(api) + 1) if n not in skip)
 files = {
     "Chromium Embedded Framework.framework/Chromium Embedded Framework":
         (0xFEEDFACF).to_bytes(4, "little") + cpu.to_bytes(4, "little") + b"\0" * 24,
-    "include/cef_cmux.h": f"// fork\n#define CMUX_CEF_API_VERSION {api}\n".encode(),
+    "Chromium Embedded Framework.dSYM.tar.xz": b"dsym",
+    "include/cef_cmux.h": f"// fork\n// Version of this API. Bump on any change.\n{history}#define CMUX_CEF_API_VERSION {api}\n".encode(),
     "archive.json": json.dumps({"cmux_ref": ref, "gn_args": {"target_cpu": gn, "dcheck_always_on": json.loads(dcheck)},
                                 "name": f"cef_binary_154.0.0-cef-build.1+g{ref[:7]}+chromium-154.0.8037.98_macos{arch}_minimal"}).encode(),
 }
@@ -66,7 +70,8 @@ printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01host' > "$TMP/host"
 host=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$TMP/host")
 cp "$TMP/host" "$TMP/store/$host"
 job hoststep "{\"id\": \"hoststep\", \"kind\": \"ci-step\", \"state\": \"done\", \"script\": \"scripts/ci/cmux-remote-browser-host-build.sh\",
-  \"ref\": \"$HOST_SRC\", \"inputs\": {\"cef\": \"sha256:$arm\"}, \"artifact\": \"sha256:$host\"}"
+  \"ref\": \"$HOST_SRC\", \"inputs\": {\"cef\": \"sha256:$arm\"}, \"artifact\": \"sha256:$host\",
+  \"updated_at\": \"2026-10-26T03:00:00Z\"}"
 
 pin() { # <args...>: status in $status, output in $out
   status=0
@@ -91,6 +96,10 @@ python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); sys.exit(any(k.star
 [[ "$(field "$TMP/pin.json" sha256)" == "$host" && "$(field "$TMP/pin.json" cef_sha256)" == "$arm" ]] || fail "host pin wrong"
 [[ "$(field "$TMP/pin.json" crate_tree)" == "$(git -C "$ROOT" rev-parse "$HOST_SRC:cmux-tui/crates/cmux-remote-browser-host")" ]] ||
   fail "host pin crate_tree is not the source's"
+[[ "$(field "$TMP/pin.json" staging.store_expires)" == 2026-11-09 ]] || fail "the host pin is not marked staging"
+[[ "$(field "$m" debug_symbols)" == "Chromium Embedded Framework.dSYM.tar.xz" ]] || fail "the pin names no dSYM archive"
+python3 -c 'import json,sys; sys.exit("missing_api" in json.load(open(sys.argv[1])))' "$m" ||
+  fail "a fork with every API number records missing_api"
 
 # ensure-cef.sh unpacks both arches from the store: plain tar, the x86_64 one from its own folder.
 cat > "$TMP/server.py" <<'PY'
@@ -114,13 +123,47 @@ s.serve_forever()
 PY
 python3 "$TMP/server.py" "$TMP/store" & server_pid=$!
 for _ in $(seq 50); do [[ -s "$TMP/port" ]] && break; sleep 0.1; done
-for arch in arm64 x86_64; do
+store_url="http://127.0.0.1:$(cat "$TMP/port")"
+ensure() { # <cache dir> <env and args...>: ensure-cef.sh on the staged manifest; status in $status, stderr in $err
+  local cache="$1"; shift
   status=0
-  got=$(env -u GH_TOKEN -u GITHUB_TOKEN CMUX_CEF_MANIFEST="$m" CMUX_CEF_CACHE_DIR="$TMP/cache" \
-    CMUX_CEF_STORE_URL="http://127.0.0.1:$(cat "$TMP/port")" bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --arch $arch 2>"$TMP/ensure.err") ||
-    status=$?
-  [[ "$status" == 0 && -f "$got/include/cef_cmux.h" ]] || fail "ensure-cef.sh --arch $arch did not unpack the staged dist: $(cat "$TMP/ensure.err")"
+  got=$(env -u GH_TOKEN -u GITHUB_TOKEN -u CONFIGURATION CMUX_CEF_MANIFEST="$m" CMUX_CEF_CACHE_DIR="$cache" \
+    CMUX_CEF_STORE_URL="$store_url" CMUX_CEF_TODAY=2026-10-27 "$@" 2>"$TMP/ensure.err") || status=$?
+  err=$(cat "$TMP/ensure.err")
+}
+for arch in arm64 x86_64; do
+  ensure "$TMP/cache" bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --arch $arch
+  [[ "$status" == 0 && -f "$got/include/cef_cmux.h" ]] || fail "ensure-cef.sh --arch $arch did not unpack the staged dist: $err"
 done
+
+# A staging pin fails even with --optional, so no build ships without the engine.
+ensure_refused() { # <what> <expected message part> <ensure args...>
+  local what="$1" want="$2"; shift 2
+  ensure "$@"
+  [[ "$status" != 0 && -z "$got" ]] || fail "$what: ensure exited $status with '$got'"
+  grep -q -- "$want" <<<"$err" || fail "$what: no '$want' in: $err"
+}
+ensure_refused "an expired staging pin, cached" "expired on 2026-11-09" \
+  "$TMP/cache" CMUX_CEF_TODAY=2026-11-09 bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+ensure_refused "a staging pin in a Release build" "a Release build embeds only a released pin" \
+  "$TMP/cache" CONFIGURATION=Release bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+ensure_refused "a staging pin off the tailnet" "served only by the fleet controller store" \
+  "$TMP/cold" CMUX_CEF_NO_STORE=1 bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional --arch x86_64
+ensure "$TMP/cache" CMUX_CEF_TODAY=2026-11-07 bash "$ROOT/scripts/cmux-next/ensure-cef.sh"
+[[ "$status" == 0 && -n "$got" ]] || fail "a staging pin 2 days before expiry failed: $err"
+grep -q "expires on 2026-11-09 (2 days)" <<<"$err" || fail "no expiry warning 2 days before: $err"
+
+# The remote browser host pin follows the same rules.
+host_env=(CMUX_NEXT_RB_HOST_PIN="$TMP/pin.json" CMUX_NEXT_RB_HOST_CACHE_DIR="$TMP/rbh")
+ensure "$TMP/cache" "${host_env[@]}" bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh"
+[[ "$status" == 0 && -f "$got" ]] || fail "ensure-remote-browser-host.sh did not fetch the staged host: $err"
+ensure_refused "a staging host pin off the tailnet" "served only by the fleet controller store" \
+  "$TMP/cache" "${host_env[@]}" CMUX_NEXT_RB_HOST_CACHE_DIR="$TMP/rbh-cold" CMUX_RB_HOST_NO_STORE=1 \
+  bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
+ensure_refused "an expired staging host pin, cached" "expired on 2026-11-09" \
+  "$TMP/cache" "${host_env[@]}" CMUX_CEF_TODAY=2026-11-10 bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
+ensure_refused "a staging host pin in a Release build" "a Release build embeds only a published host" \
+  "$TMP/cache" "${host_env[@]}" CONFIGURATION=Release bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
 
 # Refusals leave the manifest as it was.
 cp "$m" "$TMP/manifest.before"
@@ -146,14 +189,48 @@ refused "an unfinished build" "not a done cef build" --arm64 running
 job otherhost "{\"id\": \"otherhost\", \"state\": \"done\", \"script\": \"scripts/ci/cmux-remote-browser-host-build.sh\",
   \"ref\": \"$HOST_SRC\", \"inputs\": {\"cef\": \"sha256:$old\"}, \"artifact\": \"sha256:$host\"}"
 refused "a host linked to another CEF" "not the staged arm64" --arm64 armjob --rb-host-step otherhost
+cp "$TMP/pin.json" "$TMP/pin.good"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); p["cef_sha256"]="0"*64; json.dump(p, open(sys.argv[1], "w"))' "$TMP/pin.json"
+refused "a pin the host pin does not link, without --rb-host-step" "every DEV build would fail" --arm64 armjob
+cp "$TMP/pin.good" "$TMP/pin.json"
+pin --arm64 armjob --x86_64 x86job --fork-branch cmux/8037-helper-items
+[[ "$status" == 0 ]] && cmp -s "$m" "$TMP/manifest.before" || fail "a pin the host pin already links failed: $out"
 
-# fork-api: the app's debug.cef fork API against the pin.
-printf '{"facts": {"fork_api": 30}}\n' > "$TMP/verify-on.json"
-python3 "$ROOT/scripts/cmux-next/cef_pin_staging.py" fork-api --verify "$TMP/verify-on.json" --manifest "$m" | grep -q '^PASS fork-api' ||
-  fail "fork API 30 on an API 30 pin did not pass"
-printf '{"facts": {"fork_api": 24}}\n' > "$TMP/verify-on.json"
-if python3 "$ROOT/scripts/cmux-next/cef_pin_staging.py" fork-api --verify "$TMP/verify-on.json" --manifest "$m" > "$TMP/api.out"; then
-  fail "fork API 24 on an API 30 pin passed"
-fi
-grep -q '^FAIL fork-api' "$TMP/api.out" || fail "no FAIL row for fork API 24"
+# A fork line that skips API numbers (API 30 without 28 and 29) is staged only when they are named exactly.
+gap=$(SKIP_API=28,29 dist cef-gap arm64 30 $FORK false); cef_job gapjob arm64 $FORK "$gap"
+job gaphost "{\"id\": \"gaphost\", \"state\": \"done\", \"script\": \"scripts/ci/cmux-remote-browser-host-build.sh\",
+  \"ref\": \"$HOST_SRC\", \"inputs\": {\"cef\": \"sha256:$gap\"}, \"artifact\": \"sha256:$host\",
+  \"updated_at\": \"2026-10-27T00:00:00Z\"}"
+refused "a fork missing APIs 28 and 29" "lacks 28,29" --arm64 gapjob --rb-host-step gaphost
+refused "a fork missing APIs 28 and 29, one named" "accept-missing-api names 28" --arm64 gapjob --rb-host-step gaphost --accept-missing-api 28
+pin --arm64 gapjob --rb-host-step gaphost --accept-missing-api 29,28 --manifest "$TMP/gap.json"
+[[ "$status" == 0 && "$(field "$TMP/gap.json" missing_api)" == "[28, 29]" ]] || fail "missing APIs 28,29 not recorded: $out"
+cp "$TMP/pin.good" "$TMP/pin.json"
+
+# fork-api: the app's debug.cef fork API against the pin, and the app's gates against its missing numbers.
+mkdir -p "$TMP/app/Packages/macOS/CmuxNext/Sources/X" "$TMP/app/Packages/macOS/CmuxNext/ChromiumHost/src"
+printf 'struct F {\n    static let pathsForkAPI: Int32 = 29\n    var omnibox: Bool { runtime.forkAPIVersion >= 12 }\n}\n' \
+  > "$TMP/app/Packages/macOS/CmuxNext/Sources/X/F.swift"
+printf 'inline constexpr int kMinForkAPI = 27;\ninline constexpr int kExitForkAPI = 66;\n' \
+  > "$TMP/app/Packages/macOS/CmuxNext/ChromiumHost/src/wire.h"
+fork_api() { # <manifest> <fork api>: status in $status, rows in $out
+  printf '{"facts": {"fork_api": %s}}\n' "$2" > "$TMP/verify-on.json"
+  status=0
+  out=$(python3 "$ROOT/scripts/cmux-next/cef_pin_staging.py" fork-api --verify "$TMP/verify-on.json" --manifest "$1" \
+    --root "$TMP/app") || status=$?
+}
+fork_api "$m" 30
+[[ "$status" == 0 ]] && grep -q '^PASS fork-api:' <<<"$out" && grep -q '^PASS fork-api-gaps' <<<"$out" ||
+  fail "fork API 30 on a whole API 30 pin did not pass: $out"
+fork_api "$m" 24
+[[ "$status" != 0 ]] && grep -q '^FAIL fork-api:' <<<"$out" || fail "fork API 24 on an API 30 pin passed: $out"
+fork_api "$TMP/gap.json" 30
+[[ "$status" != 0 ]] && grep -q '^FAIL fork-api-gaps.*X/F.swift:2 pathsForkAPI = 29' <<<"$out" ||
+  fail "a gate on missing API 29 passed: $out"
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); m["missing_api"]=[12, 28]; json.dump(m, open(sys.argv[1], "w"))' "$TMP/gap.json"
+fork_api "$TMP/gap.json" 30
+grep -q '^FAIL fork-api-gaps.*X/F.swift:3 forkAPIVersion = 12' <<<"$out" || fail "a forkAPIVersion >= 12 gate on missing 12 passed: $out"
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); m["missing_api"]=[28]; json.dump(m, open(sys.argv[1], "w"))' "$TMP/gap.json"
+fork_api "$TMP/gap.json" 30
+[[ "$status" == 0 ]] || fail "missing API 28 that no gate names failed: $out"
 echo "cef-pin-staging.test: ok"

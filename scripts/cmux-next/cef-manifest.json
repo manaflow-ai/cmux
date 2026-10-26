@@ -6,18 +6,24 @@
   "repo": "manaflow-ai/cef",
   "asset": "cef-stage-c8953bc613cd-arm64-macos-arm64.tar",
   "sha256": "ad5d77f20c1b26189d609d9270fb176462ced56b1c74876503ce05579b4d92af",
+  "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz",
   "fork_branch": "cmux/8037-helper-items",
   "fork_ref": "c8953bc613cdb3dc82708d3647a12fe9d5d3c72e",
   "cmux_cef_api_version": 30,
+  "missing_api": [
+    28,
+    29
+  ],
   "x86_64": {
     "asset": "cef-stage-c8953bc613cd-x86-64-macos-x86_64.tar",
     "sha256": "ef9a884de7fd0adcf35570ba24d82459eea33067a8f4e014bca392ad53710fec",
     "dir": "cef-stage-c8953bc613cd-x86-64-macos-x86_64",
+    "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz",
     "fork_ref": "c8953bc613cdb3dc82708d3647a12fe9d5d3c72e"
   },
   "require_dcheck_off": true,
   "staging": {
-    "note": "staging pin of fleet CEF builds: no R2 object and no GitHub release; the controller artifact store serves each sha256 until store_expires (scripts/cmux-next/cef-pin-staging.sh)",
+    "note": "staging pin of fleet builds: no R2 object and no GitHub release; only the controller artifact store serves the sha256, until store_expires, and no Release build embeds it (scripts/cmux-next/cef-pin-staging.sh)",
     "jobs": {
       "arm64": "aa052182b3e7cab153565f2f",
       "x86_64": "77b41f9f86c83d4caf7a7f6d"
