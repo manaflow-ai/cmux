@@ -430,6 +430,9 @@ impl Holder {
             let error = io::Error::last_os_error();
             return if error.kind() == io::ErrorKind::Interrupted { Ok(()) } else { Err(error) };
         }
+        // The turn's work, not its wait (Chrome's `ThreadController` active slice): recording
+        // only (`task`), so an idle holder writes nothing.
+        let _turn = cmux_trace::trace_scope!(task, "task.holder_poll", ready, fds.len());
         if fds[1].revents != 0 {
             self.reap();
         }
@@ -1027,6 +1030,12 @@ impl Holder {
             if n > 0 {
                 read += n as usize;
                 cmux_flow_trace::hop_id("holder.pty.read", 0, &terminal.id);
+                cmux_trace::trace_instant!(
+                    task,
+                    "task.holder_pty_read",
+                    cmux_trace::terminal_hash(&terminal.id),
+                    n
+                );
                 if (n as usize) < offered && !readable_now(master) {
                     return ReadEnd::Drained;
                 }
@@ -1086,6 +1095,12 @@ impl Holder {
                 libc::write(terminal.master.as_raw_fd(), head.as_ptr().cast(), head.len())
             };
             if n > 0 {
+                cmux_trace::trace_instant!(
+                    task,
+                    "task.holder_pty_write",
+                    cmux_trace::terminal_hash(&terminal.id),
+                    n
+                );
                 terminal.input.drain(..n as usize);
                 continue;
             }

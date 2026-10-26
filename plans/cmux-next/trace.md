@@ -305,8 +305,13 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   `daemon`, `method=<name> id=<request id>`). `cef.pump` and `cef.create_browser` are reserved but
   have no emitter (requested from PL-motion-cef). Without them, a Release trace attributes Chromium
   main-thread time only through the stack samples.
-- The holder, the terminal hosts and acpmux have no spans. Only their sampled stacks show (requested
-  through the cmux-4f lead from PL-holder and PL-acpmux).
+- The holder and the terminal hosts write `task` records into their Release trace ring (recording
+  only, never the black box), each with the terminal's `cmux_trace::terminal_hash` in arg0. Holder:
+  `task.holder_poll`, one slice per poll turn's work (arg0 ready descriptors, arg1 polled ones),
+  and the instants `task.holder_pty_read` and `task.holder_pty_write` (arg1 bytes). Terminal host:
+  the slices `task.host_pty_read` (end arg0 bytes read), `task.host_parse` (arg1 the command kind
+  in the high byte, an Output's bytes below it) and `task.host_input_write` (arg1 bytes). acpmux
+  has no spans; only its sampled stacks show (requested through the cmux-4f lead from PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for
   the reason (thread states with the blocking stack).
 - The Chromium trace needs a Debug build of a development bundle (`CMUX_NEXT_CEF_EXTRA_SWITCHES` is

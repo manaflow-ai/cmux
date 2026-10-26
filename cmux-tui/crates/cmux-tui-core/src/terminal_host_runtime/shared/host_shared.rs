@@ -367,6 +367,13 @@ impl HostShared {
         // Marked before the writer lock, so the mark never runs under it.
         cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
         let delivered = {
+            // Declared before the writer guard, so its end is written after the lock is released.
+            let _write = cmux_trace::trace_scope!(
+                task,
+                "task.host_input_write",
+                cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
+                payload.len()
+            );
             let mut writer = self.writer.lock().recover_poison();
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.

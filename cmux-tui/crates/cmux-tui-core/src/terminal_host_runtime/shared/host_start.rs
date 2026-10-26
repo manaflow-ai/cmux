@@ -186,25 +186,14 @@ pub(crate) fn start_host_runtime(
             &reader_host.force_pty_drain,
             &mut forced_at,
         ) {
-            let count = match pty_reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => count,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                    ) =>
-                {
-                    continue;
-                }
-                Err(_) => break,
-            };
-            cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
-            let read = buffer.get(..count).unwrap_or(&buffer);
-            if !publish_pty_output(
+            let read = read_pty_once(
                 &reader_host,
-                kitty_media.rewrite_borrowed(read, &mut kitty_scratch),
-            ) {
+                &mut pty_reader,
+                &mut buffer,
+                &mut kitty_media,
+                &mut kitty_scratch,
+            );
+            if read == PtyRead::End {
                 break;
             }
         }
@@ -269,6 +258,55 @@ pub(crate) fn start_host_runtime(
 
 /// Bytes per PTY read, and the most one Output frame carries.
 const PTY_READ_BYTES: usize = 64 * 1024;
+
+/// What one [`read_pty_once`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PtyRead {
+    /// Output was read and published.
+    Published,
+    /// Nothing to read yet (interrupted, or would block): wait again.
+    Retry,
+    /// End of file, a read error, or the parser is gone: the reader ends.
+    End,
+}
+
+/// One item of the `terminal-host-pty` thread, after its readiness wait: a read of the PTY and
+/// its publication, as one `task.host_pty_read` slice (terminal hash; its end carries the bytes
+/// read). Chrome's task scope covers the run, not the wait (`ThreadControllerImpl::RunTask`).
+pub(crate) fn read_pty_once(
+    host: &HostShared,
+    reader: &mut (impl Read + ?Sized),
+    buffer: &mut [u8],
+    kitty_media: &mut KittyMediaRewriter,
+    kitty_scratch: &mut Vec<u8>,
+) -> PtyRead {
+    let mut scope = cmux_trace::trace_scope!(
+        task,
+        "task.host_pty_read",
+        cmux_trace::terminal_hash(host.terminal_id.as_bytes())
+    );
+    let count = match reader.read(buffer) {
+        Ok(0) => return PtyRead::End,
+        Ok(count) => count,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
+            return PtyRead::Retry;
+        }
+        Err(_) => return PtyRead::End,
+    };
+    scope.set_end_args(count, 0u64);
+    cmux_flow_trace::hop_id("host.pty.read", 0, host.terminal_id.as_bytes());
+    let read = buffer.get(..count).unwrap_or(&*buffer);
+    if publish_pty_output(host, kitty_media.rewrite_borrowed(read, kitty_scratch)) {
+        PtyRead::Published
+    } else {
+        PtyRead::End
+    }
+}
 
 /// Publishes PTY output to viewers and the parser in frames of at most one
 /// read; a rewritten Kitty image can be larger than the read it came from.

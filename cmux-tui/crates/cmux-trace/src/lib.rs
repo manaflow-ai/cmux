@@ -33,6 +33,7 @@ mod macros;
 mod map;
 pub mod names;
 mod ring;
+mod terminal;
 mod tracer;
 
 use std::cell::RefCell;
@@ -54,6 +55,7 @@ pub use macros::{
 };
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
+pub use terminal::terminal_hash;
 use tracer::RingId;
 pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
 
