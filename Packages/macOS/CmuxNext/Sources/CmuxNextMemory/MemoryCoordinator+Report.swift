@@ -1,3 +1,5 @@
+import CmuxNextCompat
+
 extension MemoryCoordinator {
     /// What every live consumer holds now, with the limit it has and the level, mode and budget
     /// the limits come from (Chrome's memory-infra dump, `base/trace_event/memory_dump_manager.h`).
