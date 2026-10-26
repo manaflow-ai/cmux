@@ -389,8 +389,8 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
     /// Keys typed for a terminal that is still a picture (p08-startup-061, KeyRouter+LaunchPicture).
     lazy var launchPictureKeys: LaunchPictureKeys = {
-        let keys = LaunchPictureKeys { [unowned self] target, events in deliverLaunchPictureKeys(events, to: target) }
-        keys.onActiveChange = { [unowned self] in modes.set(.launchPicture, $0) }
+        let keys = LaunchPictureKeys { [weak self] target, events in self?.deliverLaunchPictureKeys(events, to: target) ?? false }
+        keys.onActiveChange = { [modes] in modes.set(.launchPicture, $0) }
         return keys
     }()
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
