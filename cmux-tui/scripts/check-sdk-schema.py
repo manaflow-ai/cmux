@@ -43,6 +43,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::apps::HiddenAccess": "AppHiddenAccess",
     "GrantParam": "AppGrant",
     "AgentCLIIntent": "AgentCLIIntent",
+    "AgentSessionAnsweredBy": "AgentSessionAnsweredBy",
 }
 
 # Named request types whose server struct is the authority for their fields:
@@ -50,6 +51,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
 # a command's request fields. Paths are under crates/cmux-tui-core/src.
 RUNTIME_NAMED_REQUEST_STRUCTS = {
     "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
+    "AgentSessionAnsweredBy": "server/agent_session_attach.rs",
 }
 
 
@@ -300,40 +302,112 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
         path = SERVER.with_suffix("") / f"{module}.rs"
         if not path.exists():
             continue
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(encoding="utf-8").split("\n#[cfg(test)]\nmod tests", 1)[0]
         label = f"server/{module}.rs"
-        envelope = {
-            name: field
-            for name, field in _without_reply_id(_rust_struct_fields(source, spec["envelope"])).items()
-            if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
-        }
-        enum_name = spec["enum"]
-        refused_fields = {
-            name: set(fields) for name, fields in spec.get("refused_envelope_fields", {}).items()
-        }
-        found = _module_enum_fields(_rust_enum_body(source, enum_name), f"{label} {enum_name}")
-        for name in refused_fields:
-            if name not in found:
-                fail(f"{label}: refused envelope fields name unknown command {name!r}")
-        for name, fields in found.items():
-            shared = {
-                key: field
-                for key, field in envelope.items()
-                if key not in refused_fields.get(name, set())
-            }
-            duplicate = sorted(set(fields) & set(shared))
-            if duplicate:
-                fail(f"{label} {name} repeats envelope fields {duplicate}")
-            found[name] = {**fields, **shared}
+        found = _module_enum_commands(source, spec, label) if "enum" in spec else {}
         for name, literal in spec.get("literals", {}).items():
             if f'"{name}"' not in source:
                 fail(f"{label} no longer matches {name!r}")
-            found[name] = _without_reply_id(_rust_struct_fields(source, literal["request"]))
+            if name in found:
+                fail(f"module command {name!r} is served twice")
+            found[name] = _module_literal_fields(source, name, literal, label)
         for name, fields in found.items():
             if name in commands:
                 fail(f"module command {name!r} is served twice")
             commands[name] = fields
     return commands
+
+
+def _module_enum_commands(
+    source: str, spec: Mapping[str, Any], label: str
+) -> dict[str, dict[str, RuntimeField]]:
+    """Request fields of a module's `cmd`-tagged enum, envelope fields included."""
+
+    envelope = {
+        name: field
+        for name, field in _without_reply_id(_rust_struct_fields(source, spec["envelope"])).items()
+        if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
+    }
+    enum_name = spec["enum"]
+    refused_fields = {
+        name: set(fields) for name, fields in spec.get("refused_envelope_fields", {}).items()
+    }
+    found = _module_enum_fields(_rust_enum_body(source, enum_name), f"{label} {enum_name}")
+    for name in refused_fields:
+        if name not in found:
+            fail(f"{label}: refused envelope fields name unknown command {name!r}")
+    for name, fields in found.items():
+        shared = {
+            key: field
+            for key, field in envelope.items()
+            if key not in refused_fields.get(name, set())
+        }
+        duplicate = sorted(set(fields) & set(shared))
+        if duplicate:
+            fail(f"{label} {name} repeats envelope fields {duplicate}")
+        found[name] = {**fields, **shared}
+    return found
+
+
+def _module_literal_fields(
+    source: str, name: str, literal: Mapping[str, Any], label: str
+) -> dict[str, RuntimeField]:
+    """Request fields of a command a module matches by name. The module must
+    decode the listed struct for it: the literal's match arm builds `variant`
+    and that variant holds the struct, or the handler calls
+    `from_value::<Struct>`. `module::Struct` is in server/<module>.rs."""
+
+    request = literal["request"]
+    struct_module, _, struct_name = request.rpartition("::")
+    variant = literal.get("variant")
+    if variant is not None:
+        enum_name, _, variant_name = variant.partition("::")
+        arm = rf'"{re.escape(name)}"\s*=>\s*(?:Self|{re.escape(enum_name)})::{re.escape(variant_name)}\('
+        if not re.search(arm, source):
+            fail(f"{label} no longer decodes {name!r} as {variant}")
+        payload = re.search(
+            rf"(?m)^    {re.escape(variant_name)}\((?:[a-z_]+::)*(\w+)\),$",
+            _rust_enum_body(source, enum_name),
+        )
+        decoded = payload.group(1) if payload else None
+    else:
+        body = _rust_function_body(source, literal["handler"], label)
+        decodes = re.findall(r"from_value::<(?:[a-z_]+::)*(\w+)>\(", body)
+        decoded = decodes[0] if len(decodes) == 1 else None
+    if decoded != struct_name:
+        fail(f"{label} decodes {name!r} as {decoded or 'no single struct'}, not {request}")
+    struct_source = source
+    if struct_module:
+        module_path = SERVER.with_suffix("") / f"{struct_module}.rs"
+        try:
+            struct_source = module_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
+    return _without_reply_id(
+        _expand_flattened(
+            struct_source, _rust_struct_fields(struct_source, struct_name), f"{label} {name}"
+        )
+    )
+
+
+def _rust_function_body(source: str, name: str, label: str) -> str:
+    """The text between a function's braces (brace count; the handlers this
+    reads have no unbalanced brace in a string)."""
+
+    match = re.search(rf"(?m)^(?:pub(?:\([a-z]+\))? )?fn {re.escape(name)}\(", source)
+    if not match:
+        fail(f"cannot find fn {name} in {label}")
+    start = source.find("{", match.end())
+    depth = 0
+    for index in range(start, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start + 1:index]
+    fail(f"unterminated fn {name} in {label}")
+    return ""
 
 
 def _module_enum_fields(body: str, label: str) -> dict[str, dict[str, RuntimeField]]:
