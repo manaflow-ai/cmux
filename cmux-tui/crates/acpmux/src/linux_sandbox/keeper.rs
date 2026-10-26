@@ -457,14 +457,15 @@ async fn run(options: Options) -> Result<i32> {
         paths.claude_tmp_project.clone(),
         paths.claude_project.clone(),
     ];
-    let (exe_fd, exe) = executable(&denies, &writable)?;
-    let bwrap_fd = open_bwrap()?;
     // std's UnixStream::pair uses SOCK_STREAM | SOCK_CLOEXEC on Linux. Create
-    // it before plan so fd 3 is occupied and can never be a bind source.
+    // it before opening pinned executable fds so fd 3 is occupied and can
+    // never be overwritten by the handoff dup2.
     let (parent, child_end) = UnixStream::pair().map_err(|e| e.to_string())?;
     if parent.as_raw_fd() < 3 || child_end.as_raw_fd() < 3 {
         return Err("standard streams must be open".into());
     }
+    let (exe_fd, exe) = executable(&denies, &writable)?;
+    let bwrap_fd = open_bwrap()?;
     let mut prefix = vec![exe.to_str().ok_or("non-UTF-8 executable")?.to_owned()];
     prefix.extend(
         crate::daemon::daemon_prefix()
