@@ -22,6 +22,13 @@ static const char kWheelGolden[2][129] = {
     "000000000000008056443322110000000700000000000000000000002b000000",
 };
 
+// An input presented frame (task p04-input-066), the same bytes as
+// ChromiumHostFrameTests.inputPresentedGolden: the input of event time
+// 0x1122334455 showed in a vsync frame at 0x1122a0b0c0.
+static const char kInputPresentedGolden[] =
+    "6e00000000000000010000000000000000000000000000000000000000000000"
+    "00000000000000005544332211000000c0b0a022110000000000000000000000";
+
 static int failures = 0;
 
 static void Check(bool ok, const char* what) {
@@ -225,6 +232,30 @@ static void TestEventTime() {
         "a ping's t0 (cmux's send time) and a geometry frame are not input events");
 }
 
+// The host's report that an input's frame was presented: before it cmux had
+// no presentation time for a Chromium page's input.
+static void TestInputPresented() {
+  using namespace cmux_host;
+  const Header frame = InputPresentedFrame(0x1122334455ULL, 0x1122a0b0c0ULL, kPresentationVSync);
+  uint8_t golden[kHeaderSize], encoded[kHeaderSize];
+  FromHex(kInputPresentedGolden, golden);
+  Encode(frame, encoded);
+  Check(std::memcmp(encoded, golden, sizeof golden) == 0, "an input presented frame encodes as its golden bytes");
+  Header d;
+  Check(Decode(golden, &d) && d.kind == kInputPresented && d.payload == 0, "it decodes as kInputPresented");
+  Check(d.t0 == 0x1122334455ULL && d.t1 == 0x1122a0b0c0ULL, "t0 is the event time, t1 the presentation time");
+  Check(static_cast<uint32_t>(d.v[0]) == kPresentationVSync, "v0 carries the feedback flags");
+  // The capability rides kReady's v2, the bit ChromiumHostFrame.readyReportsInputPresented reads.
+  Header ready;
+  ready.kind = kReady;
+  ready.v[2] = kReadyReportsInputPresented;
+  uint8_t bytes[kHeaderSize];
+  Encode(ready, bytes);
+  Header readBack;
+  Check(Decode(bytes, &readBack) && readBack.kind == kReady && readBack.v[2] == 1,
+        "a ready that reports presentation carries bit 0 of v2");
+}
+
 int main() {
   uint8_t golden[cmux_host::kHeaderSize];
   FromHex(kGolden, golden);
@@ -349,6 +380,7 @@ int main() {
 
   TestWheel();
   TestEventTime();
+  TestInputPresented();
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");
