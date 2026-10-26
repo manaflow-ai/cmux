@@ -96,6 +96,8 @@ ambiguous, use its session ID from `acpmux ls --json`. This does not move the
 agent. Remote sidebar group placement is a separate limitation: the checked
 launcher refuses combining `acpmux new --host` with `--group`; `agent open`
 creates workspaces for local/Chief sessions rather than performing this peer lookup.
+Opening an agent workspace may move focus; preserving focus for scripted opens
+is tracked separately from the CLI help changes.
 
 To end the current turn, stop the agent, or continue a saved session:
 
