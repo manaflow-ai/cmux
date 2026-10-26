@@ -42,6 +42,10 @@ extension CEFPaneHost {
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        page.wordLookUp = { [weak self] point, scale, answered in
+            guard let self else { return answered(nil) }
+            lookUpWord(at: point, scale: scale, answered: answered)
+        }
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in
