@@ -187,6 +187,22 @@ the spike must justify. A claim in the key's turn shows the cover in
 that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
 CEF spare windows keep the window with no renderer.
 
+Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `dfdbea5a`, on the cmux.33 line
+`c382c63b`). Nobody has built or run it. A Chrome-style browser created with an empty URL and
+`extra_info[CMUX_EXTRA_INFO_NO_RENDERER] = true` gets a first tab made with
+`WebContents::CreateParams::desired_renderer_state = kNoRendererProcess` and no navigation, as Chrome makes restored
+tabs (`chrome/browser/ui/browser_tabrestore.cc`; it is active, so it is hidden only in a minimized window). No
+`chrome://ignore/` load runs, so the tab takes no spare renderer and starts none. Its CEF browser is made before the
+insertion, so in a tabbed embedder window it owns the window's BrowserView, and tabs added with `cmux_tab_add` are
+plain tabs that load as before. `CefBrowserHostBase::Create` removes the key from extra_info in both runtime styles, so
+no renderer sees it. `cmux_tab_renderer_state(browser_id)` reports whether the main frame's own RenderFrame is live
+(`RenderFrameHost::IsRenderFrameLive`): a placeholder whose frame Chromium put in a shared live process above the
+renderer process limit still reports 0. No API number yet (the train, 086, gives one); the app honors the key only
+when it finds `cmux_tab_renderer_state` with dlsym (019, which also passes the key from the shim's window create).
+On a fork build, `ceftests --gtest_filter=CmuxPlaceholderTest.*` (a regular Chrome window, the key in both styles)
+and `scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared` (the tabbed embedder window the spare
+uses, and the placeholder at `--renderer-process-limit=1`) decide whether it stays.
+
 ### 3.6 Lazy loading, shared chunks and the Home floor
 
 No page view until its tab first shows, and no WKWebView in Chromium mode until a fallback needs it. Every page is
