@@ -44,13 +44,16 @@ import PackageDescription
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
 //     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
+//   CmuxNextOracle -> system frameworks only (the refactor oracle's facet providers, the one immutable list the
+//     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
+//     plans/cmux-next/chrome-parity/p15-oracle.md section 3A)
 //   CmuxNextInput -> InputCore, Control, Settings (the one input tap: typed subscriptions by class, phase and window;
 //     globalObserve; p04-input.md section 3 (A); the debug.input control method, task 007)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
-//   CmuxNextControl -> Actions, Settings, Daemon, InputCore (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
+//   CmuxNextControl -> Actions, Settings, Daemon, InputCore, Oracle (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     InputBudget/ folds input latency batches off main)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -268,6 +271,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextInput",
+                "CmuxNextOracle",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
                 "CmuxNextAgentPermissions",
@@ -1476,6 +1480,18 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The refactor oracle's facet providers and snapshot capture (p15-oracle.md section 3A): the
+        // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
+        // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
+        .target(
+            name: "CmuxNextOracle",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextOracleTests",
+            dependencies: ["CmuxNextOracle"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
         // phase and window that replace AppKit event monitors and the application object's closures.
         // The only target besides the App that sees NSEvent for input routing; core and service
@@ -1779,7 +1795,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextControl",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextOracle"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -1787,7 +1803,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextOracle"],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -1850,6 +1866,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMemory",
                 "CmuxNextMetrics",
                 "CmuxNextNowPlaying",
+                "CmuxNextOracle",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
