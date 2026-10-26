@@ -63,7 +63,7 @@ import Testing
                 throw CancellationError()
             }
             // A refused open never asks the daemon: fail here rather than wait forever.
-            if !services.linkOpener.openWeb(link, from: source, background: false, cmdClick: true) {
+            if !services.linkOpener.openWeb(link, from: source, background: false) {
                 Issue.record("the Cmd-click opened nothing")
                 done.resume(returning: true)
             }
