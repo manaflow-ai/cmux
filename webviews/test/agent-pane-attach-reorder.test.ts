@@ -120,8 +120,13 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     // visual strip. Leo, 2026-10-26: the movement hint and status must not be visible UI.
     const announcement = page.locator(".acpmux-attachments output[aria-live]");
     expect(await announcement.textContent()).toBe("Shot 300.png moved to 3 of 3");
-    await expect(announcement).toHaveClass(/acpmux-attachment-voiceover-only/);
-    await expect(announcement).toHaveCSS("clip-path", "inset(50%)");
+    const accessibilityStyle = await announcement.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { className: element.className, clipPath: style.clipPath, position: style.position };
+    });
+    expect(accessibilityStyle.className).toContain("acpmux-attachment-voiceover-only");
+    expect(accessibilityStyle.clipPath).toBe("inset(50%)");
+    expect(accessibilityStyle.position).toBe("absolute");
     // The press that ended the drag opened no viewer.
     expect(await page.locator(".acpmux-image-viewer, [role=dialog]").count()).toBe(0);
     await page.close();
