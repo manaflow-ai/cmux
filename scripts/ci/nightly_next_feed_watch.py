@@ -430,8 +430,12 @@ def nightly_builds(feed_xml: str) -> list[tuple[int, dt.datetime]]:
         channel = re.search(r"<sparkle:channel>([^<]*)</sparkle:channel>", item)
         version = re.search(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", item)
         date = re.search(r"<pubDate>([^<]+)</pubDate>", item)
-        if version and date and channel and channel.group(1) == "cmux-next":
-            builds.append((int(version.group(1)), email.utils.parsedate_to_datetime(date.group(1))))
+        if not (version and date and channel and channel.group(1) == "cmux-next"):
+            continue
+        try:
+            builds.append((int(version.group(1)), as_utc(email.utils.parsedate_to_datetime(date.group(1)))))
+        except (TypeError, ValueError):
+            continue  # one malformed item never hides the rest of the feed, as in newest_item
     return builds
 
 

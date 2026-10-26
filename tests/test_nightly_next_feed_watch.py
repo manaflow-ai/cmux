@@ -329,6 +329,24 @@ class LegacyFeedTests(unittest.TestCase):
     def test_an_api_error_never_turns_a_stale_feed_green(self):
         self.assertEqual(self.run_main(fail=True), 1)
 
+    def test_a_stale_legacy_feed_fails_after_both_guards_ran(self):
+        # The merged order (#25350): the starvation guards run first, then this check, and a 403
+        # everywhere still ends red while cmux NIGHTLY's feed is behind.
+        seen = []
+        with unittest.mock.patch.object(watch, "starvation_dispatch",
+                                        lambda *a, **k: seen.append(k.get("branch")) or "stubbed"):
+            self.assertEqual(self.run_main(fail=True), 1)
+        self.assertEqual(seen, ["feat-cmux-next", "main"])
+
+    def test_a_zoneless_or_malformed_date_never_hides_the_lag(self):
+        stamp = (NOW - dt.timedelta(minutes=40)).strftime("%a, %d %b %Y %H:%M:%S")
+        odd = ("<rss><channel>"
+               f"<item><sparkle:version>4023540480101</sparkle:version><sparkle:channel>cmux-next</sparkle:channel><pubDate>{stamp} -0000</pubDate></item>"
+               "<item><sparkle:version>4023540480102</sparkle:version><sparkle:channel>cmux-next</sparkle:channel><pubDate>not a date</pubDate></item>"
+               "</channel></rss>")
+        build, _ = watch.legacy_lag(NOW, odd, self.OLD)
+        self.assertEqual(build, 4023540480101)
+
     def test_the_off_switch_stops_the_watch(self):
         # NIGHTLY_NEXT_LEGACY_IDENTITY=off stops every legacy job; nothing can catch the feed up.
         self.assertEqual(self.run_main(True, "--legacy-identity", "off"), 0)
@@ -618,6 +636,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
     def run_main(self, gh_call):
         seen = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch.GitHub, "call", gh_call), \
                 unittest.mock.patch.object(
                     watch, "starvation_dispatch",
@@ -644,6 +663,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
         def forbidden(self, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", guard), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
@@ -656,6 +676,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
         2026-10-26 is not an OSError and would have taken both guards with it."""
         seen = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(
                     watch, "published_commit",
                     lambda gh: (_ for _ in ()).throw(http.client.IncompleteRead(b"half"))), \
@@ -672,6 +693,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
         """The guards and the alarm share one read apiece, not three."""
         reads = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(
                     watch, "published_commit", lambda gh: reads.append("next") or ""), \
                 unittest.mock.patch.object(
@@ -696,6 +718,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
         def forbidden(self, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
         with unittest.mock.patch.object(watch, "read_feed", read), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
                 unittest.mock.patch.object(
                     watch, "starvation_dispatch",
