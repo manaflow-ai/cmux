@@ -121,7 +121,7 @@ extension TabContentCache {
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String, atOnce: Bool) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: atOnce)
+        lastFrames.evict(entry.session, key: key, atOnce: atOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
@@ -222,7 +222,12 @@ extension TabContentCache: WarmSetHost {
     var warmCapacity: Int { ledger.capacity }
     var warmHiddenCount: Int { ledger.hiddenCount }
     var leastRecentlyHiddenAge: Duration? { ledger.leastRecentlyHiddenAge }
-    func warmBudgetDidChange(to capacity: Int) { warmBudget = WarmSetBudget(terminalCapacity: capacity) }
+    func warmBudgetDidChange(to capacity: Int) {
+        warmBudget = WarmSetBudget(terminalCapacity: capacity)
+        // Bounds the frames kept from now on; it drops no stored frame (the memory coordinator's
+        // critical release slices do, `memoryTerminalLastFrames`).
+        lastFrames.setCapacity(capacity)
+    }
     func setWarmCapacity(_ capacity: Int) -> Int {
         let effects = ledger.setCapacity(capacity)
         apply(effects, evictsAtOnce: true) // only a smaller capacity evicts
