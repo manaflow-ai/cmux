@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36. */
+/* cmux-tui mux protocol 12, IR ff7681038f985868c987cc2cbe866c672acda0e6781c6c274a080510390ab773. */
 
 
 import type * as T from "./types.js";
@@ -3009,10 +3009,22 @@ export interface SendKeyRequest extends CmuxRequestBase {
 export type SendKeyResult = T.EmptyResult;
 
 /** Protocol v12; authority: local-admin. */
+export interface ServerBlockingRequest extends CmuxRequestBase {
+  cmd: "server-blocking";
+}
+export type ServerBlockingResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface ServerThreadsRequest extends CmuxRequestBase {
+  cmd: "server-threads";
+}
+export type ServerThreadsResult = T.JsonValue;
 
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
@@ -3930,7 +3942,9 @@ export type CmuxRequest =
   | SelectWorkspaceRequest
   | SendRequest
   | SendKeyRequest
+  | ServerBlockingRequest
   | ServerStatsRequest
+  | ServerThreadsRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -6337,12 +6351,28 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "server-blocking": {
+    request: ServerBlockingRequest;
+    result: ServerBlockingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-threads-v1";
+    stream: null;
+  };
   "server-stats": {
     request: ServerStatsRequest;
     result: T.ServerStatsResult;
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "server-threads": {
+    request: ServerThreadsRequest;
+    result: ServerThreadsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-threads-v1";
     stream: null;
   };
   "set-cell-pixels": {

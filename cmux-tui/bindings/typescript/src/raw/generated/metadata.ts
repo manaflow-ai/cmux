@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36. */
+/* cmux-tui mux protocol 12, IR ff7681038f985868c987cc2cbe866c672acda0e6781c6c274a080510390ab773. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36" as const;
+export const SDK_IR_SHA256 = "ff7681038f985868c987cc2cbe866c672acda0e6781c6c274a080510390ab773" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3587,6 +3587,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "server-blocking": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+    ]
+  },
   "server-stats": {
     "authority": "local-admin",
     "since": 12,
@@ -3596,6 +3606,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
       "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
+    ]
+  },
+  "server-threads": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
     ]
   },
   "set-cell-pixels": {
@@ -32380,6 +32400,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "server-blocking": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "The blocking calls made on threads that disallow blocking, by call site, with their kinds and counts since start. See spec/commands.md server-blocking."
+    }
+  },
   "server-stats": {
     "request": {
       "additional_properties": false,
@@ -32402,6 +32433,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ServerStatsResult"
+    }
+  },
+  "server-threads": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "Every registered daemon thread with its declared, desired and kernel QoS and scheduler priority, the work lanes, and the process task role; the rows are the threads alive at the read. See spec/commands.md server-threads."
     }
   },
   "set-cell-pixels": {

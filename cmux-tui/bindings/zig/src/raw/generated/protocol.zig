@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36";
+pub const ir_sha256 = "ff7681038f985868c987cc2cbe866c672acda0e6781c6c274a080510390ab773";
 
 pub const AccessRequestKind = enum {
     file,
@@ -11259,6 +11259,23 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
+pub const ServerBlockingRequest = struct {};
+
+pub const ServerBlockingResult = wire.Value;
+
+pub fn serverBlocking(client: anytype, request: ServerBlockingRequest) !wire.Decoded(ServerBlockingResult) {
+    return client.callTyped(
+        ServerBlockingResult,
+        .{
+            .name = "server-blocking",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "server-threads-v1",
+        },
+        request,
+    );
+}
+
 pub const ServerStatsRequest = struct {
     include: wire.Field([]const []const u8) = .absent,
 };
@@ -11271,6 +11288,23 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
             .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
+        },
+        request,
+    );
+}
+
+pub const ServerThreadsRequest = struct {};
+
+pub const ServerThreadsResult = wire.Value;
+
+pub fn serverThreads(client: anytype, request: ServerThreadsRequest) !wire.Decoded(ServerThreadsResult) {
+    return client.callTyped(
+        ServerThreadsResult,
+        .{
+            .name = "server-threads",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "server-threads-v1",
         },
         request,
     );
@@ -14748,7 +14782,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 360;
+pub const command_count: usize = 362;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15042,7 +15076,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "select-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "server-blocking", .authority = "local-admin", .since = 12, .capability = "server-threads-v1", .stream = null },
     .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
+    .{ .name = "server-threads", .authority = "local-admin", .since = 12, .capability = "server-threads-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },

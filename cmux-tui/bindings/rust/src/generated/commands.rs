@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36.
+// cmux-tui mux protocol 12, IR ff7681038f985868c987cc2cbe866c672acda0e6781c6c274a080510390ab773.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4225,10 +4225,26 @@ pub type SendKeyResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerBlockingRequest {
+}
+
+#[rustfmt::skip]
+pub type ServerBlockingResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerThreadsRequest {
+}
+
+#[rustfmt::skip]
+pub type ServerThreadsResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6650,8 +6666,16 @@ impl CmuxClient {
         self.execute(&SEND_KEY_METADATA, &request)
     }
 
+    pub fn server_blocking(&mut self, request: ServerBlockingRequest) -> Result<ServerBlockingResult> {
+        self.execute(&SERVER_BLOCKING_METADATA, &request)
+    }
+
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn server_threads(&mut self, request: ServerThreadsRequest) -> Result<ServerThreadsResult> {
+        self.execute(&SERVER_THREADS_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {
