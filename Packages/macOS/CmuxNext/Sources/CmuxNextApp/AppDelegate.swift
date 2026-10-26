@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
-    /// The startup phase's settle references (first snapshot, restore, visible page).
+    /// An unavailable daemon's settle: every phase reference and startup ref it ends.
     private let startupReferences: StartupReferences
     /// The launch's order owners, made in `main` (p08-startup-012).
     private let order: LaunchOrder
@@ -87,8 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The launch's phase (made in main with the main-thread scheduler) reveals at the first frame.
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
-        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal))
-        startupReferences = StartupReferences(startup: startup, reveal: reveal)
+        // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
+        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
+        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
+        startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
         super.init()
@@ -158,13 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startup = mainWork.startup
         startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
-        let references = startupReferences
-        references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
-        services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
-        let windows = services.windows
-        windows.onRestored = { [weak references, weak windows] in
-            references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
-        }
+        // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
+        startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
@@ -260,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageWebView.openPanel = services.webUI.openPanel
         PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
-        services.windows.restoreWhenLoaded()
+        services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.

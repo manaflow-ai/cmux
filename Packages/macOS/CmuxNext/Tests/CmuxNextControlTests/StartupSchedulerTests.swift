@@ -182,7 +182,7 @@ import Testing
         for reference in [StartupPhase.Reference.firstSnapshot, .restoreDone, .visiblePageIdle] { phase.markDone(reference) }
         #expect(phase.phase == .settled)
         f.hand.drain()
-        #expect(f.startup.completion?.reason == .launchPhaseSettled)
+        #expect(f.startup.completion?.reason == .firstFrameCommitted, "the settle names no reason: the one released before it")
         f.fire()
         #expect(f.ran.names == ["Palette.prepare"])
     }

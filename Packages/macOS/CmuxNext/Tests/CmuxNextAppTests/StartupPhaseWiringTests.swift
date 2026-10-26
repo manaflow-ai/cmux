@@ -4,14 +4,15 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLaunch
+import CmuxNextTerminal
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Observation
 import Testing
 
 /// The startup phases wired to the app (p06-scheduler-007): `LaunchReveal`'s last produced region
-/// reveals the launch, and `StartupReferences` marks the settle references (the daemon store's
-/// first snapshot, the window restore, the visible page's first load, an unavailable daemon).
+/// reveals the launch, the daemon store's first snapshot and an unavailable daemon mark the settle
+/// references, and the launch's windows give the visible panes their startup refs (p08-startup-013).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct StartupPhaseWiringTests {
     @MainActor private final class Count {
         var value = 0
@@ -22,29 +23,9 @@ import Testing
         var isUnavailable = false
     }
 
-    /// A front page whose load state is observable, as a `BrowserTab`'s is.
-    @MainActor @Observable final class Page {  // not private, as Daemon
-        var state = BrowserTabState()
-        private var machine = BrowserTabStateMachine()
-        private var navigation: UInt64 = 0
-
-        func start() {
-            navigation += 1
-            apply(.started(BrowserNavigationID(rawValue: navigation), url: URL(string: "https://example.com")))
-        }
-
-        func finish() { apply(.finished(BrowserNavigationID(rawValue: navigation))) }
-
-        private func apply(_ event: BrowserNavigationEvent) {
-            machine.apply(event)
-            state = machine.state
-        }
-    }
-
-    /// What the front pane shows, read the way `WindowManager.visiblePageLoad` reads panes: not
-    /// observable, so only a content change makes it read again.
-    @MainActor private final class Front {
-        var page: Page?
+    /// The phase references still pending at each release.
+    @MainActor private final class Pending {
+        var sets: [Set<StartupPhase.Reference>] = []
     }
 
     private static func tree() -> DaemonTree {
@@ -53,14 +34,6 @@ import Testing
 
     private func reached(_ phase: StartupPhase.Phase, _ startup: StartupPhase) async {
         await withCheckedContinuation { continuation in startup.whenReached(phase) { continuation.resume() } }
-    }
-
-    /// A startup phase revealed by a first frame, with only the given references left.
-    private func revealed(leaving left: Set<StartupPhase.Reference>) -> StartupPhase {
-        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
-        startup.noteFirstFrame()
-        for reference in Set(StartupPhase.Reference.allCases).subtracting(left).subtracting([.firstFrame]) { startup.markDone(reference) }
-        return startup
     }
 
     @Test func theLastLaunchRegionRevealsTheLaunchOnce() {
@@ -152,60 +125,72 @@ import Testing
         #expect(startup.settleCause == .references, "the unavailable daemon settles startup without the failsafe")
     }
 
-    @Test func restoreMarksItsReferenceAndAPageWithNoLoadYetWaits() async {
-        let startup = revealed(leaving: [.restoreDone, .visiblePageIdle])
-        let references = StartupReferences(startup: startup, reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)))
-        let page = Page()
-        references.restored { [page] in StartupReferences.VisiblePage(page: page.state, loadsNothing: false) }
-        #expect(startup.pendingReferences == [.visiblePageIdle], "restore is done")
-        for _ in 0..<10 { await Task.yield() }
-        #expect(startup.pendingReferences == [.visiblePageIdle], "a page whose first load has not started is not idle")
-
-        page.start()
-        for _ in 0..<10 { await Task.yield() }
-        #expect(startup.phase == .revealed, "a loading page keeps startup from settling")
-        page.finish()
+    /// The unavailable daemon marks the phase first, then releases the pane refs: the last release
+    /// is the daemon's, never the phase's settle.
+    @Test func anUnavailableDaemonReleasesThePaneRefsAfterMarkingThePhase() async {
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        startup.noteFirstFrame()
+        let released = Pending()
+        let refs = VisiblePaneRefs(hold: { _ in { _ in released.sets.append(startup.pendingReferences) } }, phase: startup)
+        let references = StartupReferences(startup: startup, reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)),
+                                           paneRefs: refs)
+        let daemon = Daemon()
+        references.watchUnavailable { [daemon] in daemon.isUnavailable }
+        daemon.isUnavailable = true
         await reached(.settled, startup)
-        #expect(startup.settleCause == .references)
+        #expect(released.sets == [[]], "the restore ref ends once, after every phase reference")
+        #expect(!refs.isHolding)
     }
 
-    /// The front page closes while it loads: the content change reads the front pane again, which
-    /// shows no page; the wait ends without the failsafe (and without the page's deinit).
-    @Test func aClosedLoadingPageEndsTheWaitOnTheContentChange() async {
-        let startup = revealed(leaving: [.restoreDone, .visiblePageIdle])
-        let references = StartupReferences(startup: startup, reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)))
-        let front = Front()
-        let page = Page()
-        page.start()
-        front.page = page
-        references.restored { [front] in
-            front.page.map { StartupReferences.VisiblePage(page: $0.state, loadsNothing: false) } ?? .idle
-        }
-        for _ in 0..<10 { await Task.yield() }
-        #expect(startup.phase == .revealed)
-
-        front.page = nil
-        references.noteContentChange()
-        await reached(.settled, startup)
-        #expect(startup.settleCause == .references)
-        withExtendedLifetime(page) {}
-    }
-
-    @Test func aVisiblePageIsIdleOnlyOnceAFirstLoadEnded() {
+    /// A browser tab's launch content signal: a first load that ended, or a process that ended.
+    @Test func aBrowserPageLoadedOnlyOnceAFirstLoadEnded() {
         var machine = BrowserTabStateMachine()
-        let id = BrowserNavigationID(rawValue: 1)
-        #expect(StartupReferences.VisiblePage(page: machine.state, loadsNothing: false) == .waiting, "a new page's load has not started")
-        #expect(StartupReferences.VisiblePage(page: machine.state, loadsNothing: true) == .idle, "a stand-in loads nothing")
-        machine.apply(.started(id, url: URL(string: "https://example.com")))
-        #expect(StartupReferences.VisiblePage(page: machine.state, loadsNothing: false) == .waiting)
+        #expect(!machine.state.launchLoadEnded, "a new page's load has not started")
+        machine.apply(.started(BrowserNavigationID(rawValue: 1), url: URL(string: "https://example.com")))
+        #expect(!machine.state.launchLoadEnded)
         machine.apply(.stopped)
-        #expect(StartupReferences.VisiblePage(page: machine.state, loadsNothing: false) == .idle, "a stopped load ended")
+        #expect(machine.state.launchLoadEnded, "a stopped load ended")
         machine.apply(.started(BrowserNavigationID(rawValue: 2), url: URL(string: "https://example.com/next")))
-        #expect(StartupReferences.VisiblePage(page: machine.state, loadsNothing: false) == .idle, "only the first load counts")
+        #expect(machine.state.launchLoadEnded, "only the first load counts")
     }
 
-    @Test func noWindowInFrontShowsNoPage() {
+    /// Terminal content is a pane content signal while the refs hold startup: LaunchSettle's hook stays
+    /// installed after the first content (which settles the launch) and goes at the first content after.
+    @Test func theTerminalContentHookStaysWhileThePaneRefsHold() {
+        let previous = TerminalTimings.onContentApplied
+        defer { TerminalTimings.onContentApplied = previous }
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let settle = LaunchSettle(reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)), paneRefs: refs)
+        TerminalTimings.onContentApplied = {}
+        settle.terminalContentApplied()
+        settle.terminalContentApplied()
+        #expect(TerminalTimings.onContentApplied != nil, "the restore ref still holds: later content is a signal too")
+        refs.daemonUnavailable()
+        settle.terminalContentApplied()
+        #expect(TerminalTimings.onContentApplied == nil, "no ref holds: the hook goes")
+    }
+
+    /// Native page content has nothing to load: it is loaded at once (a web page waits for its paint).
+    @Test func aNativePageTabIsLoadedAtOnce() {
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let native = InternalPageView(key: "local-page:settings:1", page: InternalPageID(rawValue: "settings"), content: NSView())
+        #expect(refs.state(of: native) == .loadedIdle, "a native page has nothing to load")
+    }
+
+    /// The launch window shows the connecting view before the daemon answers: it holds startup as
+    /// one loading stand-in, never as no window or no pane.
+    @Test func theConnectingLaunchWindowHoldsStartupAsAStandIn() throws {
+        _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), launchReveal: LaunchReveal(deadline: .seconds(60)))
-        #expect(services.windows.visiblePageLoad() == .idle)
+        services.windows.ordersWindowsIn = false
+        services.windows.restoreWhenLoaded()
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        #expect(refs.windows(of: services.windows).isEmpty, "a window not ordered in and awaiting nothing is not shown")
+        let id = try #require(services.windows.controllers.first).state.id
+        services.windows.awaitingContent[id] = false
+        let windows = refs.windows(of: services.windows)
+        #expect(windows.map(\.panes) == [[VisiblePaneRefs.Pane(key: "window:\(id)", state: .loading)]],
+                "a window kept off screen for its content stands in as one loading pane")
     }
 }

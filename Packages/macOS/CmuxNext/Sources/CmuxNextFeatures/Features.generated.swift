@@ -104,6 +104,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.
+    public static let pagesSpareWindow = Feature(
+        index: 5,
+        name: "pagesSpareWindow",
+        owner: "PL-webui",
+        description: "While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
         index: 6,
@@ -233,6 +250,7 @@ nonisolated extension Feature {
         .memorySaverBackgroundActivity,
         .occludedWindowDiscard,
         .pageProcessGroups,
+        .pagesSpareWindow,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
