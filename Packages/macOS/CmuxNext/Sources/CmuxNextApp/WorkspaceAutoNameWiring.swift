@@ -46,7 +46,7 @@ struct WorkspaceAutoNameWiring {
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
                 return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
             },
-            rename: { [weak services] target, name, maySend in
+            rename: { [weak services] target, name, maySend, _ in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
                       let daemon = services.machines.daemon(machine: target.machineID),
                       daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return false }
