@@ -108,8 +108,10 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
         const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
         const existingCurrent = existing.model.id === current;
         const incomingCurrent = model.id === current;
-        const existingRank = existingCurrent && !existingUnavailable ? 3 : !existingUnavailable ? 2 : existingCurrent ? 1 : 0;
-        const incomingRank = incomingCurrent && !incomingUnavailable ? 3 : !incomingUnavailable ? 2 : incomingCurrent ? 1 : 0;
+        const existingRank =
+          existingCurrent && !existingUnavailable ? 3 : !existingUnavailable ? 2 : existingCurrent ? 1 : 0;
+        const incomingRank =
+          incomingCurrent && !incomingUnavailable ? 3 : !incomingUnavailable ? 2 : incomingCurrent ? 1 : 0;
         if (incomingRank > existingRank) joined.offers[duplicateIndex] = offer;
       }
       if (model.id === current) joined.model = model;

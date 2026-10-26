@@ -131,7 +131,9 @@ function quickSections(
     })
     .filter((choice): choice is ModelChoice => choice !== undefined);
   // A model is a top one when any provider's row of it is.
-  const top = all.filter((choice) => choice.curated || (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
+  const top = all.filter(
+    (choice) => choice.curated || (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)),
+  );
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
   // The landing row may be an available sibling when the running provider is unavailable;
   // keep that logical group in the compact picks by matching the complete offer list.
@@ -752,7 +754,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const list: QuickFamily[] = [];
     const starred = startable.flatMap((entry) => {
       if (loginFor(entry) !== undefined) return [];
-      const { shown, more } = quickSections(entry);
+      const { shown, more } = quickSections(entry, undefined);
       return [...shown, ...more]
         .filter((model) => favorites.has(model.id) || model.offers?.some((offer) => favorites.has(offer.id)))
         .map((model) => {

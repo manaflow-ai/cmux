@@ -538,8 +538,8 @@ test("the held list height and width count the chat tab's Provider row, on every
   // even when grouping leaves fewer than nine model rows.
   expect(held.rows).toBeGreaterThanOrEqual(9);
   expect(heldWidths).toContainEqual({ label: "Provider", value: "OpenCode" });
-  const tabs = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map(
-    (tab) => tab.getAttribute("aria-label")!,
+  const tabs = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) =>
+    tab.getAttribute("aria-label")!,
   );
   expect([...tabs].sort()).toEqual(["Claude Code", "OpenCode", "Pi"]);
   for (const name of tabs) {
