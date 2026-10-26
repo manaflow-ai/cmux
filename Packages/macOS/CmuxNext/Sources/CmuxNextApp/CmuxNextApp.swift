@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
@@ -77,6 +78,14 @@ public struct CmuxNextApp {
         let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
             at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
+        // The Labs page's local feature choices (DEV and NIGHTLY) go first in that sequence: AppServices resolves the
+        // features after the settings read lands, so they are in hand then (components/flags_ui, applied at start).
+        if Feature.Channel(environment.build.kind).allowsLocalOverrides {
+            let file = SidebarSnapshotFile.buildDirectory(launch: environment.launch)
+                .appending(path: "features", directoryHint: .isDirectory).appending(path: FeatureLocalOverrides.fileName)
+            environment.featureLocalOverridesFile = file
+            environment.featureLocalOverrides = LaunchRead(in: ledgerThenSettings, dropped: FeatureLocalOverrides()) { FeatureLocalOverrides.read(file) }
+        }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)

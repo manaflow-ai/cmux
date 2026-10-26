@@ -39,12 +39,41 @@ struct FeatureFlagsReportTests {
         let rows = try #require(report["features"]?.arrayValue)
         #expect(rows.map { $0["name"]?.stringValue } == ["perfThing", "killThing", "labsThing"])
         #expect(rows.map { $0["source"]?.stringValue } == ["remote", "policy", "env"])
+        #expect(rows.map { $0["state"]?.stringValue } == ["on", "off", "on"])
         #expect(rows.map { $0["enabled"]?.boolValue } == [true, false, true])
         #expect(rows.map { $0["default"]?.boolValue } == [false, true, false])
         #expect(rows[0]["expires"] == .string("2026-12-01"))
         #expect(rows[1]["expires"] == .null)
         #expect(rows[1]["sticky"] == .bool(true))
         #expect(rows[2]["kind"] == .string("labs"))
+    }
+
+    /// The kill-switch done check (scripts/perf-lab/done_checks.py, story 13) reads `name`, `state` and `source`
+    /// of each row of `cmux settings feature-flags --json`, which prints this report unchanged.
+    @Test func eachRowHasTheDoneCheckFields() throws {
+        let rows = try #require(FeatureFlagsReport(features: Self.list(.release)).json["features"]?.arrayValue)
+        for row in rows {
+            #expect(row["name"]?.stringValue != nil)
+            #expect(row["state"]?.stringValue == (row["enabled"]?.boolValue == true ? "on" : "off"))
+            #expect(row["source"]?.stringValue != nil)
+        }
+    }
+
+    @Test func safeModeIsReportedWhenTheAppAppliesARemoteDocument() {
+        #expect(FeatureFlagsReport(features: Self.list(.nightly)).json["safe_mode"] == .null)
+        let state = FeatureSafeMode.State(streaks: FeatureSafeMode.Streaks(crashes: 3, fetchFailures: 0))
+        #expect(FeatureFlagsReport(features: Self.list(.nightly), safeMode: state).json["safe_mode"] == .object([
+            "level": .string("last-known-good"), "crash_streak": .number(3), "fetch_failure_streak": .number(0),
+        ]))
+    }
+
+    /// The Labs card's data: the report plus the next launch's local choices.
+    @Test func theLabsCardAddsTheNextLaunchChoices() {
+        let report = FeatureFlagsReport(features: Self.list(.dev))
+        let labs = report.labsJSON(nextLocal: FeatureLocalOverrides(values: ["perfThing": false]))
+        #expect(labs["next_local"] == .object(["perfThing": .bool(false)]))
+        #expect(labs["features"] == report.json["features"])
+        #expect(report.json["next_local"] == nil)
     }
 
     @Test func localTogglesApplyOnlyOnDevAndNightly() {

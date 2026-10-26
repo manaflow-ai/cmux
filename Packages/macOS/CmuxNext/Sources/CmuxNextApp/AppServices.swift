@@ -300,6 +300,9 @@ final class AppServices {
     /// resolved once in init (crash reporting reads it first) from this build's channel and the launch environment
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the services that read it are built.
     var features: FeatureList
+    /// The Feature Flags card's local choices (feature `featureFlagsCard`): this launch's, and the next one's it writes.
+    private(set) lazy var featureLocalOverrides = FeatureLocalOverrideStore(registry: features.registry, channel: features.channel,
+        launch: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(), file: environment.featureLocalOverridesFile, work: work)
     /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
@@ -656,7 +659,8 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
-        features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind), overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+        features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind), overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                               local: environment.featureLocalOverrides?.value)  // the launch read ended before the settings read
         crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
