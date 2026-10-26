@@ -73,8 +73,11 @@ mod tests {
     /// the same pid (here 666) does not lend the new file its mode (ergo-walk2, 2026-10-25).
     #[test]
     fn the_cache_is_written_owner_only() {
-        let root = std::env::temp_dir()
-            .join(format!("chat-index-mode-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let root = std::env::temp_dir().join(format!(
+            "chat-index-mode-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let dir = root.join("chat-index");
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o775)).unwrap();
