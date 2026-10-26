@@ -114,6 +114,50 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.keys.changes.isEmpty, "an inactive app's window took the keys")
     }
 
+    /// Cmd-N on a Chromium New Tab page: the page readied in its provisional pane and took the keys,
+    /// then moved to its real pane, whose present gave the cmux window the keys. The re-apply found
+    /// the page focused and granted nothing: no caret, typing went to the cmux window.
+    @Test func aPageThatLostTheKeysToTheCmuxWindowIsGrantedAgain() {
+        let world = World()
+        world.focus.focus(world.a)
+        world.keys.makeKey(world.cmux) // the page window was presented again
+        #expect(world.focus.keysReturned(to: world.cmux))
+        #expect(world.focus.page == nil)
+        world.focus.focus(world.a) // the model re-applies its target
+        #expect(world.keys.changes == ["pageA", "cmux", "pageA"], "the page never got the keys back: \(world.keys.changes)")
+        #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "atrue"])
+    }
+
+    @Test func keysReturnedChangesNothingWhileThePageWindowIsKey() {
+        let world = World()
+        world.focus.focus(world.a)
+        #expect(!world.focus.keysReturned(to: world.cmux))
+        #expect(world.focus.page === world.a)
+        #expect(world.focusCalls.count == 1)
+    }
+
+    @Test func keysReturnedChangesNothingWithNoFocusedPage() {
+        let world = World()
+        world.keys.makeKey(world.cmux)
+        #expect(!world.focus.keysReturned(to: world.cmux))
+        #expect(world.focusCalls.isEmpty)
+    }
+
+    /// A key change inside the grant is the grant's own: no blur and no second grant (ping-pong).
+    @Test func keysReturnedInsideTheGrantChangesNothing() {
+        let world = World()
+        var returned: Bool?
+        world.duringGrant = { [weak world] in
+            guard let world else { return }
+            world.keys.makeKey(world.cmux)
+            returned = world.focus.keysReturned(to: world.cmux)
+        }
+        world.focus.focus(world.a)
+        #expect(returned == false)
+        #expect(world.focus.page === world.a)
+        #expect(world.focusCalls.count == 1)
+    }
+
     /// Focus leaves the page for a target in the cmux window (a terminal): one change, back to cmux.
     @Test func leavingThePageMakesOneKeyChange() {
         let world = World()

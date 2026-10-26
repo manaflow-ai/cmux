@@ -109,6 +109,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
     case projectIcon(String)
+    /// `agent.avatar {sessionId}`: the person's own avatar for agent session `sessionId`, as a small
+    /// data URL, for its cards and sender chip; none answers nothing.
+    case agentAvatar(String)
+    /// `agent.avatar.set {sessionId}`: the menu's Set Avatar…: the native open panel, then the upload.
+    case setAgentAvatar(String)
+    /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
+    case removeAgentAvatar(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -157,6 +164,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
     /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String)
+    /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
+    /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
+    case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
