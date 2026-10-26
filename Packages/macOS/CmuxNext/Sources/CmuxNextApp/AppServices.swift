@@ -46,6 +46,7 @@ import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import WebKit
 import CmuxNextFocusUI
 import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
@@ -425,6 +426,19 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
+    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface, most specific first;
+    /// an agent chat's Chromium page window (`CefNSWindow`) is the agent pane's. Its key and scroll slots carry the
+    /// `key.frame` and `key.scroll_frame` intervals.
+    private(set) lazy var inputLatency = InputLatencyDispatch(
+        tracker: InputLatencyTracker(presentation: PresentationClock()),
+        classifier: InputTargetClassifier(rules: [
+            .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
+            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { [weak self] page in
+                self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true ? .agentPane : nil
+            }),
+            .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
+            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout),
+        ]))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
@@ -622,8 +636,8 @@ final class AppServices {
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
-        inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
-                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
+        // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``).
+        inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch, crashKeys: crashKeys)
@@ -711,6 +725,7 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
+        (NSApp as? CmuxApplication)?.inputLatency = inputLatency
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
