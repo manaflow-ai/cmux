@@ -100,11 +100,32 @@ pub fn is_transport_error(message: &str) -> bool {
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
 
+/// Does an agent error say the request itself was refused: a bad request (HTTP 400, 413 or
+/// 422, `invalid_request_error`), a refused permission (403, `permission_error`, a rejected
+/// tool use) or a missing resource (404)? Sending it again fails the same way, whatever words
+/// about a connection or capacity follow ("400 invalid_request_error: unexpected EOF while
+/// parsing JSON").
+pub fn is_refused_request(message: &str) -> bool {
+    let m = message.to_lowercase();
+    ["400", "403", "404", "413", "422"].iter().any(|code| has_status(&m, code))
+        || m.contains("invalid_request_error")
+        || m.contains("permission_error")
+        || m.contains("not_found_error")
+        || m.contains("request_too_large")
+        || m.contains("bad request")
+        || m.contains("permission denied")
+        || m.contains("tool use was rejected")
+}
+
 /// Why an agent's error is worth trying again in a moment, if it is: `capacity`
 /// ([`is_capacity_error`]) or `transport` ([`is_transport_error`]). A usage limit, a sign-in
-/// failure, a bad request, a refused permission and anything else are not: None.
+/// failure, a bad request, a refused permission ([`is_refused_request`]) and anything else are
+/// not: None.
 pub fn transient_cause(error: &str) -> Option<&'static str> {
-    if is_limit_error(error) || crate::claude_auth::is_sign_in_failure(error) {
+    if is_limit_error(error)
+        || crate::claude_auth::is_sign_in_failure(error)
+        || is_refused_request(error)
+    {
         return None;
     }
     if is_capacity_error(error) {
@@ -264,8 +285,23 @@ mod tests {
             assert_eq!(transient_cause(m), None, "{m}");
             assert_eq!(resume_cause(m, m), None, "{m}");
         }
-        // A limit or a sign-in failure wins over a capacity word in the same text.
-        let m = "API Error: 429 rate_limit_error: the service is at capacity for your plan";
-        assert_eq!(resume_cause(m, m), None);
+        // A limit, a sign-in failure or a refused request wins over a capacity or connection
+        // word in the same text.
+        for m in [
+            "API Error: 429 rate_limit_error: the service is at capacity for your plan",
+            "API Error: 400 invalid_request_error: unexpected EOF while parsing JSON",
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"overloaded_error is not a valid tool name\"}}",
+            "API Error: 403 {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"connection reset by policy\"}}",
+            "HTTP 413 request_too_large: the gateway closed the connection (connection reset)",
+            "Bad Request: stream disconnected",
+            "Not logged in · Please run /login (connection error)",
+        ] {
+            assert!(is_refused_request(m) || is_limit_error(m) || m.contains("/login"), "{m}");
+            assert_eq!(transient_cause(m), None, "{m}");
+            assert_eq!(resume_cause(m, m), None, "{m}");
+        }
+        // The gateway's address is no status: port 4016 is not a 401 nor a 403.
+        assert!(!is_refused_request("check your inference gateway (127.0.0.1:4016)"));
+        assert!(!is_refused_request("retry after 4003s"));
     }
 }

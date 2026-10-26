@@ -32,7 +32,8 @@
 //!   skipped or is used up, and from Stop or close on. `auto_resume_scheduled` carries the same
 //!   `of`, `reason` and `nextAt`; `auto_resume_exhausted` its `reason`. The wait's timer ends
 //!   when its delay does, or at once when its mark goes (Stop, close, a turn that took the chat):
-//!   it then records the skip.
+//!   it then records the skip. An attempt refused before its turn starts (its folder gone, a
+//!   dispatch check) records `auto_resume_skipped` `refused` with the `error`.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
@@ -458,7 +459,15 @@ impl Hub {
         }
         let held = self.held_by(session, root, cut_turn);
         let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        // Whether the attempt reached the chat (its turn started): one refused before that
+        // (its folder gone, a dispatch check) leaves no record a watcher hears but this skip.
+        let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let on_accepted = {
+            let accepted = accepted.clone();
+            Box::new(move |_: Value| accepted.store(true, std::sync::atomic::Ordering::SeqCst))
+        };
         let opts = PromptOptions {
+            on_accepted: Some(on_accepted),
             prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
             resend: true,
             control: cut.control,
@@ -481,7 +490,14 @@ impl Hub {
                     let why = why.trim_start_matches("auto_resume.");
                     self.append(session, "mux", "auto_resume_skipped", skipped(why));
                 }
-                // A failure that is itself a transport error scheduled the next attempt.
+                // Refused before its turn: the row's retry went when it fired.
+                _ if !accepted.load(std::sync::atomic::Ordering::SeqCst) => {
+                    tracing::warn!(session = %session.id, attempt, "auto resume refused: {}", e.message);
+                    let mut msg = skipped("refused");
+                    msg["error"] = json!(e.message);
+                    self.append(session, "mux", "auto_resume_skipped", msg);
+                }
+                // A failure that is itself a transient error scheduled the next attempt.
                 _ => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
             },
         }
