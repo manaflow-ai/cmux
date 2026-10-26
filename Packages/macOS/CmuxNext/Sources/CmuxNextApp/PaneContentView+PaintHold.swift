@@ -20,7 +20,7 @@ extension AgentPaneView: PaneFirstPaintGated {
 
 /// A page tab: transparent until its document paints, like an agent page
 /// (no-flicker audit). Content that is not a page has nothing to wait for, and a page rebuilt
-/// after a discard shows its last picture until it paints (``InternalPageView/showPicture(_:)``).
+/// after a discard shows its last picture until it paints (``InternalPageView/rebuilt(under:restore:)``).
 extension InternalPageView: PaneFirstPaintGated {
     public var awaitsFirstPaint: Bool { picture == nil && (content as? PageWebView).map { !$0.hasPainted } ?? false }
 

@@ -28,6 +28,8 @@ import Testing
             let view = try #require(rig.pages.view(for: rig.key))
             let shown = try #require(view.content as? PageWebView)
             page = shown
+            view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            view.layoutSubtreeIfNeeded()
             await shown.chromiumStart?.value
             shown.notePainted()
             rig.show()
@@ -66,10 +68,43 @@ import Testing
         await rebuiltPage.chromiumStart?.value
         let engine = try #require(web.hosting.made.last)
         #expect(!web.scrolled(engine), "scrolled before the rebuilt document painted")
+        #expect(rebuilt.restoring == nil, "restored before the rebuilt document painted")
         // The rebuilt document paints: its scroll goes back, then the picture leaves.
         rebuiltPage.notePainted()
-        let scrolled = await Waiter().wait(until: { web.scrolled(engine) }, signal: { engine.onCall = $0 })
-        #expect(scrolled, "the rebuilt document never scrolled back to 700")
+        await rebuilt.restoring?.value
+        #expect(web.scrolled(engine), "the rebuilt document never scrolled back to 700")
+        #expect(rebuilt.picture == nil, "the picture stayed over the page that drew its restored state")
+    }
+
+    @Test func aHiddenPaintedPageIsPicturedAtItsHideAndANeverPageIsNot() async throws {
+        let web = try WebRig()
+        defer { web.close() }
+        let provider = WebPage { web.makePage() }
+        let rig = Rig(provider)
+        let view = try #require(rig.pages.view(for: rig.key))
+        let page = try #require(view.content as? PageWebView)
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        view.layoutSubtreeIfNeeded()
+        await page.chromiumStart?.value
+        page.notePainted()
+        rig.show()
+        rig.hide()
+        await rig.pages.discarding?.pictures[rig.key]?.task?.value
+        #expect(rig.cache.previews.image(for: rig.key) != nil, "the hide took no picture of the painted page")
+        let captures = { web.hosting.made.flatMap(\.calls).filter { $0.method == "Page.captureScreenshot" }.count }
+        #expect(captures() == 1)
+
+        // Hidden again with nothing new to show: the picture it has is current.
+        rig.show()
+        rig.hide()
+        #expect(captures() == 1, "a plain switch pictured an unchanged page again")
+
+        // A page that is never discarded pays for no picture.
+        provider.policy = .never
+        rig.cache.previews.remove(rig.key)
+        rig.show()
+        rig.hide()
+        #expect(captures() == 1, "a page that is never discarded was pictured at its hide")
     }
 
     @Test func theDefaultViewStateKeepsANativePagesScroll() async throws {
@@ -92,10 +127,9 @@ import Testing
         let rebuilt = try #require(rig.pages.view(for: rig.key))
         rebuilt.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         rebuilt.layoutSubtreeIfNeeded()
+        await rebuilt.restoring?.value
         let scroll = try #require(rebuilt.content.firstScrollView)
-        let restored = await Waiter().wait(until: { scroll.documentVisibleRect.origin.y == 500 }, signal: { _ in })
-            || scroll.documentVisibleRect.origin.y == 500
-        #expect(restored)
+        #expect(scroll.documentVisibleRect.origin.y == 500)
         #expect(rebuilt.picture == nil, "native content draws at once: no cover")
     }
 
@@ -208,6 +242,7 @@ import Testing
         await rig.discards.settled()
         #expect(rig.pages.existingView(rig.key) != nil, "a page hidden 4 s went at critical pressure")
         #expect(rig.discards.nextCheck == 6, "looked at again once it is hidden 10 s")
+        try await clock.waitForSleeper()
 
         let discarded = await Waiter().wait(until: { rig.pages.existingView(rig.key) == nil },
                                             signal: { rig.discards.onDiscard = $0 }, then: { clock.advance(by: .seconds(7)) })
@@ -230,44 +265,46 @@ import Testing
         #expect(rig.discards.discardedCount == 0)
     }
 
-    @Test func withTheFeatureOffNothingIsDiscarded() throws {
-        let rig = Rig(DefaultStatePage { NSView() })
-        rig.pages.discards = nil
+    @Test func withTheFeatureOffNothingIsDiscarded() async throws {
+        let rig = Rig(DefaultStatePage { NSView() }, discarding: false)
         _ = try #require(rig.pages.view(for: rig.key))
         rig.show()
         rig.hide()
+        rig.advance(3_600)
+        rig.discards.replan()
+        await rig.discards.settled()
+        #expect(rig.cache.pageDiscards == nil)
+        #expect(rig.pages.discarding == nil)
         #expect(!rig.discards.hasDeadline)
         #expect(rig.pages.existingView(rig.key) != nil)
-        #expect(InternalPageTabStore.discarding(rig.cache) == nil)
     }
 
     // MARK: Rig
 
     @MainActor final class Rig {
         let services: AppServices
+        let clock: ManualClock
         let discards: ContentDiscardScheduler
         let pane = Pane()
         let key: String
-        var clock = ContinuousClock.now
         var cache: TabContentCache { services.cache }
         var pages: InternalPageTabStore { services.pages }
 
-        /// `clock`, when given, is the scheduler's only clock (what the app passes); else `advance` moves its reading.
-        init(_ provider: any InternalPageProvider, clock manual: ManualClock? = nil) {
+        /// `clock` is the scheduler's one clock; `discarding` false is the feature off (nothing wired).
+        init(_ provider: any InternalPageProvider, clock: ManualClock = ManualClock(), discarding: Bool = true) {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            discards = manual.map { ContentDiscardScheduler(kind: .internalPage, clock: $0) } ?? ContentDiscardScheduler(kind: .internalPage)
+            self.clock = clock
+            discards = ContentDiscardScheduler(kind: .internalPage, clock: clock)
             services.pages.register(provider)
-            discards.host = services.pages
-            services.pages.cache = services.cache
-            services.pages.discards = discards
+            // What AppMemoryConsumers does with `memoryDiscardInternalPages` on.
+            if discarding { services.pages.enableDiscards(discards, on: services.cache) }
             key = services.pages.open(provider.page, in: "pane-discard-test", of: DaemonStore())
-            if manual == nil { discards.now = { [weak self] in self?.clock ?? .now } }
         }
 
         func show() { cache.present(key, by: pane, presence: .visible) }
         func hide() { cache.withdraw(key, by: pane) }
-        func advance(_ seconds: Int64) { clock += .seconds(seconds) }
+        func advance(_ seconds: Int64) { clock.advance(by: .seconds(seconds)) }
     }
 
     @MainActor final class Pane: SurfacePresenter {

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextHibernation
 import CmuxNextIcons
+import CmuxNextPages
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
 /// Store) shown as tabs in a pane instead of windows of their own.
@@ -81,23 +82,29 @@ protocol InternalPageProvider: AnyObject {
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory.md 3.C)
     //
     // With the feature on, a hidden tab's view goes once its policy says so: the tab keeps its
-    // place, title, icon and route, and its next show calls ``makeView(for:in:)`` again for the
-    // same `key`, then ``restoreViewState(_:for:content:)``.
+    // place, title, icon and route (``route(for:)``, given back through ``restore(_:for:)``), and
+    // its next show calls ``makeView(for:in:)`` again for the same `key`, then
+    // ``restoreViewState(_:for:content:)``. Only a provider that declares a policy is discarded,
+    // and it owns the teardown: the store never closes a view it did not make.
 
-    /// When tab `key`'s hidden view may go. Default: ``ContentDiscardPolicy/standard``.
+    /// When tab `key`'s hidden view may go. Default: ``ContentDiscardPolicy/never``. A provider that
+    /// returns another policy implements ``viewDiscarded(_:)`` and keeps no view across a discard.
     func discardPolicy(for key: String) -> ContentDiscardPolicy
     /// Why tab `key`'s view must stay now (an edit not saved, a recording, a request in flight),
     /// first reason first; empty when it may go. Asked right before a discard, and again one
     /// policy time later while it keeps the view. Default: none.
     func keepReasons(for key: String) -> [CannotDiscardReason]
     /// What tab `key` shows besides its route, read right before its view `content` goes.
-    /// Default: the scroll position of the first scroll view in `content`.
+    /// Default: a page's document scroll (``PageWebView``, either engine), else the position of
+    /// the first scroll view in `content`.
     func saveViewState(for key: String, content: NSView) async -> ContentViewState
-    /// Puts `state` back on tab `key`'s rebuilt view `content`, once it has its size. Default:
-    /// scrolls the first scroll view in `content` to the saved position.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView)
-    /// Tab `key`'s view went and the tab stays: drop what refers to the view, keep what its next
-    /// view needs. Default: nothing.
+    /// Puts `state` back on tab `key`'s rebuilt view `content` once it can take it: a page once its
+    /// new document painted, native content once it has its size. Its picture covers it until this
+    /// returns and the page drew. Default: the scroll ``saveViewState(for:content:)`` read.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async
+    /// Tab `key`'s view went and the tab stays: close and drop the view's page, models and holders
+    /// (``tabClosed(_:)`` without forgetting the tab's route or file), so the next
+    /// ``makeView(for:in:)`` makes a new, live view. Default: nothing (the never policy's).
     func viewDiscarded(_ key: String)
 }
 
@@ -110,17 +117,36 @@ extension InternalPageProvider {
     func restore(_ route: String, for key: String) {}
     func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
-    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .never }
     func keepReasons(for key: String) -> [CannotDiscardReason] { [] }
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
-        ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
+        if let page = content as? PageWebView { return ContentViewState(scroll: await page.documentScroll()) }
+        return ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
     }
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        guard let scroll = state.scroll, let view = content.firstScrollView else { return }
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
+        guard let scroll = state.scroll else { return }
+        if let page = content as? PageWebView { return await page.scrollDocument(to: scroll) }
+        guard let view = content.firstScrollView else { return }
         view.contentView.scroll(to: scroll)
         view.reflectScrolledClipView(view.contentView)
     }
     func viewDiscarded(_ key: String) {}
+}
+
+extension PageWebView {
+    /// The document's scroll (`window.scrollX`, `window.scrollY`), in either engine; nil when the
+    /// page does not answer. WebKit scrolls a page in its web process, so no NSScrollView has it.
+    func documentScroll() async -> CGPoint? {
+        let value = await callPageFunction("return [window.scrollX, window.scrollY];") as? [Any]
+        guard let numbers = value?.compactMap({ ($0 as? NSNumber)?.doubleValue }), numbers.count == 2 else { return nil }
+        return CGPoint(x: numbers[0], y: numbers[1])
+    }
+
+    /// Scrolls the document to `point` and returns once the page ran it.
+    func scrollDocument(to point: CGPoint) async {
+        guard point.x.isFinite, point.y.isFinite else { return }
+        _ = await callPageFunction("window.scrollTo(x, y); return null;", arguments: ["x": Double(point.x), "y": Double(point.y)])
+    }
 }
 
 extension NSView {

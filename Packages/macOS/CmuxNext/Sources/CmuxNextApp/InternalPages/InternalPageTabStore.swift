@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -44,11 +43,9 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
-    /// What each discarded tab showed, by provider key, until its view is made again; `discards` says when
-    /// views go (`memoryDiscardInternalPages`, nil while off), on `cache`'s lifecycle (InternalPageTabStore+Show).
-    @ObservationIgnored private(set) var discarded: [String: ContentViewState] = [:]
-    @ObservationIgnored var discards: ContentDiscardScheduler?
-    @ObservationIgnored weak var cache: TabContentCache?
+    /// Page tab discards (`memoryDiscardInternalPages`; nil while off): when views go, and what each
+    /// discarded tab keeps until its view is made again (InternalPageTabStore+Discard).
+    @ObservationIgnored var discarding: InternalPageDiscards?
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -139,31 +136,26 @@ final class InternalPageTabStore {
     }
 
     /// Makes and keeps tab `tab`'s view under provider key `key`. A tab whose view was discarded
-    /// gets its saved state back once laid out, under its last picture until it paints.
+    /// gets its route back before the view is made, and its view state once the view can take it,
+    /// under its last picture until then.
     private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider,
                           window: WindowController?) -> InternalPageView {
+        let gone = discarding?.discarded.removeValue(forKey: key)
+        if let route = gone?.route { provider.restore(route, for: key) }
         let content = provider.makeView(for: key, in: window)
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
-        if let state = discarded.removeValue(forKey: key) {
-            if let picture = discardedPicture(of: tab) { view.showPicture(picture) }
-            view.whenLaidOut { [weak provider, weak content] in if let content { provider?.restoreViewState(state, for: key, content: content) } }
+        if let state = gone?.state {
+            view.rebuilt(under: discardedPicture(of: tab)) { [weak provider] content in
+                await provider?.restoreViewState(state, for: key, content: content)
+            }
         }
         return view
     }
 
-    /// Lets `tab`'s view go and keeps the tab (strip place, title, icon, route) and `state`, given
-    /// back to the view made at its next show (InternalPageTabStore+Show). False with no view.
-    @discardableResult
-    func discardView(ofTab tab: String, state: ContentViewState) -> Bool {
-        let key = providerKey(ofTab: tab)
-        guard let view = views.removeValue(forKey: key) else { return false }
-        view.removeFromSuperview()
-        discarded[key] = state
-        if let page = LocalPageTab.page(of: key) { providers[page]?.viewDiscarded(key) }
-        return true
-    }
+    /// Takes the view kept under provider key `key` out of the store (a discard, InternalPageTabStore+Discard).
+    func takeView(_ key: String) -> InternalPageView? { views.removeValue(forKey: key) }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
     /// The provider key of store page tab `id`, nil for any other tab.
@@ -365,7 +357,7 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperview()
-        discarded[key] = nil
+        discarding?.forget(key)
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }

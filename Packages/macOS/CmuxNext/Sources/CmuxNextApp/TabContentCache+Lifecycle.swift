@@ -105,7 +105,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) || InternalPageTabStore.discarding(self)?.adoptPage(key) == true { // a page tab's view: live
+                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true { // a page tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -118,10 +118,10 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                if InternalPageTabStore.discarding(self)?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
+                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                if InternalPageTabStore.discarding(self)?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
+                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
             }
         }
     }
@@ -147,7 +147,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        if InternalPageTabStore.discarding(self)?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
+        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
@@ -165,7 +165,7 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        if InternalPageTabStore.discarding(self)?.pageDidHide(key) != true { hibernation?.tabDidHide(key) }
+        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
     }
 
     func trace(_ key: String, _ event: String) {

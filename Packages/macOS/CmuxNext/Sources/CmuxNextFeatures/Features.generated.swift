@@ -36,12 +36,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A page tab hidden past its page's discard policy (10 minutes unless the page sets its own, sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, scroll and picture; showing it builds the page again.
+    /// A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.
     public static let memoryDiscardInternalPages = Feature(
         index: 2,
         name: "memoryDiscardInternalPages",
         owner: "PL-memory",
-        description: "A page tab hidden past its page's discard policy (10 minutes unless the page sets its own, sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, scroll and picture; showing it builds the page again.",
+        description: "A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

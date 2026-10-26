@@ -13,8 +13,8 @@ package protocol ContentDiscardHost: AnyObject {
     func keepReasons(of key: String) -> [CannotDiscardReason]
     /// `key`'s content still draws though hidden (a paint hold keeps the outgoing view on screen).
     func isDrawn(_ key: String) -> Bool
-    /// Saves `key`'s state and picture before it goes; nil when it must stay (it showed, changed or
-    /// got a reason to stay meanwhile).
+    /// Saves `key`'s state before it goes; nil when it must stay (it showed, changed or got a
+    /// reason to stay meanwhile).
     func prepareDiscard(_ key: String) async -> ContentViewState?
     /// Discards `key` now; its release takes the saved state from ``ContentDiscardScheduler/takePrepared(_:)``.
     func commitDiscard(_ key: String)
@@ -25,6 +25,10 @@ package protocol ContentDiscardHost: AnyObject {
 /// pressure, Chrome's urgent pace (urgent_page_discarding_policy.cc). Eligibility, ranking and the
 /// next look are ``ContentDiscardPlanner``'s plus the host's keep reasons. Events only: the host
 /// reports shows and hides, and one ``DemandTimer`` one-shot says when to look again; nothing polls.
+///
+/// A show or hide touches only its own item, in the input's turn, and moves the deadline only when
+/// that item is due sooner (O(changed)). The whole plan runs when the deadline fires, the pressure
+/// changes or a preparation ends. Hidden times and the deadline read the one injected clock.
 ///
 /// A due item is prepared asynchronously (``ContentDiscardHost/prepareDiscard(_:)``); a show
 /// meanwhile cancels the preparation, and the host's own check (the content lifecycle's token)
@@ -41,12 +45,10 @@ package final class ContentDiscardScheduler {
 
     package let kind: ContentKind
     package weak var host: (any ContentDiscardHost)?
-    /// The clock (tests set it).
-    package var now: () -> ContinuousClock.Instant = { .now }
     package private(set) var pressure: MemoryPressureLevel = .normal
     /// Why each kept item stays (the first reason), for `debug.discards`.
     package private(set) var exemptions: [String: CannotDiscardReason] = [:]
-    /// Seconds until the next look; nil when nothing is due later.
+    /// Seconds from the last arming until the deadline; nil while none is armed.
     package private(set) var nextCheck: Double?
     package private(set) var discardedCount = 0
     /// An item was discarded (the memory histograms count it).
@@ -54,7 +56,11 @@ package final class ContentDiscardScheduler {
 
     private let planner = ContentDiscardPlanner()
     private let deadline: DemandTimer
-    private var hiddenAt: [String: ContinuousClock.Instant] = [:]
+    /// Time on the injected clock since the scheduler was made: hidden times and the deadline's.
+    private let elapsed: () -> Duration
+    /// When the armed deadline fires, on ``elapsed``; nil while none is armed.
+    private var deadlineAt: Duration?
+    private var hiddenAt: [String: Duration] = [:]
     private var preparing: [String: Task<Void, Never>] = [:]
     private var prepared: [String: ContentViewState] = [:]
     private var memoryRegistration: MemoryConsumerRegistration?
@@ -63,13 +69,20 @@ package final class ContentDiscardScheduler {
     ///   - kind: The kind of content it discards.
     ///   - memory: The app's memory coordinator, which hands it each pressure level; nil keeps it at
     ///     normal (``update(pressure:)``).
-    ///   - clock: The deadline's clock.
+    ///   - clock: The one clock of hidden times and the deadline.
     package init(kind: ContentKind, memory: (any MemoryConsumerRegistry)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.kind = kind
         deadline = DemandTimer(owner: "ContentDiscardScheduler.\(kind.rawValue)", clock: clock)
+        elapsed = Self.stopwatch(clock)
         memoryRegistration = memory.map {
             MemoryConsumerRegistration(name: "\(kind.rawValue)-discards", traits: Self.memoryTraits, consumer: self, registry: $0)
         }
+    }
+
+    /// Time on `clock` since this call.
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     package var hasDeadline: Bool { deadline.isScheduled }
@@ -79,18 +92,21 @@ package final class ContentDiscardScheduler {
         for task in Array(preparing.values) { await task.value }
     }
 
-    /// `key` shows: it is not due, and a preparation for it stops.
+    /// `key` shows: it is not due, and a preparation for it stops. The deadline stays for the other
+    /// hidden items (a look with nothing due finds nothing) and goes with the last one.
     package func contentDidShow(_ key: String) {
         hiddenAt[key] = nil
+        exemptions[key] = nil
         preparing.removeValue(forKey: key)?.cancel()
         prepared[key] = nil
-        replan()
+        if hiddenAt.isEmpty, preparing.isEmpty { disarm() }
     }
 
-    /// `key` stopped showing.
+    /// `key` stopped showing: the deadline moves sooner when `key` is due before it.
     package func contentDidHide(_ key: String) {
-        hiddenAt[key] = now()
-        replan()
+        hiddenAt[key] = elapsed()
+        guard let timeout = host?.discardPolicy(of: key)?.timeout else { return }
+        arm(after: pressure == .critical ? min(timeout, Self.urgentPace.minimumHidden) : timeout, onlySooner: true)
     }
 
     /// The state `key` goes with, for the host's release; nil for a discard nobody prepared (the
@@ -112,9 +128,9 @@ package final class ContentDiscardScheduler {
 
     /// Starts the preparation of the next due item and arms one deadline for the one after.
     package func replan() {
-        guard let host else { return deadline.cancel() }
+        guard let host else { return disarm() }
         hiddenAt = hiddenAt.filter { host.discardPolicy(of: $0.key) != nil }
-        let current = now()
+        let current = elapsed()
         let reason: DiscardReason = pressure == .critical ? .urgent : .proactive
         var next: Double?
         var timed: [ContentDiscardPlanner.TimedCandidate] = []
@@ -137,12 +153,26 @@ package final class ContentDiscardScheduler {
         let plan = planner.plan(.fallback, for: reason, pace: reason == .urgent ? Self.urgentPace : Self.proactivePace, timed: timed)
         exemptions.merge(plan.exemptions) { first, _ in first }
         for key in plan.due { prepare(key, host: host) }
-        nextCheck = [next, plan.nextCheck].compactMap { $0 }.min()
-        if let wait = nextCheck {
-            deadline.schedule(after: .milliseconds(Int64(wait * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
-        } else {
-            deadline.cancel()
+        if let wait = [next, plan.nextCheck].compactMap({ $0 }).min() { arm(after: wait, onlySooner: false) } else { disarm() }
+    }
+
+    /// Arms the one deadline `wait` seconds from now; with `onlySooner`, only when the armed one is later.
+    private func arm(after wait: Double, onlySooner: Bool) {
+        let at = elapsed() + .milliseconds(Int64(wait * 1000))
+        if onlySooner, let armed = deadlineAt, armed <= at { return }
+        deadlineAt = at
+        nextCheck = wait
+        // 50 ms past the due time, so the look finds the item due, not a hair short of it.
+        deadline.schedule(after: .milliseconds(Int64(wait * 1000) + 50)) { @MainActor [weak self] in
+            self?.deadlineAt = nil
+            self?.replan()
         }
+    }
+
+    private func disarm() {
+        deadlineAt = nil
+        nextCheck = nil
+        deadline.cancel()
     }
 
     private func prepare(_ key: String, host: any ContentDiscardHost) {

@@ -57,9 +57,6 @@ struct AppMemoryConsumers {
     /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy.
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages) else { return }
-        let discards = ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator)
-        discards.host = services.pages
-        services.pages.cache = services.cache
-        services.pages.discards = discards
+        services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
     }
 }
