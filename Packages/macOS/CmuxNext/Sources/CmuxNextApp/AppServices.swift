@@ -335,7 +335,7 @@ final class AppServices {
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
-        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+        overlay: SleepyOverlayWindows(events: appEvents, workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
@@ -736,7 +736,7 @@ final class AppServices {
         let updateSheet = self.updateSheet  // built here, as before
         updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.bind(registry: registry)
-        input.startNoActivateGuard(tap: inputTap)  // an NSApp input hook: before the app activates
+        input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
