@@ -7,35 +7,37 @@ with today's harness, as Chrome's testers run the tip `tools/perf` against any b
 artifact that scripts/measure/perf-lab-build.sh published for (sha, config) (task 009), fetched by digest.
 
 Steps, each refusing with its own exit code and one reason line (stderr and `summary.json`):
-1. pick the stories: `--stories a,b`, or `--shard K/N` (0-based K) of `--tier` (default T0) for `--config`;
-2. fetch the artifact by `--digest` from the controller store, check its sha256 and that the bundle is a `--config`
-   build of `--sha` (exit 4 when it is missing or is another build; 5 when the store does not answer);
-3. bring up the 120 Hz virtual display (scripts/ci/frame-pacing/vdisplay.m; a host that cannot is measured on its real
-   display, and host_env reports the Hz);
-4. host_env.py (task 006) validates the host; an invalid host exits 3 (env-invalid) and stores nothing;
-5. runs the stories with interleaved repeats (round r runs every story that has more than r repeats, in id order, as
+1. pick stories of the catalog (catalog.py, stories.d): `--stories a,b`, or `--shard K/N` (0-based K) of `--tier`
+   (default T0) for `--config`. Only T0, T1 and T2 stories run on a lab Mac (a builder story builds, a linux story
+   needs no Mac), and a story with a catalog lint problem is refused;
+2. fetch the artifact by `--digest` from the controller store, check its sha256 and that the bundle is a
+   `cmux DEV <tag>.app`, `--config` build of `--sha` (exit 4 when it is missing or is another build; 5 when the
+   store does not answer);
+3. bring up the 120 Hz virtual display (scripts/ci/frame-pacing/vdisplay.m). A host that cannot is measured on its
+   real display: the helper's `probe` line goes to host_env, which reports the Hz (60 is not a refusal);
+4. host_env.py `--pre-launch` (task 006) validates the host and writes its host block to `<out>/host.json`; an
+   invalid host exits 3 (env-invalid) and stores nothing;
+5. run the stories with interleaved repeats (round r runs every story that has more than r repeats, in id order, as
    Telemetry's `--pageset-repeat` interleaves pages), each in its own process group with the bench env
    (bench_env.py) and CMUX_FEATURES_SAFE_MODE=off;
-6. keeps the result-v1 files each run wrote in `<out>/results/`; a file that is not valid result-v1, or names another
+6. keep the result-v1 files each run wrote in `<out>/results/`; a file that is not valid result-v1, or names another
    build or story, moves to `<out>/rejected/` so the ingest never stores it.
 
-A story's `command` (a string or an argv list from stories.d/<id>.json, task 007) may use {app}, {out}, {config},
-{session}, {engine}, {story} and {repeat}; the run also gets them as PERF_LAB_* variables, and CMUX_CI_SHA (the
-build sha BenchApp.record falls back to). Exit codes: 0 every run wrote results, 1 a run failed, 2 usage, 3
-env-invalid, 4 no such artifact, 5 artifact store unreachable.
+A story's `command` gets `--app APP --tag TAG --out RESULTS` appended (stories.d/README.md). The session, engine,
+config, repeat and host block path come as PERF_LAB_* variables, with CMUX_CI_SHA (the build sha BenchApp.record
+falls back to). Exit codes: 0 every run wrote results, 1 a run failed, 2 usage, 3 env-invalid, 4 no such artifact,
+5 artifact store unreachable.
 
 Stdlib only; loaded and run under `python3 -I`.
 """
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import hashlib
 import importlib.util
 import json
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -45,19 +47,19 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-STORIES_DIR = os.path.join(HERE, "stories.d")
-CONFIGS = ("bench", "bench-checks")  # never debug: a debug app's numbers are never compared with bench ones
+HOST_ENV = os.path.join(HERE, "host_env.py")
+CONFIGS = ("bench", "bench-checks")  # never debug, and release stories are not lab-Mac stories
+MAC_TIERS = ("T0", "T1", "T2")
 DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-STORY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-PLACEHOLDERS = ("app", "out", "config", "session", "engine", "story", "repeat")
 DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
 ARTIFACT_CACHE_KEEP = 6
 TERM_GRACE_SECONDS = 10
+HOST_ENV_TIMEOUT_SECONDS = 300
 
 EXIT_OK, EXIT_RUN_FAILED, EXIT_USAGE, EXIT_ENV_INVALID, EXIT_NO_ARTIFACT, EXIT_STORE_DOWN = 0, 1, 2, 3, 4, 5
 
@@ -90,51 +92,20 @@ def load_by_path(name: str, path: str):
     return module
 
 
-@dataclasses.dataclass(frozen=True)
-class Story:
-    id: str
-    tier: str
-    command: tuple
-    session: str
-    engine: str
-    config: str
-    repeats: int
-    seconds: float
-
-    @classmethod
-    def from_file(cls, path: str) -> "Story":
-        try:
-            with open(path, encoding="utf-8") as f:
-                obj = json.load(f)
-            command = obj["command"]
-            command = tuple(shlex.split(command) if isinstance(command, str) else command)
-            story = cls(id=obj["id"], tier=obj["tier"], command=command, session=obj.get("session", "light"),
-                        engine=obj.get("engine", "none"), config=obj["config"], repeats=int(obj["repeats"]),
-                        seconds=float(obj["seconds"]))
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            raise Refusal(f"{path}: not a story ({type(error).__name__}: {error})") from None
-        problems = [why for bad, why in (
-            (not STORY_ID.match(str(story.id)), f"id {story.id!r}"),
-            (not story.command or not all(isinstance(a, str) for a in story.command), "command"),
-            (story.config not in CONFIGS, f"config {story.config!r} (one of {', '.join(CONFIGS)})"),
-            (story.repeats < 1, "repeats < 1"), (story.seconds <= 0, "seconds <= 0")) if bad]
-        if problems:
-            raise Refusal(f"{path}: invalid {'; '.join(problems)}")
-        return story
+catalog = load_by_path("perf_lab_catalog", os.path.join(HERE, "catalog.py"))
+perf_result = catalog.perf_result
 
 
-def load_stories(directory: str = STORIES_DIR) -> Dict[str, Story]:
-    stories: Dict[str, Story] = {}
-    names = sorted(n for n in os.listdir(directory) if n.endswith(".json")) if os.path.isdir(directory) else []
-    for name in names:
-        story = Story.from_file(os.path.join(directory, name))
-        if story.id in stories:
-            raise Refusal(f"{directory}: story {story.id} is defined twice")
-        stories[story.id] = story
-    return stories
+def load_stories(root: str = ROOT) -> Tuple[Dict[str, object], Tuple[str, ...]]:
+    """({id: catalog.Story}, the catalog's lint problems) of the stories.d under `root`."""
+    try:
+        loaded = catalog.load_catalog(root)
+    except catalog.CatalogError as error:
+        raise Refusal(f"the story catalog cannot be read: {error}") from None
+    return {story.id: story for story in loaded.stories}, loaded.problems
 
 
-def shard_assignment(stories: Sequence[Story], count: int) -> Dict[str, int]:
+def shard_assignment(stories: Sequence, count: int) -> Dict[str, int]:
     """{story id: shard} by longest-processing-time bin packing on story seconds, the packing Chrome's
     `generate_perf_sharding.py` does for its shard maps. Depends only on the ids and seconds, never on file order."""
     loads = [0.0] * count
@@ -146,15 +117,15 @@ def shard_assignment(stories: Sequence[Story], count: int) -> Dict[str, int]:
     return assignment
 
 
-def parse_shard(text: str):
+def parse_shard(text: str) -> Tuple[int, int]:
     match = re.fullmatch(r"(\d+)/(\d+)", text or "")
     if not match or not 0 <= int(match.group(1)) < int(match.group(2)):
         raise Refusal(f"--shard={text!r}: expected K/N with 0 <= K < N")
     return int(match.group(1)), int(match.group(2))
 
 
-def select_stories(stories: Dict[str, Story], config: str, names: Optional[str], shard: Optional[str],
-                   tier: str) -> List[Story]:
+def select_stories(stories: Dict[str, object], config: str, names: Optional[str], shard: Optional[str], tier: str,
+                   problems: Sequence[str] = ()) -> List:
     if bool(names) == bool(shard):
         raise Refusal("pass exactly one of --stories=a,b and --shard=K/N")
     if names:
@@ -165,14 +136,24 @@ def select_stories(stories: Dict[str, Story], config: str, names: Optional[str],
         other = [n for n in wanted if stories[n].config != config]
         if other:
             raise Refusal(f"stories {', '.join(other)} measure another config than {config}")
-        return sorted({stories[n] for n in wanted}, key=lambda s: s.id)
-    index, count = parse_shard(shard)
-    pool = [s for s in stories.values() if s.tier == tier and s.config == config]
-    assignment = shard_assignment(pool, count)
-    return sorted((s for s in pool if assignment[s.id] == index), key=lambda s: s.id)
+        off_lab = [f"{n} ({stories[n].tier})" for n in wanted if stories[n].tier not in MAC_TIERS]
+        if off_lab:
+            raise Refusal(f"stories {', '.join(off_lab)} are not lab-Mac stories ({', '.join(MAC_TIERS)})")
+        picked = sorted({stories[n].id: stories[n] for n in wanted}.values(), key=lambda s: s.id)
+    else:
+        if tier not in MAC_TIERS:
+            raise Refusal(f"--tier={tier!r}: one of {', '.join(MAC_TIERS)}")
+        index, count = parse_shard(shard)
+        pool = [s for s in stories.values() if s.tier == tier and s.config == config]
+        assignment = shard_assignment(pool, count)
+        picked = sorted((s for s in pool if assignment[s.id] == index), key=lambda s: s.id)
+    linted = [p for s in picked for p in problems if p.startswith(s.path + ":")]
+    if linted:
+        raise Refusal("the catalog lint refuses the stories: " + "; ".join(linted)[:600])
+    return picked
 
 
-def interleaved(stories: Sequence[Story], repeats: Optional[int]):
+def interleaved(stories: Sequence, repeats: Optional[int]):
     """(story, repeat) in run order: every story's repeat r before any story's repeat r + 1."""
     counts = {s.id: repeats or s.repeats for s in stories}
     for r in range(max(counts.values(), default=0)):
@@ -243,8 +224,9 @@ def ditto_extract(archive: str, dest: str) -> None:
     subprocess.run(["/usr/bin/ditto", "-x", "-k", archive, dest], check=True, capture_output=True, timeout=600)
 
 
-def unpack_app(archive: str, dest: str, sha: str, config: str, extract: Callable = ditto_extract) -> str:
-    """The one .app in the artifact, checked to be a `config` build of `sha` (bench_launch's own rules)."""
+def unpack_app(archive: str, dest: str, sha: str, config: str, extract: Callable = ditto_extract) -> Tuple[str, str]:
+    """(app, tag) of the one `cmux DEV <tag>.app` in the artifact, checked to be a `config` build of `sha`
+    (bench_launch's own rules)."""
     try:
         extract(archive, dest)
     except (subprocess.SubprocessError, OSError, ValueError) as error:
@@ -254,6 +236,9 @@ def unpack_app(archive: str, dest: str, sha: str, config: str, extract: Callable
         raise MissingArtifact(f"the artifact holds {len(apps)} .app bundles, not 1")
     app = apps[0]
     bench_launch = load_by_path("bench_launch", os.path.join(ROOT, "scripts", "cmux-next", "bench_launch.py"))
+    if not re.fullmatch(r"cmux DEV .+\.app", os.path.basename(app)):
+        raise MissingArtifact(f"{os.path.basename(app)} is not a `cmux DEV <tag>.app` bundle")
+    tag = bench_launch.tag_of(app)
     macos = os.path.join(app, "Contents/MacOS")
     binaries = sorted(os.path.join(macos, n) for n in (os.listdir(macos) if os.path.isdir(macos) else [])
                       if not n.endswith(".dylib"))
@@ -266,57 +251,91 @@ def unpack_app(archive: str, dest: str, sha: str, config: str, extract: Callable
         raise MissingArtifact(f"the artifact is not a {config} build of {sha}: {error}") from None
     if built != sha:
         raise MissingArtifact(f"the artifact was built from {built}, not {sha}")
-    return app
+    return app, tag
 
 
 class VirtualDisplay:
     """The private-CGVirtualDisplay helper split-spring.sh uses, as the main display at `hz`. Its own hold time ends
-    it even when this process is killed with SIGKILL."""
+    it even when this process is killed with SIGKILL. Every line it prints goes to `out_path`, the file host_env.py
+    reads (`--vdisplay-out`); when no virtual display holds the rate, the helper's `probe` line of the real main
+    display follows, so host_env measures the display the stories really get."""
 
     READY = re.compile(r"ready (\d+) ([\d.]+) main=(\d+)")
 
     def __init__(self, work: str):
         self.work = work
+        self.out_path = os.path.join(work, "vdisplay.out")
+        self.helper = os.path.join(work, "VDisplay.app/Contents/MacOS/VDisplay")
         self.process: Optional[subprocess.Popen] = None
+        self.drain: Optional[threading.Thread] = None
 
     def start(self, hz: float, hold: int, size: str) -> dict:
-        helper = os.path.join(self.work, "VDisplay.app/Contents/MacOS/VDisplay")
-        os.makedirs(os.path.dirname(helper), exist_ok=True)
+        os.makedirs(os.path.dirname(self.helper), exist_ok=True)
+        open(self.out_path, "w").close()
+        error = self._build_helper()
+        if error:
+            self._note(f"error: {error}")
+            return self.display(hz, f"error: {error}")
+        display = self.display(hz, self._launch(hz, hold, size)) if hz else self.display(None, "real display")
+        if not display["vdisplay"]:
+            self.stop()
+            display["probe"] = self._probe()
+        return display
+
+    def _build_helper(self) -> Optional[str]:
         compiled = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework",
                                    "AppKit", "-framework", "CoreVideo",
-                                   os.path.join(ROOT, "scripts/ci/frame-pacing/vdisplay.m"), "-o", helper],
+                                   os.path.join(ROOT, "scripts/ci/frame-pacing/vdisplay.m"), "-o", self.helper],
                                   capture_output=True, text=True, timeout=300)
         if compiled.returncode != 0:
-            return self.display(hz, f"error: the virtual display helper did not compile: {compiled.stderr[-300:]}")
+            return f"the virtual display helper did not compile: {compiled.stderr[-300:]}"
         shutil.copyfile(os.path.join(ROOT, "scripts/ci/frame-pacing/VDisplay-Info.plist"),
                         os.path.join(self.work, "VDisplay.app/Contents/Info.plist"))
         subprocess.run(["codesign", "-s", "-", "--force", os.path.join(self.work, "VDisplay.app")],
                        capture_output=True, timeout=60)
-        self.process = subprocess.Popen([helper, str(hz), str(hold), "main", size], stdout=subprocess.PIPE,
+        return None
+
+    def _note(self, line: str) -> None:
+        with open(self.out_path, "a", encoding="utf-8") as f:
+            f.write(line.rstrip("\n") + "\n")
+
+    def _launch(self, hz: float, hold: int, size: str) -> str:
+        self.process = subprocess.Popen([self.helper, str(hz), str(hold), "main", size], stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True)
         first: List[str] = []
         reported = threading.Event()
-        threading.Thread(target=self._drain, args=(first, reported), daemon=True).start()
+        self.drain = threading.Thread(target=self._drain, args=(self.process, first, reported), daemon=True)
+        self.drain.start()
         reported.wait(20)  # set by the ready or error line, or by the helper's exit
-        line = first[0] if first else "error: the virtual display never reported"
-        display = self.display(hz, line)
-        if not display["vdisplay"]:
-            self.stop()
-        return display
+        return first[0] if first else "error: the virtual display never reported"
 
-    def _drain(self, first: List[str], reported: threading.Event) -> None:
-        for line in self.process.stdout:  # read to EOF, so the helper never blocks on a full pipe
-            if not first and line.startswith(("ready", "error")):
-                first.append(line.strip())
-                reported.set()
+    def _drain(self, process: subprocess.Popen, first: List[str], reported: threading.Event) -> None:
+        with open(self.out_path, "a", encoding="utf-8") as out:
+            for line in process.stdout:  # read to EOF, so the helper never blocks on a full pipe
+                out.write(line)
+                out.flush()
+                if not first and line.startswith(("ready", "error")):
+                    first.append(line.strip())
+                    reported.set()
         reported.set()
 
+    def _probe(self) -> str:
+        try:
+            done = subprocess.run([self.helper, "probe"], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            line = f"error: the display probe failed: {error}"
+        else:
+            line = next((l.strip() for l in done.stdout.splitlines() if l.startswith("main ")),
+                        f"error: the display probe printed no main line (exit {done.returncode})")
+        self._note(line)
+        return line
+
     @classmethod
-    def display(cls, hz: float, line: str) -> dict:
+    def display(cls, hz: Optional[float], line: str) -> dict:
         """The result's display block: the helper is the main display, ticking within 15 % of the rate."""
         match = cls.READY.match(line)
-        period = 1000 / hz
-        ok = bool(match and match.group(1) == match.group(3) and abs(float(match.group(2)) - period) <= 0.15 * period)
+        ok = bool(hz and match and match.group(1) == match.group(3)
+                  and abs(float(match.group(2)) - 1000 / hz) <= 0.15 * 1000 / hz)
         return {"requested_hz": hz, "vdisplay": ok, "refresh_ms": float(match.group(2)) if ok else None,
                 "line": line[:300]}
 
@@ -332,55 +351,62 @@ class VirtualDisplay:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
-        self.process = None
+        if self.drain:
+            self.drain.join(TERM_GRACE_SECONDS)  # its last lines are in out_path before a probe appends
+        self.process, self.drain = None, None
 
 
-def host_env_check(display_line: str, path: str = os.path.join(HERE, "host_env.py")) -> dict:
-    """host_env.py (task 006): {ok, reasons[], hz, fingerprint, class}; raises EnvInvalid unless ok."""
+def host_env_check(vdisplay_out: str, host_out: str, path: str = HOST_ENV) -> dict:
+    """host_env.py --pre-launch (task 006): its report {ok, reasons[], hz, fingerprint, class, host, ...}, with the
+    host block written to `host_out`; raises EnvInvalid unless ok. The app is not running yet, so nettop is skipped
+    (the report's checks_skipped says so)."""
     if not os.path.isfile(path):
         raise EnvInvalid("scripts/perf-lab/host_env.py is missing: the host cannot be validated")
     try:
-        done = subprocess.run([sys.executable, "-I", path, "--json", f"--vdisplay-line={display_line}"],
-                              capture_output=True, text=True, timeout=300)
+        done = subprocess.run([sys.executable, "-I", path, "--vdisplay-out", vdisplay_out, "--pre-launch",
+                               "--host-out", host_out], capture_output=True, text=True,
+                              timeout=HOST_ENV_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        raise EnvInvalid("host_env.py did not finish in 300 s") from None
+        raise EnvInvalid(f"host_env.py did not finish in {HOST_ENV_TIMEOUT_SECONDS} s") from None
+    lines = [l[len("HOST-ENV "):] for l in done.stdout.splitlines() if l.startswith("HOST-ENV ")]
     try:
-        report = json.loads(done.stdout)
+        report = json.loads(lines[-1]) if lines else None
     except ValueError:
-        raise EnvInvalid(f"host_env.py printed no report (exit {done.returncode}): {done.stderr[-300:]}") from None
-    if not isinstance(report, dict) or report.get("ok") is not True:
-        reasons = report.get("reasons") if isinstance(report, dict) else None
-        raise EnvInvalid("; ".join(reasons or ["host_env.py did not say ok"]))
+        report = None
+    if not isinstance(report, dict):
+        raise EnvInvalid(f"host_env.py printed no HOST-ENV report (exit {done.returncode}): {done.stderr[-300:]}")
+    if report.get("ok") is not True or done.returncode != 0:
+        raise EnvInvalid("; ".join(report.get("reasons") or [f"host_env.py exited {done.returncode}"]))
     return report
 
 
-def story_env(base: Dict[str, str], story: Story, app: str, out: str, sha: str, config: str, repeat: int,
-              hz) -> Dict[str, str]:
+def story_env(base: Dict[str, str], story, app: str, out: str, sha: str, config: str, repeat: int, hz,
+              host_file: str) -> Dict[str, str]:
     bench_env = load_by_path("bench_env", os.path.join(HERE, "bench_env.py"))
     env = {k: v for k, v in base.items() if k not in bench_env.unset_env()}
     env.update(bench_env.fixed_env())
     env.update({"CMUX_FEATURES_SAFE_MODE": "off", "CMUX_CI_SHA": sha, "PERF_LAB_APP": app, "PERF_LAB_OUT": out,
                 "PERF_LAB_SHA": sha, "PERF_LAB_CONFIG": config, "PERF_LAB_STORY": story.id,
                 "PERF_LAB_REPEAT": str(repeat), "PERF_LAB_SESSION": story.session, "PERF_LAB_ENGINE": story.engine,
-                "PERF_LAB_HZ": "" if hz is None else str(hz)})
+                "PERF_LAB_HZ": "" if hz is None else str(hz), "PERF_LAB_HOST_FILE": host_file})
     return env
 
 
-def render(command: Sequence[str], values: Dict[str, str]) -> List[str]:
-    argv = []
-    for arg in command:
-        for key in PLACEHOLDERS:
-            arg = arg.replace("{" + key + "}", values[key])
-        argv.append(arg)
-    return argv
+def story_argv(story, app: str, tag: str, out: str, root: str = ROOT) -> List[str]:
+    """The story's command with the runner's `--app --tag --out`; its first item is a repository path (catalog lint),
+    run with python3 or bash by its suffix, since not every bench script is executable."""
+    program = os.path.join(root, story.command[0])
+    launcher = [sys.executable] if program.endswith(".py") else ["/bin/bash"] if program.endswith(".sh") else []
+    return [*launcher, program, *story.command[1:], "--app", app, "--tag", tag, "--out", out]
 
 
 class Runner:
     """Runs (story, repeat) pairs one at a time; `current` is the running process group, for the signal path."""
 
-    def __init__(self, out: str, app: str, sha: str, config: str, hz, teardown: Callable[[str], None],
-                 base_env: Optional[Dict[str, str]] = None):
-        self.out, self.app, self.sha, self.config, self.hz = out, app, sha, config, hz
+    def __init__(self, out: str, app: str, tag: str, sha: str, config: str, hz, teardown: Callable[[str], None],
+                 root: str = ROOT, base_env: Optional[Dict[str, str]] = None):
+        self.out, self.app, self.tag, self.sha, self.config, self.hz, self.root = out, app, tag, sha, config, hz, root
+        self.host_file = os.path.join(out, "host.json")
         self.results = os.path.join(out, "results")
         self.rejected = os.path.join(out, "rejected")
         self.logs = os.path.join(out, "logs")
@@ -389,19 +415,18 @@ class Runner:
         self.teardown = teardown
         self.base_env = dict(os.environ if base_env is None else base_env)
         self.current: Optional[subprocess.Popen] = None
-        self.perf_result = load_by_path("perf_result", os.path.join(HERE, "perf_result.py"))
 
-    def run(self, story: Story, repeat: int) -> dict:
-        values = {"app": self.app, "out": self.results, "config": self.config, "session": story.session,
-                  "engine": story.engine, "story": story.id, "repeat": str(repeat)}
+    def run(self, story, repeat: int) -> dict:
         before = set(os.listdir(self.results))
         log_path = os.path.join(self.logs, f"{story.id}-{repeat}.log")
         started = time.monotonic()
         timeout = 120 + 3 * story.seconds
         with open(log_path, "wb") as log:
             self.current = subprocess.Popen(
-                render(story.command, values), cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                env=story_env(self.base_env, story, self.app, self.results, self.sha, self.config, repeat, self.hz))
+                story_argv(story, self.app, self.tag, self.results, self.root), cwd=self.root, stdout=log,
+                stderr=subprocess.STDOUT, start_new_session=True,
+                env=story_env(self.base_env, story, self.app, self.results, self.sha, self.config, repeat, self.hz,
+                              self.host_file))
             try:
                 code = self.current.wait(timeout)
                 reason = None if code == 0 else f"exit {code}"
@@ -418,7 +443,7 @@ class Runner:
                 "seconds": round(time.monotonic() - started, 3), "results": written, "rejected": rejected,
                 "log": os.path.relpath(log_path, self.out)}
 
-    def collect(self, story: Story, names: Sequence[str]):
+    def collect(self, story, names: Sequence[str]):
         written, rejected = [], []
         for name in names:
             if name.startswith(".") or not name.endswith(".ndjson"):
@@ -426,10 +451,10 @@ class Runner:
             path = os.path.join(self.results, name)
             try:
                 wrong = [f"{r.story}/{r.metric}: build {r.build.sha} {r.build.config}"
-                         for r in self.perf_result.read_file(path)
+                         for r in perf_result.read_file(path)
                          if r.story != story.id or r.build.sha != self.sha or r.build.config != self.config]
                 why = f"names another story or build ({'; '.join(wrong)[:300]})" if wrong else None
-            except self.perf_result.ResultError as error:
+            except perf_result.ResultError as error:
                 why = str(error)[:300]
             if why:
                 os.replace(path, os.path.join(self.rejected, name))
@@ -487,14 +512,15 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
-def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: Callable[[str], dict],
+def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: Callable[[str, str], dict],
             display_factory: Callable[[str], VirtualDisplay], extract: Callable, teardown: Callable[[str], None],
-            stories_dir: str = STORIES_DIR) -> int:
+            root: str = ROOT) -> int:
     def save_state():
         if opts.state:
             write_json(opts.state, state)
 
-    stories: List[Story] = []
+    stories: List = []
+    tag = ""
     if not opts.env_only:
         if not SHA.match(opts.sha):
             raise Refusal(f"--sha={opts.sha!r} is not a full commit")
@@ -502,7 +528,8 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
             raise Refusal(f"--config={opts.config!r}: one of {', '.join(CONFIGS)}")
         if opts.repeats is not None and opts.repeats < 1:
             raise Refusal("--repeats must be >= 1")
-        stories = select_stories(load_stories(stories_dir), opts.config, opts.stories, opts.shard, opts.tier)
+        catalog_stories, problems = load_stories(root)
+        stories = select_stories(catalog_stories, opts.config, opts.stories, opts.shard, opts.tier, problems)
         if not stories:
             raise Refusal("no story to run")
         summary["stories"] = [s.id for s in stories]
@@ -511,19 +538,18 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
         os.makedirs(os.path.join(work, "app"))
         summary["artifact"] = {"digest": opts.digest,
                                "from": store.fetch(opts.digest, os.path.join(work, "app.zip"))}
-        state["app"] = unpack_app(os.path.join(work, "app.zip"), os.path.join(work, "app"), opts.sha, opts.config,
-                                  extract)
+        state["app"], tag = unpack_app(os.path.join(work, "app.zip"), os.path.join(work, "app"), opts.sha,
+                                       opts.config, extract)
         save_state()
     display = display_factory(os.path.join(opts.out, "vdisplay"))
     try:
-        summary["display"] = (display.start(opts.vdisplay, opts.vdisplay_hold, opts.vdisplay_size) if opts.vdisplay
-                              else VirtualDisplay.display(60.0, "real display"))
+        summary["display"] = display.start(opts.vdisplay, opts.vdisplay_hold, opts.vdisplay_size)
         state["vdisplay_pid"] = display.pid
         save_state()
-        summary["env"] = check_env(summary["display"]["line"])
+        summary["env"] = check_env(display.out_path, os.path.join(opts.out, "host.json"))
         if opts.env_only:
             return EXIT_OK
-        runner = Runner(opts.out, state["app"], opts.sha, opts.config, summary["env"].get("hz"), teardown)
+        runner = Runner(opts.out, state["app"], tag, opts.sha, opts.config, summary["env"].get("hz"), teardown, root)
         summary["runs"] = []
         try:
             for story, repeat in interleaved(stories, opts.repeats):
@@ -536,7 +562,7 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
 
 
 def main(argv=None, store=None, check_env=host_env_check, display_factory=VirtualDisplay, extract=ditto_extract,
-         teardown=tag_teardown, stories_dir=STORIES_DIR) -> int:
+         teardown=tag_teardown, root=ROOT) -> int:
     opts = parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
     store = store or ArtifactStore(os.environ.get("CMUX_CI_CONTROLLER") or DEFAULT_CONTROLLER,
@@ -546,7 +572,7 @@ def main(argv=None, store=None, check_env=host_env_check, display_factory=Virtua
     state = {"app": None, "vdisplay_pid": None}
     code = EXIT_OK
     try:
-        code = measure(opts, summary, state, store, check_env, display_factory, extract, teardown, stories_dir)
+        code = measure(opts, summary, state, store, check_env, display_factory, extract, teardown, root)
     except Refusal as refusal:
         code = refusal.code
         summary["refusal"] = {"kind": refusal.kind, "reason": str(refusal)}
