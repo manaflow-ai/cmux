@@ -16,7 +16,13 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[features]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
+
 [dependencies]
+cmux-blocking.workspace = true
+cmux-lock-rank.workspace = true
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true

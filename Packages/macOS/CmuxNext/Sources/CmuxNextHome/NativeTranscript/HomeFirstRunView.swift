@@ -264,7 +264,7 @@ final class HomeFirstRunRow: NSView {
     let icon: IconName
     let shortcutLabel = ChromeLabel(labelWithString: "")
     /// An agent row's state in the shared indicator, before its status word.
-    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    let activity = StatusIndicatorView()
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
     /// The row's width (the panel's column).
