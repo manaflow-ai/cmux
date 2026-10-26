@@ -2793,10 +2793,25 @@ class Wiring(unittest.TestCase):
         sweep = next(step for step in self.workflow("ci-queue-janitor.yml")["jobs"]["sweep"]["steps"]
                      if step.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(sweep["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
-        # No workflow asks the routing App for more than reading runners.
+        # Routing and warm-state readers never mint a writer. The standalone
+        # trusted-main reconciler is the sole applier of glaeda's static labels.
+        writers = []
+        permission = "permission-organization-self-hosted-runners"
         for path in WORKFLOWS.glob("*.yml"):
-            text = path.read_text()
-            self.assertNotIn("permission-organization-self-hosted-runners: write", text, path.name)
+            workflow = self.workflow(path.name)
+            for job_id, job in workflow.get("jobs", {}).items():
+                for step in job.get("steps", []):
+                    level = step.get("with", {}).get(permission)
+                    if level == "write":
+                        writers.append((path.name, job_id, step.get("id")))
+                    elif level is not None:
+                        self.assertEqual(level, "read", path.name)
+        self.assertEqual(writers, [("runner-label-reconcile.yml", "reconcile", "token")])
+        reconcile = self.workflow("runner-label-reconcile.yml")
+        self.assertEqual(set(reconcile[True]), {"schedule", "workflow_dispatch"})
+        self.assertEqual(reconcile["jobs"]["reconcile"]["if"],
+                         "github.repository == 'manaflow-ai/cmux' && "
+                         "github.ref == 'refs/heads/main' && vars.GLAEDA_ROUTE_APP_ID != ''")
 
     def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
         # swift-package-tests builds the SDK 15 helper on a full suite with

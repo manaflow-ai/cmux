@@ -1,0 +1,66 @@
+name: Runner label reconcile
+
+# Converges every owned mini's registered GitHub runner labels to glaeda's label rules
+# (scripts/ci/runner_label_reconcile.py). GitHub fixes labels at registration and a mini holds
+# no admin token, so without this a glaeda label rule reached a runner only through a manual
+# `fleet runner relabel HOST --apply`. The rule is read from glaeda main's glaeda_fleet_labels.py.
+# The route App needs organization self-hosted runners write; until it has it, the token step
+# fails and nothing changes.
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Set the labels (otherwise report the plan)"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: runner-label-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && vars.GLAEDA_ROUTE_APP_ID != ''
+    name: Converge owned runner labels
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Check out glaeda's label rules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: teamleaderleo/glaeda
+          ref: main
+          path: glaeda
+          sparse-checkout: scripts/glaeda_fleet_labels.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Mint the runner-label token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: manaflow-ai
+          permission-organization-self-hosted-runners: write
+      - name: Reconcile
+        env:
+          GITHUB_TOKEN_RUNNERS: ${{ steps.token.outputs.token }}
+          GLAEDA_LABELS: glaeda/scripts/glaeda_fleet_labels.py
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+        run: |
+          if [ "$APPLY" = "true" ]; then
+            python3 scripts/ci/runner_label_reconcile.py --apply
+          else
+            python3 scripts/ci/runner_label_reconcile.py
+          fi
