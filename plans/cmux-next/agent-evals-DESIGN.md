@@ -179,3 +179,112 @@ Running them needs e4.
 | e3 | first baseline per logged-in agent, RESULTS.md | headless tier on this Mac |
 | e4 | app tier: tagged DEV app owning the eval session on a fleet GUI Mac; browser, Markdown, website, Chief | fleet |
 | e5 | grow the set (rooms, screens, notifications, status, history) and track per nightly | nightly job |
+
+## Chief fast evals (the inner loop)
+
+Asked by Lawrence, 2026-10-26: "chief needs to be significantly better, we
+need to decrease the iteration loop time for chief." The tasks above score
+agents driving cmux through a real app session; they take minutes per task
+and an app tier. This section is the Chief's own inner loop: every Chief
+prompt or behavior change gets a score in under 2 minutes, on Linux, before
+it ships.
+
+### What runs
+
+- `Native/OptChat/optchat-chief/evals/run.sh` (README beside it has the
+  case format). One process, no app, no acpmux, no daemon.
+- Model cases, `evals/cases/<group>-<name>.json`: scripted history seeded
+  into a real OptChat memory (the production compactor builds the
+  summaries), then turns. Each turn sends what a production Chief turn on
+  a Claude harness sends: `prompt::system_text` over the person profile,
+  the frozen view and delta of `OptChat::turn_input` in
+  `prompt::input_layout` (its three cache marks), and the `optchat` MCP
+  tools of `mcp::tools_granted` (so a new tool is in the eval at once).
+  Claude Code's own system prompt and built-in tools are not sent; `bash`
+  stands in for them. Side effects are stubs: `cmux`, `gh`, `chief`, `git`
+  and the rest are shims on PATH that log argv and answer from the case;
+  MCP tools answer as the brain does (spawn gives an id and a workspace,
+  stop/sleep end the turn and drop text after the last send, the reply
+  ledger refuses a stop over an unanswered message and runs the `[no
+  reply]` retry turn). `zoom`, `date` and `transcript` read the real
+  memory.
+- Deterministic cases, `tests/eval_<group>.rs`: host behavior that needs no
+  model call (a stuck-agent alert, the reply ledger), on the in-process
+  fakes of `tests/common`.
+- Grading: deterministic checks (regex on the posted text, `no_raw_ids`
+  for the link rule, tool calls made or not, word count, no question,
+  silence, files written) and a model judge (Sonnet, PASS/FAIL with a
+  reason) for what no regex can say.
+- CI: `.github/workflows/chief-evals.yml`, GitHub-hosted `ubuntu-24.04`
+  (not Blacksmith), on every push to feat-cmux-next touching
+  `Native/OptChat/**` or the cmux-chief / cmux-conversation crates.
+  Deterministic cases gate. Model cases reach the team subrouter through
+  the tailnet (`tag:ci` may reach port 31415), gate at an 80% pass rate
+  (`vars.CHIEF_EVAL_MIN_PASS`), and are skipped with a warning when
+  `chief_eval preflight` finds the route down. The table goes to the job
+  summary, rows to the `chief-evals` artifact.
+
+### Groups and owners
+
+| group | owner | what it guards |
+| --- | --- | --- |
+| links | a672, a674 | every workspace, PR, commit range, run and tab is a Markdown link; no raw ids |
+| multiplayer | a672, a673 | group chats with two people and two Chiefs: NO_REPLY when not for this Chief, Chief-to-Chief loop guard |
+| acp | a672, a674 | an instruction for a running agent goes to it (tell), not a new spawn |
+| automations | a672, a675 | a recurring ask becomes a real scheduled job |
+| upsell | a675 | a cloud-only ask sends the Stripe test-mode checkout link, no upsell when not needed |
+| tenacity | a672, a676 | follow-through over turns: not-landed reports sent back, blockers to the person, answers back to the agent; stuck-agent alert handled with no model call |
+| assistant | a672, a676 | Instinct/Muse quality: remembers, acts instead of asking, short, a bare thanks gets a tapback only |
+| memory | a672 | summary lag: the Chief answers about its own recent reply while 321 lines are unsummarized |
+| replies | a672 | reply ledger: a tapback answers, stop/sleep refused over an unanswered message |
+
+### Tracked numbers (summary.json)
+
+Turn latency p50/p90 (wake to end of turn, retry turn included), first
+request latency, requests, input/output tokens and cache hit per turn,
+`[no reply]` retry turns, and summary lag (`unsummarized_max`: placeholder
+lines in the view a turn read).
+
+### Baseline and first fixes (2026-10-26)
+
+claude-opus-5-5 at medium effort, judge claude-sonnet-5, sr2 gateway, run on
+the cmux-lawrence mini (the subrouter answered 502 that day).
+
+| run | cases x repeats | pass | wall | turn p50 / p90 | tokens/turn | cache hit | retry turns |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline (before fixes) | 27 x 3 | 68/81 (84%) | 216 s | 36.6 / 69.7 s | 34.1k | 0.80 | n/a |
+| reply ledger as before (`--ledger pre`) | 32 x 3 | 79/96 (82%) | 172 s | 36.2 / 63.2 s | 35.2k | 0.91 | 6 |
+| after the 3 fixes | 32 x 3 | 83/96 (86%) | 201 s | 36.4 / 69.5 s | 35.8k | 0.83 | 0 |
+| CI setting, 1 run | 32 x 1 | 27/32 | 87 s | 16.3 / 27.2 s | 31.0k | 0.85 | 0 |
+
+The worst three failures and their fixes:
+
+1. Replies too long (assistant short-status and needs-you-first, 0/3 and 1/3):
+   a676 tightened the Replies rules in `prompt.rs` CHIEF_TURNS; the
+   assistant group went 13/24 to 22/24.
+2. A bare "thanks" got words (ack-silent 0/3): the Chief reacted, then the
+   reply ledger still held the message, and the `[no reply]` retry turn 5 s
+   later posted "You're welcome." Now a tapback answers the message it is
+   on (`brain/replies.rs`), and `stop`/`sleep` over a seen, unanswered
+   person message is refused inside the turn (`brain/wakes.rs`,
+   `reply_ledger.rs unanswered_in_turn`), so the reply comes in the same
+   turn instead of a second turn. Tests: `tests/eval_replies.rs` (3 of 4
+   failed before). ack-silent 0/3 to 2/3, retry turns 6 to 0.
+3. Summary lag (memory-lagging-view 0/3 in the first runs): with 321
+   unsummarized lines the Chief zoomed with string ids (`"id": "321"`).
+   Production parses them (`tools::Call::parse`); the eval runner did not,
+   so this was a harness bug, fixed by parsing as production does. With it
+   3/3: the Chief zooms the placeholder lines and answers. The Cloud Chief's
+   failure on 730 unsummarized lines is then not the turn's zoom path; its
+   lag itself (compactor throughput on the VM) stays open.
+
+Open: one judge run returned no verdict (now retried once); automations
+cases from a675 fail 2/3 (word count, judge); the model route in CI depends
+on the tailnet: the only GitHub OIDC trust credential for `tag:ci`
+(T4fhFAtTch11CNTRL) accepts the subject
+`repo:manaflow-ai/cmux:environment:ios-e2e` only, so this job gets a 403 and
+skips its model cases with a warning. It needs a federated credential for
+`repo:manaflow-ai/cmux:ref:refs/heads/feat-cmux-next` (tag `tag:ci`, scope
+`auth_keys`) set as `vars.TS_CHIEF_EVALS_OIDC_CLIENT_ID`/`_AUDIENCE`. The
+subrouter itself answered 502 during this work (the sr2 gateway worked).
+Until then the model cases run on a mini: `evals/run.sh` on cmux-lawrence.
