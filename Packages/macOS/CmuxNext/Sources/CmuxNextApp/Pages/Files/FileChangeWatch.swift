@@ -76,7 +76,8 @@ final class FileChangeWatch {
         let clock = clock, debounce = debounce, url = url, inWorkspace = inWorkspace()
         pending = Task { [weak self] in
             do {
-                // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event
+                // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event. One task is the
+                // debounce and the read it starts, so the next event cancels either.
                 try await clock.sleep(for: debounce, tolerance: WakeLeeway.window(delay: debounce).tolerance)
             } catch {
                 return

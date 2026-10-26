@@ -87,7 +87,8 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
-    // wakeup-allow: deadline one write-back debounce per burst of record changes (injected for tests)
+    // wakeup-allow: deadline one write-back debounce per burst of record changes; BrowserRecordWriter's Sleep seam
+    // (CmuxNextBrowserHistory) owns the wait, so it stays a sleep with WakeLeeway's tolerance (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]

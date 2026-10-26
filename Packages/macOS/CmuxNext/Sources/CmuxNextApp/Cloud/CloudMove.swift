@@ -338,10 +338,12 @@ struct CloudMove {
     }
 
     /// Whether `condition` holds within `limit`: an observation raced against a ``Deadline`` (the limit wakes
-    /// once, with its ``WakeLeeway`` tolerance; the observation is cancelled when the limit wins).
-    static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+    /// once, with its ``WakeLeeway`` tolerance; the observation is cancelled when the limit wins). `clock` times the
+    /// limit; tests pass a `ManualClock`.
+    static func holds(within limit: Duration, clock: any Clock<Duration> = ContinuousClock(),
+                      until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
-        return await Deadline(limit).value("CloudMove.holds") { await observe(condition) } ?? false
+        return await Deadline(limit, clock: clock).value("CloudMove.holds") { await observe(condition) } ?? false
     }
 
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {

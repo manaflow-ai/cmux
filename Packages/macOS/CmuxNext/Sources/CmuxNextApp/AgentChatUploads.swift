@@ -1,4 +1,6 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat on this Mac that the composer can't attach as a
@@ -55,7 +57,7 @@ struct AgentChatUploads {
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
         let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil } ?? "new"
-        let expiry = services.chatUploadExpiry
+        let expiry = services.chatUploadExpiry, work = services.work
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -82,13 +84,13 @@ struct AgentChatUploads {
                     batches[id] = Batch(session: session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(stageLifetime))
                     reply["batchToken"] = id
                 }
-                armExpiry(expiry)
+                armExpiry(expiry, work: work)
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(stageLifetime); stages[token] = stage
-                armExpiry(expiry)
+                armExpiry(expiry, work: work)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
                 guard let stage = stages[token], stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -112,11 +114,11 @@ struct AgentChatUploads {
     }
 
     /// Takes out the stages and batches expired by `now`; answers the expired stages' folders and the next expiry.
-    private static func purgeExpired(now: Date) -> AgentPaneUploadStageExpiry.Purge {
+    private static func purgeExpired(now: Date) -> (files: [URL], next: Date?) {
         let expired = stages.filter { $0.value.expires <= now }
         for token in expired.keys { stages.removeValue(forKey: token) }
         batches = batches.filter { $0.value.expires > now }
-        return AgentPaneUploadStageExpiry.Purge(files: expired.values.map(\.folder), next: nextExpiry)
+        return (expired.values.map(\.folder), nextExpiry)
     }
 
     /// The earliest expiry date of a stage or a batch, nil when none is left.
@@ -125,8 +127,26 @@ struct AgentChatUploads {
     }
 
     /// Points `expiry` at the earliest stage or batch expiry, or drops it when none is left.
-    private static func armExpiry(_ expiry: AgentPaneUploadStageExpiry) {
-        expiry.arm(next: nextExpiry) { purgeExpired(now: $0) }
+    private static func armExpiry(_ expiry: MainDeadline, work: BackgroundWork) {
+        armStageExpiry(expiry, next: nextExpiry, work: work) { purgeExpired(now: $0) }
+    }
+
+    /// The expiry of a stager's stages and batches (this one's and ``AgentPeerUploads``'): one ``MainDeadline`` at
+    /// the earliest date, moved after each purge, instead of a sleeping task per chunk. Points `deadline` at `next`
+    /// (at least 1 s from `now`), or drops it when `next` is nil. At the deadline `purge` takes out what expired by
+    /// the date it gets, its files are removed on the files lane (never on main), and the deadline moves to the next
+    /// date. A chunk or a batch request that moves a date later re-arms, so it fires only for stages that expired.
+    static func armStageExpiry(_ deadline: MainDeadline, next: Date?, work: BackgroundWork, now: @escaping @MainActor () -> Date = { Date() },
+                               purge: @escaping @MainActor (_ now: Date) -> (files: [URL], next: Date?)) {
+        guard let next else { deadline.cancel(); return }
+        deadline.schedule(after: .seconds(max(1, next.timeIntervalSince(now())))) { [weak deadline] in
+            let purged = purge(now())
+            let files = purged.files
+            if !files.isEmpty {
+                work.post(.bestEffort, mayBlock: .files) { for file in files { try? FileManager.checked.removeItem(at: file) } }
+            }
+            if let deadline { armStageExpiry(deadline, next: purged.next, work: work, now: now, purge: purge) }
+        }
     }
 
     /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share

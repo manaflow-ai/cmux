@@ -76,8 +76,8 @@ final class AppServices {
     let mainWork: MainWorkScheduler
     private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
     /// The local and peer chat upload stagers' expiry deadlines.
-    private(set) lazy var chatUploadExpiry = AgentPaneUploadStageExpiry(owner: "AgentChatUploads.stageExpiry", deadlines: mainDeadlines, work: work)
-    private(set) lazy var peerUploadExpiry = AgentPaneUploadStageExpiry(owner: "AgentPeerUploads.stageExpiry", deadlines: mainDeadlines, work: work)
+    private(set) lazy var chatUploadExpiry = MainDeadline(owner: "AgentChatUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
+    private(set) lazy var peerUploadExpiry = MainDeadline(owner: "AgentPeerUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry

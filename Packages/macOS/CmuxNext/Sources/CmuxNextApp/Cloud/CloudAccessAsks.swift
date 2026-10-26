@@ -29,7 +29,8 @@ final class CloudAccessAsks {
     /// The triage round in flight; nil between rounds.
     private var round: Task<Void, Never>?
     /// The next round, after the last one's pause (``CloudMoveSetup/accessPoll``, or a machine's backoff): a
-    /// deadline on the main thread's one wake-up queue, not a sleeping loop. Made on the first start.
+    /// ``MainDeadline`` started again from its own round (Chromium's `OneShotTimer`, base/timer/timer.h), not a
+    /// sleeping loop. Made on the first start.
     private var nextRound: MainDeadline?
     /// The asks the last triages listed, by chat tab, and the answers that failed.
     private var asks: [String: [CloudAccessAsk]] = [:]
@@ -49,20 +50,35 @@ final class CloudAccessAsks {
     /// Starts polling unless it runs; it stops with no moved chat and nothing to revoke, and with this object or `services`.
     /// The machine pushes no access request, so a round runs only while a moved chat or a revoke waits.
     func start(services: AppServices) {
-        guard round == nil, nextRound?.isScheduled != true else { return }
-        nextRound = nextRound ?? MainDeadline(owner: "CloudAccessAsks.triage", workClass: .background, scheduler: services.mainDeadlines)
-        runRound(services)
+        startRounds(deadlines: services.mainDeadlines) { [weak self, weak services] in await self?.poll(services) }
     }
 
-    /// One triage round; when it asks for another, ``nextRound`` starts it after the round's pause.
-    private func runRound(_ services: AppServices) {
-        round = Task { @MainActor [weak self, weak services] in
-            guard let pause = await self?.poll(services), let self else { return }
+    /// Runs a round of `poll` now unless one runs or waits for its pause. Each round answers how long to wait
+    /// before the next, nil to stop until the next start.
+    func startRounds(deadlines: MainDeadlineScheduler, poll: @escaping @MainActor @Sendable () async -> Duration?) {
+        guard round == nil, nextRound?.isScheduled != true else { return }
+        nextRound = nextRound ?? MainDeadline(owner: "CloudAccessAsks.triage", workClass: .background, scheduler: deadlines)
+        runRound(poll)
+    }
+
+    /// A round runs now (tests).
+    var isTriaging: Bool { round != nil }
+    /// The next round waits for its pause (tests).
+    var isTriageScheduled: Bool { nextRound?.isScheduled == true }
+
+    /// Returns once the round in flight, if any, has ended (tests await it instead of wall time).
+    func triageSettled() async {
+        await round?.value
+    }
+
+    private func runRound(_ poll: @escaping @MainActor @Sendable () async -> Duration?) {
+        // task-owner: one triage round; the next one starts from nextRound after its pause
+        round = Task { [weak self] in
+            let pause = await poll()
+            guard let self else { return }
             round = nil
-            nextRound?.schedule(after: pause) { [weak self, weak services] in
-                guard let self, let services else { return }
-                runRound(services)
-            }
+            guard let pause else { return }
+            nextRound?.schedule(after: pause) { [weak self] in self?.runRound(poll) }
         }
     }
 
@@ -82,7 +98,7 @@ final class CloudAccessAsks {
 
     /// One round over the machines; how long to wait before the next, nil to stop.
     private func poll(_ services: AppServices?) async -> Duration? {
-        guard let services, let binary = services.cloud.move.cli else { return stop() }
+        guard let services, let binary = services.cloud.move.cli else { return nil }
         let setup = services.cloud.move, cli = CloudAccessCLI(binary: binary)
         revokes.firstBackoff = setup.accessPoll
         for entry in services.cloud.movedChats.all() where entry.broughtBack != nil {
@@ -95,7 +111,7 @@ final class CloudAccessAsks {
         guard !chats.isEmpty, !services.machines.isFeatureDisabled(.cloud) else {
             asks = [:]
             render(services: services)
-            return chats.isEmpty && revokes.isEmpty ? stop() : setup.accessPoll
+            return chats.isEmpty && revokes.isEmpty ? nil : setup.accessPoll
         }
         triages += 1
         let triage = triages
@@ -149,12 +165,6 @@ final class CloudAccessAsks {
         failures = failures.filter { liveTabs.contains($0.key) }
         render(services: services)
         return setup.accessPoll
-    }
-
-    private func stop() -> Duration? {
-        round = nil
-        nextRound?.cancel()
-        return nil
     }
 
     private func sync(_ cli: CloudAccessCLI, socket: String, machine: String, session: String, services: AppServices) async {

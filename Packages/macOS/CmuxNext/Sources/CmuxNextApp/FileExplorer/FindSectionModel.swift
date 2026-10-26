@@ -56,7 +56,9 @@ final class FindSectionModel {
         pendingSearch = Task { [weak self] in
             do {
                 // concurrency-allow: a bounded, cancellable typing pause (injected clock); the next keystroke cancels it.
-                // wakeup-allow: deadline the typing pause after a keystroke in the Find field, never while idle
+                // wakeup-allow: deadline the typing pause after a keystroke in the Find field, never while idle. One task is
+                // the pause and the ripgrep run it starts, so the next keystroke cancels either; a DemandTimer drops its task at
+                // the fire and could not cancel the run.
                 try await clock.sleep(for: Self.debounce, tolerance: WakeLeeway.window(delay: Self.debounce).tolerance)
             } catch {
                 return
