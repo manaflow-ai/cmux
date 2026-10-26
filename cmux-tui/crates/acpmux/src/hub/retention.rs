@@ -23,10 +23,6 @@
 
 use super::*;
 use crate::store::{CompactMode, Compaction};
-use std::sync::atomic::AtomicBool;
-
-/// One pass at a time in this daemon.
-static RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// What a pass is asked to do.
 #[derive(Debug, Default, Clone)]
@@ -82,11 +78,11 @@ impl Hub {
             })?,
         };
         let only = req.only.as_deref().map(|key| self.resolve(key)).transpose()?;
-        if RUNNING.swap(true, Ordering::SeqCst) {
+        if self.retention_running.swap(true, Ordering::SeqCst) {
             return Err(RpcError::new(-32000, "a log retention pass is already running"));
         }
         // Released when the pass ends, or when its task never runs.
-        let running = Release;
+        let running = Release(self.retention_running.clone());
         let hub = self.clone();
         tokio::task::spawn_blocking(move || {
             let _running = running;
@@ -247,11 +243,11 @@ impl Hub {
     }
 }
 
-/// Ends the pass's hold on [`RUNNING`] however it ends.
-struct Release;
+/// Ends the pass's hold on `Hub::retention_running` however it ends.
+struct Release(Arc<AtomicBool>);
 
 impl Drop for Release {
     fn drop(&mut self) {
-        RUNNING.store(false, Ordering::SeqCst);
+        self.0.store(false, Ordering::SeqCst);
     }
 }
