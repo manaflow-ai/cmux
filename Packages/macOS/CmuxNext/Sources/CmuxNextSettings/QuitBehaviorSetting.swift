@@ -55,15 +55,15 @@ public nonisolated enum ConfirmQuitMode: String, Sendable, Hashable, CaseIterabl
     case always
     /// Ask only while a local program runs or an agent is in a turn.
     case dirtyOnly = "dirty-only"
-    /// Quit at once (Lawrence 2026-10-07: no "Quit cmux?" by default).
+    /// Quit at once.
     case never
 }
 
-/// `app.confirmQuit` in cmux.json: "always", "dirty-only" or "never"
-/// (default), strings only, as in classic.
+/// `app.confirmQuit` in cmux.json: "always" (default, as in classic, #25567),
+/// "dirty-only" or "never", strings only, as in classic.
 extension ConfirmQuitMode {
     public static let configPath = ["app", "confirmQuit"]
-    public static let fallback: ConfirmQuitMode = .never
+    public static let fallback: ConfirmQuitMode = .always
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

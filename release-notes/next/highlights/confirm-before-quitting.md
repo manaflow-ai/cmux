@@ -1,5 +1,5 @@
-title: Confirm Before Quitting, so a stray Cmd-Q waits
+title: Cmd-Q asks before quitting, so a stray press waits
 category: improved
 action: openSettings | Open Settings
 
-Settings > General > Confirm Before Quitting asks before Cmd-Q, the Quit menu or the Dock quits cmux: always, or only while programs run. It reads the same setting as classic cmux.
+cmux now asks before Cmd-Q, the Quit menu or the Dock quits it, as classic cmux does. Settings > General > Confirm Before Quitting can ask only while programs run, or never.

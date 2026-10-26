@@ -201,7 +201,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserToolbarPosition: ToolbarPosition = .top
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
-    /// `app.confirmQuit`; "never" when unset or invalid.
+    /// `app.confirmQuit`; "always" when unset or invalid.
     public var confirmQuit: ConfirmQuitMode = ConfirmQuitMode.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback

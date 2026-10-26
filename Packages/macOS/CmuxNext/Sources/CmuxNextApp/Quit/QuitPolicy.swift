@@ -24,13 +24,13 @@ enum QuitPolicy {
     static func needsFacts(_ origin: QuitOrigin) -> Bool { origin == .interactive }
 
     /// Quit at once with a choice, or ask. `facts` is read only for an
-    /// interactive quit. By default quitting never asks about sessions
-    /// (Lawrence 2026-10-07, no "Quit cmux?"): Keep, the default, loses no
-    /// work, because local terminals and agents run in their daemons and
-    /// reattach on the next launch; a remembered end choice applies as set.
-    /// `confirm` (`app.confirmQuit`, classic's key) puts "Quit cmux?" back
-    /// for an interactive quit: "always", or "dirty-only" while a program
-    /// runs or an agent is in a turn. Otherwise the one question left is
+    /// interactive quit. Keep, the default choice, loses no work, because
+    /// local terminals and agents run in their daemons and reattach on the
+    /// next launch; a remembered end choice applies as set. `confirm`
+    /// (`app.confirmQuit`, classic's key) asks "Quit cmux?" before an
+    /// interactive quit: "always" (the default, as in classic, #25567), or
+    /// "dirty-only" while a program runs or an agent is in a turn; "never"
+    /// quits at once (Lawrence 2026-10-07). Otherwise the one question left is
     /// incognito windows' running programs, which end with the windows and
     /// cannot come back. Either is asked at most once (#17501): never after
     /// the unsaved-changes question (`alreadyAsked`).
