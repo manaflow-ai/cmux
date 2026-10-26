@@ -1,4 +1,5 @@
 import { gcpLabsDisabledReason, type VmRuntimeEnv } from "../config";
+import { ProviderCreateCleanupError } from "./providerCreateCleanup";
 import {
   ProviderError,
   type CreateOptions,
@@ -120,6 +121,14 @@ export class GcpProvider implements VMProvider {
     if (!credential.sshPublicKey || !credential.sshPrivateKeyPem) {
       throw new ProviderError("gcp", "create requires a short-lived SSH public/private key pair for IAP attach");
     }
+    const cleanupIntent = options.createCleanupIntent;
+    if (!cleanupIntent) {
+      throw new ProviderError("gcp", "create requires a durable cleanup intent before Compute Engine allocates an instance");
+    }
+    // A create the Labs gate refuses records nothing: no row may name an
+    // instance that was never requested and that no drain will run for.
+    const disabled = gcpLabsDisabledReason(this.env);
+    if (disabled) throw new ProviderError("gcp", disabled);
     const context = contextFromMetadata(options.providerMetadata);
     const image = requiredText(options.image, "image");
     const name = instanceName(options.displayName);
@@ -147,6 +156,31 @@ export class GcpProvider implements VMProvider {
       },
       scheduling: { automaticRestart: true, onHostMaintenance: "MIGRATE" },
     };
+    const providerVmId = `${context.project}/${context.zone}/${name}`;
+    // The row names this instance before Compute Engine can allocate it, so a
+    // create interrupted after the insert (its credential wiped, its process
+    // gone) still leaves a durable delete for the next credentialed request.
+    // Without that record there is no create: cleanup needs a user token the
+    // server cannot keep.
+    try {
+      await cleanupIntent.record(providerVmId);
+    } catch (error) {
+      throw new ProviderError("gcp", "create could not record its cleanup intent; no instance was requested", error);
+    }
+    // The same checks api() makes before it sends; with no await between here
+    // and the POST, a refusal past this point means the request went out.
+    try {
+      const refused = gcpLabsDisabledReason(this.env);
+      if (refused) throw new ProviderError("gcp", refused);
+      this.requireCredential(credential);
+    } catch (error) {
+      cleanupIntent.released();
+      throw error;
+    }
+    let insertAnswered = false;
+    // Only a finished insert operation proves a later not-found: while it
+    // runs, the instance may not be visible yet and can still appear.
+    let insertSettled = false;
     try {
       const operation = await this.api<GcpOperation>(
         "POST",
@@ -154,45 +188,74 @@ export class GcpProvider implements VMProvider {
         credential,
         body,
       );
-      await this.waitForOperation(context, operation, credential);
+      insertAnswered = true;
+      await this.waitForOperation(context, operation, credential, () => { insertSettled = true; });
       const instance = await this.instance(context, name, credential);
       return handle(context, name, image, instance, this.now());
     } catch (error) {
       // The insert may have been accepted even when its answer, its
       // operation or the final read failed: delete the named instance so no
       // handle-less machine outlives the failed create.
-      if (await this.deleteQuietly(context, name, credential)) throw error;
-      throw new ProviderError(
-        "gcp",
-        `create failed and instance ${context.project}/${context.zone}/${name} (label cmux_labs=gcp) could not be confirmed deleted`,
-        error,
-      );
+      // A refused insert (4xx) allocated nothing.
+      if (!insertAnswered && error instanceof GcpApiError && error.status >= 400 && error.status < 500) {
+        cleanupIntent.released();
+        throw error;
+      }
+      // An insert whose operation never finished may still materialize, so a
+      // 404 then does not prove the instance is gone.
+      const cleanup = await this.deleteQuietly(context, name, credential, insertSettled);
+      if (cleanup === null) {
+        cleanupIntent.released();
+        throw error;
+      }
+      // Unconfirmed: the workflow keeps the row as a retained cleanup that the
+      // next request carrying a credential for this user deletes.
+      throw new ProviderCreateCleanupError(providerVmId, error, cleanup, "gcp");
     }
   }
 
-  /** Deletes an instance and waits for it; true when it is gone (or never existed). */
-  private async deleteQuietly(context: GcpContext, name: string, credential: ProviderCredential): Promise<boolean> {
+  /** Deletes an instance and waits for it; null when it is gone, else the cleanup failure. */
+  private async deleteQuietly(context: GcpContext, name: string, credential: ProviderCredential, notFoundConfirms: boolean): Promise<unknown> {
     try {
-      const operation = await this.api<GcpOperation>(
-        "DELETE",
-        `/projects/${context.project}/zones/${context.zone}/instances/${name}`,
-        credential,
-      );
-      await this.waitForOperation(context, operation, credential);
-      return true;
+      await this.deleteInstance(context, name, credential);
+      return null;
     } catch (error) {
-      return error instanceof GcpApiError && error.status === 404;
+      return notFoundConfirms && error instanceof GcpApiError && error.status === 404 ? null : error;
     }
   }
 
   async destroy(vmId: string, credential?: ProviderCredential): Promise<void> {
     const context = contextFromVmId(vmId);
+    await this.deleteInstance(context, context.name, this.requireCredential(credential));
+  }
+
+  /**
+   * Deletes a named instance and waits for it. A 404 GcpApiError here always
+   * means the instance itself was not found: an operation record that cannot
+   * be read proves nothing, so the instance is read back instead.
+   */
+  private async deleteInstance(context: GcpContext, name: string, credential: ProviderCredential): Promise<void> {
     const operation = await this.api<GcpOperation>(
       "DELETE",
-      `/projects/${context.project}/zones/${context.zone}/instances/${context.name}`,
-      this.requireCredential(credential),
+      `/projects/${context.project}/zones/${context.zone}/instances/${name}`,
+      credential,
     );
-    await this.waitForOperation(context, operation, this.requireCredential(credential));
+    try {
+      await this.waitForOperation(context, operation, credential);
+    } catch (error) {
+      // The DELETE was accepted, so the instance existed; reading it back as
+      // not-found now means it is gone.
+      const gone = await this.instance(context, name, credential).then(
+        () => false,
+        (readError: unknown) => readError instanceof GcpApiError && readError.status === 404,
+      );
+      if (gone) return;
+      if (error instanceof GcpApiError && error.status === 404) {
+        // No cause: deletion checks walk causes, and this 404 is not the instance's.
+        throw new ProviderError("gcp", `delete of ${name} could not be confirmed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   async getStatus(vmId: string, options?: ProviderReadOptions): Promise<VMStatus> {
@@ -270,8 +333,14 @@ export class GcpProvider implements VMProvider {
     return this.api<GcpInstance>("GET", `/projects/${context.project}/zones/${context.zone}/instances/${name}`, credential, undefined, signal);
   }
 
-  private async waitForOperation(context: GcpContext, operation: GcpOperation, credential: ProviderCredential): Promise<void> {
+  private async waitForOperation(
+    context: GcpContext,
+    operation: GcpOperation,
+    credential: ProviderCredential,
+    onDone?: () => void,
+  ): Promise<void> {
     if (!operation.name || operation.status === "DONE") {
+      onDone?.();
       if (operation.error) throw operationFailure(operation);
       return;
     }
@@ -283,6 +352,7 @@ export class GcpProvider implements VMProvider {
       if (this.now() >= deadline) throw new ProviderError("gcp", `operation ${operation.name} timed out`);
       const current = await this.api<GcpOperation>("GET", path, credential);
       if (current.status === "DONE") {
+        onDone?.();
         if (current.error) throw operationFailure(current);
         return;
       }

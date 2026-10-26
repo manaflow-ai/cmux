@@ -113,6 +113,17 @@ export type CreateOptions = {
    */
   providerCredential?: ProviderCredential;
   /**
+   * The workflow's durable record of the allocation. A driver whose cleanup
+   * needs a short-lived user credential names its provider id with `record`
+   * before it sends the allocation request (and must not allocate when that
+   * rejects), so an interrupted create still leaves a row naming its instance.
+   * It calls `released` once its own rollback confirmed the allocation gone.
+   */
+  createCleanupIntent?: {
+    readonly record: (providerVmId: string) => Promise<void>;
+    readonly released: () => void;
+  };
+  /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
    * resurrect a dead sandbox around the same home. Providers without volume support ignore it.

@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 
 import { vmCreateDisabledReason } from "../services/vms/config";
 import { GcpProvider } from "../services/vms/drivers/gcp";
-import { SecretBytes, type ProviderCredential } from "../services/vms/drivers/types";
+import { ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
+import { ProviderError, SecretBytes, type CreateOptions, type ProviderCredential } from "../services/vms/drivers/types";
+import { isProviderDeletionConfirmed } from "../services/vms/providerErrors";
 import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vms/routeInput";
 import { releaseProviderCredential } from "../services/vms/workflows";
 
@@ -15,6 +17,34 @@ function credential(overrides: Partial<ProviderCredential> = {}): ProviderCreden
     provider: "gcp",
     accessToken: new SecretBytes(new TextEncoder().encode("gcp-test-token")),
     expiresAtUnix: Math.floor(now / 1000) + 300,
+    ...overrides,
+  };
+}
+
+/** A cleanup intent that records what the driver named and whether it released it. */
+function intent(record: (providerVmId: string) => Promise<void> = async () => {}) {
+  const recorded: string[] = [];
+  let released = 0;
+  const options: NonNullable<CreateOptions["createCleanupIntent"]> = {
+    record: async (providerVmId) => {
+      await record(providerVmId);
+      recorded.push(providerVmId);
+    },
+    released: () => { released += 1; },
+  };
+  return { options, recorded, released: () => released };
+}
+
+/** A create that passes every pre-insert check. */
+function createOptions(cleanup?: ReturnType<typeof intent>, overrides: Partial<CreateOptions> = {}): CreateOptions {
+  return {
+    image: "projects/manaflow-437420/global/images/cmux-linux",
+    network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
+    providerCredential: credential({
+      sshPublicKey: "ssh-ed25519 AAAA test",
+      sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+    }),
+    ...(cleanup ? { createCleanupIntent: cleanup.options } : {}),
     ...overrides,
   };
 }
@@ -94,14 +124,6 @@ describe("GCP Labs provider", () => {
   });
 
   test("a create that fails after the insert deletes the named instance", async () => {
-    const createInput = () => ({
-      image: "projects/manaflow-437420/global/images/cmux-linux",
-      network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
-      providerCredential: credential({
-        sshPublicKey: "ssh-ed25519 AAAA test",
-        sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
-      }),
-    });
     const methods: string[] = [];
     const cleaned = new GcpProvider({
       fetch: async (_input, init) => {
@@ -113,15 +135,162 @@ describe("GCP Labs provider", () => {
       now: () => now,
       env: labsOn,
     });
-    await expect(cleaned.create(createInput())).rejects.toThrow(/returned 500/);
+    const confirmed = intent();
+    await expect(cleaned.create(createOptions(confirmed))).rejects.toThrow(/returned 500/);
     expect(methods).toEqual(["POST", "GET", "DELETE"]);
+    // A confirmed rollback releases the intent: the row owns nothing.
+    expect(confirmed.recorded).toHaveLength(1);
+    expect(confirmed.released()).toBe(1);
 
     const stuck = new GcpProvider({
       fetch: async () => json({}, 503),
       now: () => now,
       env: labsOn,
     });
-    await expect(stuck.create(createInput())).rejects.toThrow(/could not be confirmed deleted/);
+    const retained = intent();
+    const failure = await stuck.create(createOptions(retained)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ProviderCreateCleanupError);
+    expect((failure as ProviderCreateCleanupError).providerVmId).toBe(retained.recorded[0]);
+    expect(retained.released()).toBe(0);
+  });
+
+  test("only an insert with a known outcome lets a not-found rollback release the intent", async () => {
+    const methods: string[] = [];
+    const refused = intent();
+    const refusing = new GcpProvider({
+      fetch: async (_input, init) => { methods.push(String(init?.method)); return json({}, 403); },
+      now: () => now,
+      env: labsOn,
+    });
+    await expect(refusing.create(createOptions(refused))).rejects.toThrow(/returned 403/);
+    expect(methods).toEqual(["POST"]);
+    expect(refused.released()).toBe(1);
+
+    // The insert never answered: it may still land, so the 404 proves nothing.
+    const unanswered = intent();
+    const dropping = new GcpProvider({
+      fetch: async (_input, init) => {
+        if (init?.method === "POST") throw new Error("connection reset");
+        return json({}, 404);
+      },
+      now: () => now,
+      env: labsOn,
+    });
+    const failure = await dropping.create(createOptions(unanswered)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ProviderCreateCleanupError);
+    expect(unanswered.released()).toBe(0);
+
+    // Accepted but still running: the instance may not be visible yet.
+    const running = intent();
+    const pending = new GcpProvider({
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (init?.method === "POST") return json({ name: "insert-op", status: "RUNNING", zone: "us-west1-b" });
+        if (path.endsWith("/operations/insert-op")) return json({}, 500);
+        return json({}, 404);
+      },
+      now: () => now,
+      env: labsOn,
+    });
+    const unsettled = await pending.create(createOptions(running)).catch((error: unknown) => error);
+    expect(unsettled).toBeInstanceOf(ProviderCreateCleanupError);
+    expect(running.released()).toBe(0);
+  });
+
+  test("a delete whose operation record is missing is confirmed only by reading the instance back", async () => {
+    let instanceExists = true;
+    const provider = new GcpProvider({
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (init?.method === "DELETE") return json({ name: "delete-op", status: "RUNNING", zone: "us-west1-b" });
+        if (path.endsWith("/operations/delete-op")) return json({}, 404);
+        return instanceExists ? json({ name: "cmux-gcp", status: "STOPPING" }) : json({}, 404);
+      },
+      now: () => now,
+      env: labsOn,
+    });
+    const vmId = "manaflow-437420/us-west1-b/cmux-gcp";
+    const unconfirmed = await provider.destroy(vmId, credential()).catch((error: unknown) => error);
+    expect(unconfirmed).toBeInstanceOf(ProviderError);
+    expect(isProviderDeletionConfirmed(unconfirmed)).toBe(false);
+    instanceExists = false;
+    await expect(provider.destroy(vmId, credential())).resolves.toBeUndefined();
+  });
+
+  test("create names its instance durably before the insert and sends nothing when it cannot", async () => {
+    const requests: string[] = [];
+    const provider = new GcpProvider({
+      fetch: async (_input, init) => { requests.push(String(init?.method)); return json({ name: "op", status: "DONE" }); },
+      now: () => now,
+      env: labsOn,
+    });
+    await expect(provider.create(createOptions())).rejects.toThrow(/durable cleanup intent/);
+    const refused = intent(async () => { throw new Error("row is no longer an open create"); });
+    await expect(provider.create(createOptions(refused)))
+      .rejects.toThrow(/could not record its cleanup intent/);
+    expect(requests).toEqual([]);
+
+    let insertedAfter: string[] = [];
+    const ordered = intent(async () => { insertedAfter = [...requests]; });
+    await provider.create(createOptions(ordered));
+    expect(insertedAfter).toEqual([]);
+    expect(requests[0]).toBe("POST");
+    expect(ordered.recorded[0]).toMatch(/^manaflow-437420\/us-west1-b\/cmux-[0-9a-f]{12}$/);
+
+    // A gate refusal records nothing; one that lands between the record and
+    // the insert releases it, since nothing was sent.
+    requests.length = 0;
+    const env: Record<string, string> = {};
+    const gated = new GcpProvider({
+      fetch: async (_input, init) => { requests.push(String(init?.method)); return json({ name: "op", status: "DONE" }); },
+      now: () => now,
+      env,
+    });
+    const offIntent = intent();
+    await expect(gated.create(createOptions(offIntent))).rejects.toThrow(/Labs/);
+    expect(offIntent.recorded).toEqual([]);
+    const flipped = intent(async () => { delete env["CMUX_VM_GCP_ENABLED"]; });
+    Object.assign(env, labsOn);
+    await expect(gated.create(createOptions(flipped))).rejects.toThrow(/Labs/);
+    expect(flipped.recorded).toHaveLength(1);
+    expect(flipped.released()).toBe(1);
+    expect(requests).toEqual([]);
+  });
+
+  test("a create whose credential is wiped after the insert names the instance it could not delete", async () => {
+    const sent: string[] = [];
+    let inserted!: () => void;
+    const insertAccepted = new Promise<void>((resolve) => { inserted = resolve; });
+    const provider = new GcpProvider({
+      fetch: (input, init) => {
+        sent.push(`${init?.method} ${new URL(String(input)).pathname}`);
+        if (init?.method === "POST") {
+          inserted();
+          return Promise.resolve(json({ name: "insert-op", status: "RUNNING", zone: "us-west1-b" }));
+        }
+        // The operation poll is in flight when the workflow ends.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      },
+      now: () => now,
+      env: labsOn,
+    });
+    const local = credential({
+      lifetime: new AbortController(),
+      sshPublicKey: "ssh-ed25519 AAAA test",
+      sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+    });
+    const cleanup = intent();
+    const creating = provider.create(createOptions(cleanup, { providerCredential: local })).catch((error: unknown) => error);
+    await insertAccepted;
+    wipeProviderCredential(local);
+    const failure = await creating;
+    expect(failure).toBeInstanceOf(ProviderCreateCleanupError);
+    expect((failure as ProviderCreateCleanupError).providerVmId).toBe(cleanup.recorded[0]);
+    expect(cleanup.released()).toBe(0);
+    // The wiped token is never sent again, so no DELETE left the process.
+    expect(sent.some((line) => line.startsWith("DELETE"))).toBe(false);
   });
 
   test("wiping the credential aborts a request still carrying it", async () => {
@@ -192,6 +361,7 @@ describe("GCP Labs provider", () => {
       providerMetadata: { project: "manaflow-437420", zone: "us-west1-b" },
       network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
       providerCredential: local,
+      createCleanupIntent: intent().options,
     });
     expect(created.provider).toBe("gcp");
     expect(created.providerVmId).toMatch(/^manaflow-437420\/us-west1-b\//);
