@@ -32,14 +32,20 @@ enum SidebarSectionHandlers {
         })
     }
 
-    static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let layout = context.services.sidebarLayout
-        let services = context.services
-        ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
+    /// The Chief item's way into the App; `conversation`: the Chief's conversation now (Home's).
+    static func chiefHost(_ services: AppServices, conversation: (() -> String?)? = nil) -> ChiefSidebar.Host {
+        let conversation = conversation ?? { TopHomePageView.chief(services.home) }
+        return .init(conversation: conversation, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
             openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) },
             // The Chief item dots exactly when Home dots its conversation (unread or Mark as Unread, never muted).
-            unread: { ChiefSidebar.isUnread(TopHomePageView.chief(services.home), in: services.home.groupMuting) }))
+            unread: { ChiefSidebar.isUnread(conversation(), in: services.home.groupMuting) })
+    }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let layout = context.services.sidebarLayout
+        let services = context.services
+        ChiefSidebar.shared.bind(into: registry, host: chiefHost(services))
         RemoteMachinesSidebar.shared.bind(host: .init(
             peers: {
                 guard let socket = await AgentLaneStore.shared.socketPath else { return nil }

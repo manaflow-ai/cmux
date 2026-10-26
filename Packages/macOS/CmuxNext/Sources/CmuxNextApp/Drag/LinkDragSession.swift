@@ -1,8 +1,12 @@
 import AppKit
+import CmuxHomeCore
+import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
+import CmuxNextSidebar
 import CmuxNextTabs
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
@@ -87,6 +91,20 @@ final class LinkDragSession {
     /// the ghost.
     private func window(at screenPoint: CGPoint, below ghost: NSWindow) -> WindowController? {
         services.flatMap { Self.window(at: screenPoint, below: ghost.windowNumber, in: $0) }
+    }
+
+    /// Home's drag out of the Chief's row (`chief`: its conversation now): sideways it goes on as a drag into a
+    /// window's sidebar, where its drop adds the Chief item (Leo 2026-10-21: drag in a Chief, like a special
+    /// workspace). Any other row stays Home's.
+    static func chiefDragOut(_ services: AppServices, chief: @escaping () -> String?) -> (ConversationID, CGPoint) -> Bool {
+        let registry = services.registry
+        let drag = ChiefDragIn(host: .init(
+            sidebar: { [weak services] point, below in
+                services.flatMap { window(at: point, below: below, in: $0) }?.sidebar.container.sidebarView
+            },
+            isBusy: { [weak services] in services.map { $0.dragSession.isDragging || $0.linkDrags.isDragging } ?? true },
+            drop: { _ = registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string(SidebarBuiltIn.chief.rawValue)], origin: .user)) }))
+        return { id, point in id.rawValue == chief() && drag.begin(at: point) }
     }
 
     /// The app window under `screenPoint` below window number `ghost` (a drag's ghost; the Chief's drag in too).

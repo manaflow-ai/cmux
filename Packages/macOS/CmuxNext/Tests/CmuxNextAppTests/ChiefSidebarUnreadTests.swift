@@ -11,23 +11,20 @@ import Testing
 /// through the item's real status observer, never a status set by hand.
 @MainActor @Suite(.serialized)
 struct ChiefSidebarUnreadTests {
-    struct NoWorkspace: Error {}
-
     /// The App's services with Home listing the Chief's conversation: read unless `unread` messages wait, not marked.
     static func services(unread: Int = 0) -> AppServices {
         _ = NSApplication.shared // the services read NSApp
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.home.groupMuting.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: unread)]
-        services.home.groupMuting.setMarkedUnread(false, ConversationID("chief"))
+        // Marks persist across runs: none left on either conversation, so each test starts with them off.
+        for id in ["chief", "other"] { services.home.groupMuting.setMarkedUnread(false, ConversationID(id)) }
         return services
     }
 
-    /// The Chief item following a host whose unread is the App's (`SidebarSectionHandlers`), its conversation `chief`.
+    /// The Chief item following the App's own host (`SidebarSectionHandlers.chiefHost`), its conversation `chief`.
     static func follow(_ services: AppServices) -> ChiefSidebar {
         let chief = ChiefSidebar(lanes: AgentLaneStore())
-        let home = services.home.groupMuting
-        chief.follow(.init(conversation: { "chief" }, chiefHost: { nil }, tab: { _, _ in nil }, reveal: { _ in false },
-                           openWorkspace: { _, _ in throw NoWorkspace() }, unread: { ChiefSidebar.isUnread("chief", in: home) }))
+        chief.follow(SidebarSectionHandlers.chiefHost(services, conversation: { "chief" }))
         return chief
     }
 
@@ -44,6 +41,7 @@ struct ChiefSidebarUnreadTests {
         // The fixture rows are not observed: a mark on another conversation makes the item read them again.
         home.debugRows = [HomeUnreadIndicatorTests.row("chief", unread: 2, muted: true)]
         home.setMarkedUnread(true, ConversationID("other"))
+        defer { home.setMarkedUnread(false, ConversationID("other")) }
         try #require(home.unreadConversations.isEmpty, "Home dots the muted conversation")
         await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { !chief.status.unread }
         #expect(!chief.status.unread, "a muted Chief conversation dots the item though Home shows none")
