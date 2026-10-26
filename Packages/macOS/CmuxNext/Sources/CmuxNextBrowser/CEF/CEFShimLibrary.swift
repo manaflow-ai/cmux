@@ -227,6 +227,27 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
 
+    // Chromium tracing over stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; p09-observability task
+    // 050). Optional: a shim built before them still loads, and `trace.start chromium:true` reports
+    // unsupported. Nil in host mode, where the host calls them for its TRACE_START and TRACE_STOP frames
+    // (task 104) and the remote dylib does not export them.
+    /// `cmux_cef_trace_started_fn`: ctx, ok (1 when every process records).
+    typealias TraceStartedFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void
+    /// `cmux_cef_trace_written_fn`: ctx, the finished file (NULL when no recording ran), valid only during the call.
+    typealias TraceWrittenFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+    /// `cmux_cef_begin_tracing`: category filter, started, ctx; 1 posted (`started` then runs exactly once).
+    let beginTracing: (@convention(c) (UnsafePointer<CChar>?, TraceStartedFn?, UnsafeMutableRawPointer?) -> Int32)?
+    /// `cmux_cef_end_tracing`: absolute `.json` path, written, ctx; 1 posted (`written` then runs exactly once).
+    let endTracing: (@convention(c) (UnsafePointer<CChar>?, TraceWrittenFn?, UnsafeMutableRawPointer?) -> Int32)?
+    /// `cmux_cef_now_trace_us`: Chromium's trace clock (`base::TimeTicks`) now, in microseconds.
+    let nowTraceMicros: (@convention(c) () -> Int64)?
+
+    /// The three tracing exports, nil unless the shim has all of them (``CEFTracing``).
+    var tracing: CEFShimTracing? {
+        guard let beginTracing, let endTracing, let nowTraceMicros else { return nil }
+        return CEFShimTracing(begin: beginTracing, end: endTracing, now: nowTraceMicros)
+    }
+
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
         addDocumentScript != nil && addPageChannel != nil && tabEvaluate != nil && tabSetFrozen != nil && tabSendClick != nil
@@ -462,6 +483,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        beginTracing = r.hostExports == nil ? r.optional("cmux_cef_begin_tracing") : nil
+        endTracing = r.hostExports == nil ? r.optional("cmux_cef_end_tracing") : nil
+        nowTraceMicros = r.hostExports == nil ? r.optional("cmux_cef_now_trace_us") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
