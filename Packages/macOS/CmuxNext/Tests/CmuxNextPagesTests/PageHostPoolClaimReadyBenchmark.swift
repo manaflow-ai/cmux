@@ -55,7 +55,7 @@ struct PageHostPoolClaimReadyBenchmark {
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
         let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memory: memory.coordinator, policy: policy, processGroups: WebUIHost.makeProcessGroups(), activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()

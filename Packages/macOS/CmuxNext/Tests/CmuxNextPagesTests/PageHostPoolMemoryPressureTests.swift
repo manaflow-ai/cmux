@@ -100,7 +100,8 @@ import Testing
     private static func pool(_ memory: PageTestMemory) -> PageHostPool {
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        return PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        return PageHostPool(memory: memory.coordinator, policy: policy, processGroups: WebUIHost.makeProcessGroups(),
+                            activity: { 0 }, isTrackingMenu: { false })
     }
 
     private static func waitForSpare(_ pool: PageHostPool, in window: NSWindow) async {

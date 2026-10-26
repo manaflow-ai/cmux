@@ -92,7 +92,16 @@ The page bridge leaves DevTools: the host takes the sender's browser, frame and 
 delivered the message, never from the payload.
 
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
-`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
+`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`
+(`PageProcessGroups`, owned by `WebUIHost`, task 015). Agent pages always share one store and their processes,
+as the old agent host did. With the `pageProcessGroups` feature (default off) every other group's pages also share
+one store, and `privileged` and `viewer` pages share processes; without it each such page has a store of its own.
+Storage lifetime changes with the feature: a shared store lives as long as the app, so two pages of one group (two
+diff or markdown viewers) share localStorage, IndexedDB and storage events, and a page reopened in the same session
+finds what the last one wrote. A store of its own is freed when its page closes. A pooled spare is claimed only for
+a page whose store it has (`PageProcessGroups.mayShow`): with the feature, the Settings spare (`solo`) does not
+serve History or Cloud (`privileged`), which open fresh in their group. A Chromium page's WebKit view never loads,
+so it joins no group (`webView(for:configuration:joins:make:)` with `joins: false`).
 
 Fork implementation, proposed (task 011, manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff`, on spike 091's branch).
 Nobody has built or run it: the mechanism comes from reading Chromium 154.0.8037.98, not from a measurement. Do not

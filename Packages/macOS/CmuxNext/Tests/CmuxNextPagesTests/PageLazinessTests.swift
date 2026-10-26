@@ -279,7 +279,8 @@ struct PageLazinessTests {
         defer { window.close() }
         let memory = PageTestMemory()
         let pool = PageHostPool(memory: memory.coordinator,
-                                policy: PageHostPool.Policy(preloadOnMakeVisible: true), clock: PageTestClock.immediate,
+                                policy: PageHostPool.Policy(preloadOnMakeVisible: true), processGroups: WebUIHost.makeProcessGroups(),
+                                clock: PageTestClock.immediate,
                                 activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.follow(window)
@@ -296,7 +297,7 @@ struct PageLazinessTests {
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }
         let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memory: memory.coordinator, processGroups: WebUIHost.makeProcessGroups(), activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.follow(window)
         pool.noteLikely()

@@ -13,6 +13,8 @@ import WebKit
 struct WebUIHostTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.webui-host", resource: "webui-host", processGroup: .solo, namespaces: [])
+    private let agentDescriptor = PageDescriptor(id: "test.webui-host-agent", resource: "webui-host-agent", processGroup: .agent,
+                                                 namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("webui-host-\(UUID().uuidString)", isDirectory: true)
@@ -94,18 +96,18 @@ struct WebUIHostTests {
         withoutPanel.close(unanswered)
     }
 
-    /// Pages that ask to share WebKit processes (the agent pages) join the host's process groups:
-    /// one data store, the next page related to the first, so many New Tab pages and chats do not
-    /// start a process each (sequoia-lag.md: 55 tabs had run 54 WebContent processes). A page that
-    /// does not ask keeps a store of its own; the warm-up view gets the group's pool and store.
-    @Test func pagesThatShareWebKitProcessesJoinTheHostsGroup() throws {
+    /// Agent pages (the `agent` process group) join the host's process groups: one data store, the
+    /// next page related to the first, so many New Tab pages and chats do not start a process each
+    /// (sequoia-lag.md: 55 tabs had run 54 WebContent processes). A page of a group that does not
+    /// share (without the `pageProcessGroups` feature) keeps a store of its own; the warm-up view
+    /// gets the agent group's pool and store.
+    @Test func agentPagesJoinTheHostsGroup() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil)
-        let shared = PageEngineOptions(sharesWebKitProcess: true)
-        let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
-        let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
+        let first = try #require(host.open(PageOpenRequest(descriptor: agentDescriptor, root: root, routes: [])))
+        let second = try #require(host.open(PageOpenRequest(descriptor: agentDescriptor, root: root, routes: [])))
         let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        let store = host.processGroups.dataStore
+        let store = host.processGroups.dataStore(for: .agent)
         #expect(first.webKitView.configuration.websiteDataStore === store)
         #expect(second.webKitView.configuration.websiteDataStore === store)
         #expect(second.webKitView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webKitView)
@@ -116,15 +118,20 @@ struct WebUIHostTests {
         for view in [first, second, alone] { host.close(view) }
     }
 
-    /// A page that shows in Chromium has no WebKit process to share: its unused WebKit view stays
-    /// out of the group, so it never becomes the group's first page.
-    @Test func aSharedPageInChromiumStaysOutOfTheGroup() async throws {
+    /// An agent page that shows in Chromium has no WebKit process to share: its unused WebKit view
+    /// stays out of the group, so it never becomes the group's first page.
+    @Test func anAgentPageInChromiumStaysOutOfTheGroup() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(FakeChromiumHosting())
-        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [],
-                                                          options: PageEngineOptions(sharesWebKitProcess: true))))
+        let view = try #require(host.open(PageOpenRequest(descriptor: agentDescriptor, root: root, routes: [])))
         #expect(view.engineDecision == .chromium)
-        #expect(view.webKitView.configuration.websiteDataStore !== host.processGroups.dataStore)
+        #expect(view.webKitView.configuration.value(forKey: "_relatedWebView") == nil)
+        let configuration = WKWebViewConfiguration()
+        host.processGroups.configure(configuration, for: .agent)
+        let next = host.processGroups.webView(for: .agent, configuration: configuration, joins: true) {
+            WKWebView(frame: .zero, configuration: $0)
+        }
+        #expect(next.configuration.value(forKey: "_relatedWebView") as? WKWebView !== view.webKitView)
         await view.chromiumStart?.value
         host.close(view)
     }

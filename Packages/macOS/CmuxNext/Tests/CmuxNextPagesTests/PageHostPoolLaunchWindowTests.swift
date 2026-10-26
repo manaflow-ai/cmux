@@ -13,7 +13,7 @@ import Testing
         let window = Self.shownWindow()
         defer { window.close() }
         let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memory: memory.coordinator, processGroups: WebUIHost.makeProcessGroups(), activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil })
         pool.noteLikely()
@@ -24,7 +24,7 @@ import Testing
     /// app launched in the background never makes it key. A second window leaves the spare where it is.
     @Test func aMainWindowShownAfterStartTakesTheSpare() {
         let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memory: memory.coordinator, processGroups: WebUIHost.makeProcessGroups(), activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.start(isMainWindow: { _ in false }, fallback: { _ in nil })
         pool.noteLikely()

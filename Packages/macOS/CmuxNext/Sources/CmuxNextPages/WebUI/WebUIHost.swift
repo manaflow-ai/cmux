@@ -22,9 +22,9 @@ public final class WebUIHost {
     public let openPanel: MadeAheadOpenPanel?
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
-    /// The shared web content processes of the WebKit pages that ask for them
-    /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
-    public let processGroups: WebProcessGroups
+    /// The WebKit process pool, the data store of each process group and the related views that
+    /// share a group's processes, for every WebKit page and agent view.
+    public let processGroups: PageProcessGroups
     /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
@@ -62,21 +62,41 @@ public final class WebUIHost {
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
-    ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - sharesPageGroups: The `pageProcessGroups` feature: every group's pages share one WebKit
+    ///     data store and `privileged` and `viewer` pages share processes too, not only agent pages
+    ///     (``makeProcessGroups(sharesPageGroups:)``).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                clock: any Clock<Duration> = ContinuousClock(), sharesPageGroups: Bool = false,
                 startsPagesAtFirstShow: Bool = false) {
         self.chromium = chromium
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
         self.openPanel = openPanel
         self.registry = registry
         self.clock = clock
-        self.processGroups = processGroups
+        processGroups = Self.makeProcessGroups(sharesPageGroups: sharesPageGroups)
         preloadMemory = SpareMemoryConsumer(
             name: "webui-preload", registry: memory, spares: { [weak self] in self?.preload?.count ?? 0 },
             drop: { [weak self] in self?.preloadLevelDidChange() }, refill: { [weak self] in self?.preloadLevelDidChange() })
+    }
+
+    /// WebKit process groups in the page pool; every store is non-persistent (page storage is in
+    /// memory only, as Chrome's off-the-record WebUI pages). Agent pages share one store and their
+    /// processes, as the old agent host did. With `sharesPageGroups` (the `pageProcessGroups`
+    /// feature) each other group's pages share one store for the app's life too, and `privileged`
+    /// and `viewer` pages share processes; `solo` and `secrets` pages never share a process. Without
+    /// it each of those pages has a store of its own, freed when the page closes.
+    ///
+    /// The app makes one through its ``WebUIHost``; a page view made outside a host (the static
+    /// `PageWebView` initializers, a test) passes groups made here.
+    ///
+    /// - Parameter sharesPageGroups: The `pageProcessGroups` feature.
+    public static func makeProcessGroups(sharesPageGroups: Bool = false) -> PageProcessGroups {
+        PageProcessGroups(processPool: PageProcessPool.shared,
+                          relatedGroups: sharesPageGroups ? [.agent, .privileged, .viewer] : [.agent],
+                          sharedStoreGroups: sharesPageGroups ? Set(PageProcessGroup.allCases) : [.agent],
+                          makeStore: { WKWebsiteDataStore.nonPersistent() })
     }
 
     /// The memory pressure level the preload slot follows (the coordinator's, the debug override
@@ -117,14 +137,13 @@ public final class WebUIHost {
         lifecycle?.forget(view)
     }
 
-    /// A configuration in the process pool and data store of the grouped WebKit pages
+    /// A configuration in the pages' process pool and the agent group's data store
     /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the
-    /// pool's one-time font listing (R81) then run before the first grouped page opens, and that
+    /// pool's one-time font listing (R81) then run before the first agent page opens, and that
     /// page can use the warm-up's web content process.
     public func groupedWebKitConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.processPool = PageProcessPool.forNewView
-        configuration.websiteDataStore = processGroups.dataStore
+        processGroups.configure(configuration, for: .agent)
         return configuration
     }
 

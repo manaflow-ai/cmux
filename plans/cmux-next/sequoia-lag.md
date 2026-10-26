@@ -86,7 +86,7 @@ burst, because the cost is the processes, not the copy).
 
 ## Fix
 
-`WebProcessGroups` (CmuxNextAgentPane) makes every agent page's web view with
+`PageProcessGroups` (CmuxNextPages, the `agent` group) makes every agent page's web view with
 the current group's first page as its related web view (`_relatedWebView`, the
 WebKit SPI Safari uses for `window.open`), so up to 8 pages share one web
 content process. A closed first page, a full group, or another process pool

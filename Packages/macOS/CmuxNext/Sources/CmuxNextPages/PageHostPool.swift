@@ -33,6 +33,8 @@ public final class PageHostPool {
 
     let policy: Policy
     let options: PageEngineOptions
+    /// The pool and group stores the spares are made in (the app's ``WebUIHost/processGroups``).
+    let processGroups: PageProcessGroups
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
     let timer: DemandTimer
@@ -65,12 +67,16 @@ public final class PageHostPool {
 
     /// - Parameter memory: the app's memory coordinator (a test passes one over a source it drives);
     ///   the pool registers its spare with it at once.
+    /// - Parameter processGroups: The app's ``WebUIHost/processGroups``, so a spare's page is in the
+    ///   pages' pool and its group's store (a test passes groups of its own).
     public init(memory: any MemoryConsumerRegistry, policy: Policy = Policy(), options: PageEngineOptions = .standard,
+                processGroups: PageProcessGroups,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
         self.policy = policy
         self.options = options
+        self.processGroups = processGroups
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
@@ -111,6 +117,9 @@ public final class PageHostPool {
             scheduleBuild()
             return nil
         }
+        // The spare's data store is its own page's group's; a page whose group shares another store
+        // (the `pageProcessGroups` feature) opens fresh in its own group.
+        guard processGroups.mayShow(descriptor.processGroup, inViewMadeFor: host.madeForGroup) else { return nil }
         let start = ContinuousClock.now
         spare = nil
         spareReady = false

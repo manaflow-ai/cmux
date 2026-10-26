@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextPages
 @testable import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation

@@ -43,7 +43,7 @@ struct PageChatOpenStageTests {
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: true,
-                           chromium: chromium, trace: PageTraceRecorder(), chatOpen: chatOpen)
+                           chromium: chromium, processGroups: WebUIHost.makeProcessGroups(), trace: PageTraceRecorder(), chatOpen: chatOpen)
     }
 
     @Test func aWebKitPageOfAnOpenWritesItsStagesOnTheIntentID() {

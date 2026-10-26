@@ -94,7 +94,8 @@ import WebKit
         let configuration = WKWebViewConfiguration()
         return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", processGroup: .solo, namespaces: []), configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
+                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil,
+                           processGroups: WebUIHost.makeProcessGroups())
     }
 
     /// Shift-Cmd-L opened a browser tab while the editor had the keyboard: the focus model still named

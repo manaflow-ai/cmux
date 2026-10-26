@@ -52,11 +52,10 @@ extension PageWebView {
     ///   - chromium: Makes the page's Chromium view when the policy picks Chromium; nil keeps it on WebKit.
     ///   - openPanel: Answers the page's `<input type="file">` on WebKit; nil: a file input does nothing.
     ///   - registry: Lists the view for the debug verbs.
-    ///   - processGroups: The host's shared WebKit processes, which a page that asks for them
-    ///     (``PageEngineOptions/sharesWebKitProcess``) joins when it shows in WebKit.
+    ///   - processGroups: The pool, the descriptor's group store and the related views of a WebKit page.
     ///   - startsAtFirstShow: The document (and its renderer) starts at the view's first show, not now.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
-                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil,
+                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: PageProcessGroups,
                       startsAtFirstShow: Bool = false) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
@@ -68,16 +67,13 @@ extension PageWebView {
             root = served
         }
         let handler = PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
-        let groups = request.options.sharesWebKitProcess
-            && Self.engineDecision(for: request.descriptor, options: request.options, hosting: chromium).engine == .webKit
-            ? processGroups : nil
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
-                                          options: request.options, dataStore: groups?.dataStore)
+                                          options: request.options, group: request.descriptor.processGroup, in: processGroups)
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
-                  openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow,
+                  openPanel: openPanel, registry: registry, processGroups: processGroups, startsAtFirstShow: startsAtFirstShow,
                   chatOpen: request.chatOpen)
     }
 }

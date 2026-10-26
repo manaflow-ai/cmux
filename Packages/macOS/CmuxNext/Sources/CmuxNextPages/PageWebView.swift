@@ -118,6 +118,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var dynamicResources: (any PageDynamicResourceSource)?
     /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
     public let isPooled: Bool
+    /// The process group of the page the view was made for, whose data store it has; a pooled
+    /// host's retarget keeps it (``PageProcessGroups/mayShow(_:inViewMadeFor:)``).
+    let madeForGroup: PageProcessGroup
     var pooledOwner: PagePooledOwner?
     /// Whether a pooled host has received real user input (a key or mouse event) since its claim.
     /// Page messages do not count: a parked page mounts when it is shown, so every claim starts
@@ -202,7 +205,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.init(request: PageOpenRequest(descriptor: descriptor, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide,
+                  processGroups: WebUIHost.makeProcessGroups())
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -276,6 +280,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
+    ///
+    /// The app opens pages through ``WebUIHost/open(_:)``, in its groups; a page made here has
+    /// groups of its own, so its own data store and process, as every page had before the groups.
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
@@ -283,7 +290,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.init(request: PageOpenRequest(descriptor: descriptor, root: root, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide, processGroups: WebUIHost.makeProcessGroups())
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
@@ -291,7 +298,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         processGroups: WebProcessGroups? = nil, startsAtFirstShow: Bool = false,
+         processGroups: PageProcessGroups, startsAtFirstShow: Bool = false,
          trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
@@ -299,16 +306,22 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.descriptor = descriptor
         engineOptions = options
         isPooled = pooled
+        madeForGroup = descriptor.processGroup
         pooledOwner = nil
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         webKitUI = PageUIDelegate(fileInputs: openPanel.map { PageOpenPanel(openPanel: $0) })
         self.inputReadiness = inputReadiness
-        // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
-        let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
-        // A page that shares a process joins its group (WebProcessGroups); configuration has the group's store.
-        webView = processGroups.map { $0.webView(for: configuration, make: make) } ?? make(configuration)
+        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
+        let engine = pooled || !load ? decision.webKitOnly : decision
+        engineDecision = engine
+        // A Chromium page's WebKit view never loads, so it joins no group.
+        webView = processGroups.webView(for: descriptor.processGroup, configuration: configuration,
+                                        joins: engine.engine == .webKit) {
+            // webview-allow: the page host's WebKit engine
+            PageWKWebView(frame: .zero, configuration: $0)
+        }
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
@@ -316,8 +329,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let target = PageScriptTarget(webKitBridge, hasDocument: !(load && startsAtFirstShow))
         scriptTarget = target
         scripts = PageScriptPipeline { script in target.evaluate(script) }
-        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
         // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
         // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).

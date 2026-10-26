@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextPages
 @testable import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation

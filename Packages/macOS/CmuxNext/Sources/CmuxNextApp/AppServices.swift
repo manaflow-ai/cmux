@@ -382,7 +382,8 @@ final class AppServices {
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)))
+    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
+                                                      processGroups: webUI.processGroups)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
@@ -393,7 +394,8 @@ final class AppServices {
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
+        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, sharesPageGroups: features.isEnabled(.pageProcessGroups),
+        startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.

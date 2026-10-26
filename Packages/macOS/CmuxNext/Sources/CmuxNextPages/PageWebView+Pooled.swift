@@ -11,6 +11,8 @@ struct PooledHostRecipe {
     let inputReadiness: PageInputReadiness
     let options: PageEngineOptions
     let owner: PagePooledOwner
+    /// The groups the configuration's pool and store come from; the view relates in them.
+    let processGroups: PageProcessGroups
 }
 
 final class PagePooledOwner {
@@ -18,14 +20,13 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
-    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
-    /// gives the page a store of its own.
+    /// A page's WebKit configuration: `group`'s store and pool in `processGroups`, scheme and scripts.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)
-        -> (configuration: WKWebViewConfiguration, inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions, group: PageProcessGroup,
+                                  in processGroups: PageProcessGroups) -> (configuration: WKWebViewConfiguration,
+                                                                           inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = dataStore ?? .nonPersistent()
-        configuration.processPool = PageProcessPool.forNewView
+        processGroups.configure(configuration, for: group)
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
         let inputReadiness = PageInputReadiness(configuration: configuration)
@@ -33,20 +34,22 @@ extension PageWebView {
         return (configuration, inputReadiness)
     }
 
-    static func pooledHostRecipe(_ served: PageDescriptor = .settings,
-                                 options: PageEngineOptions = .standard) -> PooledHostRecipe? {
+    static func pooledHostRecipe(_ served: PageDescriptor = .settings, options: PageEngineOptions = .standard,
+                                 processGroups: PageProcessGroups) -> PooledHostRecipe? {
         guard PageServedHosts.pooledDescriptors.contains(served), servedRoot(for: served) != nil else { return nil }
         let owner = PagePooledOwner()
         let handler = PageSchemeHandler { [weak owner] host in
             guard let view = owner?.view else { return nil }
             return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
         }
-        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
+        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options,
+                                     group: served.processGroup, in: processGroups)
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         return PooledHostRecipe(served: served, configuration: host.configuration,
-                                inputReadiness: host.inputReadiness, options: options, owner: owner)
+                                inputReadiness: host.inputReadiness, options: options, owner: owner,
+                                processGroups: processGroups)
     }
 
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
@@ -56,17 +59,10 @@ extension PageWebView {
     convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false,
+                  processGroups: recipe.processGroups)
         pooledOwner = recipe.owner
         recipe.owner.view = self
-    }
-
-    /// Makes and starts a pooled page host in one call.
-    convenience init?(pooledHost served: PageDescriptor = .settings, routes: [PageRoute] = [],
-                      options: PageEngineOptions = .standard) {
-        guard let recipe = Self.pooledHostRecipe(served, options: options) else { return nil }
-        self.init(recipe: recipe, routes: routes)
-        startLoading()
     }
 
     /// Starts the served bundle document after the pooled view has been parked.
