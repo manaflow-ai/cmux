@@ -2,9 +2,10 @@ import CmuxNextCompat
 @testable import CmuxNextWakeups
 import Testing
 
-/// AlignedWakeups (p06-scheduler-012): one wake per boundary bucket (1 s hidden, 8 ms flexible), precise
-/// deadlines exact, and the timer parked when every deadline is cancelled. The deadlines go through a real
-/// MainWakeUpQueue with a fake timer and a fake uptime; the test fires the timer itself.
+/// AlignedWakeups (p06-scheduler-012): one wake per boundary bucket (1 s hidden, 8 ms flexible), hidden
+/// deadlines only at their whole second, precise deadlines exact, and the timer parked when every deadline
+/// is cancelled. The deadlines go through a real MainWakeUpQueue on WakeUpQueueRig; the test fires the
+/// timer itself.
 @MainActor
 @Suite("AlignedWakeupsTests")
 struct AlignedWakeupsTests {
@@ -12,10 +13,10 @@ struct AlignedWakeupsTests {
 
     @Test("50 hidden deadlines in one second share one wake at the whole second, in deadline order")
     func fiftyHiddenDeadlinesOneWake() {
-        let rig = AlignedRig(start: 10_000 * Self.ms + 1)
+        let rig = WakeUpQueueRig(start: 10_000 * Self.ms + 1)
         let log = AlignedLog()
         for index in 0..<50 {
-            rig.wakeups.schedule(owner: "hidden", after: .milliseconds(19 * index + 1), alignment: .hidden) {
+            rig.wakeups.schedule(owner: "hidden", after: .milliseconds(19 * index + 1), placement: .hidden) {
                 log.ran.append(index)
             }
         }
@@ -30,11 +31,11 @@ struct AlignedWakeupsTests {
 
     @Test("20 flexible deadlines in one 8 ms bucket share one wake")
     func twentyFlexibleDeadlinesOneWake() {
-        let rig = AlignedRig()
+        let rig = WakeUpQueueRig()
         let log = AlignedLog()
         // 17 ms ... 23.65 ms all snap up to the 24 ms tick.
         for index in 0..<20 {
-            rig.wakeups.schedule(owner: "flexible", after: .microseconds(17_000 + 350 * index), alignment: .flexible) {
+            rig.wakeups.schedule(owner: "flexible", after: .microseconds(17_000 + 350 * index), placement: .flexible) {
                 log.ran.append(index)
             }
         }
@@ -46,7 +47,7 @@ struct AlignedWakeupsTests {
 
     @Test("Flexible deadlines in two buckets wake twice")
     func flexibleTwoBuckets() {
-        let rig = AlignedRig()
+        let rig = WakeUpQueueRig()
         let log = AlignedLog()
         rig.wakeups.schedule(owner: "a", after: .milliseconds(3)) { log.ran.append(3) }
         rig.wakeups.schedule(owner: "b", after: .milliseconds(8)) { log.ran.append(8) }
@@ -63,14 +64,14 @@ struct AlignedWakeupsTests {
     @Test("Precise deadlines fire at their own instants with no tolerance")
     func preciseIsExact() {
         let start = 1_000 * Self.ms + 123
-        let rig = AlignedRig(start: start)
+        let rig = WakeUpQueueRig(start: start)
         let log = AlignedLog()
-        rig.wakeups.schedule(owner: "five", after: .milliseconds(5), alignment: .precise) { log.ran.append(5) }
-        rig.wakeups.schedule(owner: "seven", after: .milliseconds(7), alignment: .precise) { log.ran.append(7) }
-        #expect(rig.timer.arms.last == AlignedFakeTimer.Arm(date: start + 5 * Self.ms, tolerance: 0))
+        rig.wakeups.schedule(owner: "five", after: .milliseconds(5), placement: .precise) { log.ran.append(5) }
+        rig.wakeups.schedule(owner: "seven", after: .milliseconds(7), placement: .precise) { log.ran.append(7) }
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: start + 5 * Self.ms, tolerance: 0))
         rig.fire()
         #expect(log.ran == [5])
-        #expect(rig.timer.arms.last == AlignedFakeTimer.Arm(date: start + 7 * Self.ms, tolerance: 0))
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: start + 7 * Self.ms, tolerance: 0))
         rig.fire()
         #expect(log.ran == [5, 7])
         #expect(rig.fires == 2)
@@ -78,17 +79,17 @@ struct AlignedWakeupsTests {
 
     @Test("A precise deadline of 36 ms or more is flexible")
     func longPreciseIsFlexible() {
-        let rig = AlignedRig()
-        rig.wakeups.schedule(owner: "long", after: .milliseconds(41), alignment: .precise) {}
+        let rig = WakeUpQueueRig()
+        rig.wakeups.schedule(owner: "long", after: .milliseconds(41), placement: .precise) {}
         #expect(rig.timer.armedDate == 48 * Self.ms)
     }
 
     @Test("Cancelling every deadline of a bucket parks the timer")
     func cancelAllParks() {
-        let rig = AlignedRig()
+        let rig = WakeUpQueueRig()
         let log = AlignedLog()
         let tickets = (0..<5).map { index in
-            rig.wakeups.schedule(owner: "hidden", after: .milliseconds(100 * index + 50), alignment: .hidden) {
+            rig.wakeups.schedule(owner: "hidden", after: .milliseconds(100 * index + 50), placement: .hidden) {
                 log.ran.append(index)
             }
         }
@@ -105,9 +106,9 @@ struct AlignedWakeupsTests {
 
     @Test("A hidden and a flexible deadline on one boundary share one wake")
     func hiddenAndFlexibleShare() {
-        let rig = AlignedRig()
+        let rig = WakeUpQueueRig()
         let log = AlignedLog()
-        rig.wakeups.schedule(owner: "hidden", after: .milliseconds(400), alignment: .hidden) { log.ran.append(400) }
+        rig.wakeups.schedule(owner: "hidden", after: .milliseconds(400), placement: .hidden) { log.ran.append(400) }
         rig.wakeups.schedule(owner: "flexible", after: .milliseconds(995)) { log.ran.append(995) }
         #expect(rig.timer.armedDate == 1_000 * Self.ms)
         rig.fire()
@@ -115,25 +116,58 @@ struct AlignedWakeupsTests {
         #expect(rig.fires == 1)
     }
 
-    @Test("A due hidden deadline runs in an earlier fire instead of adding a wake")
-    func dueHiddenJoinsEarlierFire() {
-        let rig = AlignedRig()
+    @Test("A due hidden deadline waits for its whole second, not an earlier visible fire; a re-arm waits a second")
+    func hiddenWaitsForItsSecond() {
+        let rig = WakeUpQueueRig()
         let log = AlignedLog()
-        rig.wakeups.schedule(owner: "hidden", after: .milliseconds(400), alignment: .hidden) { log.ran.append(400) }
-        rig.wakeups.schedule(owner: "flexible", after: .milliseconds(500)) { log.ran.append(500) }
+        let wakeups = rig.wakeups
+        wakeups.schedule(owner: "hidden", after: .milliseconds(400), placement: .hidden) {
+            log.ran.append(400)
+            wakeups.schedule(owner: "hidden", after: .milliseconds(10), placement: .hidden) { log.ran.append(1_010) }
+            wakeups.schedule(owner: "flexible", after: .milliseconds(20)) { log.ran.append(1_020) }
+        }
+        wakeups.schedule(owner: "flexible", after: .milliseconds(500)) { log.ran.append(500) }
         #expect(rig.timer.armedDate == 504 * Self.ms)
         rig.fire()
-        #expect(log.ran == [500, 400], "the smaller latest time runs first")
-        #expect(rig.fires == 1)
+        #expect(log.ran == [500], "the hidden 400 ms deadline does not ride the visible fire")
+        #expect(rig.timer.armedDate == 1_000 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [500, 400])
+        #expect(rig.timer.armedDate == 1_024 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [500, 400, 1_020], "the re-armed hidden deadline skips the visible fire at 1024 ms")
+        #expect(rig.timer.armedDate == 2_000 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [500, 400, 1_020, 1_010])
+        #expect(rig.fires == 4)
         #expect(rig.timer.armedDate == nil)
+    }
+
+    @Test("A due entry behind a top that is not due runs in that top's fire, with no wake of its own")
+    func dueEntryBehindNotDueTop() {
+        let start = 10_000 * Self.ms
+        let rig = WakeUpQueueRig(start: start)
+        let log = AlignedLog()
+        rig.wakeups.schedule(owner: "three", after: .milliseconds(3)) { log.ran.append(3) }
+        // Due from 5 ms on, but its latest time (105 ms) is behind the 9 ms entry's (17 ms).
+        rig.queue.insert(owner: "five", at: start + 5 * Self.ms, window: .window(delay: .seconds(1))) { log.ran.append(5) }
+        rig.wakeups.schedule(owner: "nine", after: .milliseconds(9)) { log.ran.append(9) }
+        #expect(rig.timer.armedDate == start + 8 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [3], "the top (9 ms) is not due at 8 ms, so the due 5 ms entry behind it waits")
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: start + 16 * Self.ms, tolerance: 1 * Self.ms),
+                "the tolerance is the top's latest time (17 ms) minus the fire time (16 ms)")
+        rig.fire()
+        #expect(log.ran == [3, 9, 5])
+        #expect(rig.fires == 2)
     }
 
     @Test("Hidden windows: the next whole second, never sooner; zero delay is exact")
     func hiddenWindows() {
-        let rig = AlignedRig()
-        rig.wakeups.schedule(owner: "long", after: .milliseconds(2_500), alignment: .hidden) {}
+        let rig = WakeUpQueueRig()
+        rig.wakeups.schedule(owner: "long", after: .milliseconds(2_500), placement: .hidden) {}
         #expect(rig.timer.armedDate == 3_000 * Self.ms)
-        rig.wakeups.schedule(owner: "now", after: .zero, alignment: .hidden) {}
+        rig.wakeups.schedule(owner: "now", after: .zero, placement: .hidden) {}
         #expect(rig.timer.armedDate == 0)
 
         let window = WakeLeeway.hidden(delay: .milliseconds(1_001))
@@ -143,103 +177,28 @@ struct AlignedWakeupsTests {
         #expect(WakeLeeway.hidden(delay: .zero).policy == .precise)
     }
 
-    @Test("DemandTimer passes its tolerance to the clock's sleep")
+    @Test("DemandTimer sleeps with WakeLeeway's tolerance by default and an explicit one when given")
     func demandTimerPassesTolerance() async {
         let clock = ToleranceClock()
         let timer = DemandTimer(owner: "test", clock: clock, ledger: WakeupLedger())
-        let fired = FiredOnce()
-        let tolerance = WakeLeeway.window(delay: .milliseconds(50)).tolerance
-        timer.schedule(after: .milliseconds(50), tolerance: tolerance) { @MainActor in fired.fire() }
-        await fired.wait()
-        #expect(clock.tolerances == [tolerance])
+        let cases: [(delay: Duration, tolerance: Duration?)] = [(.milliseconds(50), nil), (.seconds(2), nil), (.milliseconds(50), .zero)]
+        for item in cases {
+            let fired = FiredOnce()
+            timer.schedule(after: item.delay, tolerance: item.tolerance) { @MainActor in fired.fire() }
+            await fired.wait()
+        }
+        #expect(clock.tolerances == [.milliseconds(8), .milliseconds(200), .zero])
     }
 }
 
-/// AlignedWakeups on a MainWakeUpQueue with a fake timer, a fake uptime and its own ledger.
-@MainActor
-private struct AlignedRig {
-    let timer = AlignedFakeTimer()
-    let uptime: AlignedFakeUptime
-    let ledger = WakeupLedger(uptime: { 0 })
-    let queue: MainWakeUpQueue
-    let wakeups: AlignedWakeups
-
-    init(start: UInt64 = 0) {
-        let timer = timer, uptime = AlignedFakeUptime(start)
-        self.uptime = uptime
-        queue = MainWakeUpQueue(alignment: WakeLeeway.defaultAlignment, ledger: ledger, uptime: { uptime.now }) { _ in timer }
-        wakeups = AlignedWakeups(queue: queue)
-    }
-
-    /// Moves the uptime to the armed date and runs the timer's callout.
-    func fire() {
-        if let date = timer.armedDate { uptime.now = date }
-        timer.fired()
-        queue.fire()
-    }
-
-    /// The queue's wakes.
-    var fires: UInt64 {
-        ledger.snapshot().first { $0.owner == MainWakeUpQueue.ledgerOwner && $0.reason == "fire" }?.count ?? 0
-    }
+extension WakeUpQueueRig {
+    /// The placement layer on the rig's queue.
+    var wakeups: AlignedWakeups { AlignedWakeups(queue: queue) }
 }
 
 @MainActor
 private final class AlignedLog {
     var ran: [Int] = []
-}
-
-/// Records each arm and park; the queue calls it with its lock held, the test reads it on the main actor.
-private final class AlignedFakeTimer: MainWakeUpTimer, Sendable {
-    struct Arm: Equatable, Sendable {
-        var date: UInt64
-        var tolerance: UInt64
-    }
-
-    private struct Record {
-        var arms: [Arm] = []
-        var parks = 0
-        var armedDate: UInt64?
-    }
-
-    private let record = Mutex(Record())
-
-    var arms: [Arm] { record.withLock { $0.arms } }
-    var parks: Int { record.withLock { $0.parks } }
-    var armedDate: UInt64? { record.withLock { $0.armedDate } }
-
-    func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {
-        record.withLock { record in
-            record.arms.append(Arm(date: date, tolerance: tolerance))
-            record.armedDate = date
-        }
-    }
-
-    func park() {
-        record.withLock { record in
-            record.parks += 1
-            record.armedDate = nil
-        }
-    }
-
-    /// What CFRunLoop does to the repeating timer when it fires: the next date is a park.
-    func fired() {
-        record.withLock { $0.armedDate = nil }
-    }
-}
-
-/// The test's uptime, read by the queue under its lock.
-private final class AlignedFakeUptime: Sendable {
-    private let value: Atomic<UInt64>
-
-    init(_ start: UInt64) {
-        value = Atomic(start)
-    }
-
-    var now: UInt64 {
-        get { value.load(ordering: .relaxed) }
-        set { value.store(newValue, ordering: .relaxed) }
-    }
 }
 
 /// A one-shot signal the DemandTimer test awaits instead of polling.

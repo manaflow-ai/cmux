@@ -8,9 +8,10 @@ import CmuxNextCompat
 /// deadline (reset); ``cancel()`` drops it. The clock is injected so tests do
 /// not wait. Each fire records one wakeup in the ledger under `owner`.
 ///
-/// Main-thread deadlines use ``AlignedWakeups`` (on ``MainWakeUpQueue``);
-/// this timer stays for off-main deadlines, and a deadline that may be late
-/// passes a `tolerance` so the OS can coalesce its wakeup with others.
+/// Main-thread deadlines belong on ``MainWakeUpQueue`` (``AlignedWakeups``);
+/// this timer stays for off-main deadlines. Every sleep passes a tolerance so
+/// the OS can coalesce the wakeup with others: ``WakeLeeway``'s leeway for the
+/// delay unless the caller asks for `.zero`.
 public final class DemandTimer: Sendable {
     public let owner: String
     private let clock: any Clock<Duration>
@@ -39,12 +40,14 @@ public final class DemandTimer: Sendable {
     ///
     /// - Parameters:
     ///   - delay: How long to wait.
-    ///   - tolerance: How late the wakeup may be, passed to the clock's sleep (nil: the clock's default).
-    ///     ``WakeLeeway/window(delay:policy:alignment:)``'s `tolerance` is the usual value.
+    ///   - tolerance: How late the wakeup may be, passed to the clock's sleep. nil (the default) is
+    ///     ``WakeLeeway/window(delay:policy:alignment:)``'s tolerance for `delay` (8 ms below 1 s,
+    ///     10% up to 1 s from 1 s on); `.zero` asks for exact timing.
     ///   - action: Runs once at the deadline.
     public func schedule(after delay: Duration, tolerance: Duration? = nil,
                          _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         let clock = clock
+        let tolerance = tolerance ?? WakeLeeway.window(delay: delay).tolerance
         state.withLock { state in
             state.task?.cancel()
             state.generation &+= 1
