@@ -458,10 +458,7 @@ mod tests {
         for nr in denied {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), EPERM_ACTION, "nr {nr}");
         }
-        assert_eq!(
-            evaluate(&filter, ARCH, SYS_seccomp as u32, [0; 6]),
-            EPERM_ACTION
-        );
+        assert_eq!(evaluate(&filter, ARCH, SYS_seccomp as u32, [0; 6]), EPERM_ACTION);
         for nr in [SYS_clone3, SYS_openat2] {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), ENOSYS_ACTION);
         }
@@ -486,10 +483,7 @@ mod tests {
     #[test]
     fn classify_install_result_rejects_unsynchronized_thread() {
         assert!(classify_install_result(0, 0).is_ok());
-        assert_eq!(
-            classify_install_result(-1, EACCES).unwrap_err().raw_os_error(),
-            Some(EACCES)
-        );
+        assert_eq!(classify_install_result(-1, EACCES).unwrap_err().raw_os_error(), Some(EACCES));
         let error = classify_install_result(4242, 0).unwrap_err();
         assert!(error.to_string().contains("thread 4242 not synchronized"));
     }
