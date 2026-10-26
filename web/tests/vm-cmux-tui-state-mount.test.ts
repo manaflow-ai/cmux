@@ -13,6 +13,10 @@ const helperSource = readFileSync(
   "utf8",
 );
 
+// Each test runs the real helper as a child shell; a loaded runner can pass
+// bun's 5 s default.
+const TEST_TIMEOUT_MS = 20_000;
+
 const scratchDirs: string[] = [];
 afterEach(() => {
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -95,36 +99,36 @@ describe("cmux-tui state mount on a full disk", () => {
     expect(result.stderr).toContain("continuing with 65536KiB free");
     expect(result.status).toBe(0);
     expect(result.grew).toBe(false);
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("the size cap does not defer the daemon either", async () => {
     const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 64 * 1024 * 1024, imageBytes: 8 * 1024 ** 3 });
     expect(result.stderr).toContain("reached its");
     expect(result.status).toBe(0);
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("a state filesystem with no working room still defers startup", async () => {
     const result = await runEnsure({ stateFreeKb: 4 * 1024, rootFreeKb: 100 * 1024 });
     expect(result.status).not.toBe(0);
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("grows the state image when the root disk has headroom", async () => {
     const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(true);
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("a failed growth allocation is undone and the daemon still starts", async () => {
     const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, fallocateFails: true });
     expect(result.status).toBe(0);
     expect(result.truncatedTo).toContain(`-s ${1024 * 1024 * 1024}`);
     expect(result.stderr).toContain("continuing with 65536KiB free");
-  });
+  }, TEST_TIMEOUT_MS);
 
   test("leaves a roomy state filesystem alone", async () => {
     const result = await runEnsure({ stateFreeKb: 512 * 1024, rootFreeKb: 100 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(false);
     expect(result.stderr).toBe("");
-  });
+  }, TEST_TIMEOUT_MS);
 });

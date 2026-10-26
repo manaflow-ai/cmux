@@ -47,7 +47,8 @@ pub(super) fn create_machine_id(
 
 /// True for an empty file or a strict prefix of `machine_<32 hex>`: what an
 /// in-place write cut by a full disk leaves. Any other bad text (a foreign
-/// edit) stays corrupt.
+/// edit) stays corrupt. A whole id is never matched, so one already handed
+/// out is kept; only a file truncated by filesystem damage could be misread.
 pub(super) fn is_cut_machine_id(bytes: &[u8]) -> bool {
     let prefix = format!("{}_", MachinePublicId::PREFIX);
     let prefix = prefix.as_bytes();

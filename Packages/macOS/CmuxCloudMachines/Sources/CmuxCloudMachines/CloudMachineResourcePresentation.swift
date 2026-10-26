@@ -118,7 +118,7 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
         return String(
             format: String(
                 localized: "cloudTree.resources.lowDisk",
-                defaultValue: "Disk almost full. Run cmux vm clean %@ or resize the disk to keep this machine reachable."
+                defaultValue: "Disk almost full. Run cmux vm clean %@ --apply or resize the disk to keep this machine reachable."
             ),
             machineID
         )

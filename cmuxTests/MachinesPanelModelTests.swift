@@ -1189,7 +1189,7 @@ struct CloudTreeMachineInlineFactTests {
     }
 
     @Test("A nearly full disk warns on the row before the machine stops answering")
-    func nearlyFullDiskWarnsOnTheRow() {
+    func nearlyFullDiskWarnsOnTheRow() throws {
         let sampledAt = Date(timeIntervalSince1970: 1_000)
         func row(diskUsedMb: Int) -> CloudTreeMachineRowContent {
             var machine = snapshot(stats: VMStats(
@@ -1202,12 +1202,14 @@ struct CloudTreeMachineInlineFactTests {
 
         let full = row(diskUsedMb: 15_872)
         #expect(full.statusSymbol == CloudTreeMachineRowContent.lowDiskSymbol)
-        #expect(full.toolTip.contains("cmux vm clean troll"))
-        #expect(full.accessibilityLabel.contains("cmux vm clean troll"))
+        let warning = try #require(full.lowDiskWarning)
+        #expect(warning.contains("troll"))
+        #expect(full.toolTip.contains(warning))
+        #expect(full.accessibilityLabel.contains(warning))
 
         let roomy = row(diskUsedMb: 8_192)
         #expect(roomy.statusSymbol == nil)
-        #expect(!roomy.toolTip.contains("cmux vm clean"))
+        #expect(roomy.lowDiskWarning == nil)
     }
 }
 
