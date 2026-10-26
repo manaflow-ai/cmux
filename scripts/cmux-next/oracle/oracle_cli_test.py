@@ -676,6 +676,25 @@ class CheckTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1", text)
         self.assertIn("telepathy", text)
 
+    def test_case_v1_checkpoint_arrays_and_allow_crash_objects(self):
+        """case-v1 writes checkpoint as an array and allow_crashes entries as objects (case-example-daemon.json)."""
+        case = oracle.Case("daemon-ops/x", "daemon-ops", Path("x"), {
+            "requires": ["resource_api", "restart"],
+            "allow_crashes": [{"kind": "daemon", "reason": "on purpose", "steps": ["kill"]}, {"kind": "comet"}],
+            "steps": [
+                {"id": "make", "op": "resource.call", "target": {"session": "current"}, "checkpoint": ["before", "settled"],
+                 "args": {"method": "workspace.create", "params": {}, "idempotencyKey": "x.make"}},
+                {"id": "bare", "op": "resource.call", "args": {"method": "workspace.create"}},
+                {"id": "odd", "op": "snapshot", "checkpoint": ["settled", "turnip"]},
+            ],
+        })
+        errors = oracle.check_case(case, frozenset({"workspace.create"}))
+        self.assertEqual(errors, [
+            "daemon-ops/x: unknown crash kind 'comet' in allow_crashes",
+            "daemon-ops/x: step 'bare' mutates (resource.call workspace.create) without a target",
+            "daemon-ops/x: step 'odd' has unknown checkpoint 'turnip'",
+        ])
+
     def test_mutation_classes_come_from_the_resource_spec(self):
         mutations = oracle.mutation_operations()
         if oracle.RESOURCE_OPERATIONS.is_file():
