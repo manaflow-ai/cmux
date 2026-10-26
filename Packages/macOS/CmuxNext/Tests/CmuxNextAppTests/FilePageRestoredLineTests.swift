@@ -29,7 +29,9 @@ import Testing
         try Data("one\ntwo\n".utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
         var restored = TabSnapshot(surface: 2, kind: .conversation, title: file.lastPathComponent)
-        restored.conversation = ConversationTabRef(page: "editor", route: file.path)
+        // The app writes a tab's route from the resolved path (`/private/tmp` reads as `/tmp`).
+        let route = file.standardizedFileURL.resolvingSymlinksInPath().path
+        restored.conversation = ConversationTabRef(page: "editor", route: route)
         let snapshot = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1), restored])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [snapshot])
         services.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
@@ -51,7 +53,7 @@ import Testing
         let provider = try #require(files.provider(providerKey))
         defer { provider.close() }
         let config = try await provider.call("cmux.editor.config", params: .object([:]), context: PageCallContext(page: "cmux.editor"))
-        #expect(config["path"] == .string(file.path))
+        #expect(config["path"] == .string(route))
         #expect(config["location"] == ["line": 42, "column": 7])
     }
 }
