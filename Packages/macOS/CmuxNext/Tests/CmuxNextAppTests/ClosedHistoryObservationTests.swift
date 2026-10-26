@@ -23,12 +23,14 @@ struct ClosedHistoryObservationTests {
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    /// Headless services (no window) whose daemon store serves closed history, with `closed` mirrored, and the feed.
+    /// Headless services (no window) whose daemon store serves closed history and is loaded (the feed follows
+    /// only a connected, loaded store), with `closed` mirrored, and the feed.
     private static func services(closed: [ClosedItem]) throws -> (AppServices, ClosedTabsFeed) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
         store.apply(.connected(try identity(), generationChanged: false))
+        store.apply(snapshot: DaemonTree(workspaces: []))
         var mirror = SessionStateMirror()
         mirror.closed = closed
         store.session.apply(.snapshot(mirror), in: store)
@@ -66,26 +68,33 @@ struct ClosedHistoryObservationTests {
     @Test func aChangeOutsideTheClosedListWakesNeitherFollower() async throws {
         let (services, feed) = try Self.services(closed: [Self.closed("closed_1", at: 1)])
         let store = services.daemon.store
+        #expect(store.isLoaded)
         await drainMainTurns()
-        let changes = feed.changes.revision, seen = feed.undoToasts.recentDaemonItems.count
+        let changes = feed.changes.revision, applies = feed.undoToasts.closedListApplies
 
         store.session.apply(.delta([.stash("stash_1")]), in: store)
         await drainMainTurns()
 
         #expect(feed.changes.revision == changes, "a stash change bumped the closed tabs feed")
-        #expect(feed.undoToasts.recentDaemonItems.count == seen)
+        #expect(feed.undoToasts.closedListApplies == applies, "a stash change woke the undo toasts")
+
+        // Both follow the closed list: a closed record wakes each, so the checks above are not vacuous.
+        store.session.apply(.delta([.closed(Self.closed("closed_2", at: 2))]), in: store)
+        #expect(await Self.wait { feed.changes.revision != changes && feed.undoToasts.closedListApplies == applies + 1 },
+                "a closed record did not wake both followers once")
     }
 
     @Test func aClosedRecordReachesTheFollowersWhileNoWindowShows() async throws {
         let (services, feed) = try Self.services(closed: [])
         let store = services.daemon.store
         #expect(services.windows.controllers.isEmpty)
+        await drainMainTurns()
         let changes = feed.changes.revision
 
         store.session.apply(.delta([.closed(Self.closed("closed_hidden", at: 3))]), in: store)
 
         #expect(await Self.wait { feed.undoToasts.recentDaemonItems.contains { $0.id == "closed_hidden" } },
                 "the undo toasts never read the new closed record")
-        #expect(feed.changes.revision != changes, "the closed tabs feed never signalled the change")
+        #expect(await Self.wait { feed.changes.revision != changes }, "the closed tabs feed never signalled the change")
     }
 }

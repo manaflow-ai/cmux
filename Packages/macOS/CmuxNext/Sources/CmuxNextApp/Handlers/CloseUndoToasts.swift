@@ -114,6 +114,9 @@ final class CloseUndoToasts {
     /// Follows each machine's closed list revision; released with the service. A service
     /// observation: a close's toast comes from its records even while its window is hidden.
     private var observation: ServiceObservation<[String]>?
+    /// How many times the observation applied, its first apply included (tests: a change outside
+    /// the closed lists reads no closed list).
+    private(set) var closedListApplies = 0
     static let toastID = "tab-closed"
 
     init(services: AppServices) {
@@ -123,7 +126,9 @@ final class CloseUndoToasts {
         observation = ServiceObservation(.visible, owner: "CloseUndoToasts.closedItems", on: services.mainWork) {
             Self.revisions(of: machines.daemons)
         } apply: { [weak self] _ in
-            self?.daemonItemsChanged(Self.daemonItemIDs(machines.daemons))
+            guard let self else { return }
+            closedListApplies += 1
+            daemonItemsChanged(Self.daemonItemIDs(machines.daemons))
         }
     }
 

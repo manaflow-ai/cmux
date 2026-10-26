@@ -118,39 +118,39 @@ enum CloudHandlers {
     }
 
     @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
-        let select: (PaneController) -> Void = { controller in
+        let services = context.services
+        let select: @MainActor (PaneController) -> Void = { controller in
             // Through the run's view-change gate (ActionRunScope).
             controller.selectWhenReported(surface: surface)
         }
-        if let controller = context.services.paneController(for: pane) {
+        if let controller = services.paneController(for: pane) {
             select(controller)
             show(workspaceID, context)
             return
         }
         show(workspaceID, context)
-        // The pane mounts once the window shows the workspace: a service observation of the mount
-        // selects the tab then, 10 s at most. The observation and its limit hold each other until one ends.
-        let services = context.services
-        let limit = MainDeadline(owner: "CloudHandlers.reveal", workClass: .visible, scheduler: services.mainDeadlines)
-        var mount: ServiceObservation<Bool>?, ended = false
-        let end = { @MainActor in
-            ended = true
-            mount?.cancel()
-            mount = nil
-            limit.cancel()
-        }
-        let observation = ServiceObservation(.visible, owner: "CloudHandlers.reveal", on: services.mainWork) {
-            services.paneController(for: pane) != nil
-        } apply: { mounted in
-            guard mounted, let controller = services.paneController(for: pane) else { return }
-            end()
-            select(controller)
-        }
-        // `show` mounted it in this turn: the first apply already selected it.
-        if ended { return observation.cancel() }
-        mount = observation
-        limit.schedule(after: .seconds(10)) { end() }
+        selectWhenMounted(work: services.mainWork, deadlines: services.mainDeadlines,
+                          find: { services.paneController(for: pane) }, select: select)
     }
+
+    /// Runs `select` once on the controller `find` gives when it mounts (the window shows the
+    /// workspace), ``revealMountWait`` at most. userBlocking: the reveal is the rest of an action
+    /// someone waits on (p06 rule 2). The select runs in the caller's run scope (a posted flush
+    /// binds none), so it keeps that run's view-change permission.
+    @discardableResult
+    static func selectWhenMounted<Controller>(work: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                                              find: @escaping @MainActor () -> Controller?,
+                                              select: @escaping @MainActor (Controller) -> Void) -> FirstValueWait<Controller> {
+        let scope = ActionRunScope.current
+        return FirstValueWait.start(.userBlocking, owner: "CloudHandlers.reveal", within: revealMountWait,
+                                    work: work, deadlines: deadlines, read: find) { controller in
+            guard let controller else { return }
+            ActionRunScope.carrying(scope) { select(controller) }
+        }
+    }
+
+    /// How long a reveal waits for its pane to mount.
+    static let revealMountWait: Duration = .seconds(10)
 
     /// The machine's first workspace, created (with a terminal) when it has none.
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {

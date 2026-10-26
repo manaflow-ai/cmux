@@ -8,8 +8,9 @@ import os
 /// Install cmux CLI in PATH and Uninstall cmux CLI from PATH (the old app's
 /// "Shell Command" palette rows): `CLIPathInstaller` runs off the main
 /// actor, since it may wait on the administrator prompt, and the outcome
-/// shows as a toast on the active window, posted as visible work (Lawrence
-/// 2026-10-07: results are toasts, never dialogs).
+/// shows as a toast on the active window, posted as userBlocking work: the
+/// rest of the person's action (p06 rule 2; Lawrence 2026-10-07: results are
+/// toasts, never dialogs).
 enum CLIInstallHandlers {
     static let toastID = "cli-install"
 
@@ -24,7 +25,7 @@ enum CLIInstallHandlers {
             // task-owner: one uninstall off the main actor, ended by its toast
             context.services.work.task(.userBlocking) {
                 let outcome = await uninstall()
-                mainWork.postFromAnyThread(.visible, owner: "cli-install.toast") { show(outcome, in: window) }
+                mainWork.postFromAnyThread(.userBlocking, owner: "cli-install.toast") { show(outcome, in: window) }
             }
         })
     }
@@ -48,7 +49,7 @@ enum CLIInstallHandlers {
         // task-owner: one install off the main actor, ended by its toast
         services.work.task(.userBlocking) {
             let outcome = await attempt(name, replacing: replacing)
-            mainWork.postFromAnyThread(.visible, owner: "cli-install.toast") {
+            mainWork.postFromAnyThread(.userBlocking, owner: "cli-install.toast") {
                 show(outcome, in: window) { install(name, replacing: true, in: window, services: services) }
             }
         }
