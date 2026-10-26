@@ -265,6 +265,534 @@
         }
       }
     },
+    "actionLatencyHUD.inputEmpty": {
+      "comment": "Shown in the input section of the action latency panel before any input event closed.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا إدخال بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema unosa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet input endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Eingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No input yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune saisie pour l’instant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora nessun input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ入力はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានការបញ្ចូលទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 입력이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen inndata ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak wejścia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввода пока нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีอินพุต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz girdi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Введення ще немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có đầu vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚无输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚無輸入"
+          }
+        }
+      }
+    },
+    "actionLatencyHUD.inputHeader": {
+      "comment": "Header of the input section of the action latency panel; %.1f is the budget in milliseconds from the input to the frame that shows it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإدخال، الأحدث أولاً، الحد %.1f مللي ثانية حتى الإطار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unos, najnovije prvo, budžet %.1f ms do okvira"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Input, nyeste først, budget %.1f ms til billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eingabe, neueste zuerst, Budget %.1f ms bis zum Frame"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input, newest first, budget %.1f ms to frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada, lo más reciente primero, presupuesto de %.1f ms hasta el fotograma"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saisie, la plus récente en premier, budget de %.1f ms jusqu’à l’image"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Input, prima i più recenti, budget di %.1f ms fino al frame"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力、新しい順。フレームまでの予算は %.1f ms"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូល ថ្មីបំផុតមុន ថវិកា %.1f ms ដល់ស៊ុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력, 최신 순, 프레임까지 예산 %.1f ms"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inndata, nyeste først, budsjett %.1f ms til bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wejście, najnowsze najpierw, budżet %.1f ms do klatki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada, mais recentes primeiro, orçamento de %.1f ms até o quadro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввод, сначала новые, бюджет %.1f мс до кадра"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อินพุต ล่าสุดก่อน งบเวลา %.1f ms จนถึงเฟรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Girdi, önce en yeni, kareye kadar %.1f ms bütçe"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Введення, спершу нові, бюджет %.1f мс до кадру"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu vào, mới nhất trước, ngân sách %.1f ms đến khung hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入，最新的在前，到帧的预算 %.1f 毫秒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入，最新的在前，到影格的預算 %.1f 毫秒"
+          }
+        }
+      }
+    },
+    "actionLatencyHUD.inputRow": {
+      "comment": "One input event: %1$@ milliseconds from the OS event to the frame, %2$@ its kind (keyPress, scrollUpdate), %3$@ its target (terminal, chromiumPage), %4$@ and %5$@ the stages that start and end its longest interval, %6$@ that interval in milliseconds. The kind, target and stage names are identifiers and stay untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ مللي ثانية  %2$@  %3$@  الأطول %4$@ إلى %5$@ %6$@ مللي ثانية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  najduže %4$@ do %5$@ %6$@ ms"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  længst %4$@ til %5$@ %6$@ ms"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  am längsten %4$@ bis %5$@ %6$@ ms"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ms  %2$@  %3$@  longest %4$@ to %5$@ %6$@ ms"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  más largo %4$@ a %5$@ %6$@ ms"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  le plus long %4$@ à %5$@ %6$@ ms"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  più lungo %4$@ a %5$@ %6$@ ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ms  %2$@  %3$@  最長 %4$@ から %5$@ %6$@ ms"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  វែងបំផុត %4$@ ដល់ %5$@ %6$@ ms"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  최장 %4$@에서 %5$@ %6$@ ms"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  lengst %4$@ til %5$@ %6$@ ms"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  najdłużej %4$@ do %5$@ %6$@ ms"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  mais longo %4$@ a %5$@ %6$@ ms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ мс  %2$@  %3$@  дольше всего %4$@ до %5$@ %6$@ мс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  นานที่สุด %4$@ ถึง %5$@ %6$@ ms"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  en uzun %4$@ - %5$@ %6$@ ms"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ мс  %2$@  %3$@  найдовше %4$@ до %5$@ %6$@ мс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@  lâu nhất %4$@ đến %5$@ %6$@ ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 毫秒  %2$@  %3$@  最长 %4$@ 到 %5$@ %6$@ 毫秒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 毫秒  %2$@  %3$@  最長 %4$@ 到 %5$@ %6$@ 毫秒"
+          }
+        }
+      }
+    },
+    "actionLatencyHUD.inputRowNoStages": {
+      "comment": "One input event that reached fewer than two stages: %1$@ milliseconds from the OS event to the frame (a dash when unknown), %2$@ its kind, %3$@ its target. The kind and target names are identifiers and stay untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ مللي ثانية  %2$@  %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ мс  %2$@  %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ мс  %2$@  %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ms  %2$@  %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 毫秒  %2$@  %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 毫秒  %2$@  %3$@"
+          }
+        }
+      }
+    },
     "actionLatencyHUD.row": {
       "comment": "One action run: %1$@ milliseconds, %2$@ where it came from (key, pointer, cli), %3$@ the action id.",
       "extractionState": "manual",

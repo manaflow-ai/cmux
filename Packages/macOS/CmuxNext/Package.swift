@@ -660,7 +660,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextFocusUI",
-            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts"],
             resources: [
                 .process("Resources"),
             ],
@@ -1821,6 +1821,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextInput",
+                "CmuxNextInputCore",
                 "CmuxNextLaunch",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
