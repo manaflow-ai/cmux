@@ -7,10 +7,15 @@ public import SwiftUI
 ///
 /// A parked page stays in the window (hidden), and SwiftUI keeps evaluating the bodies its model
 /// changes invalidate. While the node it follows is hidden, this view takes its hosting view out of
-/// the hierarchy and shows a picture of its last frame in its place; it puts the hosting view back in
-/// the show turn, with the keyboard focus it held. Chromium does the same for a hidden WebContents:
-/// `RenderWidgetHostImpl::WasHidden` stops the renderer's frames and the compositor keeps showing the
-/// last surface (content/browser/renderer_host/render_widget_host_impl.cc).
+/// the hierarchy and puts it back in the show turn, with the keyboard focus it held. The hide turn
+/// draws nothing and keeps no picture: the parked page is hidden, and a snapshot draws the page when
+/// it is asked for (``withHosting(_:)``, `NSView.cachedDisplayImage()`). Chromium does the same for a
+/// hidden WebContents: `RenderWidgetHostImpl::WasHidden` stops the renderer's frames, and a capture
+/// asks the renderer for a frame (content/browser/renderer_host/render_widget_host_impl.cc).
+///
+/// The hosting view leaving the window runs its SwiftUI `onDisappear`, and coming back runs `onAppear`
+/// and `.task` again: a gated page seeds its state where it is made (`State(initialValue:)`, its
+/// model), never in an appear handler.
 ///
 /// An occluded node keeps its hosting view (Chrome's `OCCLUDED` keeps the renderer alive), and so does a
 /// hidden node that a capture vote holds (``VisibilityNode/isCaptured``): a screenshot reads the live page.
@@ -44,8 +49,11 @@ public import SwiftUI
 
     public var visibilityGate: VisibilityGatedHostingView? { self }
 
+    /// The view that takes the keyboard when the page's tab is focused: the hosting view (this
+    /// container takes none).
+    public var focusTarget: NSView { hosting }
+
     private let counter: HostingBodyCounter
-    private let picture = NSView()
     private var edges: [NSLayoutConstraint] = []
     private var node: VisibilityNode?
     private var flips: VisibilitySubscription?
@@ -85,9 +93,6 @@ public import SwiftUI
             hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
         ]
         NSLayoutConstraint.activate(edges)
-        picture.wantsLayer = true
-        picture.layer?.contentsGravity = .resizeAspectFill
-        picture.autoresizingMask = [.width, .height]
     }
 
     @available(*, unavailable)
@@ -134,12 +139,6 @@ public import SwiftUI
     private func gate() {
         guard !isGated else { return }
         if let responder = window?.firstResponder as? NSView, responder.isDescendant(of: hosting) { focused = responder }
-        if let image = lastFrame() {
-            picture.layer?.contents = image
-            picture.layer?.contentsScale = window?.backingScaleFactor ?? 2
-            picture.frame = bounds
-            addSubview(picture)
-        }
         isGated = true
         hosting.removeFromSuperview()
     }
@@ -147,10 +146,7 @@ public import SwiftUI
     private func restore() {
         guard isGated else { return }
         isGated = false
-        addSubview(hosting, positioned: .below, relativeTo: nil)
-        NSLayoutConstraint.activate(edges)
-        picture.removeFromSuperview()
-        picture.layer?.contents = nil
+        attachHosting()
         // The keyboard left with the hosting view only when nothing took it since (the window holds it).
         if let focused, let window, window.firstResponder == nil || window.firstResponder === window {
             window.makeFirstResponder(focused)
@@ -159,18 +155,20 @@ public import SwiftUI
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
 
-    /// The hosting view's layers as they show now, composited without drawing its views again; nil out of
-    /// a window or at no size (nothing showed).
-    private func lastFrame() -> CGImage? {
-        guard let window, let layer = hosting.layer, !hosting.bounds.isEmpty else { return nil }
-        let scale = window.backingScaleFactor
-        let width = Int(hosting.bounds.width * scale), height = Int(hosting.bounds.height * scale)
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
-        context.scaleBy(x: scale, y: scale)
-        layer.render(in: context)
-        return context.makeImage()
+    private func attachHosting() {
+        addSubview(hosting)
+        NSLayoutConstraint.activate(edges)
+    }
+
+    /// Runs `body` with the hosting view in this view, laid out: while gated it comes in for `body` and
+    /// leaves after, so a snapshot (hibernation, a preview) draws the page as it is now. The page is
+    /// parked hidden meanwhile, so nothing shows.
+    public func withHosting<T>(_ body: () -> T) -> T {
+        guard isGated else { return body() }
+        attachHosting()
+        defer { hosting.removeFromSuperview() }
+        layoutSubtreeIfNeeded()
+        return body()
     }
 }
 
@@ -187,5 +185,17 @@ extension NSView {
     public var subviewsIncludingGated: [NSView] {
         if let gate = self as? VisibilityGatedHostingView, gate.isGated { return subviews + [gate.hosting] }
         return subviews
+    }
+
+    /// This view as it draws now (`cacheDisplay`), a gated page's SwiftUI included
+    /// (``VisibilityGatedHostingView/withHosting(_:)``); nil at no size.
+    public func cachedDisplayImage() -> CGImage? {
+        let draw = { () -> CGImage? in
+            guard !self.bounds.isEmpty, let rep = self.bitmapImageRepForCachingDisplay(in: self.bounds) else { return nil }
+            self.cacheDisplay(in: self.bounds, to: rep)
+            return rep.cgImage
+        }
+        guard let gate = (self as? any VisibilityGatedContent)?.visibilityGate else { return draw() }
+        return gate.withHosting(draw)
     }
 }

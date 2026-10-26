@@ -48,6 +48,5 @@ struct VaultListView: View {
             }
         }
         .background(colors.background)
-        .task { await vault.reload() }
     }
 }

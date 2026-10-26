@@ -176,6 +176,77 @@ struct VisibilityGatedHostingViewTests {
         #expect(fixture.tab.subscriberCounts.flips == 0 && fixture.tab.subscriberCounts.exemptions == 0, "no subscription is left")
     }
 
+    @Test func aHideDrawsNothingAndKeepsNoPicture() {
+        let gate = VisibilityGatedHostingView(owner: "NoPicture") { Color(red: 1, green: 0, blue: 0) }
+        let fixture = Self.fixture(gate)
+        defer { fixture.close() }
+
+        fixture.tab.set(.hidden)
+        #expect(gate.isGated)
+        #expect(gate.subviews.isEmpty, "no picture view stands in for the page: \(gate.subviews)")
+        #expect(gate.layer?.contents == nil && (gate.layer?.sublayers ?? []).allSatisfy { $0.contents == nil },
+                "the hidden page keeps no bitmap")
+    }
+
+    @Test func aSnapshotOfAHiddenPageDrawsItAndLeavesItOut() throws {
+        let gate = VisibilityGatedHostingView(owner: "Snapshot") { Color(red: 1, green: 0, blue: 0) }
+        let fixture = Self.fixture(gate)
+        defer { fixture.close() }
+
+        fixture.tab.set(.hidden)
+        let image = try #require(gate.cachedDisplayImage(), "a hidden page draws for a snapshot")
+        let center = try #require(Self.pixel(of: image, x: image.width / 2, y: image.height / 2))
+        #expect(center.redComponent > 0.8 && center.greenComponent < 0.25 && center.blueComponent < 0.25 && center.alphaComponent > 0.8,
+                "the page, not a blank: \(center)")
+        #expect(gate.isGated && gate.hosting.superview == nil, "the hosting view left again after the drawing")
+    }
+
+    @Test func textTypedInAHiddenPageStaysWhenItShows() throws {
+        let gate = VisibilityGatedHostingView(owner: "Seeded") { SeededField(seed: "start") }
+        let fixture = Self.fixture(gate)
+        defer { fixture.close() }
+        let field = try #require(Self.textFields(in: gate.hosting).first)
+        #expect(field.stringValue == "start")
+        #expect(fixture.window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("typed", replacementRange: NSRange(location: NSNotFound, length: 0))
+        fixture.pass()
+
+        fixture.tab.set(.hidden)
+        fixture.pass()
+        fixture.tab.set(.visible)
+        fixture.pass()
+        let shown = try #require(Self.textFields(in: gate.hosting).first)
+        #expect(shown.stringValue == "typed", "the appear on show does not seed it again: \(shown.stringValue)")
+    }
+
+    /// A field whose text is seeded where the view is made, as gated pages do.
+    struct SeededField: View {
+        @State private var text: String
+
+        init(seed: String) {
+            _text = State(initialValue: seed)
+        }
+
+        var body: some View {
+            TextField("", text: $text)
+        }
+    }
+
+    /// The editable text fields under `view`, depth first.
+    static func textFields(in view: NSView) -> [NSTextField] {
+        var found: [NSTextField] = []
+        if let field = view as? NSTextField, field.isEditable { found.append(field) }
+        for subview in view.subviews { found += textFields(in: subview) }
+        return found
+    }
+
+    /// One pixel of `image` (top-left origin), in sRGB.
+    static func pixel(of image: CGImage, x: Int, y: Int) -> NSColor? {
+        NSBitmapImageRep(cgImage: image).colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+    }
+
     /// Every accessibility element under `view`, depth first.
     private static func accessibilityTree(of view: NSView) -> [AnyObject] {
         var found: [AnyObject] = []

@@ -10,6 +10,9 @@ import CmuxNextHistory
 /// registry with the row's session.
 final class VaultHostView: NSView, VisibilityGatedContent {
     let vault: SessionVault
+    /// Whether this view reads the vault each time it moves into a window (the right sidebar's section).
+    /// The vault page tab reads on each show itself (`VaultPageTab.setContentVisible`), so its view does not.
+    private let readsInWindow: Bool
     private let appearanceState = VaultAppearance()
     private var gate: VisibilityGatedHostingView?
 
@@ -17,8 +20,9 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     /// right sidebar's section follows no node.
     var visibilityGate: VisibilityGatedHostingView? { gate }
 
-    init(vault: SessionVault, registry: ActionRegistry) {
+    init(vault: SessionVault, registry: ActionRegistry, readsInWindow: Bool = true) {
         self.vault = vault
+        self.readsInWindow = readsInWindow
         super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -54,6 +58,8 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        // task-owner: one vault read each time the section moves into a window; the list shows its rows
+        if readsInWindow, window != nil { Task { [vault] in await vault.reload() } }
     }
 
     override func viewDidChangeEffectiveAppearance() {
