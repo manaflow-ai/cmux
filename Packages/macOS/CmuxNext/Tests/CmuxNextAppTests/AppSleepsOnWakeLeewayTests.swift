@@ -165,20 +165,21 @@ struct AppSleepsOnWakeLeewayTests {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start while a round runs started another")
         #expect(rig.deadlines.nextFire == nil, "a round in flight planned the next one")
 
         poll.answer(.seconds(30))
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(!asks.isTriaging)
         #expect(asks.isTriageScheduled, "the round's pause planned no next round")
         #expect(rig.deadlines.nextFire.map { $0 >= .seconds(30) && $0 <= .seconds(31) } == true, "the next round is one pause away")
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await Task.yield()
         #expect(poll.started == 1, "a start during the pause skipped it")
 
@@ -186,7 +187,7 @@ struct AppSleepsOnWakeLeewayTests {
         await poll.waitForRounds(2)
         #expect(!asks.isTriageScheduled, "the next round's deadline stayed pending while it ran")
         poll.answer(.seconds(30))
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(asks.isTriageScheduled, "the second round's pause planned no third")
     }
 
@@ -195,11 +196,12 @@ struct AppSleepsOnWakeLeewayTests {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(.seconds(30))
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(rig.deadlines.nextFire.map { $0 >= .seconds(120) && $0 <= .seconds(121) } == true, "the saver's pause is four pauses")
     }
 
@@ -207,36 +209,46 @@ struct AppSleepsOnWakeLeewayTests {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(nil)
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(!asks.isTriaging, "a stopped round stayed in flight")
         #expect(!asks.isTriageScheduled, "a round that answered nil planned another")
         #expect(rig.deadlines.nextFire == nil, "the stopped rounds kept a wake")
 
-        asks.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(2)
         #expect(poll.started == 2, "a start after the rounds stopped ran no round")
         poll.answer(nil)
-        await asks.triageSettled()
+        await Self.settleRound(asks, rig)
     }
 
     @Test func releasedAsksRunNoNextRound() async throws {
         let rig = MainDeadlineRig()
         var asks: CloudAccessAsks? = CloudAccessAsks()
         let poll = RoundGate()
+        let work = BackgroundWork(label: "test.triage")
 
-        asks?.startRounds(deadlines: rig.deadlines, energy: EnergyPolicySource(), poll: poll.round)
+        asks?.startRounds(deadlines: rig.deadlines, work: work, energy: EnergyPolicySource(), poll: poll.round)
         await poll.waitForRounds(1)
         poll.answer(.seconds(30))
-        await asks?.triageSettled()
+        await Self.settleRound(asks, rig)
         #expect(asks?.isTriageScheduled == true)
         asks = nil
         rig.fireAndRun()
         await Task.yield()
         #expect(poll.started == 1, "a released CloudAccessAsks ran its next round")
+    }
+
+    /// Runs the rig's frames until the round in flight ended: its end is one background task on the rig's scheduler.
+    private static func settleRound(_ asks: CloudAccessAsks?, _ rig: MainDeadlineRig) async {
+        for _ in 0..<400 where asks?.isTriaging == true {
+            rig.frame()
+            await Task.yield()
+        }
     }
 
     /// Returns once the files lane ran what was posted on it at best effort before (`work` has one slot per priority).
@@ -251,19 +263,23 @@ struct AppSleepsOnWakeLeewayTests {
     @Test func holdsAnswersTrueWhenTheConditionComesBeforeTheLimit() async throws {
         let clock = ManualClock()
         let flag = SleepFlag()
+        let rig = MainDeadlineRig()
         // task-owner: the race; the test awaits its answer
-        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), clock: clock) { flag.on } }
+        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), on: rig.deadlines.work, clock: clock) { flag.on } }
         try await clock.waitForSleeper()
         #expect(clock.sleepRequests.last?.tolerance == WakeLeeway.window(delay: .seconds(30)).tolerance)
         flag.on = true
+        // The wait's observation flushes on the next frame (its class is visible).
+        rig.frame()
         #expect(await race.value, "the condition came first, yet the race answered false")
     }
 
     @Test func holdsAnswersFalseWhenTheLimitPassesFirst() async throws {
         let clock = ManualClock()
         let flag = SleepFlag()
+        let rig = MainDeadlineRig()
         // task-owner: the race; the test awaits its answer
-        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), clock: clock) { flag.on } }
+        let race = Task { @MainActor in await CloudMove.holds(within: .seconds(30), on: rig.deadlines.work, clock: clock) { flag.on } }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(30))
         #expect(!(await race.value), "the limit passed, yet the race answered true")
