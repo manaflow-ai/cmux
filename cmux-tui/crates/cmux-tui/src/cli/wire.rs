@@ -260,8 +260,7 @@ fn place_caller(
     socket: &super::resolve::SocketRoute<'_>,
     pass: super::caller_place::Pass,
 ) -> Result<(), i32> {
-    match super::caller_place::apply(global, plan, reader, caller_route, socket, pass)
-    {
+    match super::caller_place::apply(global, plan, reader, caller_route, socket, pass) {
         Ok(true) => {
             request["params"] = plan.params.clone();
             *encoded = encode_request(request)?;

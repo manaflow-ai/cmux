@@ -73,7 +73,8 @@ fn browser_open_without_an_app_opens_in_the_callers_pane() {
 
 #[test]
 fn workspace_current_is_the_callers_workspace() {
-    let run = Run::new().terminal().cli(&["--json", "workspace", "current", "rename", "--name", "dev"]);
+    let run =
+        Run::new().terminal().cli(&["--json", "workspace", "current", "rename", "--name", "dev"]);
     let renamed = run.mutation("workspace.rename");
     assert_eq!(renamed["workspace"], OWN_WS, "{}", run.stderr());
 }
@@ -121,7 +122,14 @@ fn current_under_another_workspace_id_is_its_active_pane_even_for_an_unplaced_ch
     // The app is unreachable, so the chat cannot be placed; the command
     // names the workspace by id, so it does not need the chat's place.
     let run = Run::new().agent().cli(&[
-        "--json", "tab", "create", "terminal", "--workspace", FRONT_WS, "--pane", "current",
+        "--json",
+        "tab",
+        "create",
+        "terminal",
+        "--workspace",
+        FRONT_WS,
+        "--pane",
+        "current",
     ]);
     let split = run.mutation("tab.create_terminal");
     assert_eq!(split["workspace"], FRONT_WS, "{}", run.stderr());
@@ -131,7 +139,14 @@ fn current_under_another_workspace_id_is_its_active_pane_even_for_an_unplaced_ch
 #[test]
 fn current_under_the_callers_own_workspace_id_is_the_callers_pane() {
     let run = Run::new().terminal().cli(&[
-        "--json", "tab", "create", "terminal", "--workspace", OWN_WS, "--pane", "current",
+        "--json",
+        "tab",
+        "create",
+        "terminal",
+        "--workspace",
+        OWN_WS,
+        "--pane",
+        "current",
     ]);
     let split = run.mutation("tab.create_terminal");
     assert_eq!(split["workspace"], OWN_WS, "{}", run.stderr());
@@ -157,7 +172,8 @@ fn a_shell_outside_cmux_keeps_the_daemons_current() {
 
 #[test]
 fn a_named_socket_keeps_its_own_current() {
-    let run = Run::new().terminal().cli(&["--json", "--socket", SOCKET, "pane", "current", "split"]);
+    let run =
+        Run::new().terminal().cli(&["--json", "--socket", SOCKET, "pane", "current", "split"]);
     let split = run.mutation("pane.split");
     assert_eq!(split["pane"], "current", "{}", run.stderr());
     assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
@@ -222,8 +238,8 @@ impl Run {
     fn new() -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            Path::new("/tmp").join(format!("cmux-cplace-{}-{stamp}-{sequence}", std::process::id()));
+        let dir = Path::new("/tmp")
+            .join(format!("cmux-cplace-{}-{stamp}-{sequence}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         Self { dir, app: None, terminal: false, agent: false }
     }
@@ -310,9 +326,7 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
 
 fn daemon_result(request: &Value) -> Result<Value, String> {
     let params = &request["params"];
-    let mutation = |value: Value| {
-        json!({"value": value, "generation": "g", "revision": "2", "replayed": false})
-    };
+    let mutation = |value: Value| json!({"value": value, "generation": "g", "revision": "2", "replayed": false});
     match request["operation"].as_str().unwrap_or_default() {
         "terminal.get" if params["terminal"] == OWN_TERMINAL => {
             Ok(json!({"id": OWN_TERMINAL, "tab_id": OWN_TAB}))
