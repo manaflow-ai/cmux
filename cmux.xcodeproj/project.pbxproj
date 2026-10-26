@@ -2036,6 +2036,7 @@
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */; };
 				E04616B1BE0A4C27889B11FA /* DeviceTerminalAttachmentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */; };
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */; };
+		6DC0E65EEE81815E25ECD4F4 /* DeviceTerminalMirrorMouseFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13E4DCE046FA97321AD6C30F /* DeviceTerminalMirrorMouseFormatTests.swift */; };
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */; };
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */; };
 				7F3B63556D5661AB1682A514 /* DeviceWorkspaceCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283165BD31DF96F756C7E0ED /* DeviceWorkspaceCreationCoordinator.swift */; };
@@ -6718,6 +6719,7 @@
 				DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProviderRegistry.swift"; sourceTree = "<group>"; };
 				DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalAttachmentStatus.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalInputRouter.swift"; sourceTree = "<group>"; };
+		13E4DCE046FA97321AD6C30F /* DeviceTerminalMirrorMouseFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeviceTerminalMirrorMouseFormatTests.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalMirrorSession.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceTerminalMirrorTests.swift; sourceTree = "<group>"; };
 				283165BD31DF96F756C7E0ED /* DeviceWorkspaceCreationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceCreationCoordinator.swift"; sourceTree = "<group>"; };
@@ -14275,6 +14277,7 @@
 				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
+				13E4DCE046FA97321AD6C30F /* DeviceTerminalMirrorMouseFormatTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18898,6 +18901,7 @@
 				DEC1CE000000000000000044 /* DeviceRouteSelectorTests.swift in Sources */,
 				DEC1CE00000000000000004A /* DevicesCloudTreeBuilderTests.swift in Sources */,
 				DEC1CE00000000000000004C /* DevicesSidebarModeTests.swift in Sources */,
+				6DC0E65EEE81815E25ECD4F4 /* DeviceTerminalMirrorMouseFormatTests.swift in Sources */,
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */,
 				DEC1CE000000000000000048 /* DeviceWorkspaceProjectionTests.swift in Sources */,
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
