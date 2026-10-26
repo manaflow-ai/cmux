@@ -1,0 +1,70 @@
+{
+  "schema": "cmux-perf-corpus-story/v1",
+  "id": "browse-heavy",
+  "tier": "T1",
+  "status": "planned",
+  "planned": "Recorded by the recorder (task 116) from public URLs only; story task 119 adds the WPR archive (task 113).",
+  "description": "30 Chromium tabs from Web Page Replay over 6 workspaces and a few WebKit tabs: tab switches, hibernation and wake, omnibar typing from the synthetic text.",
+  "owner": "PL-perf-lab",
+  "duration_ms": 180000,
+  "layout": {
+    "snapshot": null,
+    "workspaces": 6
+  },
+  "input": {
+    "blob": null
+  },
+  "pty": [],
+  "web_archive": {
+    "wprgo": null,
+    "spki": null
+  },
+  "agents": [],
+  "checkpoints": [
+    {
+      "t_ms": 0,
+      "name": "layout-imported",
+      "focus": null,
+      "surfaces": null
+    },
+    {
+      "t_ms": 90000,
+      "name": "midpoint",
+      "focus": null,
+      "surfaces": null
+    },
+    {
+      "t_ms": 180000,
+      "name": "end",
+      "focus": null,
+      "surfaces": null
+    }
+  ],
+  "metrics": [
+    {
+      "name": "corpus\\.browse_heavy\\.tab_switch_to_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.browse_heavy\\.wake_to_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.browse_heavy\\.omnibar_key_to_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.browse_heavy\\.dropped_frames",
+      "unit": "count",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.browse_heavy\\.footprint",
+      "unit": "bytes",
+      "better": "lower"
+    }
+  ]
+}

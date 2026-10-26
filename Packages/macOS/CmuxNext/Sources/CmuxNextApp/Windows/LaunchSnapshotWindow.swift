@@ -20,8 +20,8 @@ struct LaunchSnapshotWindow {
     }
 
     private func showSaved(_ document: WindowStateDocument) -> Bool {
-        let saved = WindowRegistry(records: document.windows)
-        guard let front = saved.recency.first(where: { id in saved.window(id).map(manager.hasMirroredWorkspace) == true }),
+        let saved = WindowRegistry(records: document.windows), machines = manager.services.machines
+        guard let front = WindowStateDocument.frontWindow(of: document.windows, mirrors: { machines.workspace(id: $0) != nil })?.id,
               let record = document.windows.first(where: { $0.id == front }), let window = saved.window(front) else { return false }
         manager.launchWindowID = front
         manager.state(for: front).adopt(record)

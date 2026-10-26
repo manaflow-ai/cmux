@@ -6,13 +6,16 @@ package struct HibernationTunables {
     package init() {}
     package static let section = TunableSection(id: "hibernation", title: "Tab Hibernation", symbol: "moon.zzz", order: 49)
 
-    /// On (the default): each hibernated page keeps its last frame JPEG-compressed in its own
-    /// 64 MB store (`HibernationSnapshots`), so every hibernated tab wakes to its picture. Off:
-    /// the frame is scaled to a quarter of the shared 32 MB preview cache, as before PR 23083,
-    /// and only the last few hibernated tabs keep one.
+    /// The developer's local override of the feature `compressedSnapshots`
+    /// (`schemas/features/features.d/compressedSnapshots.json`, which `replaces` this key, on by
+    /// default): nothing reads it here. The launch's feature ladder takes it from the Debug Settings
+    /// file as step 3 (`FeatureLaunchLocalOverrides`; DEV and NIGHTLY, under managed policy
+    /// and `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`), so a change applies at the next launch. On: each hibernated
+    /// page keeps its last frame JPEG-compressed in its own 64 MB store (`HibernationSnapshots`).
+    /// Off: the frame is scaled to a quarter of that store, as before PR 23083.
     package static let compressedSnapshots = Tunable<Bool>.toggle(
         "hibernation.compressedSnapshots", section, "Keep every hibernated tab's picture",
-        help: "Each hibernated page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture. Off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit (applies to the next hibernation).",
+        help: "Overrides the feature compressedSnapshots: each hibernated page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture. Off keeps decoded frames, where only the last few fit (applies at the next launch).",
         default: true, code: "HibernationTunables.compressedSnapshots")
 
     package static var all: [TunableDescriptor] { [compressedSnapshots.descriptor] }

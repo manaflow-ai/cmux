@@ -107,6 +107,7 @@ public struct CmuxNextApp {
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
+        environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
@@ -133,6 +134,17 @@ public struct CmuxNextApp {
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
                                               hangWatch: hangWatch)
         DebugTimings.markLaunch("main.prestart")
+        // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
+        // which window is front comes from the launch snapshot, read there only when a picture was saved.
+        if features.isEnabled(.savedWindowPicture) {
+            let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
+            environment.windowPictures?.prefetchFront({
+                // The window `LaunchSnapshotWindow.showSaved` builds, by the same rule (WindowStateDocument.frontWindow).
+                snapshot.flatMap { LaunchSnapshot.saved(session: $0.session, stateDirectory: $0.state)?.frontWindow }.map {
+                    WindowPictureStore.FrontWindow(window: $0.id, profile: ($0.profile ?? .defaultProfile).rawValue)
+                }
+            }, mark: { DebugTimings.markLaunch($0) })
+        }
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -147,6 +159,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
+        if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))

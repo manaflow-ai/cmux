@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextHibernation
 import CmuxNextWakeups
@@ -115,7 +116,7 @@ extension AgentPageHibernation {
     static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
+            await view.pageImage().flatMap { image in image.bestCGImage.map { ($0, image.size, appearance) } }
         }
         return frame.flatMap { $0 }
     }

@@ -20,10 +20,20 @@ import QuartzCore
 public final class TerminalSurfaceView: NSView {
     // MARK: State
 
-    private(set) var surface: ghostty_surface_t?
+    /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
+    /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main
+    /// work reaches it only through ``lane``, which `deinit` closes before the free.
+    @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
-    let bridge: Unmanaged<SurfaceBridge>
+    /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
+    /// userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object for every callback.
+    @safe let bridge: Unmanaged<SurfaceBridge>
+    /// The bridge, kept alive by the view's retain (`bridge`).
+    var bridgeObject: SurfaceBridge {
+        // SAFETY: as `bridge`'s note.
+        unsafe bridge.takeUnretainedValue()
+    }
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
@@ -50,7 +60,8 @@ public final class TerminalSurfaceView: NSView {
         defer { updateReflowPreview() }
         guard let surface, let report = geometry.finalSized(grid) else { return }
         Self.gridReports &+= 1
-        let size = ghostty_surface_size(surface)
+        // SAFETY: the view's live surface (`surface`).
+        let size = unsafe ghostty_surface_size(surface)
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
         let cells = metrics.cellPixels(of: report)
@@ -136,7 +147,8 @@ public final class TerminalSurfaceView: NSView {
     /// Whether the program has the mouse, read without the terminal's lock (``TerminalMouseCapture``).
     lazy var mouseCapture = TerminalMouseCapture(lane: lane)
     /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
-    lazy var mouse: any TerminalMouseSink = GhosttyMouseSink(surface: surface)
+    // SAFETY: the sink holds this view's surface and goes with the view (GhosttyMouseSink).
+    lazy var mouse: any TerminalMouseSink = unsafe GhosttyMouseSink(surface: surface)
 
     // MARK: Lifecycle
 
@@ -146,7 +158,8 @@ public final class TerminalSurfaceView: NSView {
          gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage)
-        self.bridge = Unmanaged.passRetained(bridge)
+        // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
+        self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
         self.secureInput = secureInput
@@ -171,10 +184,13 @@ public final class TerminalSurfaceView: NSView {
             secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
-                ghostty_surface_free(surface)
+                // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
+                // that reaches it off the main thread closed.
+                unsafe ghostty_surface_free(surface)
             }
             // Released after free: free joins the IO thread that reads the bridge.
-            bridge.release()
+            // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
+            unsafe bridge.release()
         }
     }
 
@@ -186,33 +202,45 @@ public final class TerminalSurfaceView: NSView {
         let signpost = timings.surfaceCreateBegan()
         defer { timings.surfaceCreated(signpost) }
         guard let app = GhosttyRuntime.shared.app else { return }
-        let userdata = bridge.toOpaque()
+        // SAFETY: the bridge outlives the surface (`bridge`'s note), and the view, whose address
+        // Ghostty keeps as its NSView, frees the surface in its own deinit. Ghostty copies the
+        // config during ghostty_surface_new; the callback has the signature ghostty.h declares.
+        let userdata = unsafe bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
-        config.userdata = userdata
+        // SAFETY: as above.
+        unsafe config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
+        // SAFETY: as above.
+        unsafe config.userdata = userdata
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         config.io_mode = mode
-        config.io_write_cb = ghosttyIOWrite
-        config.io_write_userdata = userdata
-        guard let surface = ghostty_surface_new(app, &config) else {
+        // SAFETY: as above.
+        unsafe config.io_write_cb = ghosttyIOWrite
+        // SAFETY: as above.
+        unsafe config.io_write_userdata = userdata
+        // SAFETY: as above; `app` is the runtime's live app (never freed).
+        guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
             return
         }
-        self.surface = surface
+        // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
+        self.surface = unsafe surface
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
-        ghostty_surface_set_host_sized(surface, true)
+        // SAFETY: the view's live surface (`surface`).
+        unsafe ghostty_surface_set_host_sized(surface, true)
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
-                                  keyFlows: bridge.takeUnretainedValue().typingSurface, hangs: hangWatch)
+        // SAFETY: the lane owns the off-main uses of the surface until `deinit` closes it, before
+        // the free (TerminalOutputLane).
+        lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
+                                         keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
-            TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridge.takeUnretainedValue().typingSurface)
+            TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
@@ -350,7 +378,8 @@ public final class TerminalSurfaceView: NSView {
         let scale = convertToBacking(NSSize(width: 1, height: 1))
         if scale != appliedContentScale {
             appliedContentScale = scale
-            ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+            // SAFETY: the view's live surface (`surface`).
+            unsafe ghostty_surface_set_content_scale(surface, scale.width, scale.height)
         }
         if let window {
             if layer?.contentsScale != window.backingScaleFactor {
@@ -362,7 +391,8 @@ public final class TerminalSurfaceView: NSView {
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
                screenNumber.uint32Value != appliedDisplayID {
                 appliedDisplayID = screenNumber.uint32Value
-                ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
+                // SAFETY: the view's live surface (`surface`).
+                unsafe ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
             }
         }
     }
@@ -400,7 +430,8 @@ public final class TerminalSurfaceView: NSView {
             && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled
-        ghostty_surface_set_reflow_preview(surface, enabled)
+        // SAFETY: the view's live surface (`surface`).
+        unsafe ghostty_surface_set_reflow_preview(surface, enabled)
     }
 
     /// Sizes the surface to the view and reports the view's grid when it
@@ -424,8 +455,10 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
-        ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
-        let size = ghostty_surface_size(surface)
+        // SAFETY: the view's live surface (`surface`).
+        unsafe ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        // SAFETY: the view's live surface (`surface`).
+        let size = unsafe ghostty_surface_size(surface)
         publish(size: size)
         guard size.columns > 0, size.rows > 0 else { return }
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
@@ -457,16 +490,19 @@ public final class TerminalSurfaceView: NSView {
     /// view before a lock.
     var currentGrid: TerminalGridSize? {
         guard let surface else { return nil }
-        let grid = ghostty_surface_grid(surface)
+        // SAFETY: the view's live surface (`surface`).
+        let grid = unsafe ghostty_surface_grid(surface)
         if grid.locked { return TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) }
-        let size = ghostty_surface_size(surface)
+        // SAFETY: the view's live surface (`surface`).
+        let size = unsafe ghostty_surface_size(surface)
         return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
     }
 
     /// Cell size in points, for IME rectangles.
     var cellPointSize: CGSize {
         guard let surface else { return CGSize(width: 8, height: 16) }
-        let size = ghostty_surface_size(surface)
+        // SAFETY: the view's live surface (`surface`).
+        let size = unsafe ghostty_surface_size(surface)
         let backing = convertFromBacking(NSSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px)))
         return CGSize(width: max(backing.width, 1), height: max(backing.height, 1))
     }
@@ -485,7 +521,8 @@ public final class TerminalSurfaceView: NSView {
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
         holdPresentedFrame(volatile: pause != nil)
-        ghostty_surface_set_occlusion(surface, pause == nil)
+        // SAFETY: the view's live surface (`surface`).
+        unsafe ghostty_surface_set_occlusion(surface, pause == nil)
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again
@@ -545,7 +582,8 @@ public final class TerminalSurfaceView: NSView {
         let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
         guard focused != lastFocus else { return }
         lastFocus = focused
-        ghostty_surface_set_focus(surface, focused)
+        // SAFETY: the view's live surface (`surface`).
+        unsafe ghostty_surface_set_focus(surface, focused)
         session?.model.isFocused = focused
         if focused { session?.surfaceDidGainFocus() }
     }
@@ -558,15 +596,16 @@ public final class TerminalSurfaceView: NSView {
     public func performBindingAction(_ action: String) -> Bool {
         guard let surface else { return false }
         return clipboardRequests.asUserClipboardWrite {
-            action.withCString { pointer in
-                ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-            }
+            // SAFETY: the view's live surface (`surface`); Swift passes a NUL-terminated copy of
+            // `action` for the call, its length without the NUL.
+            unsafe ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
         }
     }
 
     public var hasSelection: Bool {
         guard let surface else { return false }
-        return ghostty_surface_has_selection(surface)
+        // SAFETY: the view's live surface (`surface`).
+        return unsafe ghostty_surface_has_selection(surface)
     }
 }
 

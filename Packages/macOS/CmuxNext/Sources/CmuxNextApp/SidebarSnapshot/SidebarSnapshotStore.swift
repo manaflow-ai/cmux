@@ -27,6 +27,7 @@ actor SidebarSnapshotStore {
         document = loaded
         self.file = file
         self.debounce = debounce
+        // timer-class-allow: off-main: the debounced file write runs on this actor; it never wakes the main thread
         timer = DemandTimer(owner: "SidebarSnapshotStore.write", clock: clock)
     }
 

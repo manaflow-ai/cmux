@@ -86,7 +86,7 @@ extension CEFRuntime {
     }
 
     private func sendSSLStatus(_ browser: Int32) -> CEFShimAnswer<String?> {
-        sendAsync { shim in shim.takeOwnedString(shim.sslStatus(browser)) }
+        sendAsync { shim in shim.sslStatus(browser) }
     }
 
     /// Forgets every certificate error the user proceeded past in the tab's

@@ -70,7 +70,9 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
   // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
   // a = cef_termination_status_t, b = error code (exit code or signal),
-  // s1 = Chromium's error string.
+  // s1 = Chromium's error string. request = 1 for the first browser of the
+  // renderer's end, 2 for each other browser it hosted (Chromium tells them
+  // all in one task), 0 when the shim cannot name the process.
   CMUX_SHIM_RENDER_TERMINATED = 23,
   // The renderer stopped processing input for 15 s (hang monitor). The host
   // answers with cmux_shim_unresponsive_reply; until then Chromium waits.

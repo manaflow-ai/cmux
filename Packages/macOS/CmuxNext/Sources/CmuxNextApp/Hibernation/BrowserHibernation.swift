@@ -32,7 +32,7 @@ import os
 /// the next click show a live page. A hovered tab wakes too. Memory pressure and Energy Saver turn
 /// this off (plans/cmux-next/neighbor-tabs-DESIGN.md), as Chrome's battery saver spends no work on
 /// pages nobody sees (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc).
-/// The saver does not shorten the freeze delay.
+/// In the saver a hidden page at Chrome's high-CPU proportion freezes before the delay (`saverCPU`).
 ///
 /// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been hidden, how
 /// often the person showed it in the last hour, and under memory pressure how much memory it holds. A few
@@ -166,6 +166,9 @@ final class BrowserHibernation {
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
+    /// Energy Saver's one change to the freeze delay: a hidden page busy at Chrome's high-CPU proportion freezes early
+    /// (`SaverCPUFreeze`). `measureCPU` reads the pages' renderer CPU time off the main actor (injected by the App).
+    var saverCPU = SaverCPUFreeze(), measureCPU: (([String], @escaping @MainActor @Sendable (SaverCPUFreeze.Reading) -> Void) -> Void)?
 
     /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
     private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
@@ -491,8 +494,7 @@ final class BrowserHibernation {
         guard let cache else { return }
         let next = neighbors.awake(radius: neighborRadius).filter { cache.browsers[$0] != nil }
         guard next != awakeNeighbors else { return }
-        let left = awakeNeighbors.subtracting(next)
-        let joined = next.subtracting(awakeNeighbors)
+        let (left, joined) = (awakeNeighbors.subtracting(next), next.subtracting(awakeNeighbors))
         awakeNeighbors = next
         let now = self.now()
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
@@ -514,8 +516,7 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Hibernates every due page and arms one deadline for the next. While the urgent pass holds the
-    /// paced discards (``urgentHoldEnds``) the due pages wait for the hold's end.
+    /// Hibernates every due page and arms one deadline for the next; while the urgent pass holds the paced discards (``urgentHoldEnds``) they wait.
     func replan() {
         guard cache != nil else { return }
         let now = self.now()
@@ -613,7 +614,9 @@ final class BrowserHibernation {
             }
             return true
         }
-        let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
+        let (planned, read) = saverCPU.pastGrace(candidates, saver: energy.policy.isSaver && measureCPU != nil, now: now)
+        if let read { measureCPU?(read.keys, { [weak self] in if self?.saverCPU.land($0, generation: read.generation) == true { self?.replan() } }) }
+        let plan = HibernationPlanner.freezePlan(setting, candidates: planned)
         for key in plan.due { freeze(key) }
         if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
             freezeDeadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
@@ -806,10 +809,7 @@ final class BrowserHibernation {
         return .go
     }
 
-    private enum DiscardCheck: Equatable {
-        case go, stale
-        case keep(HibernationPlanner.Exemption)
-    }
+    private enum DiscardCheck: Equatable { case go, stale, keep(HibernationPlanner.Exemption) }
 }
 
 // The critical memory event's one urgent pass over tabs, chats and pages (p13-webui-092, feature

@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Seeded fuzz of the app's side of the daemon wire (plans/cmux-next/chrome-parity/p10-stability.md, task 022):
-/// the reader's line split (``LineSplitter``), the routing envelope of every line (``LineTransport/Envelope``),
+/// the reader's line cut (``FrameReader``), the routing envelope of every line (``LineTransport/Envelope``),
 /// event and reply decoding (``DaemonEvent/decode(name:line:)``, ``WireCoding/decodeResponse(_:from:decoder:)``),
 /// the store's ``EventInbox`` under any order of appends, takes and holds, and a real ``LineTransport`` reading
 /// a scripted peer. Chrome fuzzes the same layer: mojo/core/channel_fuzzer.cc feeds raw bytes to
@@ -65,8 +65,8 @@ struct DaemonWireFuzzTests {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(6) {
         case 0:
-            let stream = WireFuzzSplitterCase.stream(&rng)
-            try WireFuzzSplitterCase.check(stream, &rng)
+            let stream = WireFuzzLineCutCase.stream(&rng)
+            try WireFuzzLineCutCase.check(stream, &rng)
         case 1:
             let line = try WireFuzzLine.random(&rng, requests: 4)
             try WireFuzzEnvelopeCase.check(line, &rng)
@@ -89,13 +89,13 @@ struct DaemonWireFuzzTests {
         try run.forEachInput(try run.corpus(seeds: seeds)) { try Self.oneInput($0) }
     }
 
-    /// Whole, chunked and byte-at-a-time reads cut the same lines, keep the same unfinished rest, and search
-    /// each byte for a newline once (the linear bound of c997498fd634).
+    /// Whole, chunked and byte-at-a-time reads of JSON-line traffic cut the same lines through the transport's
+    /// ``FrameReader``, with the same unfinished rest at the end (FrameFuzzTests fuzzes the reader itself).
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
-    func lineSplitterCutsEveryChunkingTheSame() throws {
-        try Self.run("DaemonWire.lineSplitter", seed: 0x0DA3_0022_0002, iterations: 20_000).forEach { rng in
-            let stream = WireFuzzSplitterCase.stream(&rng)
-            try WireFuzzSplitterCase.check(stream, &rng)
+    func frameReaderCutsEveryChunkingTheSame() throws {
+        try Self.run("DaemonWire.lineCut", seed: 0x0DA3_0022_0002, iterations: 20_000).forEach { rng in
+            let stream = WireFuzzLineCutCase.stream(&rng)
+            try WireFuzzLineCutCase.check(stream, &rng)
         }
     }
 

@@ -9,12 +9,12 @@ private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category
 
 /// C entry for shim events (main thread).
 let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request, a, b, s1, s2 in
-    guard let context else { return }
-    let event = CEFShimEvent(
-        kind: kind, browser: browser, request: request, a: a, b: b,
-        s1: s1.map { String(cString: $0) } ?? "", s2: s2.map { String(cString: $0) } ?? ""
-    )
-    let address = UInt(bitPattern: context)
+    // SAFETY: only the context's address is read; CEFRuntime.from turns it back into the runtime.
+    let address = unsafe UInt(bitPattern: context)
+    guard address != 0 else { return }
+    // SAFETY: the shim's strings are NUL-terminated and valid during this call; String(cString:) copies each.
+    let text = unsafe (s1.map(String.init(cString:)) ?? "", s2.map(String.init(cString:)) ?? "")
+    let event = CEFShimEvent(kind: kind, browser: browser, request: request, a: a, b: b, s1: text.0, s2: text.1)
     // The shim emits on the CEF UI thread, which is the main thread. If a
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
@@ -31,13 +31,11 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
 let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     // Keys arrive on the main thread; off it, let the page have the key
     // rather than trap in assumeIsolated.
-    guard let context, let nsEvent, Thread.isMainThread else { return 0 }
-    let address = UInt(bitPattern: context)
-    let eventAddress = UInt(bitPattern: nsEvent)
+    // SAFETY: only the addresses are read; CEFRuntime.from and CEFKeyEventAddress turn them back.
+    let (address, eventAddress) = unsafe (UInt(bitPattern: context), CEFKeyEventAddress(nsEvent))
+    guard address != 0, eventAddress.isSome, Thread.isMainThread else { return 0 }
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
-        guard let runtime = CEFRuntime.from(address),
-              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        guard let runtime = CEFRuntime.from(address), let event = eventAddress.event() else { return 0 }
         return runtime.routeKey(event, browser: browser) ? 1 : 0
     }
 }
@@ -45,13 +43,11 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
 /// C entry after the page left a key down unhandled: the host's held shortcut runs.
 let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     // Keys arrive on the main thread; off it, Chromium keeps the key.
-    guard let context, let nsEvent, Thread.isMainThread else { return 0 }
-    let address = UInt(bitPattern: context)
-    let eventAddress = UInt(bitPattern: nsEvent)
+    // SAFETY: as for cefKeyCallback.
+    let (address, eventAddress) = unsafe (UInt(bitPattern: context), CEFKeyEventAddress(nsEvent))
+    guard address != 0, eventAddress.isSome, Thread.isMainThread else { return 0 }
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
-        guard let runtime = CEFRuntime.from(address),
-              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        guard let runtime = CEFRuntime.from(address), let event = eventAddress.event() else { return 0 }
         return runtime.routeUnhandledKey(event, browser: browser) ? 1 : 0
     }
 }
@@ -59,18 +55,16 @@ let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent 
 /// C entry before a DevTools browser sees a key down; `browser` is the
 /// inspected page. In process only (``CEFDevToolsKeyPolicy/preKeyHook``).
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
-    guard let context, let nsEvent else { return 0 }
+    // SAFETY: as for cefKeyCallback.
+    let (address, eventAddress) = unsafe (UInt(bitPattern: context), CEFKeyEventAddress(nsEvent))
+    guard address != 0, eventAddress.isSome else { return 0 }
     // Keys arrive on the main thread; off it, the DevTools page keeps the key.
     guard Thread.isMainThread else {
         callbackLogger.fault("DevTools key callback off the main thread; the key goes to the page")
         return 0
     }
-    let address = UInt(bitPattern: context)
-    let eventAddress = UInt(bitPattern: nsEvent)
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        guard let runtime = CEFRuntime.from(address),
-              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        guard let runtime = CEFRuntime.from(address), let event = eventAddress.event() else { return 0 }
         return runtime.routeDevToolsKey(event, inspected: browser) ? 1 : 0
     }
 }
@@ -79,13 +73,16 @@ extension CEFRuntime {
     /// The runtime behind a callback context (an unretained pointer; the
     /// runtime lives for the rest of the process once started).
     static func from(_ address: UInt) -> CEFRuntime? {
-        UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
+        // SAFETY: a nonzero address is the context `start` gave the shim: the shared runtime, unretained, which
+        // lives for the rest of the process once started. The read does not change its count.
+        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
     }
 
     /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
     /// of the runtime, which lives for the rest of the process once started).
     nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
-        UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
+        // SAFETY: as for `from(_:)`; only the runtime's `nonisolated let` gate is read.
+        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
     }
 
     func dispatch(_ event: CEFShimEvent) {
@@ -94,9 +91,7 @@ extension CEFRuntime {
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
-        case .popup:
-            // AFTER_CREATED of the popup's tab carries its URL, disposition and gesture (the shim's pending popups).
-            break
+        case .popup, .unknown: break // AFTER_CREATED of a popup's tab carries its URL, disposition and gesture (pending popups)
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
@@ -159,8 +154,9 @@ extension CEFRuntime {
         case .keyUnhandledChord(let browser, let seq): redispatchUnhandledKey(seq: seq, browser: browser)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
-        case .unknown:
-            break
+        case .renderTerminated(_, let status, let code, _, let end):
+            rendererEnded(.cef(status: status, code: code), end: end) // counted whether or not a tab shows it
+            fallthrough
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
                 #if DEBUG || CMUX_BENCH_HOOKS
@@ -471,7 +467,7 @@ extension CEFShimEvent {
              .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),

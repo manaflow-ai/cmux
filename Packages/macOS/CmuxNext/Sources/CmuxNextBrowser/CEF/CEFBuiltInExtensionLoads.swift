@@ -40,7 +40,7 @@ extension CEFRuntime {
         guard !builtInLoads.folders.isEmpty, host.placeholder !== tab, let shim else { return }
         let key = contextKey(for: host.key)
         for folder in builtInLoads.foldersBeforeTab(of: host.key, contextKey: key) {
-            _ = key.withCString { context in folder.withCString { shim.extLoadCommandLine(context, $0) } }
+            _ = shim.extLoadCommandLine(key, folder)
         }
     }
 }

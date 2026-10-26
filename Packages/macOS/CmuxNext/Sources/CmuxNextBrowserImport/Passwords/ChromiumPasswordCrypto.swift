@@ -27,9 +27,13 @@ public struct ChromiumPasswordCrypto: Sendable {
         key = SecretBytes(capacity: kCCKeySizeAES128) { out in
             let salt = Array("saltysalt".utf8)
             let status = safeStoragePassword.withUnsafeBytes { password in
-                CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self), password.count,
-                                     salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003,
-                                     out.baseAddress?.assumingMemoryBound(to: UInt8.self), kCCKeySizeAES128)
+                // SAFETY: CommonCrypto reads password.count bytes of the secret's view and salt.count of
+                // `salt`, and writes kCCKeySizeAES128 bytes to `out`, which holds exactly the capacity
+                // asked for (SecretBytes.init). Both views are bytes, valid while these closures run;
+                // Int8 and UInt8 views of bytes may alias.
+                unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self),
+                                            password.count, salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003,
+                                            out.baseAddress?.assumingMemoryBound(to: UInt8.self), kCCKeySizeAES128)
             }
             // An empty key never decrypts: decrypt and encrypt then throw
             // `undecryptable` (CCCrypt refuses the key length) instead of the process trapping.
@@ -46,29 +50,34 @@ public struct ChromiumPasswordCrypto: Sendable {
         guard !body.isEmpty, body.count % kCCBlockSizeAES128 == 0 else { throw .undecryptable }
         let plain = try crypt(CCOperation(kCCDecrypt), body)
         // Chromium saves passwords as UTF-8; anything else is a key that happened to leave valid padding.
-        guard plain.withUnsafeBytes({ $0.isValidUTF8 }) else { throw .undecryptable }
+        guard plain.isValidUTF8 else { throw .undecryptable }
         return plain
     }
 
     /// The inverse, for test fixtures only (their passwords are synthetic,
     /// so the plain copy below holds nothing real).
     func encrypt(_ secret: SecretBytes) throws(Failure) -> Data {
-        let plain = secret.withUnsafeBytes { Data($0) }
+        // SAFETY: Data copies the view's count bytes while the closure runs and keeps no pointer.
+        let plain = secret.withUnsafeBytes { bytes in unsafe Data(bytes) }
         let sealed = try crypt(CCOperation(kCCEncrypt), plain)
-        return Data("v10".utf8) + sealed.withUnsafeBytes { Data($0) }
+        // SAFETY: as above, a copy made while the closure runs.
+        return Data("v10".utf8) + sealed.withUnsafeBytes { bytes in unsafe Data(bytes) }
     }
 
     private func crypt(_ operation: CCOperation, _ input: Data) throws(Failure) -> SecretBytes {
         let iv = [UInt8](repeating: 0x20, count: kCCBlockSizeAES128)
+        let source = [UInt8](input)
         var status = CCCryptorStatus(kCCSuccess)
-        let output = SecretBytes(capacity: input.count + kCCBlockSizeAES128) { out in
+        let output = SecretBytes(capacity: source.count + kCCBlockSizeAES128) { out in
             var written = 0
-            status = input.withUnsafeBytes { data in
-                key.withUnsafeBytes { keyBytes in
-                    CCCrypt(operation, CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
-                            keyBytes.baseAddress, keyBytes.count, iv, data.baseAddress, data.count,
-                            out.baseAddress, out.count, &written)
-                }
+            status = key.withUnsafeBytes { keyBytes in
+                // SAFETY: CCCrypt reads keyBytes.count bytes of the key's view, one block of `iv` and
+                // source.count bytes of `source`, and writes at most out.count bytes to `out` (the
+                // capacity asked for) and that count into `written`. The views are valid while these
+                // closures run; the arrays are lent for the call.
+                unsafe CCCrypt(operation, CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                               keyBytes.baseAddress, keyBytes.count, iv, source, source.count,
+                               out.baseAddress, out.count, &written)
             }
             return status == kCCSuccess ? written : 0
         }
@@ -77,20 +86,3 @@ public struct ChromiumPasswordCrypto: Sendable {
     }
 }
 #endif
-
-extension UnsafeRawBufferPointer {
-    /// Checks in place: the bytes never become a `String`.
-    var isValidUTF8: Bool {
-        var decoder = UTF8()
-        var iterator = makeIterator()
-        // Each step reads at least one byte, so this ends within `count` steps.
-        for _ in 0...count {
-            switch decoder.decode(&iterator) {
-            case .scalarValue: continue
-            case .emptyInput: return true
-            case .error: return false
-            }
-        }
-        return false
-    }
-}

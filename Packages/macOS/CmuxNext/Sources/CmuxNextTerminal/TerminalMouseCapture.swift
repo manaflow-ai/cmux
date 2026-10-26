@@ -20,7 +20,8 @@ nonisolated final class TerminalMouseCapture: Sendable {
     /// `lane` is the surface's output lane; with none the answer stays `captured`.
     convenience init(lane: TerminalOutputLane?, captured: Bool = false) {
         self.init(ask: lane.map { lane -> Ask in
-            { answer in lane.perform { surface in answer(ghostty_surface_mouse_captured(surface)) } }
+            // SAFETY: the lane passes its live surface for the body's call only.
+            { answer in unsafe lane.perform { surface in answer(unsafe ghostty_surface_mouse_captured(surface)) } }
         }, captured: captured)
     }
 

@@ -23,6 +23,11 @@
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
 //!
+//! [`sync`] channels (std `mpsc`, and `crossbeam_channel` behind the
+//! `crossbeam` feature) carry their producer's QoS in Debug: a blocking
+//! receive on a higher-QoS thread records a `priority-inversion` site.
+//! Release sends the plain value.
+//!
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
 //! [`process`].
@@ -34,6 +39,7 @@ pub mod process;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
+pub mod sync;
 pub mod work;
 
 pub use blocking::{

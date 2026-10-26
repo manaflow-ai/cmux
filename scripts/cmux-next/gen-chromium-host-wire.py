@@ -173,6 +173,8 @@ CEFS = APP + "/CmuxNextBrowser/CEF"
 HOST = "Packages/macOS/CmuxNext/ChromiumHost"
 SHIMH = CEFS + "/Shim/cmux_cef_shim.h"
 SHIM_LIBRARY = CEFS + "/CEFShimLibrary.swift"
+# CEFShimLibrary's initializer, which binds every export (p10-stability-067 moved it out of SHIM_LIBRARY).
+SHIM_LIBRARY_BIND = CEFS + "/CEFShimLibrary+Bind.swift"
 OPS = "plans/cmux-next/chromium-host-ops.json"
 PARITY = "plans/cmux-next/chromium-host-view-parity.json"
 MOJOM_DIR = "plans/cmux-next/remote_cocoa_mojom"
@@ -1828,12 +1830,18 @@ def missing_sides(model: Model | None, header: Header, per_export: dict[str, str
     return rows
 
 
+def shim_library_text(root: Path) -> str:
+    """CEFShimLibrary's declaration and, when it has one, its binding initializer's file."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in (root / SHIM_LIBRARY, root / SHIM_LIBRARY_BIND)
+                     if path.exists())
+
+
 def shim_library_problems(model: Model, root: Path) -> list[str]:
     """CEFShimLibrary binds header exports with r(...) and optional exports with r.optional(...)."""
     path = root / SHIM_LIBRARY
     if not path.exists():
         return []
-    code = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+    code = re.sub(r"//[^\n]*", "", shim_library_text(root))
     bound = re.findall(r'\br(\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', code)
     in_header = {e.name for e in model.header.exports}
     optional = {e.name for e in model.exports if e.optional}
@@ -1872,8 +1880,14 @@ def shim_properties(root: Path) -> dict[str, str]:
     path = root / SHIM_LIBRARY
     if not path.exists():
         raise Failure(f"{SHIM_LIBRARY} is missing: it maps Swift names to exports")
-    text = path.read_text(encoding="utf-8")
-    return dict(re.findall(r'\b(\w+)\s*=\s*(?:[^\n"=]*==[^\n"]*\?\s+)?(?:try\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', text))
+    text = shim_library_text(root)
+    # An export bound to its C type as `let cName: <type> = try unsafe r("export")`, which the property `name`
+    # wraps in Swift types (CEFShimLibrary+Bind.swift).
+    c_binding = re.compile(r'\blet\s+c([A-Z]\w*)\s*:[^\n]*?=\s*(?:try\s+)?(?:unsafe\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)')
+    names = {local[0].lower() + local[1:]: export for local, export in c_binding.findall(text)}
+    names.update(re.findall(r'\b(\w+)\s*=\s*(?:[^\n"=]*==[^\n"]*\?\s+)?(?:try\s+)?(?:unsafe\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)',
+                            c_binding.sub("", text)))
+    return names
 
 
 # The head of a brace block that is a statement, not a closure (the text before `{` on its line).
@@ -2218,7 +2232,7 @@ def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
     out = []
     for path in sorted((root / APP).rglob("*.swift")):
         rel = path.relative_to(root).as_posix()
-        if rel == SHIM_LIBRARY or "/Generated/" in rel:
+        if rel in (SHIM_LIBRARY, SHIM_LIBRARY_BIND) or "/Generated/" in rel:
             continue
         source = path.read_text(encoding="utf-8", errors="replace")
         if "shim" not in source and "CEFShimLibrary" not in source:

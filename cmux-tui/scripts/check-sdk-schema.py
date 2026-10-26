@@ -752,16 +752,6 @@ def _schema_type_shape(
     return ""
 
 
-# Fields the server reads only to refuse them with invalid-argument: a
-# pre-rename name an older client may still send. They are not part of the
-# SDK contract, so the SDKs never send them.
-REFUSED_LEGACY_REQUEST_FIELDS = {
-    # R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an
-    # older client's pin into a plain column.
-    "move-tab-to-column": {"sticky"},
-}
-
-
 def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
@@ -774,13 +764,6 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
         if name in runtime_commands or name in generated:
             fail(f"{name} is both a Command variant and a handler module command")
         runtime_commands[name] = fields
-    for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
-        fields = runtime_commands.get(command_name, {})
-        missing = refused - set(fields)
-        if missing:
-            fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
-        for name in refused:
-            del fields[name]
     compare_names(set(ir.commands), set(runtime_commands) | generated, "runtime SDK command")
     for command_name, command in ir.commands.items():
         if command_name in generated:
