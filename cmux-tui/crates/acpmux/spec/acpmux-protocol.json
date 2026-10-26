@@ -586,6 +586,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_ls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_rm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/ask",
       "params": true,
       "result": true
@@ -3325,6 +3343,10 @@
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3771,6 +3793,10 @@
             }
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "rules": {
           "description": "The session has its own permission rules.",
