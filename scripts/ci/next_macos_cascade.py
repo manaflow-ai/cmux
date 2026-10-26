@@ -332,8 +332,10 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
 def skipped(env: Mapping[str, str]) -> str:
     """Why this run places nothing on Blacksmith before reading anything, or ""."""
     label = (env.get("SIDE_LABEL") or "").strip()
-    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
-        return "a re-run keeps its own route"
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
+    actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
+    if attempt not in ("", "1") and actor != "github-actions[bot]":
+        return "a person re-run keeps its own route"
     if not label.startswith("glaeda-side-"):
         return f"`{label or 'no label'}` is not an owned side label"
     return ""
