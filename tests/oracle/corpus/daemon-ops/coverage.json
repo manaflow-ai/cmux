@@ -18,7 +18,6 @@
     "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "chief.profile.adopt": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
-    "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
     "column.update": "placeholders params.column: p15-oracle-066 tunes the success case",
     "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
     "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
@@ -48,6 +47,7 @@
     "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
     "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
     "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
+    "tab.create_browser": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
   },
   "missing": [],
@@ -705,13 +705,19 @@
         "success": "daemon-ops/closed-delete-ok",
         "error": "daemon-ops/closed-delete-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "closed.reopen": {
       "family": "tab",
@@ -719,14 +725,19 @@
         "success": "daemon-ops/closed-reopen-ok",
         "error": "daemon-ops/closed-reopen-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "gap": "a fresh daemon has no closed group to reopen; the family task closes one first"
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "column.update": {
       "family": "layout",
@@ -1730,11 +1741,12 @@
         "fx-saved-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "saved_tab_group.reopen": {
       "family": "tab",
@@ -1744,15 +1756,19 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group",
-        "fx-saved-tab-group"
+        "fx-saved-tab-group",
+        "close-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "saved_tab_group.save": {
       "family": "tab",
@@ -1765,11 +1781,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "screen.close": {
       "family": "layout",
@@ -2625,14 +2642,17 @@
         "error": "daemon-ops/tab-close-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.create_browser": {
       "family": "tab",
@@ -2648,7 +2668,21 @@
         "field": "url",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "chromium"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "tab.create_terminal": {
       "family": "tab",
@@ -2660,11 +2694,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.focus": {
       "family": "tab",
@@ -2673,14 +2709,18 @@
         "error": "daemon-ops/tab-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "focus-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.move": {
       "family": "tab",
@@ -2693,11 +2733,12 @@
         "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "destination_workspace",
-        "rule": "selector must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab.pin": {
       "family": "tab",
@@ -2709,11 +2750,12 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab.rename": {
       "family": "tab",
@@ -2725,11 +2767,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.unpin": {
       "family": "tab",
@@ -2738,14 +2782,17 @@
         "error": "daemon-ops/tab-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.update": {
       "family": "tab",
@@ -2757,11 +2804,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "zoom",
-        "rule": "value must be a finite number"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.add_tabs": {
       "family": "tab",
@@ -2771,14 +2820,17 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.close": {
       "family": "tab",
@@ -2791,11 +2843,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.create": {
       "family": "tab",
@@ -2807,11 +2860,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.move": {
       "family": "tab",
@@ -2821,14 +2876,17 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.remove_tabs": {
       "family": "tab",
@@ -2841,11 +2899,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.ungroup": {
       "family": "tab",
@@ -2858,11 +2917,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.update": {
       "family": "tab",
@@ -2875,11 +2935,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "terminal.close": {
       "family": "terminal",

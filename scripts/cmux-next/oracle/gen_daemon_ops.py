@@ -1670,6 +1670,57 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             "operation": "history.restore",
             "reason": "no history backup history:0000000000000000000000000000000a (it was restored, purged or expired)"})
 
+    def test_the_tab_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/tab/_tuning.json (p15-oracle-067): the 21 tab, tab_group, saved_tab_group
+        and closed mutations. Reopen and unpin run as round trips (a close or pin first, in the success case only);
+        each error is the handler's own refusal except tab.create_browser's, which keeps the catalog check so it is
+        the same with and without a browser engine. Only that success (a daemon-rendered browser) is excluded."""
+        sys.path.insert(0, str(HERE))
+        normalize = __import__("normalize")
+        checks = __import__("case_checks")
+        schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+        rules = checks.Rules(schema)
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        tab = sorted(op for op in self.catalog.mutations() if family_of(op) == "tab")
+        self.assertEqual(len(tab), 21)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "tab"), tab)
+
+        def case(operation: str, kind: str) -> Dict[str, Any]:
+            return files[coverage["operations"][operation]["cases"][kind].split("/", 1)[1] + ".json"]
+
+        round_trips = {"closed.reopen": "tab.close", "closed.delete": "tab.close",
+                       "saved_tab_group.reopen": "tab_group.close", "tab.unpin": "tab.pin", "tab.focus": "tab.focus"}
+        for operation in tab:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            self.assertEqual(operation in coverage["excluded"], operation == "tab.create_browser", operation)
+            for kind in ("success", "error"):
+                doc = case(operation, kind)
+                self.assertEqual(normalize.validate(doc, schema), [], f"{operation} {kind}")
+                self.assertEqual(checks.check_case(doc, rules), [], f"{operation} {kind}")
+                self.assertEqual(doc["steps"][-1]["args"]["method"], operation)
+                # Every refusal but the catalog check's names what it refused.
+                expect = doc["steps"][-1]["expect"]
+                self.assertEqual("errorDetails" in expect, kind == "error" and operation != "tab.create_browser",
+                                 f"{operation} {kind}")
+                before = [step["args"]["method"] for step in doc["steps"]
+                          if step["id"] != "call" and not step["id"].startswith("fx-")]
+                setup = round_trips.get(operation) if kind == "success" else None
+                expected = [setup] if setup else (["tab.pin"] if (operation, kind) == ("tab_group.add_tabs", "error") else [])
+                self.assertEqual(before, expected, f"{operation} {kind}")
+        self.assertEqual(case("tab.create_browser", "success")["requires"], ["resource_api", "chromium"])
+        self.assertEqual(case("tab.create_browser", "error")["requires"], ["resource_api"])
+        self.assertEqual(coverage["operations"]["tab.create_browser"]["error"]["code"], ERROR_CODE)
+        self.assertIn("p15-oracle-239", coverage["excluded"]["tab.create_browser"])
+        # The closed history is empty until a close: reopen's error is the missing newest group, its success the
+        # tab the before step closed.
+        self.assertEqual(case("closed.reopen", "error")["steps"][-1]["expect"]["errorDetails"],
+                         {"scope": "closed", "id": "newest"})
+        self.assertEqual(case("closed.reopen", "success")["steps"][-2]["target"]["tab"],
+                         "$step:fx-split#/value/tab_id")
+
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
             with self.subTest(remote=remote), self.assertRaisesRegex(GenError, "git.push: params.remote"):
