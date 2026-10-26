@@ -55,17 +55,21 @@ nonisolated final class TerminalOutputLane: Sendable {
     static let feedHangDeadline: Duration = .milliseconds(100)
     /// Parses one output chunk into the surface: `ghostty_surface_process_output`, or a test's recorder.
     typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
-    private let parse: Parse
+    /// SAFETY: called only by ``feed(_:_:)`` with the lane's live surface (``liveSurface``).
+    @safe private let parse: Parse
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
-         hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
-        self.surface = UncheckedPointer(raw: surface)
+         hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) }) {
+        // SAFETY: the view's surface, which the lane reaches only through ``liveSurface``; the view
+        // closes the lane before it frees the surface (TerminalSurfaceView.deinit).
+        self.surface = unsafe UncheckedPointer(raw: surface)
+        // SAFETY: `parse` is called only with the live surface (its note).
+        self.parse = unsafe parse
         self.highWater = highWater
         self.echoStage = echoStage
         self.keyFlows = keyFlows
         self.probe = probe
-        self.parse = parse
         hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
@@ -121,7 +125,8 @@ nonisolated final class TerminalOutputLane: Sendable {
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
-            feed(surface, data)
+            // SAFETY: ``liveSurface`` on the lane: alive until close() fences the lane.
+            unsafe feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -133,15 +138,22 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Parses one chunk on the lane, inside a ``feedHangDeadline`` hang scope when there is a watcher.
     // perf-hot: 1ms terminal-feed
     private func feed(_ surface: ghostty_surface_t, _ data: Data) {
-        guard let hangWatched else { return parse(surface, data) }
-        hangWatched.run { parse(surface, data) }
+        // SAFETY: the caller's ``liveSurface``, on the lane.
+        guard let hangWatched else { return unsafe parse(surface, data) }
+        // SAFETY: as above; `run` calls its body before it returns.
+        hangWatched.run { unsafe parse(surface, data) }
     }
 
     /// The production ``Parse``: Ghostty's VT parser on the surface.
+    /// `surface` is a live handle on its lane.
     static func processOutput(_ surface: ghostty_surface_t, _ data: Data) {
-        data.withUnsafeBytes { buffer in
-            guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-            ghostty_surface_process_output(surface, base, UInt(buffer.count))
+        // SAFETY: Ghostty reads buffer.count bytes of `data`'s storage, alive for the closure, and
+        // copies what it keeps; bytes are bytes whatever the C char type.
+        unsafe data.withUnsafeBytes { buffer in
+            // SAFETY: as above.
+            guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            // SAFETY: as above; the caller's live surface.
+            unsafe ghostty_surface_process_output(surface, base, UInt(buffer.count))
         }
     }
 
@@ -157,9 +169,13 @@ nonisolated final class TerminalOutputLane: Sendable {
             guard let surface = liveSurface else { return }
             let ready = phase == GHOSTTY_SURFACE_SNAPSHOT_READY
             guard ready || readyRestored.load(ordering: .relaxed) else { return }
-            let restored = data.withUnsafeBytes { buffer -> Bool in
-                guard let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
-                return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
+            // SAFETY: ``liveSurface`` on the lane; Ghostty reads buffer.count bytes of `data`'s
+            // storage, alive for the closure, and copies what it keeps.
+            let restored = unsafe data.withUnsafeBytes { buffer -> Bool in
+                // SAFETY: as above.
+                guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+                // SAFETY: as above.
+                return unsafe ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -184,13 +200,18 @@ nonisolated final class TerminalOutputLane: Sendable {
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
             defer { localHistoryResult.store(result, ordering: .releasing) }
             guard let surface = liveSurface else { return }
-            result = data.withUnsafeBytes { bytes -> Int32 in
-                digest.withUnsafeBytes { check -> Int32 in
-                    guard let base = bytes.bindMemory(to: UInt8.self).baseAddress,
-                          let expected = check.bindMemory(to: UInt8.self).baseAddress else {
+            // SAFETY: ``liveSurface`` on the lane; Ghostty reads bytes.count bytes of `data` and
+            // check.count of `digest`, both storages alive for the closures, and copies what it keeps.
+            result = unsafe data.withUnsafeBytes { bytes -> Int32 in
+                // SAFETY: as above.
+                unsafe digest.withUnsafeBytes { check -> Int32 in
+                    // SAFETY: as above.
+                    guard let base = unsafe bytes.bindMemory(to: UInt8.self).baseAddress,
+                          let expected = unsafe check.bindMemory(to: UInt8.self).baseAddress else {
                         return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
                     }
-                    return Int32(ghostty_surface_restore_snapshot_local_history(
+                    // SAFETY: as above.
+                    return unsafe Int32(ghostty_surface_restore_snapshot_local_history(
                         surface, base, bytes.count, expectedRows, expected, check.count))
                 }
             }
@@ -211,9 +232,13 @@ nonisolated final class TerminalOutputLane: Sendable {
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
-            let applied = data.withUnsafeBytes { buffer -> Bool in
-                guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
-                return ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
+            // SAFETY: ``liveSurface`` on the lane; Ghostty reads buffer.count bytes of `data`'s
+            // storage, alive for the closure, and copies what it keeps.
+            let applied = unsafe data.withUnsafeBytes { buffer -> Bool in
+                // SAFETY: as above.
+                guard let base = unsafe buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+                // SAFETY: as above.
+                return unsafe ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
             }
             if !applied {
                 Self.logger.error("kitty replay skipped part of \(data.count) bytes")
@@ -236,10 +261,12 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     /// Runs `body` on the lane with the live surface, or not at all after
     /// ``close()``.
+    /// `body` must not keep the surface past its call.
     func perform(_ body: @escaping @Sendable (ghostty_surface_t) -> Void) {
         queue.async { [self] in
             guard let surface = liveSurface else { return }
-            body(surface)
+            // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
+            unsafe body(surface)
         }
     }
 
@@ -254,8 +281,10 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence
     /// sees `closing` set (the queue orders it after the store), so nothing touches a freed surface.
-    private var liveSurface: ghostty_surface_t? {
-        closing.load(ordering: .relaxed) ? nil : surface.raw
+    @safe private var liveSurface: ghostty_surface_t? {
+        // SAFETY: work on the lane reads it before close() sets `closing` and fences the queue,
+        // which the view does before it frees the surface (TerminalSurfaceView.deinit).
+        unsafe closing.load(ordering: .relaxed) ? nil : surface.raw
     }
 
     /// Skips queued work and waits for the chunk in flight, so nothing

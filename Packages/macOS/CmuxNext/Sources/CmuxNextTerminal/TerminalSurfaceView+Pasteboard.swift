@@ -31,7 +31,8 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     /// editing keys (a TUI such as Claude Code fullscreen, Codex or OpenCode).
     public var programCapturesMouse: Bool {
         guard let surface else { return false }
-        return ghostty_surface_mouse_captured(surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        return unsafe ghostty_surface_mouse_captured(surface)
     }
 
     private func sendCommandKeyToProgram(_ character: String, keyCode: UInt16) {
@@ -93,9 +94,9 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     /// Delivered through `ghostty_surface_text` so bracketed paste applies.
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let surface, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
-        text.withCString { pointer in
-            ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
-        }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
+        // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
+        unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
         window?.makeFirstResponder(self)
         return true
     }

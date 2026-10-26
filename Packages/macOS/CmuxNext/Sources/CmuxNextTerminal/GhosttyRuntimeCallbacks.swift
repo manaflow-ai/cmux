@@ -7,7 +7,7 @@ import GhosttyNextKit
 /// cloned config until it is freed, and a surface until `ghostty_surface_free`,
 /// which ``TerminalOutputLane/close()`` fences.
 // crash-allow: an immutable C address passed back to libghostty, never dereferenced in Swift; the handle's lifetime is Ghostty's documented contract above
-nonisolated struct UncheckedPointer: @unchecked Sendable {
+@safe nonisolated struct UncheckedPointer: @unchecked Sendable {
     let raw: UnsafeMutableRawPointer?
 }
 
@@ -17,8 +17,13 @@ nonisolated struct UncheckedPointer: @unchecked Sendable {
 // arrive on the main thread during ghostty_app_tick or a surface call; the
 // handlers still check and hop so an off-main caller can never touch AppKit.
 
+// Every `userdata` below is what cmux registered for its callback: the runtime's
+// RuntimeCallbackContext, or a surface's SurfaceBridge, which outlives its surface
+// (TerminalSurfaceView.deinit releases it after ghostty_surface_free returns).
+
 nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
-    guard let context = RuntimeCallbackContext.from(userdata) else { return }
+    // SAFETY: the runtime's userdata (above).
+    guard let context = unsafe RuntimeCallbackContext.from(userdata) else { return }
     guard context.pending.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
         return
     }
@@ -32,12 +37,15 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
     // Decode synchronously: strings in the action are valid only for the
     // duration of this callback.
     guard let decoded = GhosttyActionDecoder.decode(action) else { return false }
-    let bridge: SurfaceBridge? = if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-        SurfaceBridge.from(ghostty_surface_userdata(surface))
+    // SAFETY: Ghostty targets a live surface of this app during the callback; its userdata is
+    // the surface's SurfaceBridge (above).
+    let bridge: SurfaceBridge? = if target.tag == GHOSTTY_TARGET_SURFACE, let surface = unsafe target.target.surface {
+        unsafe SurfaceBridge.from(ghostty_surface_userdata(surface))
     } else {
         nil
     }
-    let context = app.flatMap { RuntimeCallbackContext.from(ghostty_app_userdata($0)) }
+    // SAFETY: the live app's userdata is the runtime's context (above).
+    let context = unsafe app.flatMap { unsafe RuntimeCallbackContext.from(ghostty_app_userdata($0)) }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
         return MainActor.assumeIsolated {
@@ -64,17 +72,22 @@ nonisolated func ghosttyReadClipboard(
     _ mimeCount: Int,
     _ listAvailable: Bool
 ) -> ghostty_clipboard_read_result_e {
-    guard Thread.isMainThread, let bridge = SurfaceBridge.from(userdata) else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
+    // SAFETY: a surface's userdata (above).
+    guard Thread.isMainThread, let bridge = unsafe SurfaceBridge.from(userdata) else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
     // Text-like types always arrive as the canonical "text/plain"; the
     // terminal serves text only.
     var wantsText = false
-    if let mimes {
-        for index in 0..<mimeCount where mimes[index].map({ String(cString: $0) }) == "text/plain" {
+    // SAFETY: Ghostty passes mimeCount NUL-terminated MIME strings, valid for this callback;
+    // String(cString:) copies each.
+    if let mimes = unsafe mimes {
+        for index in 0..<mimeCount where unsafe mimes[index].map({ unsafe String(cString: $0) }) == "text/plain" {
             wantsText = true
         }
     }
-    let pointer = UncheckedPointer(raw: state)
+    // SAFETY: the request's state, valid until its one completion or denial
+    // (TerminalClipboardRequests).
+    let pointer = unsafe UncheckedPointer(raw: state)
     // main-proof: guarded by Thread.isMainThread at the top of this function
     return MainActor.assumeIsolated {
         guard let view = bridge.view else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
@@ -92,14 +105,19 @@ nonisolated func ghosttyConfirmReadClipboard(
     _ state: UnsafeMutableRawPointer?,
     _ request: ghostty_clipboard_request_e
 ) {
-    guard let bridge = SurfaceBridge.from(userdata) else { return }
+    // SAFETY: a surface's userdata (above).
+    guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
     var contents = ""
     var contentBytes = 0
     var chosePlainText = false
-    if let confirm = confirm?.pointee, let items = confirm.contents {
+    // SAFETY: Ghostty passes one confirmation with contents_len items, each MIME a NUL-terminated
+    // string, all valid for this callback and copied before it returns.
+    if let confirm = unsafe confirm?.pointee, let items = unsafe confirm.contents {
         for index in 0..<confirm.contents_len {
-            let item = items[index]
-            let mime = item.mime.map({ String(cString: $0) }) ?? "text/plain"
+            // SAFETY: as above.
+            let item = unsafe items[index]
+            // SAFETY: as above.
+            let mime = unsafe item.mime.map({ unsafe String(cString: $0) }) ?? "text/plain"
             let text = TerminalClipboardRequests.string(item)
             let (itemBytes, itemOverflow) = mime.utf8.count.addingReportingOverflow(item.len)
             let (next, totalOverflow) = contentBytes.addingReportingOverflow(itemBytes)
@@ -116,7 +134,9 @@ nonisolated func ghosttyConfirmReadClipboard(
     case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE, GHOSTTY_CLIPBOARD_REQUEST_KITTY_WRITE: .osc52Write
     default: .paste
     }
-    let pointer = UncheckedPointer(raw: state)
+    // SAFETY: the request's state, valid until its one completion or denial
+    // (TerminalClipboardRequests).
+    let pointer = unsafe UncheckedPointer(raw: state)
     let run: @MainActor @Sendable () -> Void = {
         bridge.view?.clipboardRequests.confirm(contents: contents, contentBytes: contentBytes, kind: kind, state: pointer)
     }
@@ -136,17 +156,22 @@ nonisolated func ghosttyWriteClipboard(
     _ count: Int,
     _ confirm: Bool
 ) {
-    guard let contents, count > 0 else { return }
+    // SAFETY: Ghostty passes `count` contents, each MIME a NUL-terminated string, all valid for
+    // this callback and copied before it returns.
+    guard let contents = unsafe contents, count > 0 else { return }
     var items: [TerminalClipboardItem] = []
     for index in 0..<count {
-        let item = contents[index]
-        guard item.data != nil else { continue }
-        let mime = item.mime.map { String(cString: $0) } ?? "text/plain"
+        // SAFETY: as above.
+        let item = unsafe contents[index]
+        guard unsafe item.data != nil else { continue }
+        // SAFETY: as above.
+        let mime = unsafe item.mime.map { unsafe String(cString: $0) } ?? "text/plain"
         items.append(TerminalClipboardItem(mime: mime, text: TerminalClipboardRequests.string(item)))
     }
     guard !items.isEmpty else { return }
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
-    let bridge = SurfaceBridge.from(userdata)
+    // SAFETY: a surface's userdata (above).
+    let bridge = unsafe SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
         bridge?.view?.clipboardRequests.write(items: items, location: location, requiresConfirmation: confirm)
     }
@@ -160,7 +185,8 @@ nonisolated func ghosttyWriteClipboard(
 }
 
 nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ processAlive: Bool) {
-    guard let bridge = SurfaceBridge.from(userdata) else { return }
+    // SAFETY: a surface's userdata (above).
+    guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
     DispatchQueue.main.async {
         // main-proof: DispatchQueue.main runs its blocks on the main thread
         MainActor.assumeIsolated { bridge.view?.surfaceRequestedClose() }

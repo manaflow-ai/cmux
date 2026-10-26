@@ -94,7 +94,8 @@ final class TerminalFrameHold {
             guard let self, self.generation == generation, let surface = self.surface else { return }
             self.parsed = (surface.presentedFrame, 0)
             // A frame from the parsed state, even if the renderer has nothing else to draw.
-            if let ghostty = surface.surface { ghostty_surface_refresh(ghostty) }
+            // SAFETY: the held view's live surface (TerminalSurfaceView.surface), on the main actor.
+            if let ghostty = surface.surface { unsafe ghostty_surface_refresh(ghostty) }
         }
     }
 

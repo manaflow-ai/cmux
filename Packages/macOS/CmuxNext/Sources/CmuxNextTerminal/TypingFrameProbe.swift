@@ -43,8 +43,10 @@ enum TypingFrameProbe {
 
     /// The associated-object key of a layer's ``SurfaceBox``: the class object, one stable address
     /// readable from any thread.
-    private nonisolated static var keyFlowsKey: UnsafeRawPointer {
-        UnsafeRawPointer(Unmanaged.passUnretained(SurfaceBox.self as AnyObject).toOpaque())
+    @safe private nonisolated static var keyFlowsKey: UnsafeRawPointer {
+        // SAFETY: only an address used as a key, never dereferenced; the class object lives for
+        // the process, so the address is stable.
+        unsafe UnsafeRawPointer(Unmanaged.passUnretained(SurfaceBox.self as AnyObject).toOpaque())
     }
     #endif
 
@@ -77,7 +79,9 @@ enum TypingFrameProbe {
                                              gate: TerminalContentsGate) -> @convention(block) (AnyObject, AnyObject?) -> Void {
         { layer, contents in
             if let imp = class_getMethodImplementation(superclass, selector) {
-                unsafeBitCast(imp, to: SetContents.self)(layer, selector, contents)
+                // SAFETY: `imp` is the superclass's `setContents:`, an Objective-C method of type
+                // (id, SEL, id) -> void, which SetContents is; it is called with that selector.
+                unsafe unsafeBitCast(imp, to: SetContents.self)(layer, selector, contents)
             }
             if gate.isOpen { TerminalEchoStage.attached(to: layer)?.contentsSet() }
             if TypingLatencyProbe.isEnabled,

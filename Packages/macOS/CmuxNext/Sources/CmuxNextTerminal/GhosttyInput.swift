@@ -39,7 +39,8 @@ nonisolated enum GhosttyInput {
         var key = ghostty_input_key_s()
         key.action = action
         key.keycode = UInt32(event.keyCode)
-        key.text = nil
+        // SAFETY: a null text pointer; the caller sets a text whose lifetime it controls.
+        unsafe key.text = nil
         key.composing = false
         key.mods = mods(event.modifierFlags)
         // Control and Command never produce text on macOS; everything else
@@ -175,20 +176,31 @@ nonisolated enum GhosttyInput {
     }
 
     private static func stringProperty(_ source: TISInputSource, _ key: CFString) -> CFString? {
-        guard let property = TISGetInputSourceProperty(source, key) else { return nil }
-        return Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue()
+        // SAFETY: TISGetInputSourceProperty returns a CFString for a string-valued key, owned by
+        // `source` (Get rule); taken unretained and retained by the returned reference.
+        guard let property = unsafe TISGetInputSourceProperty(source, key) else { return nil }
+        // SAFETY: as above.
+        return unsafe Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue()
     }
 
     private static func character(in source: TISInputSource, keyCode: UInt16) -> String? {
-        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
-        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
-        guard let bytes = CFDataGetBytePtr(data) else { return nil }
-        let layout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        // SAFETY: the layout data property is a CFData owned by `source` (Get rule), which the
+        // caller holds for this call, so it and its bytes stay alive to the end of it.
+        guard let pointer = unsafe TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        // SAFETY: as above.
+        let data = unsafe Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
+        // SAFETY: the bytes of `data`, alive for this call (above); HIToolbox documents them as
+        // a UCKeyboardLayout (kTISPropertyUnicodeKeyLayoutData).
+        guard let bytes = unsafe CFDataGetBytePtr(data) else { return nil }
+        // SAFETY: as above.
+        let layout = unsafe UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
         var deadKeyState: UInt32 = 0
         var chars = [UniChar](repeating: 0, count: 4)
         var length = 0
-        let status = UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDisplay), 0, UInt32(LMGetKbdType()),
-                                    UInt32(kUCKeyTranslateNoDeadKeysBit), &deadKeyState, chars.count, &length, &chars)
+        // SAFETY: `layout` is valid for this call (above); UCKeyTranslate writes at most
+        // chars.count (the max passed) units into `chars` and one count into `length`.
+        let status = unsafe UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDisplay), 0, UInt32(LMGetKbdType()),
+                                           UInt32(kUCKeyTranslateNoDeadKeysBit), &deadKeyState, chars.count, &length, &chars)
         guard status == noErr, length > 0 else { return nil }
         return String(utf16CodeUnits: chars, count: length).lowercased()
     }

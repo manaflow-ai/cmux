@@ -10,15 +10,12 @@ struct TerminalSelection {
     let range: NSRange
     let topLeft: CGPoint
 
-    /// The surface's selection, or nil when nothing is selected.
-    static func read(_ surface: ghostty_surface_t?) -> Self? {
-        guard let surface else { return nil }
-        var raw = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &raw) else { return nil }
-        defer { ghostty_surface_free_text(surface, &raw) }
-        let text = raw.text.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: Int(raw.text_len)), as: UTF8.self) } ?? ""
-        return Self(text: text, range: NSRange(location: Int(raw.offset_start), length: Int(raw.offset_len)),
-                    topLeft: CGPoint(x: raw.tl_px_x, y: raw.tl_px_y))
+    /// The selection of `view`'s surface, or nil when nothing is selected (or it has no surface).
+    @MainActor static func read(of view: TerminalSurfaceView) -> Self? {
+        guard let surface = view.surface else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let read = unsafe GhosttyTextRead(selectionOf: surface) else { return nil }
+        return Self(text: read.string, range: read.range, topLeft: read.topLeft)
     }
 }
 

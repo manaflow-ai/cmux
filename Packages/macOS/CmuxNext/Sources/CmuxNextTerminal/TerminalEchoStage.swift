@@ -244,8 +244,10 @@ public nonisolated final class TerminalEchoStage: Sendable {
     // MARK: Layer association
 
     /// The associated-object key: the stage class object, one stable address readable from any thread.
-    private static var associationKey: UnsafeRawPointer {
-        UnsafeRawPointer(Unmanaged.passUnretained(TerminalEchoStage.self as AnyObject).toOpaque())
+    @safe private static var associationKey: UnsafeRawPointer {
+        // SAFETY: only an address used as a key, never dereferenced; the class object lives for
+        // the process, so the address is stable.
+        unsafe UnsafeRawPointer(Unmanaged.passUnretained(TerminalEchoStage.self as AnyObject).toOpaque())
     }
 
     /// Ties this stage to the layer Ghostty presents the surface's frames in.

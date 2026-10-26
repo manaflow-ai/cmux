@@ -52,11 +52,16 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         let shellName = (shell as NSString).lastPathComponent
         let argv = CStringArray(["-" + shellName])
         let envp = CStringArray(environment.map { "\($0.key)=\($0.value)" })
-        let path = strdup(shell)
-        let directory = strdup(workingDirectory)
+        // SAFETY: two C copies this initializer owns, freed once (defer) after fork and execve
+        // have read them in the child, which has its own copy of the memory.
+        let path = unsafe strdup(shell)
+        // SAFETY: as above.
+        let directory = unsafe strdup(workingDirectory)
         defer {
-            free(path)
-            free(directory)
+            // SAFETY: as above.
+            unsafe free(path)
+            // SAFETY: as above.
+            unsafe free(directory)
         }
 
         var size = winsize(ws_row: UInt16(clamping: rows), ws_col: UInt16(clamping: columns), ws_xpixel: 0, ws_ypixel: 0)
@@ -64,7 +69,9 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         // limit does not make the child loop for long.
         let highestDescriptor = min(getdtablesize(), 1 << 16)
         var master: Int32 = -1
-        let pid = forkpty(&master, nil, nil, &size)
+        // SAFETY: forkpty writes one descriptor into `master` and reads `size`, both alive for the
+        // call; nil name and termios are allowed.
+        let pid = unsafe forkpty(&master, nil, nil, &size)
         if pid == 0 {
             // The shell gets only its PTY (0-2): every app descriptor without close-on-exec (a socket, a
             // pipe, one received between recvmsg and FD_CLOEXEC) would pass through execve. close is
@@ -74,11 +81,15 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
                 _ = close(descriptor)
                 descriptor += 1
             }
-            _ = chdir(directory)
+            // SAFETY: `directory` is the NUL-terminated copy made before fork (or nil, which
+            // chdir rejects), still allocated in the child.
+            _ = unsafe chdir(directory)
             // The app catches SIGPIPE (exec resets that), but a host process
             // that ignores it would pass SIG_IGN on: give the shell the default.
             _ = signal(SIGPIPE, SIG_DFL)
-            execve(path, argv.pointer, envp.pointer)
+            // SAFETY: `path` and both NULL-terminated arrays were allocated before fork and are
+            // alive in the child (CStringArray); execve only reads them.
+            unsafe execve(path, argv.pointer, envp.pointer)
             _exit(127)
         }
         guard pid > 0 else { throw SpawnError.forkFailed(errno: errno) }
@@ -139,7 +150,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
             ws_xpixel: UInt16(clamping: pixelWidth),
             ws_ypixel: UInt16(clamping: pixelHeight)
         )
-        _ = ioctl(masterFD, TIOCSWINSZ, &size)
+        // SAFETY: TIOCSWINSZ reads one winsize, which `size` is, alive for the call.
+        _ = unsafe ioctl(masterFD, TIOCSWINSZ, &size)
     }
 
     /// Sends SIGHUP to the shell, as closing a terminal window does.
@@ -156,7 +168,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         // Output written just before exit may still be buffered.
         Self.drain(masterFD, into: continuation)
         var status: Int32 = 0
-        _ = waitpid(processID, &status, WNOHANG)
+        // SAFETY: waitpid writes one Int32 into `status`, alive for the call.
+        _ = unsafe waitpid(processID, &status, WNOHANG)
         // The write source's cancel handler closes the descriptor once GCD
         // is done with it.
         writeQueue.async { [input, writeSource] in input.cancel(writeSource) }
@@ -171,10 +184,13 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     @discardableResult
     private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
         var buffer = [UInt8](repeating: 0, count: 65_536)
+        let capacity = buffer.count
         // wakeup-allow: bounded: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
         while true {
             // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            // SAFETY: read writes at most `capacity` bytes, the array's count, into its storage,
+            // alive for the call.
+            let count = unsafe Darwin.read(fd, &buffer, capacity)
             if count > 0 {
                 continuation.yield(.output(Data(buffer[0..<count])))
                 continue
@@ -186,8 +202,11 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     public static var defaultShell: String {
         if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty { return shell }
-        if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
-            let path = String(cString: shell)
+        // SAFETY: getpwuid's entry and its NUL-terminated pw_shell stay valid until the next
+        // getpw* call; String(cString:) copies the shell at once.
+        if let entry = unsafe getpwuid(getuid()), let shell = unsafe entry.pointee.pw_shell {
+            // SAFETY: as above.
+            let path = unsafe String(cString: shell)
             if !path.isEmpty { return path }
         }
         return "/bin/zsh"
@@ -246,11 +265,14 @@ private nonisolated final class PendingInput: Sendable {
 
         mutating func flush(to fd: Int32, source: any DispatchSourceWrite) {
             while !cancelled, offset < data.count {
-                let written = data.withUnsafeBytes { [offset] raw -> Int in
+                // SAFETY: offset < data.count (the loop's condition), so base + offset and the
+                // raw.count - offset bytes after it lie inside the buffer, alive for the closure.
+                let written = unsafe data.withUnsafeBytes { [offset] raw -> Int in
                     // offset < data.count, so the buffer has a base address; without one, drop the data.
-                    guard let base = raw.baseAddress else { return 0 }
+                    guard let base = unsafe raw.baseAddress else { return 0 }
                     // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
-                    return Darwin.write(fd, base + offset, raw.count - offset)
+                    // SAFETY: as above.
+                    return unsafe Darwin.write(fd, base + offset, raw.count - offset)
                 }
                 if written > 0 {
                     offset += written
@@ -287,20 +309,27 @@ private nonisolated final class PendingInput: Sendable {
 
 /// NULL-terminated `char *[]` that outlives a fork.
 private nonisolated final class CStringArray {
-    let pointer: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+    /// SAFETY: `count + 1` slots, each a strdup copy this object owns or the final nil,
+    /// allocated in `init` and freed in `deinit`; readers use it while they hold the object.
+    @safe let pointer: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
     private let count: Int
 
     init(_ strings: [String]) {
         count = strings.count
-        pointer = .allocate(capacity: strings.count + 1)
+        // SAFETY: strings.count + 1 slots: every index written below is below that.
+        pointer = unsafe UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: strings.count + 1)
         for (index, string) in strings.enumerated() {
-            pointer[index] = strdup(string)
+            // SAFETY: as above.
+            unsafe pointer[index] = strdup(string)
         }
-        pointer[strings.count] = nil
+        // SAFETY: as above.
+        unsafe pointer[strings.count] = nil
     }
 
     deinit {
-        for index in 0..<count { free(pointer[index]) }
-        pointer.deallocate()
+        // SAFETY: frees the `count` copies and the slots `init` allocated, once.
+        for index in 0..<count { unsafe free(pointer[index]) }
+        // SAFETY: as above.
+        unsafe pointer.deallocate()
     }
 }
