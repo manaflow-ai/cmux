@@ -78,6 +78,7 @@ def parse(argv=None):
 # ({intervals_ms, main_ms}), for result-v1; the report keeps the app's summary statistics.
 opts = bench = None
 RAW = {}
+STRESS = {}  # the launch's STRESS build summary under "summary" (stress_summary)
 
 
 def rpc(method, params=None, timeout=60):
@@ -259,13 +260,25 @@ def idle_cursor():
     return result
 
 
-def stress():
+def load_stress():
     path = os.path.join(HERE, "perf-stress-session.py")
     spec = importlib.util.spec_from_file_location("perf_stress_session", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    summary = module.Stress(rpc).build()
-    time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    return module
+
+
+def stress_summary():
+    """The STRESS session's build summary, built once per launch: the stress and split-resize-stress layouts share
+    it (a second build finds the first one's 60 workspaces and raises StressShapeError)."""
+    if "summary" not in STRESS:
+        STRESS["summary"] = load_stress().Stress(rpc).build()
+        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    return STRESS["summary"]
+
+
+def stress():
+    summary = stress_summary()
     result = measure("stress")
     result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
         if isinstance(summary, dict) else None
@@ -319,12 +332,7 @@ def split_resize(stress_session=False):
     name = "split-resize-stress" if stress_session else "split-resize"
     summary = None
     if stress_session:
-        path = os.path.join(HERE, "perf-stress-session.py")
-        spec = importlib.util.spec_from_file_location("perf_stress_session", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        summary = module.Stress(rpc).build()
-        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+        summary = stress_summary()
     else:
         rpc("action.run", {"action": "newTab", "focus": True})
         wait(lambda: surfaces(), 30)
@@ -350,6 +358,11 @@ def split_resize(stress_session=False):
     return result
 
 
+# --layouts name -> its measure on the launched app.
+LAYOUTS = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
+           "split-resize-stress": lambda: split_resize(stress_session=True)}
+
+
 def main(argv=None):
     global opts, bench
     opts = parse(argv)
@@ -362,8 +375,7 @@ def main(argv=None):
         bench.launch(timeout=120)  # ready once debug.windows lists a window
         report["pid"] = bench.process.pid
         for name in opts.layout_names:
-            result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
-                      "split-resize-stress": lambda: split_resize(stress_session=True)}[name]()
+            result = LAYOUTS[name]()
             report["layouts"].append(result)
             print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
     finally:

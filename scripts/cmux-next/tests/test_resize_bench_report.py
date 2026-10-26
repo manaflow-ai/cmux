@@ -383,6 +383,17 @@ class BenchSourceTests(unittest.TestCase):
                 self.assertIn(why, done.stderr, name)
                 self.assertNotIn("bench-launch:", done.stdout + done.stderr, name)
 
+    def test_devtools_story_needs_the_background_drag_and_is_refused_before_any_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp, "cmux DEV t.app")
+            app.mkdir()
+            done = subprocess.run([sys.executable, "-I", str(HERE / "devtools-resize-live.py"), "--app", str(app),
+                                   "--out", tmp, "--story", report.DEVTOOLS_STORY], capture_output=True, text=True,
+                                  timeout=60)
+            self.assertEqual(done.returncode, 2, done.stdout[-300:] + done.stderr[-300:])
+            self.assertIn("measures the --background drag", done.stderr)
+            self.assertNotIn("bench-launch:", done.stdout + done.stderr)
+
     def test_the_report_module_imports_under_python_isolated(self):
         code = ("import runpy, sys; m = runpy.run_path(sys.argv[1]); "
                 "print(m['pct']([1.0, 2.0, 3.0], 0.5), m['record_all'].__name__)")
@@ -390,6 +401,75 @@ class BenchSourceTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr[-600:])
         self.assertEqual(done.stdout.split(), ["2.0", "record_all"])
+
+
+class DevtoolsLaunchTests(unittest.TestCase):
+    """devtools-resize-live.py's real-mouse launch may activate and stays isolated (LaunchIsolation)."""
+
+    def test_real_mode_may_activate_and_is_an_isolated_launch(self):
+        devtools = load("devtools_resize_live", HERE / "devtools-resize-live.py")
+        launch = load("bench_launch", HERE / "bench_launch.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp, "cmux DEV t.app")
+            app.mkdir()
+            for background, no_activate, isolated in ((False, None, "1"), (True, "1", None)):
+                env = launch.BenchApp(str(app), out=tmp, env=devtools.launch_env(background), window=devtools.WINDOW,
+                                      screen="last", teardown=False).environment()
+                self.assertEqual(env.get("CMUX_NEXT_NO_ACTIVATE"), no_activate, background)
+                self.assertEqual(env.get(launch.ISOLATED_LAUNCH_KEY), isolated, background)
+                self.assertEqual(env.get("CMUX_NEXT_TEST_WINDOW_FRAME"), "40,40,1200,800", background)
+
+
+class TerminalStressStoryTests(unittest.TestCase):
+    """terminal-resize-stress runs its STRESS layouts in one launch: the session is built once and shared."""
+
+    def test_the_story_layouts_build_stress_once_in_one_app(self):
+        bench = load("bench_terminal_resize", HERE / "bench-terminal-resize.py")
+        command = story(report.TERMINAL_STRESS_STORY)["command"]
+        layouts = command[command.index("--layouts") + 1].split(",")
+        builds = []
+
+        class StressShapeError(Exception):
+            pass
+
+        class FakeStress:
+            """perf-stress-session.Stress's workspace check on an app whose workspaces persist between builds."""
+            workspaces = 1
+
+            def __init__(self, rpc):
+                pass
+
+            def build(self):
+                if FakeStress.workspaces > 59:
+                    raise StressShapeError(f"the app already has {FakeStress.workspaces} workspaces")
+                FakeStress.workspaces = 60
+                builds.append(1)
+                return {"workspaces": 60, "busy_terminals": 10}
+
+        class Clock:
+            monotonic = staticmethod(time.monotonic)
+
+            @staticmethod
+            def sleep(_seconds):
+                pass
+
+        saved = {k: getattr(bench, k) for k in ("load_stress", "measure", "write", "final_grid_round", "time", "opts")}
+        try:
+            bench.STRESS.clear()
+            bench.load_stress = lambda: type("Module", (), {"Stress": FakeStress})
+            bench.measure = lambda name: {"layout": name}
+            bench.write = lambda text: None
+            bench.final_grid_round = lambda action: {"action": action, "terminals": []}
+            bench.time = Clock
+            bench.opts = type("Opts", (), {"rounds": 1})
+            results = [bench.LAYOUTS[name]() for name in layouts]
+        finally:
+            for key, value in saved.items():
+                setattr(bench, key, value)
+            bench.STRESS.clear()
+        self.assertEqual(len(builds), 1)
+        self.assertEqual([r["layout"] for r in results], layouts)
+        self.assertEqual([r["session"]["workspaces"] for r in results], [60, 60])
 
 
 if __name__ == "__main__":

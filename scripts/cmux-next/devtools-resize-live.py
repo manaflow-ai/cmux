@@ -7,9 +7,10 @@ with the tab (cx-d0d.45, R118).
 
 Launches the tagged app through bench_launch.BenchApp (the bench env, an empty cmux.json, a fresh
 saved session, the tag's daemons ended after), opens a Chromium tab on a local page and its DevTools
-(docked) and drags the divider. By default the app may activate and the drag is a real mouse:
-cua-driver's, through the window server, where the Chromium page and DevTools windows must leave the
-divider to cmux (after a click in DevTools, as when using it). With --background the app is never
+(docked) and drags the divider. By default the app may activate (still an isolated launch:
+CMUX_NEXT_ISOLATED_LAUNCH) and the drag is a real mouse: cua-driver's, through the window server,
+where the Chromium page and DevTools windows must leave the divider to cmux (after a click in
+DevTools, as when using it). With --background the app is never
 activated (CMUX_NEXT_NO_ACTIVATE), so its window is not key (a drag on a window behind another app's),
 and the drag is delivered in the app (`debug.mouse`). Checks:
 
@@ -17,14 +18,14 @@ and the drag is delivered in the app (`debug.mouse`). Checks:
   2. a second tab's DevTools takes its own size and the first tab keeps its own;
   3. closing and reopening DevTools keeps the tab's size.
 
-GUI host only (a capture mini). Exits 1 when a check fails. With --story it also writes, as
-cmux-perf-result/v1 (resize_bench_report.py), how far each drag's new size is from the drag and the
-failed checks.
+GUI host only (a capture mini). Exits 1 when a check fails. With --story (which needs --background, the
+method its story measures) it also writes, as cmux-perf-result/v1 (resize_bench_report.py), how far each
+drag's new size is from the drag and the failed checks.
 """
 import argparse, base64, functools, http.server, json, os, struct, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, bundle_id  # noqa: E402
 import resize_bench_report as results  # noqa: E402
 
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
@@ -52,9 +53,18 @@ def parse(argv=None):
     problem = parsed.story and results.story_problem(parsed.story, "chromium", "light")
     if problem:
         parser.error(problem)
+    if parsed.story and not parsed.background:
+        parser.error(f"--story {parsed.story} measures the --background drag (debug.mouse); pass --background")
     if not parsed.background and not os.path.exists(CUA):
         parser.error(f"no {CUA}: run on a capture mini, or pass --background")
     return parsed
+
+
+def launch_env(background):
+    """BenchApp's `env`: --background keeps the bench env's CMUX_NEXT_NO_ACTIVATE=1; a real drag needs an app that
+    may activate, still an isolated launch (bench_launch.shipping_env's pair): the test window frame and screen,
+    no `cmux` shim pointer, no global hot keys, no relaunch at login, no browser import offer."""
+    return None if background else {"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"}
 
 
 def check(ok, what):
@@ -243,9 +253,8 @@ def main(argv=None):
     ident = bundle_id(opts.app)
     if ident:
         subprocess.run(["defaults", "delete", ident, "CmuxNextBrowser.devToolsLayout"], capture_output=True)
-    # --background keeps the bench env's CMUX_NEXT_NO_ACTIVATE=1; a real drag needs an app that may activate.
     bench = BenchApp(opts.app, out=opts.out, config={}, window=WINDOW, screen="last", log_name="app.log",
-                     env=None if opts.background else {"CMUX_NEXT_NO_ACTIVATE": None}, build_config=opts.build_config)
+                     env=launch_env(opts.background), build_config=opts.build_config)
     try:
         bench.launch(timeout=180)  # ready once debug.windows lists a window
         print(f"app pid {bench.process.pid}, out {opts.out}", flush=True)
