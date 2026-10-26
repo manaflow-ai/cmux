@@ -13,11 +13,16 @@ import Darwin
 /// A sent region is the read-only descriptor of an unlinked POSIX shm object
 /// whose writable descriptor is closed (`cmux_shared_region_create`): xnu
 /// sizes a POSIX shm object once (`pshm_truncate` refuses a second), so
-/// nobody can change or shrink it under the receiver's mapping. The receiver
-/// refuses any other access mode, maps and copies it, and closes it.
+/// nobody can shrink it under the receiver's mapping. The receiver refuses
+/// any descriptor that is not a read-only shm object
+/// (`cmux_shared_region_is_sealed`: a regular file could be truncated under
+/// the mapping), maps and copies it, and closes it. Chrome on macOS passes a
+/// Mach memory entry instead (`base/memory/platform_shared_memory_region_apple.cc`);
+/// this channel is a Unix socket, so it passes the shm descriptor.
 nonisolated struct ChromiumHostSharedRegion: Sendable {
-    /// One shared field's most bytes: Chrome's `IPC::Channel::kMaximumMessageSize`
-    /// (`ipc/ipc_channel.h`).
+    /// The most bytes of one message's shared fields together: Chrome's
+    /// `IPC::Channel::kMaximumMessageSize` (`ipc/ipc_channel.h`), which caps
+    /// a whole message.
     static let maxBytes = 128 * 1024 * 1024
 
     /// The region's descriptor; the owner closes it (the outbox, once sent).
@@ -33,10 +38,9 @@ nonisolated struct ChromiumHostSharedRegion: Sendable {
     }
 
     /// The first `count` bytes of the received region `fd`, or nil when it is
-    /// not a read-only descriptor or holds fewer. Does not close `fd`.
+    /// not a read-only shm descriptor or holds fewer. Does not close `fd`.
     static func bytes(in fd: Int32, count: Int) -> [UInt8]? {
-        let accessMode = fcntl(fd, F_GETFL)
-        guard count > 0, count <= maxBytes, accessMode >= 0, accessMode & O_ACCMODE == O_RDONLY else { return nil }
+        guard count > 0, count <= maxBytes, cmux_shared_region_is_sealed(fd) != 0 else { return nil }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_size >= off_t(count) else { return nil }
         // A mapping: a macOS shm descriptor has no read (xnu's pshm_read is ENOTSUP).
@@ -59,6 +63,8 @@ nonisolated struct ChromiumHostSharedPayloads: Sendable {
     /// One region per field at `shared` (none when it is empty); nil, with
     /// none left open, when one cannot be made.
     init?(_ message: ChromiumHostControlMessage, sharing shared: [Int]) {
+        // The receiver refuses a message whose shared fields total more.
+        guard message.sharedByteCount(shared) <= ChromiumHostSharedRegion.maxBytes else { return nil }
         for index in shared {
             let payload = message.payload(at: index)
             guard let region = ChromiumHostSharedRegion(holding: payload) else {

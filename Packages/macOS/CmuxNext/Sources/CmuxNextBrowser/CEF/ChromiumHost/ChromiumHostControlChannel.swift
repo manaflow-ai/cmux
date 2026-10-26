@@ -38,6 +38,10 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
         /// Messages read and not run on main yet: past it the reader stops
         /// reading until main drains (the host's outbox then holds them).
         var inboxLimit = 4_096
+        /// Payload bytes read and not run on main yet (``ChromiumHostControlMessage/payloadByteCount``):
+        /// past it the reader stops too, so large shared payloads cannot pile
+        /// up on the heap; the inbox holds at most this plus one message.
+        var inboxBytesLimit = 2 * ChromiumHostSharedRegion.maxBytes
     }
 
     struct Stats: Equatable, Sendable {

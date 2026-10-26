@@ -7,8 +7,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -68,6 +70,7 @@ struct Ui {
   std::vector<control::Message> messages;
   std::vector<control::End> ends;
   int batches = 0;
+  size_t largest_batch_bytes = 0;  // the most payload bytes one drain delivered
 
   control::Channel::Post Poster() {
     return [this](std::function<void()> task) {
@@ -79,6 +82,11 @@ struct Ui {
   control::Channel::OnMessages Receiver() {
     return [this](std::vector<control::Message> batch) {
       ++batches;
+      size_t bytes = 0;
+      for (const auto& m : batch) {
+        for (const auto& field : m.fields) bytes += field.bytes.size();
+      }
+      largest_batch_bytes = std::max(largest_batch_bytes, bytes);
       for (auto& m : batch) messages.push_back(std::move(m));
     };
   }
@@ -628,6 +636,65 @@ static void TestBadRegionIsMalformed() {
   Check(control::Decode(zero.data(), zero.size(), &none, &out, &consumed) == control::Parse::kMalformed,
         "a shared field of 0 bytes is malformed");
   for (int fd : none) ::close(fd);
+
+  // A read-only descriptor of a file its sender could still truncate through
+  // another one: the copy would fault. Only a sealed region is mapped.
+  char path[] = "/tmp/cmux-region-test-XXXXXX";
+  const int writable = ::mkstemp(path);
+  Check(writable >= 0 && ::write(writable, std::string(70000, 'r').data(), 70000) == 70000, "a 70,000-byte file");
+  const int read_only = ::open(path, O_RDONLY);
+  Check(read_only >= 0, "opened read-only");
+  Check(decode_with(read_only) == control::Parse::kMalformed, "a read-only regular file of the right size is malformed");
+  Check(::fcntl(read_only, F_GETFD) < 0, "and closed");
+  ::unlink(path);
+  ::close(writable);
+
+  // Two shared fields of 100 MiB each: each under kMaxSharedBytes, together over it.
+  std::vector<uint8_t> over;
+  auto put = [&over](uint64_t value, int size) {
+    for (int i = 0; i < size; ++i) over.push_back(static_cast<uint8_t>(value >> (8 * i)));
+  };
+  put(2 * (control::kFieldHeaderSize + 8), 4);
+  put(7, 2);
+  put(2, 2);  // two descriptors
+  put(0, 4);
+  for (uint8_t tag : {1, 2}) {
+    over.push_back(6);
+    over.push_back(tag);
+    put(8, 2);
+    put(100ull * 1024 * 1024, 8);
+  }
+  std::deque<int> two{control::CreateSharedRegion("a"), control::CreateSharedRegion("b")};
+  Check(control::Decode(over.data(), over.size(), &two, &out, &consumed) == control::Parse::kMalformed,
+        "shared fields over kMaxSharedBytes together are malformed");
+  for (int fd : two) ::close(fd);
+}
+
+// The reader pauses at the inbox's byte limit as at its message limit, so
+// large payloads never pile up on the heap.
+static void TestInboxByteLimit() {
+  int pair[2];
+  SocketPair(pair);
+  Ui ui_a, ui_b;
+  control::Channel a(pair[0], ui_a.Poster(), ui_a.Receiver(), ui_a.Ender());
+  control::Channel::Options options;
+  options.inbox_bytes_limit = 100000;
+  control::Channel b(pair[1], ui_b.Poster(), ui_b.Receiver(), ui_b.Ender(), options);
+  for (int i = 0; i < 20; ++i) {
+    control::Message m;
+    m.op = 9;
+    m.fields = {control::Field::Bytes(1, std::string(70000, 'a')), control::Field::I32(2, i)};
+    Check(a.Send(m), "sent");
+  }
+  // Let the reader fill the inbox before the UI thread drains it.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  Check(ui_b.Pump([&] { return ui_b.messages.size() == 20; }), "every message arrives");
+  bool ordered = ui_b.messages.size() == 20;
+  for (size_t i = 0; ordered && i < ui_b.messages.size(); ++i) {
+    ordered = ui_b.messages[i].Find(2)->integer == static_cast<int64_t>(i);
+  }
+  Check(ordered, "in order");
+  Check(ui_b.largest_batch_bytes <= 100000 + 70000, "no drain holds more than the limit and one message");
 }
 
 // Shared payloads count toward the quota: a peer that never reads reaches it.
@@ -667,6 +734,7 @@ int main() {
   TestNoSocketFrameOver64KiB();
   TestBadRegionIsMalformed();
   TestSharedBytesCountTowardQuota();
+  TestInboxByteLimit();
   if (failures) return 1;
   std::printf("chromium_host_control_test: ok\n");
   return 0;

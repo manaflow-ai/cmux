@@ -11,6 +11,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -55,6 +60,14 @@ void CloseEach(const std::vector<int>& fds) {
   for (int fd : fds) ::close(fd);
 }
 
+// The bytes a received message keeps on the heap until it runs: its bytes
+// and str payloads (the inbox's byte limit counts them).
+size_t PayloadBytes(const Message& message) {
+  size_t bytes = 0;
+  for (const Field& field : message.fields) bytes += field.bytes.size();
+  return bytes;
+}
+
 // Shared fields on the wire (chromium_host_control.h): the u64 byte count of
 // a payload in one of the frame's descriptors.
 constexpr uint8_t kWireSharedBytes = 6;
@@ -63,16 +76,28 @@ constexpr size_t kSharedFieldSize = 8;
 
 // Whether the receiver may map the region `fd` names (see
 // CreateSharedRegion). Linux: its write, grow and shrink seals. macOS: a
-// read-only descriptor; xnu sizes a POSIX shm object once (pshm_truncate
-// refuses a second), so it cannot shrink under the mapping.
+// read-only descriptor of a POSIX shm object (proc_pidfdinfo
+// PROC_PIDFDPSHMINFO succeeds only for one); xnu sizes a shm object once
+// (pshm_truncate refuses a second), so it cannot shrink under the mapping,
+// where a regular file could be truncated and the read would fault. Chrome
+// on macOS passes a Mach memory entry instead
+// (base/memory/platform_shared_memory_region_apple.cc); this channel is a
+// Unix socket, so it passes the shm descriptor and checks its type.
+// Elsewhere: never (no region type is proven fixed there).
 bool IsSealed(int fd) {
 #if defined(__linux__)
   constexpr int kNeeded = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK;
   const int seals = ::fcntl(fd, F_GET_SEALS);
   return seals >= 0 && (seals & kNeeded) == kNeeded;
-#else
+#elif defined(__APPLE__)
   const int flags = ::fcntl(fd, F_GETFL);
-  return flags >= 0 && (flags & O_ACCMODE) == O_RDONLY;
+  if (flags < 0 || (flags & O_ACCMODE) != O_RDONLY) return false;
+  struct pshm_fdinfo info;
+  return ::proc_pidfdinfo(::getpid(), fd, PROC_PIDFDPSHMINFO, &info, static_cast<int>(sizeof info)) ==
+         static_cast<int>(sizeof info);
+#else
+  (void)fd;
+  return false;
 #endif
 }
 
@@ -129,7 +154,8 @@ int CreateSharedRegion(const std::string& data) {
   }
   return fd;
 #else
-  // base/memory/platform_shared_memory_region_posix.cc: the read-only
+  // As Chrome's POSIX region (platform_shared_memory_region_posix.cc, not
+  // its macOS Mach entries) makes a read-only one: the read-only
   // descriptor is opened before the name goes; the writable one never leaves
   // this process. PSHMNAMLEN is 31: "/cmux-hp-" with a pid and a serial fits.
   static std::atomic<uint32_t> serial{0};
@@ -285,12 +311,14 @@ bool EncodeShared(const Message& message, const std::vector<size_t>& shared, std
   if (fd_count > kMaxFds) return false;
   std::vector<uint8_t> body;
   size_t next_shared = 0;
+  uint64_t shared_total = 0;
   for (size_t i = 0; i < message.fields.size(); ++i) {
     const Field& field = message.fields[i];
     if (next_shared < shared.size() && shared[next_shared] == i) {
       ++next_shared;
       if (field.type != Type::kBytes && field.type != Type::kStr) return false;
-      if (field.bytes.empty() || field.bytes.size() > kMaxSharedBytes) return false;
+      if (field.bytes.empty() || field.bytes.size() > kMaxSharedBytes - shared_total) return false;
+      shared_total += field.bytes.size();
       if (field.type == Type::kStr && !IsValidUtf8(field.bytes)) return false;
       body.push_back(field.type == Type::kStr ? kWireSharedStr : kWireSharedBytes);
       body.push_back(field.tag);
@@ -352,6 +380,7 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
   size_t at = kHeaderSize;
   const size_t end = kHeaderSize + length;
   std::vector<size_t> shared;  // indices of the shared fields
+  uint64_t shared_total = 0;   // their byte counts together
   while (at < end) {
     if (end - at < kFieldHeaderSize) return Parse::kMalformed;
     Field field;
@@ -389,7 +418,8 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
       case kWireSharedStr: {
         if (field_length != kSharedFieldSize) return Parse::kMalformed;
         const uint64_t count = GetLE(value, 8);
-        if (count == 0 || count > kMaxSharedBytes) return Parse::kMalformed;
+        if (count == 0 || count > kMaxSharedBytes - shared_total) return Parse::kMalformed;
+        shared_total += count;
         field.type = type == kWireSharedStr ? Type::kStr : Type::kBytes;
         field.integer = static_cast<int64_t>(count);  // until ReadSharedFields reads the region
         shared.push_back(message.fields.size());
@@ -591,8 +621,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   uint64_t coalesced = 0;
   // Read and not run on the UI thread yet; the drain task takes it whole.
   std::vector<Message> inbox;
+  size_t inbox_bytes = 0;  // the inbox's payload bytes (PayloadBytes)
   bool drain_posted = false;
-  bool paused = false;       // inbox at its limit: the reader does not read
+  bool paused = false;       // inbox at a limit: the reader does not read or decode
   bool reader_done = false;  // the reader closed its descriptors; on_end may run
   bool end_delivered = false;
   std::thread reader;
@@ -687,6 +718,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       std::lock_guard<std::mutex> lock(mutex);
       if (detached) return;  // ~Core closes what the inbox holds
       batch.swap(inbox);
+      inbox_bytes = 0;
       drain_posted = false;
       if (paused) {
         paused = false;
@@ -715,8 +747,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   }
 
   // Reads what the socket holds; false when the connection must end
-  // (`reason` says why).
-  bool ReadAvailable(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason) {
+  // (`reason` says why). `paused_now`: it stopped at an inbox limit with whole
+  // frames left in `buffer`.
+  bool ReadAvailable(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason, bool* paused_now) {
     uint8_t chunk[64 * 1024];
     // wakeup-allow: bounded reads only what the socket holds: ends at EAGAIN, EOF or an error
     for (;;) {
@@ -761,40 +794,53 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
         return false;
       }
       buffer->insert(buffer->end(), chunk, chunk + count);
-      size_t start = 0;
-      bool post_drain = false;
-      bool stop = false;
-      // wakeup-allow: bounded each pass takes one whole frame of the bytes read, or stops
-      for (;;) {
-        Message message;
-        size_t consumed = 0;
-        const Parse parse = Decode(buffer->data() + start, buffer->size() - start, fds, &message, &consumed);
-        if (parse == Parse::kNeedMore) break;
-        if (parse == Parse::kMalformed) {
-          for (int received_fd : message.fds) ::close(received_fd);
-          *reason = End::kMalformed;
-          if (post_drain) PostDrain();
-          return false;
-        }
-        start += consumed;
-        std::lock_guard<std::mutex> lock(mutex);
-        inbox.push_back(std::move(message));
-        post_drain = NeedsDrainLocked() || post_drain;
-        if (inbox.size() >= options.inbox_limit) {
-          paused = true;
-          stop = true;
-        }
-      }
-      // Descriptors that came with a frame declaring fewer, which no later frame may take.
-      if (!PendingFdsFit(buffer->data() + start, buffer->size() - start, fds->size())) {
+      if (!DeliverBuffered(buffer, fds, reason, paused_now)) return false;
+      if (*paused_now) return true;
+    }
+  }
+
+  // Decodes the whole frames of `buffer` into the inbox (one drain posted per
+  // batch). Stops once the inbox is at a limit, before decoding (and copying
+  // the regions of) the next frame; the rest waits in `buffer` and `fds`.
+  // False when the connection must end (`reason` says why).
+  bool DeliverBuffered(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason, bool* paused_now) {
+    size_t start = 0;
+    bool post_drain = false;
+    bool stop = false;
+    // wakeup-allow: bounded each pass takes one whole frame of the bytes read, or stops
+    while (!stop) {
+      Message message;
+      size_t consumed = 0;
+      const Parse parse = Decode(buffer->data() + start, buffer->size() - start, fds, &message, &consumed);
+      if (parse == Parse::kNeedMore) break;
+      if (parse == Parse::kMalformed) {
+        for (int received_fd : message.fds) ::close(received_fd);
         *reason = End::kMalformed;
         if (post_drain) PostDrain();
         return false;
       }
-      buffer->erase(buffer->begin(), buffer->begin() + static_cast<std::ptrdiff_t>(start));
-      if (post_drain) PostDrain();
-      if (stop) return true;
+      start += consumed;
+      const size_t bytes = PayloadBytes(message);
+      std::lock_guard<std::mutex> lock(mutex);
+      inbox.push_back(std::move(message));
+      inbox_bytes += bytes;
+      post_drain = NeedsDrainLocked() || post_drain;
+      if (inbox.size() >= options.inbox_limit || inbox_bytes >= options.inbox_bytes_limit) {
+        paused = true;
+        stop = true;
+      }
     }
+    // Descriptors that came with a frame declaring fewer, which no later frame
+    // may take (checked once every whole frame is taken).
+    if (!stop && !PendingFdsFit(buffer->data() + start, buffer->size() - start, fds->size())) {
+      *reason = End::kMalformed;
+      if (post_drain) PostDrain();
+      return false;
+    }
+    buffer->erase(buffer->begin(), buffer->begin() + static_cast<std::ptrdiff_t>(start));
+    if (post_drain) PostDrain();
+    *paused_now = stop;
+    return true;
   }
 
   void Run() {
@@ -804,6 +850,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
 #endif
     std::vector<uint8_t> buffer;
     std::deque<int> fds;
+    bool frames_wait = false;  // whole frames in `buffer`: DeliverBuffered stopped at an inbox limit
     for (;;) {
       pollfd polls[2];
       int timeout = -1;
@@ -823,6 +870,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
           timeout = static_cast<int>(
               std::max<int64_t>(0, std::chrono::ceil<std::chrono::milliseconds>(left).count()));
         }
+        // Whole frames wait in `buffer` and the inbox has room: take them now,
+        // whether or not the socket brings more.
+        if (want_read && frames_wait) timeout = 0;
       }
       polls[0].revents = 0;
       polls[1].fd = wake_read;
@@ -846,9 +896,18 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
         std::lock_guard<std::mutex> lock(mutex);
         if (Writable()) FlushLocked();
       }
-      if (want_read && (got & (POLLIN | POLLERR | POLLHUP)) != 0) {
+      if (want_read && frames_wait) {
+        // A drain made room: the frames read before the inbox filled go first.
         End reason = End::kClosed;
-        if (!ReadAvailable(&buffer, &fds, &reason)) {
+        if (!DeliverBuffered(&buffer, &fds, &reason, &frames_wait)) {
+          std::lock_guard<std::mutex> lock(mutex);
+          EndLocked(reason);
+          break;
+        }
+      }
+      if (want_read && !frames_wait && (got & (POLLIN | POLLERR | POLLHUP)) != 0) {
+        End reason = End::kClosed;
+        if (!ReadAvailable(&buffer, &fds, &reason, &frames_wait)) {
           std::lock_guard<std::mutex> lock(mutex);
           EndLocked(reason);
           break;
@@ -918,7 +977,8 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
   const std::vector<size_t> shared = SharedFields(message);
   std::vector<uint8_t> bytes;
   if (!EncodeShared(message, shared, &bytes)) return false;
-  // Made before the lock: copying a large payload never holds it.
+  // Made before the lock: copying a large payload never holds it. EncodeShared
+  // refused shared fields over kMaxSharedBytes together.
   size_t shared_bytes = 0;
   std::vector<int> regions;
   for (size_t index : shared) {

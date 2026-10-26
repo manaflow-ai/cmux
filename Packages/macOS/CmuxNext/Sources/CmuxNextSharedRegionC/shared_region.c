@@ -2,10 +2,12 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <libproc.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/proc_info.h>
 #include <unistd.h>
 
 // Sizes `fd` to `count` and fills it through a mapping, unmapped before return.
@@ -51,4 +53,11 @@ int cmux_shared_region_create(const void *bytes, size_t count) {
   }
   errno = EEXIST;
   return -1;
+}
+
+int cmux_shared_region_is_sealed(int fd) {
+  const int flags = fcntl(fd, F_GETFL);
+  if (flags < 0 || (flags & O_ACCMODE) != O_RDONLY) return 0;
+  struct pshm_fdinfo info;
+  return proc_pidfdinfo(getpid(), fd, PROC_PIDFDPSHMINFO, &info, (int)sizeof info) == (int)sizeof info;
 }

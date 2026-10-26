@@ -13,10 +13,20 @@ extern "C" {
 // Returns a read-only, close-on-exec descriptor of a POSIX shared memory
 // object holding the `count` bytes at `bytes`, or -1 (errno set). The object
 // is unlinked before this returns and its writable descriptor is closed, as
-// base/memory/platform_shared_memory_region_posix.cc makes a read-only
-// region; macOS sizes a POSIX shm object once, so nobody can shrink it under
+// Chrome's POSIX region (platform_shared_memory_region_posix.cc) makes a read-only
+// region (Chrome on macOS uses Mach memory entries instead); macOS sizes a
+// POSIX shm object once, so nobody can shrink it under
 // a reader. `count` is more than 0.
 int cmux_shared_region_create(const void *bytes, size_t count);
+
+// 1 when the received descriptor `fd` may be mapped: a read-only descriptor
+// of a POSIX shm object (proc_pidfdinfo PROC_PIDFDPSHMINFO succeeds only for
+// one), whose size xnu fixes at its first ftruncate. A regular file, a
+// device or a pipe is 0: the sender could shrink a file under the mapping
+// and the read would fault. Chrome on macOS passes a Mach memory entry
+// (base/memory/platform_shared_memory_region_apple.cc); this channel is a
+// Unix socket, so it passes the shm descriptor and checks its type.
+int cmux_shared_region_is_sealed(int fd);
 
 #ifdef __cplusplus
 }

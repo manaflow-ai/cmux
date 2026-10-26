@@ -74,6 +74,18 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
         }
     }
 
+    /// The bytes its bytes and str fields hold: what a received message
+    /// keeps on the heap until it runs (the inbox's byte limit counts it).
+    var payloadByteCount: Int {
+        fields.reduce(0) { $0 + (Self.payloadCount($1.value) ?? 0) }
+    }
+
+    /// The payload bytes of the fields at `shared`: at most
+    /// ``ChromiumHostSharedRegion/maxBytes`` together.
+    func sharedByteCount(_ shared: [Int]) -> Int {
+        shared.reduce(0) { $0 + (fields.indices.contains($1) ? Self.payloadCount(fields[$1].value) ?? 0 : 0) }
+    }
+
     /// The bytes or str payload of field `index` (one of ``sharedFieldIndices()``).
     func payload(at index: Int) -> [UInt8] {
         switch fields[index].value {
@@ -128,12 +140,13 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
     }
 
     /// The frame, or nil when it would break a bound: a body over
-    /// ``maxBody``, a field over 65,535 bytes, more than ``maxFds`` descriptors.
+    /// ``maxBody``, a field over 65,535 bytes, more than ``maxFds`` descriptors,
+    /// shared fields over ``ChromiumHostSharedRegion/maxBytes`` together.
     /// The fields at `shared` (from ``sharedFieldIndices()``) are written as
     /// shared fields, and the frame declares one more descriptor for each.
     func encoded(sharing shared: [Int] = []) -> [UInt8]? {
         let fdCount = fds.count + shared.count
-        guard fdCount <= Self.maxFds else { return nil }
+        guard fdCount <= Self.maxFds, sharedByteCount(shared) <= ChromiumHostSharedRegion.maxBytes else { return nil }
         var body: [UInt8] = []
         var nextShared = 0
         for (index, field) in fields.enumerated() {
@@ -217,8 +230,9 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
                                                  isReply: flags & replyFlag != 0)
         var at = headerSize
         let end = headerSize + length
-        // The shared fields: their index and byte count.
+        // The shared fields: their index and byte count, and their total.
         var shared: [(index: Int, count: Int)] = []
+        var sharedTotal = 0
         while at < end {
             guard end - at >= fieldHeaderSize else { return .malformed }
             let type = bytes[base + at]
@@ -240,7 +254,8 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
                 value = .str(text)
             case (sharedBytesType, sharedFieldSize), (sharedStrType, sharedFieldSize):
                 let count = get(at, UInt64.self)
-                guard count > 0, count <= UInt64(ChromiumHostSharedRegion.maxBytes) else { return .malformed }
+                guard count > 0, count <= UInt64(ChromiumHostSharedRegion.maxBytes - sharedTotal) else { return .malformed }
+                sharedTotal += Int(count)
                 shared.append((message.fields.count, Int(count)))
                 // Filled from the region once the frame's descriptors are taken.
                 value = type == sharedStrType ? .str("") : .bytes([])

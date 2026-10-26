@@ -26,10 +26,13 @@
 // the field, closes it and delivers an ordinary bytes or str field, so a
 // socket frame is never over kHeaderSize + kMaxBody and callers never see
 // a shared field. A region that is not sealed (Linux: no write, grow and
-// shrink seals; elsewhere: not a read-only descriptor), is smaller than its
-// count, or a count of 0 or over kMaxSharedBytes, is malformed. The seal
-// (on macOS: xnu sizes a POSIX shm object once) keeps a region from
-// shrinking under the receiver's mapping (a macOS shm descriptor has no read).
+// shrink seals; macOS: not a read-only shm descriptor), is smaller than its
+// count, or counts of 0 or over kMaxSharedBytes together, is malformed. The
+// seal (on macOS: the descriptor is a POSIX shm object, which xnu sizes once;
+// a regular file is refused) keeps a region from shrinking under the
+// receiver's mapping (a macOS shm descriptor has no read). Chrome on macOS
+// passes a Mach memory entry (base/memory/platform_shared_memory_region_apple.cc);
+// this channel is a Unix socket, so it passes the shm descriptor.
 //
 // Bounds, after Chrome's: a malformed frame (a length over kMaxBody, an
 // unknown flag or type, a field past the body, bad UTF-8, a descriptor count
@@ -66,8 +69,9 @@ inline constexpr size_t kFieldHeaderSize = 4;
 // Larger payloads go as a sealed shm descriptor (task 020).
 inline constexpr uint32_t kMaxBody = 64 * 1024;
 inline constexpr size_t kMaxFds = 4;
-// One shared field's most bytes: IPC::Channel::kMaximumMessageSize
-// (ipc/ipc_channel.h), Chrome's largest IPC message.
+// The most bytes of one message's shared fields together:
+// IPC::Channel::kMaximumMessageSize (ipc/ipc_channel.h), which caps a whole
+// Chrome IPC message.
 inline constexpr uint64_t kMaxSharedBytes = 128 * 1024 * 1024;
 inline constexpr size_t kQuotaBytes = 256 * 1024;
 inline constexpr size_t kQuotaMessages = 4096;
@@ -75,6 +79,10 @@ inline constexpr int kQuotaCeilingSeconds = 60;
 // Messages read and not yet run on the UI thread: past it the reader stops
 // reading until the UI thread drains (the peer's outbox then holds them).
 inline constexpr size_t kInboxLimit = 4096;
+// Payload bytes (bytes and str fields) read and not yet run on the UI thread:
+// past it the reader stops too, so large shared payloads cannot pile up on the
+// heap; the inbox holds at most this plus one message.
+inline constexpr size_t kInboxBytesLimit = 2 * kMaxSharedBytes;
 // Waiting frames one sendmsg writes (Outbox::Gather).
 inline constexpr size_t kMaxBatch = 64;
 
@@ -248,6 +256,7 @@ class Channel {
     size_t quota_messages = kQuotaMessages;
     std::chrono::milliseconds quota_ceiling = std::chrono::seconds(kQuotaCeilingSeconds);
     size_t inbox_limit = kInboxLimit;
+    size_t inbox_bytes_limit = kInboxBytesLimit;
   };
 
   // Takes `fd` (a connected stream socket). `post` runs a task on the UI

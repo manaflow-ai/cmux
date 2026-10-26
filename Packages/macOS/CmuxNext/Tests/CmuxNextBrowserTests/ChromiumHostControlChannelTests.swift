@@ -72,6 +72,8 @@ import Testing
         private let continuation: AsyncStream<Event>.Continuation
         var messages: [Message] = []
         var batches = 0
+        /// The most payload bytes one drain delivered.
+        var largestBatchBytes = 0
         var end: ChromiumHostControlEnd?
 
         init() {
@@ -99,6 +101,7 @@ import Testing
                 switch event {
                 case .messages(let batch):
                     batches += 1
+                    largestBatchBytes = max(largestBatchBytes, batch.reduce(0) { $0 + $1.payloadByteCount })
                     messages += batch
                 case .end(let reason):
                     end = reason
@@ -539,6 +542,70 @@ import Testing
         var fds = [one.fd]
         #expect(Message.decode(zero[...], fds: &fds) == .malformed, "a shared field of 0 bytes")
         for fd in fds { close(fd) }
+    }
+
+    /// A host could send a read-only descriptor of a file it can still
+    /// truncate through another descriptor: the copy would then fault. Only a
+    /// shm object, which xnu sizes once, is mapped.
+    @Test func aReadOnlyRegularFileIsMalformed() throws {
+        let message = Message(op: 7, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x72, count: 70_000)))])
+        let frame = try #require(message.encoded(sharing: [0]))
+        var template = Array("/tmp/cmux-region-test-XXXXXX".utf8CString)
+        let writable = mkstemp(&template)
+        try #require(writable >= 0)
+        let path = String(decoding: template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        defer {
+            unlink(path)
+            close(writable)
+        }
+        let payload = message.payload(at: 0)
+        let written = payload.withUnsafeBytes { write(writable, $0.baseAddress, $0.count) }
+        try #require(written == payload.count)
+        let readOnly = open(path, O_RDONLY)
+        try #require(readOnly >= 0)
+        var fds = [readOnly]
+        #expect(Message.decode(frame[...], fds: &fds) == .malformed, "a read-only regular file of the right size")
+        #expect(fds.isEmpty, "is taken and closed")
+    }
+
+    @Test func sharedCountsOverTheCapTogetherAreMalformed() {
+        // Two shared fields of 100 MiB each: each under 128 MiB, together over it.
+        let count = UInt64(100 * 1024 * 1024)
+        var frame: [UInt8] = []
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { frame += $0 } }
+        put(UInt32(2 * (Message.fieldHeaderSize + Message.sharedFieldSize)))
+        put(UInt16(7))
+        put(UInt16(2))  // two descriptors
+        put(UInt32(0))
+        for tag: UInt8 in [1, 2] {
+            frame += [Message.sharedBytesType, tag]
+            put(UInt16(Message.sharedFieldSize))
+            put(count)
+        }
+        var fds: [Int32] = []
+        #expect(Message.decode(frame[...], fds: &fds) == .malformed)
+        let one = Message(op: 7, fields: [.init(tag: 1, value: .bytes([1]))])
+        #expect(one.sharedByteCount([0]) == 1)
+    }
+
+    @Test func theInboxPausesAtItsByteLimit() async throws {
+        let (aFD, bFD) = try Self.socketPair()
+        let a = Recorder(), b = Recorder()
+        let sender = a.channel(fd: aFD)
+        var options = ChromiumHostControlChannel.Options()
+        options.inboxBytesLimit = 100_000
+        let receiver = b.channel(fd: bFD, options: options)
+        let large = Message(op: 9, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x61, count: 70_000)))])
+        for code in 0..<20 {
+            var message = large
+            message.fields.append(.init(tag: 2, value: .i32(Int32(code))))
+            #expect(sender.send(message))
+        }
+        await b.wait { b.messages.count == 20 }
+        #expect(b.messages.map { $0[2] } == Self.codes(0..<20), "every message arrives, in order")
+        #expect(b.largestBatchBytes <= 100_000 + 70_000, "no drain holds more than the limit and one message")
+        sender.close()
+        receiver.close()
     }
 
     @Test func sharedPayloadsCountTowardTheQuota() throws {
