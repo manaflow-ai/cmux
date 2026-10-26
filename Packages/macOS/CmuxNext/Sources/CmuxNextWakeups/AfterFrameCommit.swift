@@ -11,6 +11,7 @@ import CoreFoundation
 /// AfterFrameCommit().run { [weak self] in self?.createDeferredBrowsers() }
 /// ```
 public struct AfterFrameCommit: Sendable {
+    /// A runner; it holds nothing, so one per call site is fine.
     public init() {}
 
     /// Runs `work` on the main thread after the current pass's commit. Call on the main thread.

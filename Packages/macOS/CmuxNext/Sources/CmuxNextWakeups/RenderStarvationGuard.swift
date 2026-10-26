@@ -70,12 +70,14 @@ public final class RenderStarvationGuard {
         /// The late frame (its scheduler's last tick) the source last ran a slice in.
         fileprivate var lateFrame: CFTimeInterval?
 
+        /// A source that ran no slice yet.
         public init() {}
     }
 
     /// Whether a starvation holds work (feature `renderStarvationGuard`). Off, the guard only
     /// reports. The composition root sets it once its feature list is built.
     public var holdsWork: Bool
+    /// What the guard saw and held since it was made (`debug.main_budget`, tests).
     public private(set) var stats = Stats()
     /// The last starvation reported (debug and tests).
     public private(set) var last: RenderStarvation?

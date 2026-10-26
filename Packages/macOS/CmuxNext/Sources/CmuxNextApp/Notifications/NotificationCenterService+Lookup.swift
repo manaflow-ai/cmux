@@ -254,6 +254,7 @@ extension NotificationCenterService {
             guard let self, newest > self.lastSeen else { return }
             let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
             self.lastSeen = newest
+            self.arrivalPasses += 1
             for notification in fresh { self.arrived(notification) }
         })
         observations.append(followViewedProgramStatus(store))

@@ -35,8 +35,10 @@ public struct FrameInputSample: Sendable, Equatable {
     public var delta: CGVector
     /// The event's timestamp (seconds since boot, as `NSEvent.timestamp`).
     public var timestamp: TimeInterval
+    /// The modifier keys held during the event.
     public var modifierFlags: NSEvent.ModifierFlags
 
+    /// A sample of one event's values (``FrameInputCoalescer`` makes them from `NSEvent`s; tests build them).
     public init(location: CGPoint, delta: CGVector, timestamp: TimeInterval, modifierFlags: NSEvent.ModifierFlags = []) {
         self.location = location
         self.delta = delta

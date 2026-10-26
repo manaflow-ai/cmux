@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
@@ -75,6 +76,43 @@ import Testing
         frames.frame()
         #expect(service.statusRunVisits == before + 1)
         withExtendedLifetime(follower) {}
+    }
+
+    /// The token owns every per-workspace watch: cancelling it, or releasing it while the service
+    /// lives on, stops them all (a stopped follower must post no finished-run notice).
+    @Test(arguments: [false, true])
+    func aStoppedFollowerReadsNoWorkspaceStatus(release: Bool) throws {
+        let store = try Self.store(3)
+        let frames = NotificationFrames()
+        let service = frames.service()
+        var follower: StatusRunFollower? = service.followStatusRuns(store)
+        #expect(follower?.watchedCount == 3)
+        frames.frame()
+        let before = service.statusRunVisits
+        if release { follower = nil } else { follower?.cancel() }
+        for index in 1...3 { try Self.setStatus(index, text: "building", in: store) }
+        frames.frame()
+        frames.frame()
+        #expect(service.statusRunVisits == before, "a stopped follower still read \(service.statusRunVisits - before) statuses")
+        withExtendedLifetime(follower) {}
+    }
+
+    /// Each follower keeps its own store's watches: following a second store does not drop the
+    /// first store's workspaces as leavers.
+    @Test func twoStoresKeepTheirOwnWatches() throws {
+        let first = try Self.store(3)
+        let second = try Self.store(2)
+        let frames = NotificationFrames()
+        let service = frames.service()
+        let firstFollower = service.followStatusRuns(first)
+        let secondFollower = service.followStatusRuns(second)
+        #expect(firstFollower.watchedCount == 3 && secondFollower.watchedCount == 2)
+        frames.frame()
+        let before = service.statusRunVisits
+        try Self.setStatus(2, text: "building", in: first)
+        frames.frame()
+        #expect(service.statusRunVisits == before + 1, "the first store's change was not seen")
+        withExtendedLifetime((firstFollower, secondFollower)) {}
     }
 }
 

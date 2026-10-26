@@ -50,6 +50,7 @@ public final class InputResponsePass {
         public var installs = 0
     }
 
+    /// What the pass did since it was made.
     public private(set) var stats = Stats()
     private let budget: MainFrameBudget
     private let runLoop: any InputResponseRunLoop

@@ -8,8 +8,10 @@ section 6, task p06-scheduler-216).
    in` and `Task.detached` are off main). The queue regexes are section 6's `git grep -E` commands; a line with
    `///` is dropped, as `| grep -v '///'` does.
 2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, a
-   notification name or center handed to the app's one observer (`AppEvents(center:`, `WindowEvents.of(`, or
-   a name as `.subscribe(`'s first argument) is the R-notif target, and an
+   notification name or center handed to the app's one observer is the R-notif target (a center given to
+   `AppEvents(center:` in the composition root AppServices.swift only, the window of `WindowEvents.of(`, or a
+   name as the first argument of `.subscribe(` on `WindowEvents.of(...)`, on a name the file binds to a
+   `WindowEvents`/`AppEvents`, or on one of the composition root's `AppEvents` properties), and an
    override that the recipe keeps (R-hide `viewDidHide`/`viewDidUnhide`, R-input `mouseMoved`/`scrollWheel`/
    `mouseDragged`, R-appear `viewDidChangeEffectiveAppearance`) is settled when its body does only what the
    recipe allows. A settled hit is listed by --group and not counted by --check.
@@ -43,10 +45,15 @@ comment of the code line before it). The rules are section 3F's: main-hop (Q1, Q
 (Q2, Q3, Q10, Q11), raw-observer (Q4), visibility-walk (Q5, QA), timer-class (Q6), local-monitor (Q8).
 `--check` counts neither escapes nor settled hits.
 
+`--undocumented` lists the public and open declarations of CmuxNextWakeups that have no `///` doc comment
+(task 205: the frozen API lands with DocC on every public signature) and exits 1 while there are any. A protocol
+witness whose doc DocC takes from the protocol (`==`, `<`, `hash(into:)`, `description`, `encode(to:)`, ...) needs
+none.
+
 Local tool, never CI (CLAUDE.md: no new CI gates). Tests: python3 -m pytest tests/test_p06_queue.py
 
 Usage: scripts/cmux-next/p06_queue.py [--repo DIR] [--rev REV] [--cut REV] [--plan TSV | --repack] [--json]
-                                      [--group N | --check N | --residual]
+                                      [--group N | --check N | --residual | --undocumented]
 """
 from __future__ import annotations
 
@@ -252,25 +259,57 @@ def _delivery_settled(lines: list[str], index: int) -> bool:
     return bool(calls) and all(re.match(r"class\s*:", rest) for rest in calls)
 
 
-_NOTIF_TARGET = re.compile(r"\b(?:WindowEvents|AppEvents)\((?:window|center): *|\bWindowEvents\.of\(\s*|\.subscribe\(\s*")
+# The one file that may make an `AppEvents`: one per notification center for the whole app (R-notif). An
+# `AppEvents(center:` anywhere else is a second observer per name, the pattern R-notif removes.
+COMPOSITION_ROOT = SOURCES + "CmuxNextApp/AppServices.swift"
+_EVENTS_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*(?:AppEvents|WindowEvents)\b|=\s*(?:AppEvents\(|WindowEvents\.of\())")
+_SUBSCRIBE = re.compile(r"((?:\w+(?:\([^()]*\))?\.)*\w+(?:\([^()]*\))?)\.subscribe\(\s*")
 
 
-def _notif_settled(lines: list[str], index: int) -> bool:
-    """R-notif's target: every Q4 match on the line is what a `WindowEvents`/`AppEvents` subscription takes, the
-    center of `AppEvents(center:`, the window of `WindowEvents.of(` or the name that opens a `.subscribe(` call."""
+def events_names(text: str) -> frozenset[str]:
+    """The names TEXT binds to a `WindowEvents` or `AppEvents` (`let events = WindowEvents.of(window)`,
+    `let appEvents = AppEvents(center: .default)`, `var events: AppEvents`)."""
+    return frozenset(_EVENTS_BINDING.findall(text))
+
+
+@dataclasses.dataclass(frozen=True)
+class _NotifContext:
+    path: str
+    local: frozenset[str]  # this file's WindowEvents/AppEvents names
+    root: frozenset[str]  # the composition root's AppEvents properties
+
+
+def _subscribe_targets(code: str, context: _NotifContext) -> set[int]:
+    """The offsets of the first argument of each `.subscribe(` whose receiver is a WindowEvents or AppEvents."""
+    targets = set()
+    for m in _SUBSCRIBE.finditer(code):
+        receiver = m.group(1)
+        last = re.sub(r"\([^()]*\)$", "", receiver.rsplit(".", 1)[-1])
+        if re.search(r"\bWindowEvents\.of\([^()]*\)$", receiver) or last in context.local or last in context.root:
+            targets.add(m.end())
+    return targets
+
+
+def _notif_settled(lines: list[str], index: int, context: _NotifContext) -> bool:
+    """R-notif's target: every Q4 match on the line is what the app's one observer takes: the center of an
+    `AppEvents(center:` in the composition root, the window of `WindowEvents.of(`, or the name that opens a
+    `.subscribe(` call on a WindowEvents or AppEvents."""
     code = _load("swift_scope").code_of(lines[index])
     matches = list(QUEUE_BY_ID["Q4"].pattern.finditer(code))
     if not matches or "addObserver(" in code or "notifications(named:" in code:
         return False
-    targets = {m.end() for m in _NOTIF_TARGET.finditer(code)}
+    targets = {m.end() for m in re.finditer(r"\bWindowEvents\.of\(\s*", code)} | _subscribe_targets(code, context)
+    if context.path == COMPOSITION_ROOT:
+        targets |= {m.end() for m in re.finditer(r"\bAppEvents\(center: *", code)}
     return all(m.start() in targets for m in matches)
 
 
-def _settled(recipe: str, lines: list[str], index: int, bodies: Callable[[], _Bodies]) -> bool:
+def _settled(recipe: str, lines: list[str], index: int, bodies: Callable[[], _Bodies],
+             notif: Callable[[], _NotifContext]) -> bool:
     if recipe == "R-delivery":
         return _delivery_settled(lines, index)
     if recipe == "R-notif":
-        return _notif_settled(lines, index)
+        return _notif_settled(lines, index, notif())
     allowed = _KEPT_OVERRIDES.get(recipe)
     if allowed is None:
         return False
@@ -314,6 +353,7 @@ def _escaped(lines: list[str], index: int, rule: str) -> bool:
 def scan(files: dict[str, str], main_inherited: Callable[[str, str], list[int]]) -> list[Hit]:
     """Every queue hit in FILES {path: text}, in path and line order."""
     hits = []
+    root = events_names(files.get(COMPOSITION_ROOT, ""))
     for path in sorted(files):
         text = files[path]
         lines = text.split("\n")
@@ -327,12 +367,49 @@ def scan(files: dict[str, str], main_inherited: Callable[[str, str], list[int]])
             q1b = QUEUE_BY_ID["Q1b"]
             found += [(n - 1, q1b) for n in main_inherited(path, text) if 0 < n <= len(lines) and "///" not in lines[n - 1]]
         bodies = functools.cache(lambda: _Bodies(text))
+        notif = functools.cache(lambda: _NotifContext(path, events_names(text), root))
         for index, q in sorted(found, key=lambda f: (f[0], QUEUES.index(f[1]))):
             line = lines[index]
             recipe = q.recipe(line)
             hits.append(Hit(q.id, path, index + 1, line.strip(), recipe, _escaped(lines, index, q.rule),
-                            _settled(recipe, lines, index, bodies)))
+                            _settled(recipe, lines, index, bodies, notif)))
     return hits
+
+
+# ---------------------------------------------------------------- the frozen API's DocC
+
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+_PUBLIC_DECL = re.compile(r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s+)*"
+                          r"(?:(?:nonisolated|final|override|static|class|mutating|convenience|required|indirect|lazy)\s+)*"
+                          r"(?:public|open)(?:\(set\))?\s+(?!import\b|extension\b)")
+_WITNESS = re.compile(r"\bstatic func (?:==|!=|<|<=|>|>=|\+|-)\s*\(|\bfunc hash\(into\b|\bvar (?:description|debugDescription)\b"
+                      r"|\bfunc encode\(to\b|\binit\(from decoder\b|\bfunc makeIterator\(\)|\bfunc next\(\)")
+
+
+def _documented(lines: list[str], index: int) -> bool:
+    """Whether the declaration at INDEX has a doc comment: `///` lines or a `/** */` block above it, past its
+    attribute lines and plain `//` comments."""
+    j = index - 1
+    while j >= 0:
+        above = lines[j].strip()
+        if above.startswith("///") or above.endswith("*/"):
+            return True
+        if above.startswith("@") or (above.startswith("//") and not above.startswith("///")):
+            j -= 1
+            continue
+        return False
+    return False
+
+
+def undocumented(files: dict[str, str]) -> list[tuple[str, int, str]]:
+    """(path, line, text) of each public or open declaration under CmuxNextWakeups with no doc comment."""
+    found = []
+    for path in sorted(p for p in files if p.startswith(WAKEUPS) and p.endswith(".swift")):
+        lines = files[path].split("\n")
+        for index, line in enumerate(lines):
+            if _PUBLIC_DECL.match(line) and not _WITNESS.search(line) and not _documented(lines, index):
+                found.append((path, index + 1, line.strip()))
+    return found
 
 
 # ---------------------------------------------------------------- reading a tree
@@ -769,10 +846,19 @@ def main(argv: list[str] | None = None, out=sys.stdout) -> int:
     mode.add_argument("--group", type=int, metavar="N", help="list every hit in group N's files")
     mode.add_argument("--check", type=int, metavar="N", help="exit 1 while group N's files have open hits")
     mode.add_argument("--residual", action="store_true", help="open hits in files no group holds (task 347)")
+    mode.add_argument("--undocumented", action="store_true",
+                      help="exit 1 while a public CmuxNextWakeups declaration has no doc comment (task 205)")
     args = parser.parse_args(argv)
     if args.repack and args.plan:
         parser.error("--plan and --repack exclude each other")
     repo = args.repo.resolve()
+    if args.undocumented:
+        missing = undocumented(read_tree(repo, args.rev))
+        if args.json:
+            print(json.dumps([{"path": p, "line": n, "text": t} for p, n, t in missing], indent=1), file=out)
+        for path, line, text in [] if args.json else missing:
+            print(f"{path}:{line}: {text}", file=out)
+        return 1 if missing else 0
     plan = None if args.repack else (args.plan or repo / PLAN)
     options = (["--cut", args.cut] if args.cut != CUT_REV else []) + (["--repack"] if args.repack else []) + \
         (["--plan", str(args.plan)] if args.plan else [])

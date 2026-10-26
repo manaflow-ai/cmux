@@ -18,12 +18,14 @@ import CmuxNextCompat
 /// ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds, so
 /// marks from any thread compare.
 public final class NewTerminalTrace: Sendable {
+    /// The process's recorder: the mark sites share no injection seam.
     public static let shared = NewTerminalTrace()
     /// Finished traces kept for `get`.
     public static let capacity = 32
     /// OSC 133;A, the prompt start shell integration writes.
     private static let promptMarker = Data([0x1B, 0x5D, 0x31, 0x33, 0x33, 0x3B, 0x41])
 
+    /// One step of a new terminal, in the order a new terminal runs them.
     public enum Mark: Int, CaseIterable, Sendable {
         case action, requestSent, reply, tabAdded, surfaceCreated, attachStart, attachReplied, attachEnd,
              firstOutputMain, firstParsed, firstContents, promptParsed, promptContents
@@ -54,6 +56,7 @@ public final class NewTerminalTrace: Sendable {
         public internal(set) var terminal: String?
         /// The daemon surface of its tab (nil until `tab_added`).
         public internal(set) var surface: UInt64?
+        /// Whether it ended on its time limit (``NewTerminalTrace/finish(timedOut:)``), not its last mark.
         public internal(set) var timedOut = false
         let armedAt: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)

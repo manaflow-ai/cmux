@@ -183,15 +183,36 @@ class SettledTests(unittest.TestCase):
         self.assertEqual(self.states('let d = MainDelivery(owner: "x")\n'), [("Q1c", "R-delivery", False)])
         self.assertEqual(self.states("CFRunLoopPerformBlock(loop, mode) { }\n"), [("Q1c", "R-delivery", False)])
 
+    def notif_states(self, files):
+        return [(h.path.rsplit("/", 1)[-1], h.queue, h.settled)
+                for h in q.scan(files, q.heuristic_main_inherited) if h.recipe == "R-notif"]
+
     def test_a_name_or_center_handed_to_window_or_app_events_is_the_notif_recipe_target(self):
-        self.assertEqual(self.states("let s = events.subscribe(NSWindow.didResizeNotification, owner: o, changed)\n"),
+        self.assertEqual(self.states("let events = WindowEvents.of(window)\n"
+                                     "let s = events.subscribe(NSWindow.didResizeNotification, owner: o, changed)\n"),
                          [("Q4", "R-notif", True)])
-        self.assertEqual(self.states("let e = AppEvents(center: NSWorkspace.shared.notificationCenter)\n"),
+        self.assertEqual(self.states("let s = WindowEvents.of(window).subscribe(NSWindow.didResizeNotification, owner: o) {}\n"),
                          [("Q4", "R-notif", True)])
         self.assertEqual(self.states("center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { _ in }\n"),
                          [("Q4", "R-notif", False)])
         self.assertEqual(self.states("let names = [NSWindow.didResizeNotification]\n"), [("Q4", "R-notif", False)])
         self.assertEqual(self.states("let c = NSWorkspace.shared.notificationCenter\n"), [("Q4", "R-notif", False)])
+
+    def test_only_the_composition_root_makes_an_app_events(self):
+        line = "let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)\n"
+        self.assertEqual(self.notif_states({q.COMPOSITION_ROOT: line}), [("AppServices.swift", "Q4", True)])
+        # A feature's own AppEvents is one more observer per name: R-notif's pattern stays open.
+        self.assertEqual(self.notif_states({f"{S}CmuxNextApp/Feature/F.swift": line}), [("F.swift", "Q4", False)])
+
+    def test_a_subscribe_is_settled_only_on_a_window_or_app_events(self):
+        root = {q.COMPOSITION_ROOT: "    let workspaceEvents = AppEvents(center: .default)\n"}
+        feature = f"{S}CmuxNextApp/Feature/F.swift"
+        through_root = "s = services.workspaceEvents.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
+        self.assertEqual(self.notif_states({**root, feature: through_root}), [("F.swift", "Q4", True)])
+        other = "s = bus.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
+        self.assertEqual(self.notif_states({**root, feature: other}), [("F.swift", "Q4", False)])
+        unknown = "s = services.otherEvents.subscribe(NSApplication.didHideNotification, owner: o) {}\n"
+        self.assertEqual(self.notif_states({**root, feature: unknown}), [("F.swift", "Q4", False)])
 
     def test_hide_and_unhide_that_forward_to_the_node_are_settled(self):
         forward = self.view("    override func viewDidHide() {", "        super.viewDidHide()",
@@ -550,6 +571,30 @@ class RealCutTests(unittest.TestCase):
         paths = [f for f in self.report.cut_hits if "/CmuxNextSidebar/Views/" in f or "/CmuxNextAgentPane/" in f]
         self.assertTrue(paths)
         self.assertEqual({p: self.report.group_of(p) for p in paths}, {p: other.group_of(p) for p in paths})
+
+
+class UndocumentedTests(unittest.TestCase):
+    """The frozen Wakeups API lands with DocC on every public signature (task 205)."""
+
+    def test_a_public_declaration_with_no_doc_comment_is_listed(self):
+        text = ("public struct A {\n"
+                "    /// Documented.\n"
+                "    public var x = 0\n"
+                "    public var y = 0\n"
+                "    /// Past its attribute and a plain comment.\n"
+                "    @MainActor\n"
+                "    // perf-hot: 0.01ms frame-tick\n"
+                "    public func f() {}\n"
+                "    public static func == (lhs: A, rhs: A) -> Bool { true }\n"
+                "    public var description: String { \"\" }\n"
+                "    func internalOne() {}\n"
+                "}\n"
+                "public extension A {}\n")
+        files = {f"{q.WAKEUPS}A.swift": text, f"{S}CmuxNextApp/B.swift": "public struct B {}\n"}
+        self.assertEqual([(p.rsplit("/", 1)[-1], n) for p, n, _ in q.undocumented(files)], [("A.swift", 1), ("A.swift", 4)])
+
+    def test_the_wakeups_module_has_no_undocumented_public_declaration(self):
+        self.assertEqual(q.undocumented(q.read_tree(q.ROOT, None)), [])
 
 
 if __name__ == "__main__":

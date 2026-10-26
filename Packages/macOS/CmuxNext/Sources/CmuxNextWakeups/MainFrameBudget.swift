@@ -64,7 +64,9 @@ import Darwin
 public final class MainFrameBudget {
     /// The board the stall watchdog reads.
     public let board: MainTaskBoard
+    /// Each class's share of a frame.
     public let budgets: Budgets
+    /// What the budget ran, held and measured since it was made (`debug.main_budget`, tests).
     public private(set) var stats = Stats()
     /// The main run loop's turns: each task this budget runs is a scheduled span in the turn
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.

@@ -5,8 +5,10 @@ import CmuxNextCompat
 /// window with none of these as unexplained (a spin), and CPU use with any
 /// of them as expected. Counting costs one relaxed atomic add.
 public final class ExpectedActivity: Sendable {
+    /// The process's counters, which the watchdog reads.
     public static let shared = ExpectedActivity()
 
+    /// A kind of work the user caused or can see.
     public enum Kind: Int, CaseIterable, Sendable {
         case input, animationFrame, terminalOutput
     }
@@ -15,8 +17,10 @@ public final class ExpectedActivity: Sendable {
     private let frames = Atomic<UInt64>(0)
     private let output = Atomic<UInt64>(0)
 
+    /// Counters at zero (tests make their own).
     public init() {}
 
+    /// Counts one `kind` event; any thread, one relaxed atomic add.
     public func note(_ kind: Kind) {
         switch kind {
         case .input: input.add(1, ordering: .relaxed)
@@ -25,6 +29,7 @@ public final class ExpectedActivity: Sendable {
         }
     }
 
+    /// The `kind` events counted since start; any thread.
     public func count(_ kind: Kind) -> UInt64 {
         switch kind {
         case .input: input.load(ordering: .relaxed)

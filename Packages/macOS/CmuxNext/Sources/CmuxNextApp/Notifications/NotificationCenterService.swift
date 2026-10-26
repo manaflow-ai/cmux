@@ -61,6 +61,8 @@ final class NotificationCenterService {
     @ObservationIgnored let work: MainWorkScheduler
     /// The app's main-thread deadlines (held alerts, `timeout` dismissals).
     @ObservationIgnored let deadlines: MainDeadlineScheduler
+    /// The app's off-main work: a banner button's async answer runs there (R-hop).
+    @ObservationIgnored let background: BackgroundWork
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
     @ObservationIgnored var onPasskeyBanner: ((String) -> Void)?
@@ -68,7 +70,7 @@ final class NotificationCenterService {
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot ``MainDeadline``s).
-    @ObservationIgnored private var timeouts: [String: MainDeadline] = [:]
+    @ObservationIgnored private(set) var timeouts: [String: MainDeadline] = [:]
     /// OSC 7501 alerts held until their record arrives, by notification id
     /// (`NotificationCenterService+ProgramStatus`).
     @ObservationIgnored var heldProgramAlerts: [UInt64: HeldProgramAlert] = [:]
@@ -95,9 +97,9 @@ final class NotificationCenterService {
     /// Workspace statuses `followStatusRuns` examined since start: what a status change costs it
     /// (tests read it; it must follow the workspaces whose status changed, not the session).
     @ObservationIgnored var statusRunVisits = 0
-    /// `followStatusRuns`'s observation and run tracker per workspace.
-    @ObservationIgnored var statusRunWatches: [ObjectIdentifier: AnyObject] = [:]
-    @ObservationIgnored var statusRunTrackers: [ObjectIdentifier: FinishedStatusRunTracker] = [:]
+    /// Flushes of the arrivals observation that found new notifications (tests: a burst of
+    /// arrivals is one pass on the next frame, none in its own turn).
+    @ObservationIgnored var arrivalPasses = 0
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
     /// Showcase captures seed the real daemon ledger without showing banners
@@ -124,10 +126,11 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
-    /// - Parameters: `work` and `deadlines` are the composition root's one scheduler of each.
-    init(work: MainWorkScheduler, deadlines: MainDeadlineScheduler) {
+    /// - Parameters: `work`, `deadlines` and `background` are the composition root's one of each.
+    init(work: MainWorkScheduler, deadlines: MainDeadlineScheduler, background: BackgroundWork) {
         self.work = work
         self.deadlines = deadlines
+        self.background = background
         desktop = DesktopNotifier(work: work)
     }
 

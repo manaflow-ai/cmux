@@ -45,6 +45,7 @@ public final class MainTaskBoard: Sendable {
         /// The posting line.
         public var line: UInt
 
+        /// A posting location from its `#fileID` and line.
         public init(file: String, line: UInt) {
             self.file = file
             self.line = line

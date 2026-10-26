@@ -87,16 +87,22 @@ cadence, not a throttle: work over budget runs on the next frame, never later.
   thread per over-budget task, so it perturbs bench numbers and is never on for a measured run.
   Signposts `stall.main_task` (every task; not mirrored to MetricKit) and `stall.over_budget`.
 
-## The posting API, frozen (p06-scheduler-205)
+## The posting API, to freeze after the pilot (p06-scheduler-205)
 
-plans/cmux-next/chrome-parity/p06-scheduler.md section 3 and rule 8. From this task on, no public signature in
-CmuxNextWakeups changes without the Performance Lead's OK; changes inside the package are internal only, because a
-public change rebuilds most of the 98 targets. Each of these has DocC on its declaration:
+plans/cmux-next/chrome-parity/p06-scheduler.md section 3 and rule 8. **Not frozen yet.** The task order is: migrate
+the pilot, bench it, record the numbers, then freeze. The bench (below, "Not measured yet") has not run, so the
+API below is the proposed frozen set, not a frozen one. When the pilot numbers are recorded and no worse, from then
+on no public signature in CmuxNextWakeups changes without the Performance Lead's OK; changes inside the package are
+internal only, because a public change rebuilds most of the 98 targets.
+
+Every public and open declaration of CmuxNextWakeups has a DocC comment (a protocol witness such as `==` or
+`description` takes its doc from the protocol). `python3 scripts/cmux-next/p06_queue.py --undocumented` lists any
+that has none and exits 1; `tests/test_p06_queue.py` runs it over the tree (a local test, not CI).
 
 | Need | API | File |
 |---|---|---|
 | Run main work in a class, with an owner and its posting site | `mainWork.post(_:owner:file:line:_:)`, `postFromAnyThread(_:owner:file:line:_:)`, `await mainWork.apply(_:owner:file:line:_:)` | `MainWorkScheduler+Post.swift` |
-| Off-main work, then its main part | `BackgroundWork.run(...).reply(on:class:owner:file:line:_:)` | `BackgroundWork.swift` |
+| Off-main work, then its main part | `BackgroundWork.run(...).reply(on:class:owner:file:line:_:)`; async work: `BackgroundWork.task(_:shutdown:_:)`, then `postFromAnyThread` | `BackgroundWork.swift`, `BackgroundWork+Task.swift` |
 | A node's work, held while it is hidden or frozen, keyed | `node.queue(_:owner:on:)` then `post(key:_:)` / `post(_:)` | `VisibilityNode.swift`, `MainTaskQueue.swift` |
 | Visibility of a window, workspace, pane, tab, row | `VisibilityNode`, `Visibility`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)` | `VisibilityNode.swift`, `Visibility.swift` |
 | Follow the model for a view | `VisibleObservation(node, owner:on:read:apply:)` | `VisibleObservation.swift` |
@@ -107,53 +113,76 @@ public change rebuilds most of the 98 targets. Each of these has DocC on its dec
 | Wait for the store to list a tab or workspace, to load or to connect | `store.waitForTab(...)`, `waitForWorkspace(...)`, `waitLoaded(timeout:)`, `waitConnection(...)` | `CmuxNextDaemon/Store/StoreWaiters.swift` (task 027) |
 | An off-main deadline | `DemandTimer` (main-actor code uses `MainDeadline`) | `DemandTimer.swift` |
 
-Not landed when the API froze, so they join it with the Performance Lead's OK when their tasks land: `postIdle`
+Not landed yet, so they join the set with the Performance Lead's OK when their tasks land: `postIdle`
 (IdleScheduler, task 005), `postContinuation` and `shouldYield` (task 200), the `userBlocking` class and
 `MainDelivery(class:owner:)`. A wait on something that is not the store (a window's pane mount) is a
-`ServiceObservation` whose apply ends the wait (`AgentActivityPageService`'s pane wait).
+`ServiceObservation` whose apply ends the wait (`AgentChatPaneWait`).
+
+**Merge order.** The pilot uses `ServiceObservation` (task 026) in about ten files. It is not on
+perf/chrome-parity yet (origin/cp/p06-scheduler-026 has it), so cp/p06-scheduler-205 merges only after
+cp/p06-scheduler-026, or with it. Before the merge, merge perf/chrome-parity into the branch again and check that
+`git grep 'final class ServiceObservation'` finds the class; otherwise the round's fleet compile breaks in every
+pilot file.
 
 ## The pilot (p06-scheduler-205)
 
 The pilot directories take every recipe before the file-group sweeps start: `CmuxNextApp/Notifications/`,
-`CmuxNextApp/AgentCursor/`, `AgentActivityPageService.swift` and `AgentActivityLineConnection.swift`.
+`CmuxNextApp/AgentCursor/`, `AgentActivityPageService.swift` and `AgentActivityLineConnection.swift`. The new
+types go to their domain packages, not the App: `StatusRunFollower` and `NotificationsPanelLedgerWatch` to
+CmuxNextBridge, `AgentChatPaneWait` (the pane wait `AgentActivityPageService` runs) to CmuxNextAgentActivity.
 
 | What | Recipe | After |
 |---|---|---|
-| The service's `Task { for await ObservationStream }` loops (arrivals, Dock badge, settings, viewed tabs, feed, permission bridge, ledger seed, status runs) | R-obs | `ServiceObservation`, one flush per frame in its class: arrivals, Dock badge, settings, viewed tabs and ledger seed `visible`; status runs (`cmux status`) `automation`; feed and permission bridge `background` |
-| Finished-run follower (500 per-workspace tasks and an AsyncStream) | R-obs | one `ServiceObservation` of the workspace set and one per workspace, still O(changed workspace) per change |
+| The service's `Task { for await ObservationStream }` loops (arrivals, Dock badge, settings, viewed tabs, feed, permission bridge, ledger seed, status runs) | R-obs | `ServiceObservation`: a burst of changes is one apply and one posted flush per frame, in its class (arrivals, Dock badge, settings, viewed tabs and ledger seed `visible`; status runs (`cmux status`) `automation`; feed and permission bridge `background`). Each change still re-arms the tracking with one read of `read` in its own turn (`ServiceObservation` rule 2) |
+| Finished-run follower (500 per-workspace tasks and an AsyncStream) | R-obs | a `StatusRunFollower` token that owns one `ServiceObservation` of the workspace set and one per workspace, still O(changed workspace) per change; releasing or cancelling it stops all of them |
 | Held OSC 7501 alert: a `DemandTimer` and a `Task` loop | R-timer, R-obs | `MainDeadline` (visible, flexible) and a `ServiceObservation` of the tab's records |
 | `timeout` dismissals | R-timer | `MainDeadline` (visible, flexible) |
 | Banner clicks and authorization replies (`Task { @MainActor }` from the center's threads) | R-hop | `postFromAnyThread`: a click `visible`, an authorization `background` |
+| Approval answers (Allow once and Deny on a banner, a Chief hand's banner) | R-hop | the async answer is a `BackgroundWork.task(.userBlocking)`; what follows on main (the note, reading or opening the tab) is `postFromAnyThread(.visible)`. The answerers (`AgentApprovalAnswering`, `HandsService.answer`) are main-actor async in their own packages; their own hops are those packages' file groups |
 | Ledger replies (`await MainActor.run`) | R-hop | `postFromAnyThread(.visible)` |
-| Notifications panel ledger watch | R-obs | `VisibleObservation` on the panel's node: visible while the panel shows, so a closed panel evaluates nothing |
+| Notifications panel ledger watch | R-obs | `NotificationsPanelLedgerWatch`: the panel's open makes its node visible, loads once and follows the ledger through a `VisibleObservation` on the node; its close stops the observation and hides the node, so a closed panel reads nothing |
 | Panel and row appearance changes | R-appear | `deferUntilVisible` on the panel's node |
 | Agent cursor window and Space notices (5 + 1 `addObserver`, a `Task` per notice) | R-notif, R-hop | `WindowEvents` per cmux window and `AppServices.workspaceEvents` for the Space; one coalesced re-resolve posted in `automation` |
 | Agent cursor window state loop | R-obs | `ServiceObservation(.automation)` |
 | Agent cursor target lookup (`locateTab` and a walk of every workspace) | R-index | three index lookups in the tab's own store |
-| An input to a target this window does not show | (hidden draws nothing) | no cursor command; a cursor that leaves is hidden once (`AgentCursorOverlayModel`) |
-| Agent activity pane wait | R-wait | `ServiceObservation` whose apply ends the wait |
+| An input to a target this window does not list (`elsewhere`) | (hidden draws nothing) | no cursor command; a cursor that leaves is hidden once |
+| An input to a target this window lists but does not show (`hidden(anchor:)`, a background workspace or tab) | (hidden draws nothing) | the first input puts the indicator on the anchor; later ones apply nothing unless the anchor moved or half the indicator's 10 s idle fade passed since it was last put (`AgentCursorOverlayModel.indicatorNeedsApply`) |
+| Agent activity pane wait | R-wait | `AgentChatPaneWait`, a `ServiceObservation(.visible)` whose apply ends the wait |
 
-Kept, with a reviewed escape: the two approval answers (`main-hop-allow`: `HandsService.answer` and
-`AgentApprovalAnswering` are main-actor async, so a nonisolated task adds hops instead of removing them) and the
-CUA one-shot's request deadline (`timer-class-allow`: it is off main, where `DemandTimer` is the deadline).
-`p06_queue.py` judges a name or center handed to `WindowEvents`/`AppEvents` as the R-notif target.
+**A design decision on the cursor acceptance.** The spec's "100 cursor updates for a hidden workspace give 0
+applies" is met for a target the window does not list. For a target it lists but does not show, the pilot keeps
+the indicator on the sidebar row or tab chip, so the person sees where the agent works: 100 inputs within 5 s give
+one `.indicate`, and a long run gives one per 5 s (each `.indicate` restarts the idle fade and rebuilds the
+window's tag links). Zero would let the indicator fade after 10 s while the agent keeps working there.
+
+Kept, with a reviewed escape: the CUA one-shot's request deadline (`timer-class-allow`: it is off main, where
+`DemandTimer` is the deadline). `p06_queue.py` judges as the R-notif target a center handed to `AppEvents(center:`
+in the composition root (`AppServices.swift`) only, the window of `WindowEvents.of(`, and a name handed to
+`.subscribe(` on a `WindowEvents` or `AppEvents` (a `WindowEvents.of(...)` receiver, a name the file binds to one,
+or one of the composition root's `AppEvents` properties).
+
+**Old task 037's agent-activity half is file group 341's.** The agent activity line stream reaches main through
+`AgentActivitySocketSource.swift` and `AgentActivityModel.swift` (CmuxNextAgentActivity: 3 open Q1b R-hop hits and
+1 open Q1 hit at the time of writing), which are in group 341's files, not in this task's. Group 341 moves that
+delivery to the automation class (`postFromAnyThread(.automation, owner: "agent-activity.lines")` or a
+`ServiceObservation(.automation)`); 205 does not claim it. 205 took the agent cursor half of 037 and the pane wait.
 
 Numbers. Queue hits in the pilot files (`p06_queue.py` scan, open = not escaped and not settled), on
 cmux-orchestrator-1 (Linux, no build):
 
 | | sha | open hits | escaped | settled |
 |---|---|---|---|---|
-| before | `5c6bcf17e5e` (perf/chrome-parity) | 43 | 0 | 0 |
-| after | cp/p06-scheduler-205 | 0 | 3 | 7 |
+| before | `12685b2d219` (perf/chrome-parity) | 43 | 0 | 0 |
+| after | `HEAD_SHA` (cp/p06-scheduler-205) | 0 | 1 | 7 |
 
-Not measured yet (the test phase, task 160, on a fleet GUI host with the input grant, both sides on the same host
-and session; record the sha and host here): the unattributed share (`debug.main_budget` `unattributed_share`),
-key to frame (`sidebar-churn-typing.py --input real` and `automation-typing-bench.py`, light and STRESS;
+**Not measured yet, so 205 is not done and the API is not frozen.** The test phase on one fleet GUI host with the
+input grant, both sides on the same host and session, at the base sha and at the head sha, records here with both
+shas and the host: the unattributed share (`debug.main_budget` `unattributed_share`), key to frame p50/p95/p99
+(`sidebar-churn-typing.py --input real` and `automation-typing-bench.py`, light and STRESS;
 `automation-typing-bench.py` has no `--input` flag yet, so its keys are `debug.key` stand-ins and are quoted as
-such), the per-owner task counts and wait and run times of the `notifications.*` and `agent-cursor.*` owners
-(`debug.main_budget` owner ledger; `debug.observations` does not exist yet), and idle wakeups
-(`scripts/bench_idle.py`), before and after. Fan-out (the file-group sweeps) starts only when those numbers show
-the pilot is no worse.
+such), the per-owner task counts and wait and run times of the `notifications.*`, `agent-cursor.*` and
+`agent-activity.*` owners (`debug.main_budget` owner ledger), and idle wakeups (`scripts/bench_idle.py`). The
+freeze and the fan-out (the file-group sweeps) start only when those numbers show the pilot is no worse.
 
 ## Proof
 

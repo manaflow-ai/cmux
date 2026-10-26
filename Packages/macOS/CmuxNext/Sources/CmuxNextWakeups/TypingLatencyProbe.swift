@@ -34,11 +34,14 @@ import CmuxNextSignposts
 /// variable alone turns sampling on (no CSV is written without
 /// `CMUX_NEXT_TYPING_PROBE`).
 public final class TypingLatencyProbe: Sendable {
+    /// The process's probe, on when `CMUX_NEXT_TYPING_PROBE` or `CMUX_NEXT_TRACE_FLOWS` is set.
     public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
                                                   flows: !(ProcessInfo.processInfo.environment["CMUX_NEXT_TRACE_FLOWS"] ?? "").isEmpty)
 
+    /// Whether the probe samples at all: a CSV path or key-press flows are set.
     public static var isEnabled: Bool { shared.output != nil || shared.flows != nil }
 
+    /// One step of a key press, from its dispatch to the commit of the frame that shows its echo.
     public enum Mark: Int, CaseIterable, Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
 

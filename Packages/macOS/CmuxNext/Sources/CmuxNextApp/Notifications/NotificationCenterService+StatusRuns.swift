@@ -20,38 +20,20 @@ extension NotificationCenterService {
     /// cmux is scripted"). The statuses come from `cmux status`, so the follower runs in the
     /// automation class. The first pass reads every workspace's status once, before it returns (it
     /// learns the runs that are busy now).
-    func followStatusRuns(_ store: DaemonStore) -> AnyObject {
-        ServiceObservation(.automation, owner: "notifications.status-runs.set", on: work) {
-            store.workspaceSetRevision
-        } apply: { [weak self] _ in
-            self?.statusRunMembershipChanged(store)
+    ///
+    /// - Returns: The follower. Releasing it or calling ``StatusRunFollower/cancel()`` stops it and
+    ///   every per-workspace observation it made; each follower keeps its own, so two stores never
+    ///   share one.
+    func followStatusRuns(_ store: DaemonStore) -> StatusRunFollower {
+        StatusRunFollower(store: store, work: work) { [weak self] status, tracker in
+            self?.statusRunChanged(status, store: store, tracker: &tracker)
         }
     }
 
-    /// A workspace came or went: the leavers' watches stop, each newcomer gets one.
-    private func statusRunMembershipChanged(_ store: DaemonStore) {
-        let listed = Dictionary(store.workspaces.map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
-        for id in statusRunWatches.keys where listed[id] == nil {
-            statusRunWatches[id] = nil
-            statusRunTrackers[id] = nil
-        }
-        for (id, workspace) in listed where statusRunWatches[id] == nil {
-            // The watch's first apply reads the tracker, so the tracker comes first.
-            statusRunTrackers[id] = FinishedStatusRunTracker()
-            statusRunWatches[id] = ServiceObservation(.automation, owner: "notifications.status-runs.workspace", on: work) {
-                workspace.status
-            } apply: { [weak self] status in
-                self?.statusRunChanged(id, status, store: store)
-            }
-        }
-    }
-
-    /// One workspace's status changed: its finished runs post their notices.
-    private func statusRunChanged(_ id: ObjectIdentifier, _ status: WorkspaceStatus?, store: DaemonStore) {
-        guard var tracker = statusRunTrackers[id] else { return }
+    /// One workspace's status changed: its runs that finished since `tracker`'s last look post their notices.
+    func statusRunChanged(_ status: WorkspaceStatus?, store: DaemonStore, tracker: inout FinishedStatusRunTracker) {
         statusRunVisits += 1
         let notices = statusRunNotices(in: status.map { [$0] } ?? [], store: store, tracker: &tracker)
-        statusRunTrackers[id] = tracker
         for notice in notices { postStatusRun(notice) }
     }
 

@@ -33,6 +33,7 @@ public final class ChatOpenTrace {
     /// The frame sampler stops by itself after this, whether or not the trace finished.
     public static let frameCap: TimeInterval = 15
 
+    /// One step of a chat open, in the order a chat open runs them.
     public enum Mark: Int, CaseIterable, Sendable {
         case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
              setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
@@ -84,8 +85,11 @@ public final class ChatOpenTrace {
 
     /// One trace.
     public struct Record: Sendable {
+        /// The trace's number, counted from 1 since launch.
         public let id: Int
+        /// Whether it traces the launch's restored chat (armed at startup) rather than an action.
         public let launch: Bool
+        /// Whether it ended on its time limit (``ChatOpenTrace/finish(timedOut:)``), not its last mark.
         public internal(set) var timedOut = false
         /// The engine the bound pane's chat showed in (`cef`, `webkit:…`).
         public internal(set) var engine: String?
@@ -95,6 +99,7 @@ public final class ChatOpenTrace {
         var marks = [TimeInterval?](repeating: nil, count: Mark.allCases.count)
         /// Each change of the bound pane's surface: uptime, surface.
         var frames: [(TimeInterval, Surface)] = []
+        /// Frames sampled while it was armed.
         public internal(set) var frameCount = 0
         /// When sampling stopped (finish or ``frameCap``): an empty run still on screen then ends here.
         var endedAt: TimeInterval?
@@ -133,6 +138,7 @@ public final class ChatOpenTrace {
         }
     }
 
+    /// Whether a trace is armed: marks record into it until it finishes.
     public private(set) var isArmed = false
     /// The traced chat's page: the first agent page that marks after arming. Page marks of any
     /// other page are not this open's.

@@ -6,8 +6,11 @@ import Foundation
 /// and the idle benchmark. Cumulative since the process started: callers
 /// diff two samples for rates.
 public struct ProcessUsage: Sendable, Equatable {
+    /// The process.
     public var pid: pid_t
+    /// Its parent process; 0 when it could not be read.
     public var parent: pid_t
+    /// Its executable's path; empty when it could not be read.
     public var path: String
     /// User plus system CPU time.
     public var cpuNanos: UInt64
@@ -27,9 +30,12 @@ public struct ProcessUsage: Sendable, Equatable {
     public var packageIdleWakeups: UInt64
     /// CPU energy (`ri_energy_nj`); work billed to the render server is not in it.
     public var energyNanojoules: UInt64
+    /// Its physical memory footprint in bytes (`ri_phys_footprint`, Activity Monitor's Memory).
     public var physFootprint: UInt64
+    /// When it was sampled (`CLOCK_UPTIME_RAW` nanoseconds).
     public var uptimeNanos: UInt64
 
+    /// The executable's file name.
     public var name: String { (path as NSString).lastPathComponent }
 
     /// A usage from its counters (``sample(_:)`` reads them; tests build them).
@@ -74,6 +80,7 @@ public struct ProcessUsage: Sendable, Equatable {
         return Double(cpuNanos - earlier.cpuNanos) / wall
     }
 
+    /// The executable path of `pid` (`proc_pidpath`); nil when it is gone or not ours. A blocking syscall.
     public static func path(of pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))

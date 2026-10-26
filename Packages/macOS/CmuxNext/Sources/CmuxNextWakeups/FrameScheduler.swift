@@ -17,6 +17,7 @@ extension FrameLink {
 }
 
 extension CADisplayLink: FrameLink {
+    /// Sets the link's preferred frame rate range.
     @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
 }
 
@@ -97,7 +98,9 @@ public final class FrameScheduler: NSObject {
         case window(NSWindow)
     }
 
+    /// The scheduler's name in the wakeup ledger and signposts.
     public let name: String
+    /// The window it clocks; nil for a screen-hosted scheduler or once the window is gone.
     public private(set) weak var window: NSWindow?
     /// The scheduler serves window-less work on a display (``app``, the ``MainWorkScheduler``'s).
     let isScreenHost: Bool

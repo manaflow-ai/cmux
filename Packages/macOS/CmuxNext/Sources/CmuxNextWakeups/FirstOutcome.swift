@@ -10,8 +10,10 @@ public final class FirstOutcome<Value: Sendable>: Sendable {
     }
     private let phase = Mutex<Phase>(.pending(nil))
 
+    /// An outcome nothing resolved yet.
     public init() {}
 
+    /// Delivers `value` when it is the first; any later value is dropped. Any thread.
     public func resolve(_ value: Value) {
         let waiter: CheckedContinuation<Value, Never>? = phase.withLock { phase in
             guard case .pending(let waiter) = phase else { return nil }
@@ -21,6 +23,7 @@ public final class FirstOutcome<Value: Sendable>: Sendable {
         waiter?.resume(returning: value)
     }
 
+    /// The first resolved value: at once when one came, else when the first comes.
     public func value() async -> Value {
         await withCheckedContinuation { continuation in
             let ready: Value? = phase.withLock { phase in
