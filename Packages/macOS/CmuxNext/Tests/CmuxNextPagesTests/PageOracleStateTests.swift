@@ -95,10 +95,12 @@ struct PageOracleStateTests {
     @Test func aPageThatIsNotLoadedIsLoadingAndTheParkedSpareIsNotAsked() async throws {
         try await withPage { _, page in
             page.loaded = false
-            #expect(try await page.oracleState(within: .seconds(1), clock: PageTestClock.never) == .loading)
+            let loading = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
+            #expect(loading == .loading)
             let parking = PageHostParking()
             parking.addSubview(page)
-            #expect(try await page.oracleState(within: .seconds(1), clock: PageTestClock.never) == nil)
+            let parked = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
+            #expect(parked == nil)
         }
     }
 
