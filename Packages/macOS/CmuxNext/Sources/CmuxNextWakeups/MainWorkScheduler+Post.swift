@@ -41,10 +41,30 @@ extension MainWorkScheduler {
         var turnQueued = false
         /// Owner names interned on the board once each, so a post on main takes no lock after the first.
         var owners: [String: MainTaskOwner] = [:]
+        var hiddenWake: HiddenWake?
+    }
+
+    /// Asks for one call of `wake` at the next aligned hidden wake-up (1 s boundaries, Blink's
+    /// `WakeUpBudgetPool::GetNextAllowedWakeUp` in
+    /// third_party/blink/renderer/platform/scheduler/common/throttling/wake_up_budget_pool.cc), on the
+    /// main actor. `owner` names who asked in the wakeup ledger.
+    public typealias HiddenWake = @MainActor (_ owner: String, _ wake: @escaping @MainActor () -> Void) -> Void
+
+    /// Where hidden nodes' background queues (``MainTaskQueue``) get their aligned wakes; the
+    /// composition root sets it once, from its aligned wake-up source. While it is nil, background
+    /// tasks of a hidden node are held until the node shows.
+    public var hiddenWake: HiddenWake? {
+        get { posting.hiddenWake }
+        set { posting.hiddenWake = newValue }
     }
 
     /// Queues `body` to run on the main thread in `workClass`, after the work posted before it in
     /// that class. Never inline: the caller returns first.
+    ///
+    /// It runs whether or not anyone can see its owner. An owner that can be hidden (a tab, a
+    /// workspace, a row, a page) posts through its node's queue instead
+    /// (``VisibilityNode/queue(_:owner:on:)``), which holds the work while the node is hidden; a
+    /// plain post from such an owner carries a `// node-free: <why it must run while hidden>` comment.
     ///
     /// - Parameters:
     ///   - workClass: `visible` for screen updates no action of the person caused, `automation` for

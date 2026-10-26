@@ -70,6 +70,11 @@ import Darwin
     private var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
     private var mediaPlaying = false
     private var mediaStoppedAt: Duration?
+    /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
+    private var queues: [WeakQueue] = []
+
+    /// Whether ``freeze()`` stopped this node's task queues.
+    public private(set) var isFrozen = false
 
     /// Makes a root node (the app, or a window when the app has no node yet).
     ///
@@ -171,6 +176,43 @@ import Darwin
         return uptime() - mediaStoppedAt < window
     }
 
+    // MARK: Task queues
+
+    /// A queue of `workClass` tasks that runs by this node's state (``MainTaskQueue``): held while
+    /// the node is not visible (background at hidden wakes), stopped while it is frozen, dropped
+    /// with the queue. Work for a hideable owner goes through its node's queue; a plain
+    /// ``MainWorkScheduler/post(_:owner:file:line:_:)`` from such an owner says why with `// node-free:`.
+    ///
+    /// - Parameters:
+    ///   - workClass: The class its tasks run in.
+    ///   - owner: Its tasks' owner on the board.
+    ///   - work: The app's one main-thread scheduler.
+    public func queue(_ workClass: BudgetedWorkClass, owner: String, on work: MainWorkScheduler) -> MainTaskQueue {
+        let queue = MainTaskQueue(node: self, workClass: workClass, owner: owner, on: work)
+        queues.removeAll { $0.queue == nil }
+        queues.append(WeakQueue(queue: queue))
+        return queue
+    }
+
+    /// Stops this node's task queues: none of their tasks runs, visible or not, until
+    /// ``unfreeze()`` (Blink's `PageSchedulerImpl::SetPageFrozen`). Child nodes are not frozen.
+    public func freeze() {
+        guard !isFrozen else { return }
+        isFrozen = true
+        notifyQueues()
+    }
+
+    /// Lets this node's task queues run again by its visibility.
+    public func unfreeze() {
+        guard isFrozen else { return }
+        isFrozen = false
+        notifyQueues()
+    }
+
+    private func notifyQueues() {
+        for queue in queues.compactMap(\.queue) { queue.nodeDidChange() }
+    }
+
     // MARK: Subscribers and deferred work
 
     /// Calls `onFlip` with the new effective state each time it flips, until the returned token is
@@ -247,6 +289,8 @@ import Darwin
         notified = value
         notifyGeneration += 1
         let generation = notifyGeneration
+        // Queues only post on a flip, never run inline, so they hear it first.
+        notifyQueues()
         subscriptions.removeAll { $0.subscription == nil }
         for subscription in subscriptions.compactMap(\.subscription) where subscription.isActive {
             guard notifyGeneration == generation else { return }
@@ -319,6 +363,10 @@ import Darwin
 
     private struct WeakSubscription {
         weak var subscription: VisibilitySubscription?
+    }
+
+    private struct WeakQueue {
+        weak var queue: MainTaskQueue?
     }
 }
 
