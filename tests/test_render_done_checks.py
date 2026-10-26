@@ -33,12 +33,31 @@ def git(cwd, *args):
                           env=GIT_ENV).stdout.strip()
 
 
+def queries_of(check):
+    if isinstance(check, RDC.CommCheck):
+        return (check.left, check.right)
+    return getattr(check, "queries", ())
+
+
+def make_scope(root, scope):
+    """An empty file or directory for each scope path the checks read (a glob: one file that matches it)."""
+    path = root / scope.replace("*", "")
+    if path.suffix in (".swift", ".zig"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    else:
+        path.mkdir(parents=True, exist_ok=True)
+
+
 @unittest.skipUnless(shutil.which("rg"), "needs ripgrep")
 class FixtureTree(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         (self.root / SOURCES).mkdir(parents=True)
+        for scope in sorted({p for c in RDC.CHECKS for q in queries_of(c) for p in q.paths}):
+            if not scope.startswith(RDC.GHOSTTY):  # the pin tests make the submodule
+                make_scope(self.root, scope)
         self.tree = RDC.Tree(self.root, shutil.which("rg"))
 
     def tearDown(self):
@@ -75,6 +94,15 @@ class LineQueries(FixtureTree):
         self.assertEqual((row.count, row.status), (1, "FAIL"))
         self.assertEqual(row.items, [f"{SOURCES}/CmuxNextWakeups/FrameScheduler.swift"])
 
+    def test_displaylinks_queue_is_done_with_only_the_one_link_per_display_owners(self):
+        self.src("CmuxNextWakeups/DisplayClock.swift", "let link = CADisplayLink(target: self)\n")
+        self.src("CmuxNextWakeups/VSyncHub.swift", "var link: CVDisplayLink?\n")
+        self.assertEqual((self.row("MQ-displaylinks").count, self.row("MQ-displaylinks").status), (0, "DONE"))
+        self.src("CmuxNextTerminal/FrameScheduler.swift", "let l = window.displayLink(target: self, selector: s)\n")
+        row = self.row("MQ-displaylinks")
+        self.assertEqual((row.count, row.status), (1, "OPEN"))
+        self.assertTrue(row.items[0].startswith(f"{SOURCES}/CmuxNextTerminal/FrameScheduler.swift:1:"), row.items)
+
     def test_sync_layout_needs_the_annotation_on_the_line_or_the_line_above(self):
         self.src("CmuxNextApp/A.swift", """
             func a() {
@@ -91,6 +119,34 @@ class LineQueries(FixtureTree):
         self.assertEqual(row.count, 2, row.items)
         self.assertEqual([i.split(":")[1] for i in row.items], ["7", "8"])
         self.assertEqual(self.row("MQ-sync-layout").status, "OPEN")
+
+    def test_a_trailing_annotation_on_the_line_above_counts(self):
+        # The plan and task 066's guardrail: "on the line or the line above", comment-only or not.
+        self.src("CmuxNextApp/A.swift", """
+            header.layoutSubtreeIfNeeded() // sync-layout: the header and the body measure together
+            body.layoutSubtreeIfNeeded()
+            footer.layoutSubtreeIfNeeded()
+        """)
+        row = self.row("DC11-sync-layout")
+        self.assertEqual([i.split(":")[1] for i in row.items], ["3"])
+        self.src("CmuxNextSidebar/Row.swift", """
+            func apply() {
+                update() // invalidate: the theme changed every color
+                needsDisplay = true
+            }
+        """)
+        code, out = self.run_main("--invalidate", f"{SOURCES}/CmuxNextSidebar")
+        self.assertEqual(code, 0, out)
+
+    def test_a_missing_scope_path_fails_the_row(self):
+        shutil.rmtree(self.root / SOURCES / "CmuxNextTerminal")
+        row = self.row("MQ-pane-autolayout")
+        self.assertEqual(row.status, "FAIL")
+        self.assertIn(f"{SOURCES}/CmuxNextTerminal", row.note)
+        (self.root / SOURCES / "CmuxNextApp/PaneContentView.swift").unlink()
+        self.assertIn(f"{SOURCES}/CmuxNextApp/PaneContentView*.swift", self.row("MQ-pane-autolayout").items)
+        shutil.rmtree(self.root / "webviews")
+        self.assertEqual(self.row("MQ-web-raf").status, "FAIL")  # an info row too: a gone scope is no count
 
     def test_an_empty_annotation_does_not_count(self):
         self.src("CmuxNextApp/A.swift", "view.layoutSubtreeIfNeeded() // sync-layout:\n")
@@ -167,8 +223,8 @@ class FrameClients(FixtureTree):
         self.src("CmuxNextTabs/Autoscroll.swift", """
             // input-driven: edge autoscroll while the pointer is in the zone
             let a = FrameClient(owner: "tabs.autoscroll") { _ in true }
-            let b = FrameClient(owner: "tabs.hold") { _ in true } // frame-client: holds the frame for the grid
             let c = FrameClient(owner: "tabs.unmarked") { _ in true }
+            let b = FrameClient(owner: "tabs.hold") { _ in true } // frame-client: holds the frame for the grid
         """)
         self.src("CmuxNextApp/Release.swift", """
             #if os(macOS)
@@ -217,6 +273,26 @@ class Invalidate(FixtureTree):
         code, out = self.run_main("--invalidate")
         self.assertIn(": 3 (threshold 0)", out)
 
+    def test_a_path_that_does_not_exist_is_a_usage_error(self):
+        self.src("CmuxNextSidebar/Row.swift", "func f() { needsLayout = true }\n")
+        code, out = self.run_main("--invalidate", f"{SOURCES}/CmuxNextSidebr")
+        self.assertEqual(code, 2)
+        self.assertIn("CmuxNextSidebr: no such file or directory", out)
+        code, out = self.run_main("--invalidate", str(Path(self._tmp.name).parent))
+        self.assertEqual(code, 2)
+        self.assertIn("outside the checkout", out)
+
+    def test_a_path_is_read_against_the_working_directory_first(self):
+        self.src("CmuxNextSidebar/Row.swift", "func f() { needsLayout = true }\n")
+        here = os.getcwd()
+        os.chdir(self.root / SOURCES)
+        try:
+            code, out = self.run_main("--invalidate", "CmuxNextSidebar")
+        finally:
+            os.chdir(here)
+        self.assertEqual(code, 1)
+        self.assertIn(f"{SOURCES}/CmuxNextSidebar/Row.swift:1:", out)
+
 
 class GhosttyPin(FixtureTree):
     def gitlink(self):
@@ -224,8 +300,9 @@ class GhosttyPin(FixtureTree):
         module.mkdir()
         git(self.root, "init", "-q")
         git(module, "init", "-q")
-        (module / "src/renderer").mkdir(parents=True)
+        (module / "src/renderer/metal").mkdir(parents=True)
         (module / "src/renderer/generic.zig").write_text("const DisplayLink = @import(\"x\");\n")
+        (module / "src/renderer/metal/IOSurfaceLayer.zig").write_text("const std = @import(\"std\");\n")
         git(module, "add", ".")
         git(module, "commit", "-q", "-m", "pin")
         pin = git(module, "rev-parse", "HEAD")
@@ -253,7 +330,8 @@ class GhosttyPin(FixtureTree):
         self.assertTrue(state.ok, state.describe())
         rows = {r.id: r for r in RDC.evaluate(self.tree, state)}
         self.assertEqual(rows["GHOSTTY"].status, "PASS")
-        self.assertEqual((rows["MQ-displaylinks-ghostty"].count, rows["MQ-displaylinks-ghostty"].status), (1, "OPEN"))
+        # The DisplayLink path stays for vsync_external off (task 082): a count, not a queue that never ends.
+        self.assertEqual((rows["MQ-displaylinks-ghostty"].count, rows["MQ-displaylinks-ghostty"].status), (1, "INFO"))
         self.assertEqual(rows["DC6-ghostty"].status, "PASS")
 
     def test_a_submodule_off_the_pin_fails(self):
@@ -266,37 +344,167 @@ class GhosttyPin(FixtureTree):
         self.assertIn(f"pins {pin[:12]}", state.describe())
 
 
+MOTION_MAIN_WORK = ROOT / "scripts/cmux-next/motion-main-work.py"
+COUNTERS = ("frame_sets", "layouts", "window_calls", "tracking_area_adds", "contents_sets", "damage_rects")
+
+
+def motion_pass(scenario, phase="do", round_index=0, after=None, frame1=None, noisy=False, visibility=1, error=None,
+                session="light"):
+    """One record in the shape motion-main-work.py's counting_pass and split_pass write (schema v2)."""
+    after = {k: 0 for k in COUNTERS} | (after or {})
+    frame1 = {k: 0 for k in COUNTERS} | {"frame_sets": 4, "layouts": 3} | (frame1 or {})
+    return {"session": session, "scenario": scenario, "phase": phase, "round": round_index, "error": error,
+            "counts": {"noisy": noisy,
+                       "idle": {"frames": 24, "structural_max": 1 if noisy else 0, **{k: 0 for k in COUNTERS}},
+                       "frame1": {"offset": 0, **frame1},
+                       "frames_2_n": {"frames": 30, **after},
+                       "frames_2_n_max": {k: min(v, 1) for k, v in after.items()},
+                       "frames_2_n_with_work": sum(1 for v in after.values() if v), "last_work_frame": None},
+            "layout_counters": {"layout_root_passes": 2}, "update_visibility": visibility,
+            "owners": [{"owner": "PaneHostView", "frame_sets": 4, "layouts": 3}]}
+
+
+def motion_report(passes):
+    """The report around the passes; summary rows carry frame_sets/layouts/update_visibility maxima too, which the
+    reader must not judge (they include every pass)."""
+    return {"schema": "motion-main-work/v2", "environment": {}, "launches": {}, "sessions": {}, "passes": passes,
+            "summary": [{"session": "light", "scenario": "cmd-d", "phase": "do", "frame_sets": {"median": 9, "max": 9},
+                         "update_visibility": {"median": 9, "max": 9}, "zero_frames_2_n": True}],
+            "problems": []}
+
+
+def cef_summary(on_switch, on_tabs, off_longest=40.0, show_again=True):
+    """cef-layer-ab.py's summary.json: both modes, validity rows from cef-layer-verify.py."""
+    def switch(commit_p95, longest_max):
+        return {"exit": 0, "rows": {f"chromium.{how}": {"input_to_commit_ms": {"n": 20, "p50": 4.0, "p95": commit_p95},
+                                                         "input_to_idle_ms": {"n": 20, "p95": 30.0},
+                                                         "longest_frame_ms": {"n": 20, "max": longest_max}}
+                                    for how in ("click", "cmd_digit")}}
+
+    def tabs(e2e_p95):
+        line = {"n": 20, "commit": {"p50": 2.0, "p95": 3.0},
+                "e2e": {"p50": 4.0, "p90": 6.0, "p95": e2e_p95, "max": 9.0}}
+        part = {"table": {"chromium": line}, "switches": [], "stalls": {"count": 0, "max_ms": None}, "timed": 20}
+        return {"exit": 0, "rows": {"tag": "t", "baseline": {}, "scenarios": [
+            {"kind": "chromium", "count": 2, "ctrl_tab": part, "cmd_shift_bracket": part}]}}
+
+    verify = lambda ok: {"ok": True, "exit": 0, "rows": [{"check": "valid", "ok": True, "observed": {}},  # noqa: E731
+                                                         {"check": "show.again", "ok": ok, "observed": {"shown": ok}}]}
+    return {"tag": "t", "app": "a",
+            "modes": {"off": {"switch": switch(30.0, off_longest), "tabs": tabs(25.0)},
+                      "on": {"switch": switch(*on_switch), "tabs": tabs(on_tabs)}},
+            "validity": {"off": verify(True), "on": verify(show_again)}}
+
+
 class BenchJson(FixtureTree):
     def bench(self, name, data):
         path = self.root / f"{name}.json"
         path.write_text(json.dumps(data))
         return str(path)
 
-    def test_motion_counts_pass_and_fail_by_scenario(self):
-        path = self.bench("motion", {"scenarios": {"cmd-d": {"frame_sets": 0, "layouts": 0, "update_visibility": 2},
-                                                   "cmd-w": {"frame_sets": 3, "layouts": 0, "update_visibility": 4}}})
-        rows = {r.id: r for r in RDC.bench_rows("motion", path)}
-        self.assertEqual(rows["DC2 frame_sets"].status, "FAIL")
-        self.assertEqual(rows["DC2 frame_sets"].items, ["scenarios.cmd-w.frame_sets = 3"])
-        self.assertEqual(rows["DC2 layouts"].status, "PASS")
-        self.assertEqual(rows["DC2 update_visibility"].count, 1)
-        self.assertNotIn("DC2 window_calls", rows)
+    def motion(self, passes):
+        return {r.id: r for r in RDC.bench_rows("motion", self.bench("motion", motion_report(passes)))}
 
-    def test_a_file_without_the_bench_keys_fails(self):
-        rows = RDC.bench_rows("hitches", self.bench("wrong", {"switches": 3}))
+    def test_motion_judges_frames_2_n_of_quiet_counted_passes_only(self):
+        rows = self.motion([
+            motion_pass("cmd-d"), motion_pass("cmd-d", "undo"),
+            # A noisy pass and a failed step count nowhere, as in motion-main-work.py's zero_frames_2_n.
+            motion_pass("cmd-d", round_index=1, after={"frame_sets": 5}, noisy=True),
+            motion_pass("cmd-d", round_index=2, after={"layouts": 5}, error="the pane did not close"),
+        ])
+        for row_id in ("DC2 passes", "DC2 frames_2_n.frame_sets", "DC2 frames_2_n.layouts",
+                       "DC13 frames_2_n.window_calls", "DC2 update_visibility"):
+            self.assertEqual(rows[row_id].status, "PASS", (row_id, rows[row_id]))
+        self.assertIn("(of 2)", rows["DC2 frames_2_n.frame_sets"].threshold)  # frame 1's work is the step's own
+        self.assertEqual(rows["DC2 MotionClock layout frames"].status, "SKIP")
+
+    def test_motion_fails_on_frames_2_n_work_visibility_and_a_scenario_without_evidence(self):
+        rows = self.motion([
+            motion_pass("cmd-w", after={"frame_sets": 3, "window_calls": 2}, visibility=4),
+            motion_pass("zoom", visibility=None),  # a build before p03-rendering-002
+            motion_pass("band", noisy=True), motion_pass("band", round_index=1, error="prepare: no band"),
+        ])
+        self.assertEqual(rows["DC2 frames_2_n.frame_sets"].items, ["light cmd-w do #0 = 3"])
+        self.assertEqual(rows["DC13 frames_2_n.window_calls"].items, ["light cmd-w do #0 = 2"])
+        self.assertEqual(rows["DC2 frames_2_n.layouts"].status, "PASS")
+        self.assertEqual(rows["DC2 update_visibility"].items, ["light cmd-w do #0 = 4", "light zoom do #0: no value"])
+        self.assertEqual(rows["DC2 passes"].status, "FAIL")
+        self.assertEqual(rows["DC2 passes"].items,
+                         ["light band do: no quiet counted pass of 2 (1 noisy; prepare: no band)"])
+
+    def test_motion_without_a_quiet_pass_or_its_schema_fails(self):
+        rows = self.motion([motion_pass("cmd-d", noisy=True)])
+        self.assertEqual({k: v.status for k, v in rows.items() if v.status != "SKIP"},
+                         {k: "FAIL" for k in ("DC2 passes", "DC2 frames_2_n.frame_sets", "DC2 frames_2_n.layouts",
+                                              "DC13 frames_2_n.window_calls", "DC2 update_visibility")})
+        rows = RDC.bench_rows("motion", self.bench("flat", {"scenarios": {"cmd-d": {"frame_sets": 0, "layouts": 0}}}))
         self.assertEqual([r.status for r in rows], ["FAIL"])
-        self.assertIn("not a --hitches report", rows[0].note)
+        self.assertIn("not a motion-main-work.py report", rows[0].note)
 
-    def test_typing_and_cef_read_distributions(self):
+    @unittest.skipUnless(MOTION_MAIN_WORK.exists(), "motion-main-work.py is not in this checkout")
+    def test_motion_reads_motion_main_work_split_pass_output(self):
+        spec = importlib.util.spec_from_file_location("motion_main_work", MOTION_MAIN_WORK)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # 3 idle frames, the step's frame (mark 3) with work, then frames 2..n: quiet, then one late layout.
+        quiet = {k: [0, 0, 0, 2, 0, 0] for k in module.ALL_COUNTERS}
+        late = {k: [0, 0, 0, 2, 0, 1 if k == "layouts" else 0] for k in module.ALL_COUNTERS}
+        passes = [{"session": "light", "scenario": name, "phase": "do", "round": 0, "error": None,
+                   "counts": module.split_pass(series, 3, 3), "layout_counters": {}, "update_visibility": 2,
+                   "owners": []} for name, series in (("cmd-d", quiet), ("cmd-w", late))]
+        report = {"schema": module.SCHEMA, "passes": passes, "summary": module.summarize(passes), "problems": []}
+        rows = {r.id: r for r in RDC.bench_rows("motion", self.bench("real", report))}
+        self.assertEqual(rows["DC2 frames_2_n.frame_sets"].status, "PASS")
+        self.assertEqual(rows["DC2 frames_2_n.layouts"].items, ["light cmd-w do #0 = 1"])
+        self.assertEqual(rows["DC2 passes"].status, "PASS")
+
+    def test_every_criterion_without_a_value_fails(self):
+        rows = RDC.bench_rows("hitches", self.bench("wrong", {"switches": 3}))
+        self.assertEqual([r.status for r in rows], ["FAIL", "FAIL", "FAIL"])
+        self.assertIn("not a --hitches report", rows[0].note)
+        # A partial report: the criteria it has pass, the one it lacks still fails.
+        rows = {r.id: r for r in RDC.bench_rows("hitches", self.bench("partial", {"scenarios": [
+            {"name": "cmd-d", "hitch_count": 0, "max_interval_ms": 8.4}]}))}
+        self.assertEqual(rows["DC3 hitches|hitch_count"].status, "PASS")
+        self.assertEqual(rows["DC3 max_interval_ms"].status, "PASS")
+        self.assertEqual(rows["DC2t main_work_p99_ms"].status, "FAIL")
+
+    def test_typing_reads_distributions_and_a_run_without_one_fails(self):
         typing = self.bench("typing", {"runs": [{"key_to_frame_ms": {"p50": 6.1, "p99": 15.0}},
-                                                {"key_to_frame_ms": {"p50": 9.0, "p99": 20.0}}]})
+                                                {"key_to_frame_ms": {"p50": 9.0, "p99": 20.0}},
+                                                {"key_to_frame_ms": None}]})
         rows = {r.id: r for r in RDC.bench_rows("typing", typing)}
-        self.assertEqual((rows["DC5 key_to_frame_ms.p50"].count, rows["DC5 key_to_frame_ms.p99"].count), (1, 1))
-        cef = self.bench("cef", {"modes": {"on": {"switch": {"a": {"input_to_commit_ms": {"p95": 8.3},
-                                                                  "longest_frame_ms": {"max": 8.0}}}}}})
-        rows = {r.id: r for r in RDC.bench_rows("cef", cef)}
-        self.assertEqual(rows["DC10 input_to_commit_ms.p95"].status, "FAIL")  # strict < 8.3
-        self.assertEqual(rows["DC10 longest_frame_ms.max"].status, "PASS")
+        self.assertEqual(rows["DC5 key_to_frame_ms.p50"].items,
+                         ["runs[1].key_to_frame_ms = 9", "runs[2].key_to_frame_ms: no value"])
+        self.assertEqual(rows["DC5 key_to_frame_ms.p99"].count, 2)
+
+    def test_cef_judges_the_on_mode_only(self):
+        # The off baseline (child windows) misses DC10 by far; a good hosted run still passes.
+        rows = {r.id: r for r in RDC.bench_rows("cef", self.bench("cef", cef_summary((5.0, 8.0), 6.0)))}
+        for row_id in ("DC10 show.again", "DC10 switch input_to_commit_ms.p95", "DC10 switch longest_frame_ms.max",
+                       "DC10 tabs e2e.p95"):
+            self.assertEqual(rows[row_id].status, "PASS", (row_id, rows[row_id]))
+        self.assertIn("(of 2)", rows["DC10 switch longest_frame_ms.max"].threshold)
+        self.assertIn("(of 2)", rows["DC10 tabs e2e.p95"].threshold)
+        self.assertEqual(rows["DC10 viewDidMoveToWindow"].status, "SKIP")
+
+    def test_cef_fails_on_limits_show_again_and_a_missing_bench(self):
+        rows = {r.id: r for r in RDC.bench_rows("cef", self.bench("cef", cef_summary((8.3, 9.0), 8.3,
+                                                                                      show_again=False)))}
+        self.assertEqual(rows["DC10 switch input_to_commit_ms.p95"].count, 2)  # strict < 8.3
+        self.assertEqual(rows["DC10 switch longest_frame_ms.max"].count, 2)
+        self.assertEqual(rows["DC10 tabs e2e.p95"].items, ["tabs chromium 2 ctrl_tab = 8.3",
+                                                           "tabs chromium 2 cmd_shift_bracket = 8.3"])
+        self.assertEqual(rows["DC10 show.again"].status, "FAIL")
+        summary = cef_summary((5.0, 8.0), 6.0)
+        summary["modes"]["on"]["tabs"] = {"exit": 1, "rows": {"error": "no report"}}
+        del summary["modes"]["on"]["switch"]["rows"]["chromium.click"]["input_to_commit_ms"]
+        rows = {r.id: r for r in RDC.bench_rows("cef", self.bench("cef", summary))}
+        self.assertEqual(rows["DC10 tabs e2e.p95"].status, "FAIL")
+        self.assertIn("no modes.on.tabs scenarios", rows["DC10 tabs e2e.p95"].note)
+        self.assertEqual(rows["DC10 switch input_to_commit_ms.p95"].items, ["switch chromium.click: no value"])
+        del summary["modes"]["on"]
+        self.assertEqual([r.status for r in RDC.bench_rows("cef", self.bench("cef", summary))], ["FAIL"])
 
     def test_idle_sums_app_and_daemon_and_flags_render_owners(self):
         path = self.bench("idle", {"scenarios": {
@@ -310,6 +518,15 @@ class BenchJson(FixtureTree):
         rows = {r.id: r for r in RDC.bench_rows("idle", path)}
         self.assertEqual(rows["DC7j app+daemon"].items, ["minimized: app + daemon 1.4/s"])
         self.assertEqual(rows["DC7r render wakeups"].items, ["terminals: FrameScheduler.window stalled frame 0.2/s"])
+
+    def test_idle_fails_an_app_or_daemon_that_came_or_went_in_the_window(self):
+        # bench_idle.py writes a partial row (no rate) for such a process, and its own criteria fail it.
+        path = self.bench("idle", {"scenarios": {"terminals": {"processes": [
+            {"kind": "app", "wakeups_per_s": 0.2},
+            {"pid": 41, "kind": "daemon", "partial": True, "note": "exited during the window"},
+            {"pid": 42, "kind": "terminal-host", "partial": True, "note": "appeared during the window"}]}}})
+        row = {r.id: r for r in RDC.bench_rows("idle", path)}["DC7j app+daemon"]
+        self.assertEqual((row.status, row.items), ("FAIL", ["terminals: daemon 41 exited during the window"]))
 
     def test_unreadable_json_is_a_tool_error(self):
         self.src("A.swift", "\n")

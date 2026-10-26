@@ -19,22 +19,33 @@ ghostty-next queries need the submodule initialized at the gitlink the checkout 
 FAILs (the run exits 1) and the ghostty rows print SKIP: an uninitialized submodule makes rg print nothing, which
 would read as done.
 
-Annotations (at the end of the hit's line or on a comment-only line above it): `// sync-layout: <why>` (DC11,
-MQ-sync-layout), `// input-driven: <why>` (MQ-springs, MQ-frameclients), `// frame-client: <why>` (MQ-frameclients;
-a hit inside an `#if DEBUG` or `#if DEBUG || CMUX_BENCH_HOOKS` branch counts as marked too), `// invalidate: <why>`
-(--invalidate, which also accepts `!= oldValue`, `guard ... !=` and `if ... !=` on the line or the line above),
-`// tracking-area: <why>` (MQ-tracking-areas), `// draw: <why>` (MQ-draw), `// decode: <why>` (MQ-image-decode),
-`LoopVisibility` (MQ-loops). MQ-shadow-path takes `shadowPath` or `// shadow: alpha-derived <why>` anywhere in the
-file, as the plan's comm query does.
+Annotations (on the hit's line or on the line directly above it, comment-only or the trailing comment of a code
+line: the plan's "on the line or the line above", the same rule as task 066's sync-layout guardrail):
+`// sync-layout: <why>` (DC11, MQ-sync-layout), `// input-driven: <why>` (MQ-springs, MQ-frameclients),
+`// frame-client: <why>` (MQ-frameclients; a hit inside an `#if DEBUG` or `#if DEBUG || CMUX_BENCH_HOOKS` branch
+counts as marked too), `// invalidate: <why>` (--invalidate, which also accepts `!= oldValue`, `guard ... !=` and
+`if ... !=`), `// tracking-area: <why>` (MQ-tracking-areas), `// draw: <why>` (MQ-draw), `// decode: <why>`
+(MQ-image-decode), `LoopVisibility` (MQ-loops). MQ-shadow-path takes `shadowPath` or `// shadow: alpha-derived <why>`
+anywhere in the file, as the plan's comm query does.
 
-Bench JSON (each optional; a file with none of its keys FAILs, so a wrong file is never a silent pass):
-  --motion   motion-main-work.py (DC2): frame_sets, layouts, window_calls, layout_frames = 0; update_visibility <= 2
-  --hitches  motion-hitches.py (DC2t, DC3): hitches, hitch_count = 0; main_work_p99_ms <= 0.5;
+A scope path that is gone (a renamed directory, a glob that matches nothing) FAILs its row, and an --invalidate PATH
+that is in neither the working directory nor the checkout is a usage error: rg prints nothing for a missing path,
+which would read as done.
+
+Bench JSON (each optional). Every criterion is its own row; a criterion with no value in the report FAILs, so a wrong
+or partial report is never a pass. SKIP rows name the criteria that no report carries (check them by hand).
+  --motion   motion-main-work.py (DC2, DC13): per pass with counts, no error and not noisy, counts.frames_2_n
+             frame_sets = layouts = window_calls = 0 and update_visibility <= 2; every session, scenario and phase
+             needs one such pass. SKIP: MotionClock 'layout' frames.
+  --hitches  motion-hitches.py (DC2t, DC3): hitches|hitch_count = 0; main_work_p99_ms <= 0.5;
              max_interval_ms <= 12.5 (1.5 x 8.33 ms)
-  --idle     bench_idle.py (DC7r, DC7j): app + daemon wakeups/s <= 1 per scenario; render-attributed ledger
-             wakeups (frame clients, display links, VSyncHub, Ghostty renderer) = 0
+  --idle     bench_idle.py (DC7r, DC7j): app + daemon wakeups/s <= 1 per scenario, and no app or daemon row that
+             is partial (it came or went in the window); render-attributed ledger wakeups (frame clients, display
+             links, VSyncHub, Ghostty renderer) = 0
   --typing   typing-frame-bench.py (DC5): key_to_frame_ms p50 <= 8.3, p99 <= 16.7
-  --cef      cef-layer-ab.py summary (DC10): input_to_commit_ms p95 < 8.3; longest_frame_ms max <= 8.33
+  --cef      cef-layer-ab.py summary.json (DC10), mode on only: validity.on show.again ok; switch rows
+             input_to_commit_ms p95 < 8.3 and longest_frame_ms max <= 8.33; tabs rows e2e p95 < 8.3.
+             SKIP: viewDidMoveToWindow on switch-in.
 
 Exit: 0 every DC row passes, 1 a DC row fails (or --frameclients / --invalidate lists a hit), 2 a usage or tool
 error (no rg, unreadable JSON, not a cmux checkout).
@@ -94,6 +105,11 @@ class Tree:
         self.root = root
         self.rg = rg
         self._lines: dict[str, list[str]] = {}
+
+    def missing(self, query: Query) -> list[str]:
+        """The query's scope paths that do not exist (a glob: that match nothing). A renamed or mistyped scope
+        makes rg print nothing, which would read as done."""
+        return [p for p in query.paths if not any((self.root / m).exists() for m in self._expand((p,)))]
 
     def run(self, query: Query) -> list[Hit]:
         paths = [p for p in self._expand(query.paths) if (self.root / p).exists()]
@@ -159,19 +175,10 @@ def near(*patterns: str) -> Marker:
 
 
 def comment(*tags: str) -> Marker:
-    """A hit is marked by `// <tag>: <why>` at the end of its line or on a comment-only line above it.
-
-    A trailing comment on the code line above belongs to that line, so it does not mark the next one."""
-    compiled = [re.compile(rf"//\s*{re.escape(tag)}:\s*\S") for tag in tags]
-
-    def marked(tree: Tree, hit: Hit) -> bool:
-        lines = tree.lines(hit.path)
-        own = lines[hit.line - 1] if 0 < hit.line <= len(lines) else ""
-        above = lines[hit.line - 2] if hit.line >= 2 else ""
-        candidates = [own] + ([above] if above.lstrip().startswith("//") else [])
-        return any(c.search(text) for c in compiled for text in candidates)
-
-    return marked
+    """A hit is marked by `// <tag>: <why>` on its line or on the line directly above it, a comment-only line or
+    the trailing comment of a code line. This is the plan's rule ("on the line or the line above", DC11 and
+    MQ-damage-owners) and the one task 066's sync-layout guardrail applies to added lines."""
+    return near(*(rf"//\s*{re.escape(tag)}:\s*\S" for tag in tags))
 
 
 _IF = re.compile(r"^\s*#if\s+(.*)$")
@@ -231,11 +238,14 @@ class Row:
     note: str = ""
     items: list[str] = field(default_factory=list)
     skipped: bool = False
+    broken: bool = False  # the row cannot be counted (a scope path is gone): FAIL whatever its kind
 
     @property
     def status(self) -> str:
         if self.skipped:
             return "SKIP"
+        if self.broken:
+            return "FAIL"
         if self.kind == "info" or self.ok is None:
             return "INFO"
         if self.kind == "done":
@@ -261,13 +271,15 @@ class LineCheck:
     ghostty: bool = False
 
     def evaluate(self, tree: Tree) -> Row:
+        query = " ; ".join(q.shell() for q in self.queries)
+        if broken := scope_row(self.id, self.kind, self.queries, query, tree):
+            return broken
         hits = [h for q in self.queries for h in tree.run(q)]
         if self.allowed:
             hits = [h for h in hits if not any(h.path.endswith("/" + a) or h.path == a for a in self.allowed)]
         if self.marker is not None:
             hits = [h for h in hits if not self.marker(tree, h)]
         count = len({h.path for h in hits}) if self.by_file else len(hits)
-        query = " ; ".join(q.shell() for q in self.queries)
         ok = None if self.threshold is None else count <= self.threshold
         threshold = "-" if self.threshold is None else str(self.threshold)
         return Row(self.id, self.kind if self.threshold is not None else "info", query, count, threshold, ok,
@@ -286,12 +298,14 @@ class CommCheck:
     note: str = ""
 
     def evaluate(self, tree: Tree) -> Row:
+        query = f"comm {self.mode} <({self.left.shell()} | sort) <({self.right.shell()} | sort)"
+        if broken := scope_row(self.id, self.kind, (self.left, self.right), query, tree):
+            return broken
         left = {h.path for h in tree.run(self.left)}
         right = {h.path for h in tree.run(self.right)}
         files = sorted(left - right if self.mode == "-23" else left & right)
         if self.file_marker is not None:
             files = [f for f in files if not self.file_marker(tree, f)]
-        query = f"comm {self.mode} <({self.left.shell()} | sort) <({self.right.shell()} | sort)"
         return Row(self.id, self.kind, query, len(files), "0", not files, self.note, files)
 
 
@@ -311,6 +325,14 @@ class GuardrailListed:
         return Row(self.id, "done", query, found, ">= 1", found >= 1, f"guardrail `{self.rule}` (task 066)")
 
 
+def scope_row(id: str, kind: str, queries: tuple[Query, ...], query: str, tree: Tree) -> Row | None:
+    """A FAIL row when a query's scope path is missing, else None."""
+    gone = sorted({p for q in queries for p in tree.missing(q)})
+    if not gone:
+        return None
+    return Row(id, kind, query, None, "-", False, "scope path missing: " + ", ".join(gone), gone, broken=True)
+
+
 def q(pattern: str, *paths: str, globs: tuple[str, ...] = (), files: bool = False) -> Query:
     return Query(pattern, paths or (SOURCES,), globs, files)
 
@@ -321,6 +343,7 @@ INVALIDATE = r"needsLayout = true|needsDisplay = true"
 DISPLAY_LINK = r"displayLink\(target:|CADisplayLink\(|CVDisplayLink"
 TRACKING = r"override (public |open )?func updateTrackingAreas"
 CHILD_WINDOW_FALLBACK = "!**/ChildWindowPageFallback.swift"
+DISPLAY_LINK_OWNERS = ("CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift")  # one link per display
 APP = f"{SOURCES}/CmuxNextApp"
 
 REDRAW_POLICY = CommCheck("MQ-redraw-policy", "queue", q(r"override (public |open )?func updateLayer", files=True),
@@ -343,8 +366,7 @@ def as_done_check(check: LineCheck | CommCheck, id: str) -> LineCheck | CommChec
 
 CHECKS = (
     # Done checks (section 5).
-    LineCheck("DC1", "done", (q(DISPLAY_LINK, files=True),), 0,
-              allowed=("CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift"),
+    LineCheck("DC1", "done", (q(DISPLAY_LINK, files=True),), 0, allowed=DISPLAY_LINK_OWNERS,
               note="files outside CmuxNextWakeups/DisplayClock.swift and VSyncHub.swift"),
     LineCheck("DC1-ghostty", "info", (q("createWithActiveCGDisplays", f"{GHOSTTY}/src"),), None, ghostty=True,
               note="reached only when vsync_external is off (task 082's test)"),
@@ -365,12 +387,14 @@ CHECKS = (
               0, comment("input-driven"), by_file=True, note="files; baseline 18"),
     LineCheck("MQ-appkit-frame-animators", "queue",
               (q(r"Motion\.animator\(|animator\(\)\.(frame|setFrame|setBoundsOrigin)"),
-               q(r"Motion\.[a-zA-Z]+\.animate\(")), 0, note="baseline 36"),
+               q(r"Motion\.[a-zA-Z]+\.animate\(")), 0, note="both queries; baseline 21 + 36"),
     LineCheck("MQ-frameclients", "queue", (q(FRAME_CLIENT),), 0, FRAME_CLIENT_MARK,
               note="unmarked; baseline 24 sites"),
-    LineCheck("MQ-displaylinks", "queue", (q(DISPLAY_LINK),), 0, note="cmux side"),
-    LineCheck("MQ-displaylinks-ghostty", "queue",
-              (q(r"createWithActiveCGDisplays|DisplayLink", f"{GHOSTTY}/src/renderer/generic.zig"),), 0, ghostty=True),
+    LineCheck("MQ-displaylinks", "queue", (q(DISPLAY_LINK),), 0, allowed=DISPLAY_LINK_OWNERS,
+              note="cmux side, outside DisplayClock.swift and VSyncHub.swift (DC1's pair)"),
+    LineCheck("MQ-displaylinks-ghostty", "info",
+              (q(r"createWithActiveCGDisplays|DisplayLink", f"{GHOSTTY}/src/renderer/generic.zig"),), None,
+              ghostty=True, note="the DisplayLink path stays for vsync_external off (task 082's test); a count"),
     SYNC_LAYOUTS,
     LineCheck("MQ-damage-owners", "info", (q(INVALIDATE),), None, INVALIDATE_MARK,
               note="unguarded invalidations (--invalidate PATH lists an owner's); the blanket rewrite is out of scope"),
@@ -464,29 +488,41 @@ def ghostty_state(root: Path) -> GhosttyState:
 
 
 @dataclass(frozen=True)
-class KeyRule:
-    key: str
-    stat: str | None
+class Limit:
     op: str  # "<=" or "<"
-    limit: float
+    value: float
 
-    def label(self) -> str:
-        return f"{self.key}{'.' + self.stat if self.stat else ''}"
+    def holds(self, number: float) -> bool:
+        return number < self.value if self.op == "<" else number <= self.value
+
+    def __str__(self) -> str:
+        return f"{self.op} {self.value:g}"
 
 
-BENCH_RULES: dict[str, tuple[str, tuple[KeyRule, ...]]] = {
-    "motion": ("DC2", (KeyRule("frame_sets", None, "<=", 0), KeyRule("layouts", None, "<=", 0),
-                       KeyRule("window_calls", None, "<=", 0), KeyRule("layout_frames", None, "<=", 0),
-                       KeyRule("update_visibility", None, "<=", 2))),
-    "hitches": ("DC2t/DC3", (KeyRule("hitches", None, "<=", 0), KeyRule("hitch_count", None, "<=", 0),
-                             KeyRule("main_work_p99_ms", None, "<=", 0.5),
-                             KeyRule("max_interval_ms", None, "<=", 12.5))),
-    "typing": ("DC5", (KeyRule("key_to_frame_ms", "p50", "<=", 8.3), KeyRule("key_to_frame_ms", "p99", "<=", 16.7))),
-    "cef": ("DC10", (KeyRule("input_to_commit_ms", "p95", "<", 8.3), KeyRule("longest_frame_ms", "max", "<=", 8.33))),
-}
+Sample = tuple[str, "float | None"]  # (where in the report, the value); None: the report has no value there
 
-RENDER_OWNER = re.compile(r"DisplayClock|VSyncHub|DisplayLink|FrameScheduler|Ghostty.*([Rr]ender|[Ff]rame|tick)")
-RENDER_REASONS = {"frame", "stalled frame"}
+
+def limit_row(id: str, path: str, query: str, limit: Limit, samples: list[Sample], missing: str) -> Row:
+    """One done-check criterion: FAIL when a sample breaks the limit or has no value, or there is no sample, so a
+    partial report never passes."""
+    bad = [f"{where} = {value:g}" for where, value in samples if value is not None and not limit.holds(value)]
+    bad += [f"{where}: no value" for where, value in samples if value is None]
+    return Row(id, "done", f"{path}: {query}", len(bad), f"{limit} (of {len(samples)})", bool(samples) and not bad,
+               "" if samples else missing, bad)
+
+
+def not_reported(id: str, path: str, criterion: str, why: str) -> Row:
+    """A criterion that no bench report carries: printed as SKIP, never a pass."""
+    return Row(id, "done", f"{path}: {criterion}", None, "-", None, why, skipped=True)
+
+
+def _number(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _stat(entry: object, key: str, stat: str) -> float | None:
+    value = entry.get(key) if isinstance(entry, dict) else None
+    return _number(value.get(stat)) if isinstance(value, dict) else None
 
 
 def walk(node: object, path: str = "") -> Iterator[tuple[str, str, object]]:
@@ -501,22 +537,179 @@ def walk(node: object, path: str = "") -> Iterator[tuple[str, str, object]]:
             yield from walk(value, f"{path}[{i}]")
 
 
-def _number(value: object) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+@dataclass(frozen=True)
+class KeyRule:
+    """A criterion read from every key named one of `keys` in the report (motion-hitches.py, typing-frame-bench.py:
+    each run or scenario is its own object that holds the key)."""
+    dc: str
+    keys: tuple[str, ...]  # other names of the same value
+    stat: str | None  # None: the number itself, or its `max`
+    limit: Limit
+
+    def label(self) -> str:
+        return "|".join(self.keys) + (f".{self.stat}" if self.stat else "")
+
+    def samples(self, data: object) -> list[Sample]:
+        found: list[Sample] = []
+        for path, key, value in walk(data):
+            if key not in self.keys:
+                continue
+            if value is None:
+                found.append((path, None))
+            elif isinstance(value, dict):
+                found.append((path, _number(value.get(self.stat or "max"))))
+            elif self.stat is None and _number(value) is not None:
+                found.append((path, _number(value)))
+        return found
 
 
-def rule_values(data: object, rule: KeyRule) -> list[tuple[str, float]]:
-    found = []
-    for path, key, value in walk(data):
-        if key != rule.key:
+KEY_RULES: dict[str, tuple[KeyRule, ...]] = {
+    "hitches": (KeyRule("DC3", ("hitches", "hitch_count"), None, Limit("<=", 0)),
+                KeyRule("DC2t", ("main_work_p99_ms",), None, Limit("<=", 0.5)),
+                KeyRule("DC3", ("max_interval_ms",), None, Limit("<=", 12.5))),
+    "typing": (KeyRule("DC5", ("key_to_frame_ms",), "p50", Limit("<=", 8.3)),
+               KeyRule("DC5", ("key_to_frame_ms",), "p99", Limit("<=", 16.7))),
+}
+
+
+def key_rows(name: str, path: str, data: object) -> list[Row]:
+    return [limit_row(f"{rule.dc} {rule.label()}", path, f"every {rule.label()}", rule.limit, rule.samples(data),
+                      f"no {rule.label()} in the file: not a --{name} report, or a run that did not measure it")
+            for rule in KEY_RULES[name]]
+
+
+MOTION_SCHEMA = "motion-main-work/"
+FRAMES_2_N = (("DC2", "frame_sets"), ("DC2", "layouts"), ("DC13", "window_calls"))
+QUIET = "passes[] with counts, no error, not noisy"
+
+
+def motion_rows(path: str, data: object) -> list[Row]:
+    """motion-main-work.py: per (session, scenario, phase), the passes whose step ran and whose idle pre-roll had no
+    structural work (the script's own `zero_frames_2_n` reads the same passes). Frame 1 is the step's own turn, so
+    only `counts.frames_2_n` is judged. A group with no such pass has no evidence, and fails."""
+    passes = data.get("passes") if isinstance(data, dict) else None
+    if not isinstance(passes, list) or not str(data.get("schema", "")).startswith(MOTION_SCHEMA):
+        return [Row("DC2 motion", "done", f"{path}: schema, passes", None, "present", False,
+                    f"no {MOTION_SCHEMA}* schema with passes: not a motion-main-work.py report")]
+    groups: dict[str, list[dict]] = {}
+    for record in passes:
+        if isinstance(record, dict):
+            name = f"{record.get('session')} {record.get('scenario')} {record.get('phase')}"
+            groups.setdefault(name, []).append(record)
+    counters: dict[str, list[Sample]] = {key: [] for _, key in FRAMES_2_N}
+    visibility: list[Sample] = []
+    uncovered = []
+    for name, records in groups.items():
+        counted = [r for r in records if isinstance(r.get("counts"), dict) and not r.get("error")]
+        quiet = [r for r in counted if not r["counts"].get("noisy")]
+        if not quiet:
+            errors = sorted({str(r["error"]) for r in records if r.get("error")})
+            uncovered.append(f"{name}: no quiet counted pass of {len(records)} ({len(counted)} noisy"
+                             + "".join(f"; {e}" for e in errors) + ")")
+        for record in quiet:
+            where = f"{name} #{record.get('round')}"
+            after = record["counts"].get("frames_2_n")
+            for _, key in FRAMES_2_N:
+                counters[key].append((where, _number(after.get(key)) if isinstance(after, dict) else None))
+            visibility.append((where, _number(record.get("update_visibility"))))
+    rows = [Row("DC2 passes", "done", f"{path}: one or more {QUIET} per session, scenario and phase", len(uncovered),
+                "0", bool(groups) and not uncovered, "" if groups else "no pass in the report", uncovered)]
+    rows += [limit_row(f"{dc} frames_2_n.{key}", path, f"{QUIET}: counts.frames_2_n.{key}", Limit("<=", 0),
+                       counters[key], "no quiet counted pass") for dc, key in FRAMES_2_N]
+    rows.append(limit_row("DC2 update_visibility", path, f"{QUIET}: update_visibility", Limit("<=", 2), visibility,
+                          "no quiet counted pass"))
+    rows.append(not_reported("DC2 MotionClock layout frames", path, "MotionClock 'layout' frames during a spring",
+                             "motion-main-work.py does not report them: check by hand"))
+    return rows
+
+
+def _bench(mode: dict, bench: str) -> dict:
+    entry = mode.get(bench)
+    rows = entry.get("rows") if isinstance(entry, dict) else None
+    return rows if isinstance(rows, dict) else {}
+
+
+TAB_INPUTS = ("ctrl_tab", "cmd_shift_bracket", "click")
+
+
+def cef_rows(path: str, data: object) -> list[Row]:
+    """cef-layer-ab.py summary.json, mode `on` (layer hosting) only: `off` is the child-window baseline. The switch
+    rows are sidebar-stress-bench.py switch_matrix entries. The tabs rows are tab-switch-matrix.py's report: its
+    end-to-end time (`e2e`: input age + intent to commit) is the input to commit. tab-switch-matrix.py writes no
+    frame length, so the longest frame comes from the switch bench only."""
+    modes = data.get("modes") if isinstance(data, dict) else None
+    on = modes.get("on") if isinstance(modes, dict) else None
+    if not isinstance(on, dict):
+        return [Row("DC10 cef", "done", f"{path}: modes.on", None, "present", False,
+                    "no modes.on: not a cef-layer-ab.py summary.json, or a run without --modes on")]
+    validity = data.get("validity") if isinstance(data.get("validity"), dict) else {}
+    checks = validity.get("on", {}).get("rows") if isinstance(validity.get("on"), dict) else None
+    again = [r for r in checks or [] if isinstance(r, dict) and r.get("check") == "show.again"]
+    not_shown = [f"show.again: {json.dumps(r.get('observed'))[:200]}" for r in again if r.get("ok") is not True]
+    rows = [Row("DC10 show.again", "done", f"{path}: validity.on.rows[check=show.again].ok", len(not_shown),
+                f"true (of {len(again)})", bool(again) and not not_shown,
+                "" if again else "no show.again row in validity.on", not_shown)]
+    switch = [(key, entry) for key, entry in _bench(on, "switch").items()
+              if isinstance(entry, dict) and "input_to_idle_ms" in entry]
+    missing = "no modes.on.switch rows (sidebar-stress-bench.py switch_matrix)"
+    rows.append(limit_row("DC10 switch input_to_commit_ms.p95", path, "modes.on.switch.rows.*.input_to_commit_ms.p95",
+                          Limit("<", 8.3), [(f"switch {k}", _stat(e, "input_to_commit_ms", "p95")) for k, e in switch],
+                          missing))
+    rows.append(limit_row("DC10 switch longest_frame_ms.max", path, "modes.on.switch.rows.*.longest_frame_ms.max",
+                          Limit("<=", 8.33), [(f"switch {k}", _stat(e, "longest_frame_ms", "max")) for k, e in switch],
+                          missing))
+    tabs: list[Sample] = []
+    for scenario in _bench(on, "tabs").get("scenarios") or []:
+        if not isinstance(scenario, dict):
             continue
-        if rule.stat is None:
-            number = _number(value) if not isinstance(value, dict) else _number(value.get("max"))
-        else:
-            number = _number(value.get(rule.stat)) if isinstance(value, dict) else None
-        if number is not None:
-            found.append((path, number))
-    return found
+        kind = scenario.get("kind")
+        for how in TAB_INPUTS:
+            part = scenario.get(how)
+            if isinstance(part, dict):
+                table = part.get("table") if isinstance(part.get("table"), dict) else {}
+                tabs.append((f"tabs {kind} {scenario.get('count')} {how}", _stat(table.get(kind), "e2e", "p95")))
+    rows.append(limit_row("DC10 tabs e2e.p95", path, "modes.on.tabs.rows.scenarios[].<input>.table[kind].e2e.p95",
+                          Limit("<", 8.3), tabs, "no modes.on.tabs scenarios (tab-switch-matrix.py)"))
+    rows.append(not_reported("DC10 viewDidMoveToWindow", path, "viewDidMoveToWindow calls on switch-in",
+                             "no bench report counts them: check by hand"))
+    return rows
+
+
+RENDER_OWNER = re.compile(r"DisplayClock|VSyncHub|DisplayLink|FrameScheduler|Ghostty.*([Rr]ender|[Ff]rame|tick)")
+RENDER_REASONS = {"frame", "stalled frame"}
+
+
+def idle_rows(path: str, data: object) -> list[Row]:
+    scenarios = data.get("scenarios") if isinstance(data, dict) else None
+    if not isinstance(scenarios, dict):
+        return [Row("DC7 idle", "done", f"{path}: scenarios", None, "present", False,
+                    "no scenarios: not a bench_idle.py report")]
+    total_bad, render_bad, measured = [], [], 0
+    for name, result in scenarios.items():
+        if not isinstance(result, dict) or "processes" not in result:
+            continue
+        measured += 1
+        judged = [r for r in result["processes"] if isinstance(r, dict) and r.get("kind") in ("app", "daemon")]
+        # A process that came or went in the window has no rate: bench_idle.py's criteria fail it, and so does this.
+        total_bad += [f"{name}: {r['kind']} {r.get('pid')} {r.get('note') or 'partial'}" for r in judged
+                      if r.get("partial")]
+        wakeups = sum(_number(r.get("wakeups_per_s")) or 0.0 for r in judged if not r.get("partial"))
+        if wakeups > 1.0:
+            total_bad.append(f"{name}: app + daemon {wakeups:g}/s")
+        for entry in result.get("ledger") or []:
+            owner, reason = str(entry.get("owner", "")), str(entry.get("reason", ""))
+            rate = _number(entry.get("per_second")) or 0.0
+            if rate > 0 and (reason in RENDER_REASONS or RENDER_OWNER.search(owner)):
+                render_bad.append(f"{name}: {owner} {reason} {rate:g}/s")
+    if not measured:
+        return [Row("DC7 idle", "done", f"{path}: scenarios.*.processes", None, "present", False,
+                    "no measured scenario")]
+    return [
+        Row("DC7j app+daemon", "done", f"{path}: sum wakeups_per_s of kind app, daemon per scenario; no partial row",
+            len(total_bad), f"<= 1/s (of {measured})", not total_bad, "", total_bad),
+        Row("DC7r render wakeups", "done", f"{path}: ledger per_second of render owners", len(render_bad), "0",
+            not render_bad, "frame clients, display links, VSyncHub, Ghostty renderer", render_bad),
+    ]
 
 
 def load_json(path: str) -> object:
@@ -531,51 +724,11 @@ def bench_rows(name: str, path: str) -> list[Row]:
     data = load_json(path)
     if name == "idle":
         return idle_rows(path, data)
-    dc, rules = BENCH_RULES[name]
-    rows = []
-    for rule in rules:
-        values = rule_values(data, rule)
-        if not values:
-            continue
-        bad = [(p, v) for p, v in values if not (v < rule.limit if rule.op == "<" else v <= rule.limit)]
-        rows.append(Row(f"{dc} {rule.label()}", "done", f"{path}: every {rule.label()}", len(bad),
-                        f"{rule.op} {rule.limit:g} (of {len(values)})", not bad, "",
-                        [f"{p} = {v:g}" for p, v in bad]))
-    if not rows:
-        keys = ", ".join(sorted({r.label() for r in rules}))
-        rows.append(Row(f"{dc} {name}", "done", f"{path}: keys {keys}", None, "present", False,
-                        f"no {keys} in the file: not a --{name} report"))
-    return rows
-
-
-def idle_rows(path: str, data: object) -> list[Row]:
-    scenarios = data.get("scenarios") if isinstance(data, dict) else None
-    if not isinstance(scenarios, dict):
-        return [Row("DC7 idle", "done", f"{path}: scenarios", None, "present", False,
-                    "no scenarios: not a bench_idle.py report")]
-    total_bad, render_bad, measured = [], [], 0
-    for name, result in scenarios.items():
-        if not isinstance(result, dict) or "processes" not in result:
-            continue
-        measured += 1
-        wakeups = sum(_number(r.get("wakeups_per_s")) or 0.0 for r in result["processes"]
-                      if isinstance(r, dict) and r.get("kind") in ("app", "daemon") and not r.get("partial"))
-        if wakeups > 1.0:
-            total_bad.append(f"{name}: app + daemon {wakeups:g}/s")
-        for entry in result.get("ledger") or []:
-            owner, reason = str(entry.get("owner", "")), str(entry.get("reason", ""))
-            rate = _number(entry.get("per_second")) or 0.0
-            if rate > 0 and (reason in RENDER_REASONS or RENDER_OWNER.search(owner)):
-                render_bad.append(f"{name}: {owner} {reason} {rate:g}/s")
-    if not measured:
-        return [Row("DC7 idle", "done", f"{path}: scenarios.*.processes", None, "present", False,
-                    "no measured scenario")]
-    return [
-        Row("DC7j app+daemon", "done", f"{path}: sum wakeups_per_s of kind app, daemon per scenario",
-            len(total_bad), f"<= 1/s (of {measured})", not total_bad, "", total_bad),
-        Row("DC7r render wakeups", "done", f"{path}: ledger per_second of render owners", len(render_bad), "0",
-            not render_bad, "frame clients, display links, VSyncHub, Ghostty renderer", render_bad),
-    ]
+    if name == "motion":
+        return motion_rows(path, data)
+    if name == "cef":
+        return cef_rows(path, data)
+    return key_rows(name, path, data)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -622,6 +775,18 @@ def listing(tree: Tree, check: LineCheck, title: str) -> int:
     return 0 if not row.items else 1
 
 
+def repo_path(root: Path, path: str) -> str:
+    """`path` relative to `root`: read against the working directory first, then against the checkout. A path that
+    is in neither, or only outside the checkout, is a usage error (rg would print nothing, which reads as clean)."""
+    found = [c.resolve() for c in (Path.cwd() / path, root / path) if c.exists()]
+    inside = [c for c in found if c == root or root in c.parents]
+    if inside:
+        return str(inside[0].relative_to(root))
+    if found:
+        raise CheckError(f"{path} is outside the checkout {root}")
+    raise CheckError(f"{path}: no such file or directory (in {Path.cwd()} or {root})")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]), help="cmux checkout root")
@@ -647,8 +812,8 @@ def main(argv: list[str] | None = None) -> int:
             check = LineCheck("frameclients", "done", (q(FRAME_CLIENT),), 0, FRAME_CLIENT_MARK)
             return listing(tree, check, "FrameClient sites neither DEBUG-only nor marked")
         if args.invalidate is not None:
-            check = LineCheck("invalidate", "done", (q(INVALIDATE, *(args.invalidate or [SOURCES])),), 0,
-                              INVALIDATE_MARK)
+            paths = [repo_path(root, p) for p in args.invalidate] or [SOURCES]
+            check = LineCheck("invalidate", "done", (q(INVALIDATE, *paths),), 0, INVALIDATE_MARK)
             return listing(tree, check, "invalidations without a change check or // invalidate:")
         rows = evaluate(tree, ghostty_state(root))
         for name in ("motion", "hitches", "idle", "typing", "cef"):
