@@ -25,6 +25,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var session: CloudMachineSession?
     /// The workspace that opened when the machine was ready.
     private(set) var workspaceID: String?
+    /// The paid plan the last failure needs, for a CLI or agent caller's answer.
+    private(set) var planRefusal: ProRefusal?
     /// Time from the attempt's start to `ready`.
     private(set) var readyAfter: Duration?
     /// The flow's work for this creation; cancelled on dismiss and retry.
@@ -62,7 +64,32 @@ final class CloudMachineCreation: Identifiable {
         phase = .created
     }
 
+    /// What a create refused for a paid plan tells the person: the server's text, its
+    /// upgrade link, and the plan that lifts it (`pro` or `max`).
+    struct ProRefusal: Equatable, Sendable {
+        var message: String?
+        var upgradeURL: URL?
+        var plan = "pro"
+        /// The app already showed its own upgrade card (the plan gate): no second offer.
+        var offered = false
+    }
+
+    /// A create a paid plan would allow: the legacy `/api/vm` refusal that names one
+    /// (``CloudAPIError/planRequired(message:upgradeURL:plan:)``), the app's own free-plan gate,
+    /// or the app server's `plan_required`.
+    nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
+        if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
+        // The plan gate refused a free plan before any request: its card already offered an upgrade.
+        if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
+        guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
+        // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
+        let plan = failure.details?["plan"]?.stringValue == "max" ? "max" : "pro"
+        return ProRefusal(message: nil, upgradeURL: nil, plan: plan)
+    }
+
     func fail(_ error: any Error) {
+        // Before the phase: a caller that observes the failure reads the plan with it.
+        planRefusal = Self.proRefusal(error)
         phase = .failed(RefusalStrings.describe(error))
     }
 
@@ -78,6 +105,7 @@ final class CloudMachineCreation: Identifiable {
     func restart(now: ContinuousClock.Instant = ContinuousClock().now) {
         startedAt = now
         readyAfter = nil
+        planRefusal = nil
         if session == nil { phase = .requesting }
     }
 }
@@ -136,6 +164,8 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
+    /// A refusal a paid plan lifts (``CloudMachineCreation/proRefusal(_:)``): offers that plan.
+    var planRequired: @MainActor (CloudMachineCreation.ProRefusal) -> Void = { _ in }
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
@@ -165,7 +195,7 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations
+        let create = create, open = open, show = show, creations = creations, planRequired = planRequired
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
@@ -195,6 +225,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
+                if let refusal = creation.planRefusal { planRequired(refusal) }
             }
         }
     }

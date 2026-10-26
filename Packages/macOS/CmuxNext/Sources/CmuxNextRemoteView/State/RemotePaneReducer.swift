@@ -30,10 +30,14 @@ public struct RemotePaneReducer {
             next.status = status
             if case .connecting = status.state, wasEnded {
                 next.controlDespiteLatency = false
+                next.reconnecting = state.hasFrame || state.reconnecting
                 next.hasFrame = false
             }
         case .frameShown:
-            if state.sessionState == .streaming { next.hasFrame = true }
+            if state.sessionState == .streaming {
+                next.hasFrame = true
+                next.reconnecting = false
+            }
         case let .selectMode(mode):
             next.requestedMode = mode
             if mode == .view { next.controlDespiteLatency = false }
@@ -53,6 +57,7 @@ public struct RemotePaneReducer {
             status.rttMs = nil
             next.status = status
             next.controlDespiteLatency = false
+            next.reconnecting = state.hasFrame || state.reconnecting
             next.hasFrame = false
         case let .setInteractiveMaxRtt(limit):
             next.interactiveMaxRttMs = max(0, limit)
