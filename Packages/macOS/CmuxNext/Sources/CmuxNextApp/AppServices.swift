@@ -293,6 +293,14 @@ final class AppServices {
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
     private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// A pane divider drag's resampler, made on its mouse-down (feature `resampledDrags`, p04-input-040): the divider is
+    /// drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without `pointerFrameDrags`,
+    /// with the feature or the setting off; the layout adds Reduce Motion.
+    private(set) lazy var dragResampler: () -> DragResampler? = { [weak self] in
+        guard let self, dragFrameInput != nil, features.isEnabled(.resampledDrags),
+              let setting = settings?.snapshot.dragResampling, setting.resampleDrags else { return nil }
+        return DragResampler(frameAheadMs: setting.frameAheadMs)
+    }
     /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
     /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
     private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil

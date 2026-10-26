@@ -97,6 +97,8 @@ final class LayoutViewContext {
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?
+    /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
+    var dragResampler: () -> DragResampler? = { nil }
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.
