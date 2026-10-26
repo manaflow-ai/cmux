@@ -56,6 +56,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "bookmark",
     "accounts",
     "open",
+    "cloud",
     "keybinding",
     "ghostty",
     "errors",
@@ -190,6 +191,26 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         pick: None,
     };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("cloud", Some("exec")) => {
+            let has_command = rest.iter().enumerate().any(|(index, argument)| {
+                argument.starts_with("--command=")
+                    || argument.strip_prefix("--arg=").is_some_and(|value| {
+                        value.starts_with("command=") && value.len() > "command=".len()
+                    })
+                    || (argument == "--command"
+                        && rest.get(index + 1).is_some_and(|value| !value.starts_with('-')))
+                    || (argument == "--arg"
+                        && rest.get(index + 1).is_some_and(|value| {
+                            value.starts_with("command=") && value.len() > "command=".len()
+                        }))
+            });
+            if rest.iter().any(|argument| argument == "--") || !has_command {
+                return Err(UsageError::new(
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
+                ));
+            }
+            run_action("cloud exec", &rest[1..], ActionName::Cli)?
+        }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
