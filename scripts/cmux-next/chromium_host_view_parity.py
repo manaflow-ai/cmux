@@ -7,12 +7,17 @@ browser process tells the view what to show) and RenderWidgetHostNSViewHost
 Chromium Host is the browser process and cmux's ChromiumHostPageView is the
 view, so every method of those interfaces must have a cmux answer:
 
-  ops     cmux -> host: a cmux_shim_* export, a wire kind of
-          chromium_host_wire.h, or a planned wire op from the "wire" catalog
+  ops     cmux -> host: a cmux_shim_* export, a planned export from the
+          "exports" catalog, a wire kind of chromium_host_wire.h, or a
+          planned wire op from the "wire" catalog
   events  host -> cmux: a CMUX_SHIM_* event kind, a wire kind, or a planned
           wire event from the catalog
-  cmux    what cmux does in its own process for the method
+  cmux    what cmux does in its own process for the method (a description;
+          it maps nothing, so a mapped row names at least one op or event)
   not_needed  why cmux has no counterpart
+
+A planned name carries the task that adds it, so --list-unmapped shows the row
+as open work; once the export or wire kind exists the catalog entry is refused.
 
 The method list is parsed from the mojom texts vendored in
 plans/cmux-next/remote_cocoa_mojom/ (sha256 recorded in the parity JSON, so an
@@ -23,9 +28,11 @@ must be answered from state the host pushes ahead (an event) or not be needed.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +48,7 @@ DIRECTIONS = ("host_to_cmux", "cmux_to_host")
 ROW_KEYS = {"ops", "events", "cmux", "not_needed", "task"}
 TASK_RE = re.compile(r"^p\d\d-[a-z-]+-\d{3}[a-z]?$")
 WIRE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+EXPORT_NAME_RE = re.compile(r"^cmux_shim_[a-z0-9_]+$")
 
 
 class ParityError(Exception):
@@ -199,8 +207,20 @@ def check(root: Path, parity_rel: str = PARITY_JSON) -> Report:
         if not str(entry.get("fields", "")).strip():
             errors.append(f"wire {name}: needs its fields")
 
+    planned_exports = parity.get("exports", {})
+    for name, entry in sorted(planned_exports.items()):
+        if not EXPORT_NAME_RE.match(name):
+            errors.append(f"export {name}: planned exports are cmux_shim_[a-z0-9_]+")
+        if name in exports:
+            errors.append(f"export {name}: already exported by cmux_cef_shim.h; drop it from the catalog")
+        if not TASK_RE.match(str(entry.get("task", ""))):
+            errors.append(f"export {name}: needs the task id that adds it")
+        if not str(entry.get("args", "")).strip():
+            errors.append(f"export {name}: needs its arguments")
+
     rows = parity.get("methods", {})
     used_wire: set[str] = set()
+    used_exports: set[str] = set()
     unmapped: list[str] = []
     planned: list[tuple[str, str, list[str]]] = []
     for key in sorted(set(rows) - set(methods)):
@@ -222,9 +242,9 @@ def check(root: Path, parity_rel: str = PARITY_JSON) -> Report:
             if ops or evs or local or "task" in row:
                 errors.append(f"{key}: a not_needed row maps nothing")
             continue
-        if not (ops or evs or local):
+        if not (ops or evs):
             unmapped.append(key)
-            errors.append(f"{key}: no op, event, cmux handling or not_needed reason")
+            errors.append(f"{key}: no op or event (cmux text only describes) and no not_needed reason")
             continue
         if not TASK_RE.match(str(row.get("task", ""))):
             errors.append(f"{key}: needs the task id that implements it")
@@ -234,8 +254,11 @@ def check(root: Path, parity_rel: str = PARITY_JSON) -> Report:
                 if name.startswith("cmux_shim_"):
                     if side != "op":
                         errors.append(f"{key}: export {name} is cmux -> host, not an event")
+                    elif name in planned_exports:
+                        used_exports.add(name)
+                        pending.append(f"{name}({planned_exports[name].get('task')})")
                     elif name not in exports:
-                        errors.append(f"{key}: {name} is not exported by cmux_cef_shim.h")
+                        errors.append(f"{key}: {name} is not exported by cmux_cef_shim.h nor a planned export")
                 elif name.startswith("CMUX_SHIM_"):
                     if side != "event":
                         errors.append(f"{key}: event kind {name} is host -> cmux, not an op")
@@ -264,6 +287,8 @@ def check(root: Path, parity_rel: str = PARITY_JSON) -> Report:
             planned.append((key, str(row.get("task", "")), pending))
     for name in sorted(set(catalog) - used_wire):
         errors.append(f"wire {name}: no method uses it")
+    for name in sorted(set(planned_exports) - used_exports):
+        errors.append(f"export {name}: no method uses it")
 
     return Report(errors, unmapped, planned, counts, sum(m.sync for m in methods.values()))
 
@@ -275,7 +300,7 @@ def summary(report: Report) -> str:
     return (
         f"view parity: {mapped}/{total} methods mapped ({per}); "
         f"{report.sync_methods} [Sync] answered from pushed state; "
-        f"{len(report.planned)} rows wait on planned wire kinds"
+        f"{len(report.planned)} rows wait on planned wire kinds or exports"
     )
 
 
@@ -283,3 +308,30 @@ def unmapped_lines(report: Report) -> list[str]:
     lines = [f"unmapped\t-\t{key}" for key in report.unmapped]
     lines += [f"planned\t{task}\t{key}\t{','.join(names)}" for key, task, names in sorted(report.planned, key=lambda p: (p[1], p[0]))]
     return lines
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """The view-parity flags; gen-chromium-host-wire.py's parser adds them beside its own."""
+    parser.add_argument("--check-view-parity", action="store_true", help="every vendored mojom method is mapped")
+    parser.add_argument("--list-unmapped", action="store_true", help="with the check, print the remote_cocoa parity queue")
+    parser.add_argument("--parity", default=PARITY_JSON, help="parity JSON, relative to --repo")
+
+
+def wants_run(args: argparse.Namespace) -> bool:
+    return bool(args.check_view_parity or args.list_unmapped)
+
+
+def run(args: argparse.Namespace) -> int:
+    """Exit status: 0 mapped, 1 a parity error, 2 an input cannot be read. Needs args.repo."""
+    try:
+        report = check(args.repo, args.parity)
+    except ParityError as error:
+        print(f"view parity: {error}", file=sys.stderr)
+        return 2
+    if args.list_unmapped:
+        for line in unmapped_lines(report):
+            print(line)
+    for error in report.errors:
+        print(f"view parity: {error}", file=sys.stderr)
+    print(summary(report), file=sys.stderr if args.list_unmapped else sys.stdout)
+    return 1 if report.errors else 0

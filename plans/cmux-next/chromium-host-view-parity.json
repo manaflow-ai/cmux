@@ -1,5 +1,5 @@
 {
-  "about": "remote_cocoa parity for the Chromium Host page view (p01-process.md 1.4, 3.3; tasks 055, 059). The Chromium Host is Chrome's browser process and cmux's ChromiumHostPageView is the remote NSView. Each mojom method maps to ops (cmux -> host: a cmux_shim_* export, a chromium_host_wire.h kind or a planned wire op below), events (host -> cmux: a CMUX_SHIM_* kind, a wire kind or a planned wire event), cmux (what cmux does itself) or not_needed (why). Chrome allows 5 [Sync] calls; cmux allows none: each is answered from state the host pushes ahead. Check: python3 scripts/cmux-next/gen-chromium-host-wire.py --check-view-parity [--list-unmapped].",
+  "about": "remote_cocoa parity for the Chromium Host page view (p01-process.md 1.4, 3.3; tasks 055, 059). The Chromium Host is Chrome's browser process and cmux's ChromiumHostPageView is the remote NSView. Each mojom method maps to ops (cmux -> host: a cmux_shim_* export, a planned export in exports, a chromium_host_wire.h kind or a planned wire op in wire) and/or events (host -> cmux: a CMUX_SHIM_* kind, a wire kind or a planned wire event), or has not_needed (why). cmux describes what cmux does itself; it maps nothing. A planned name carries the task that adds it and leaves the catalog when it lands. Chrome allows 5 [Sync] calls; cmux allows none: each is answered from state the host pushes ahead. Check: python3 scripts/cmux-next/gen-chromium-host-wire.py --check-view-parity [--list-unmapped].",
   "mojoms": [
     {
       "path": "plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom",
@@ -20,7 +20,9 @@
     "BACKGROUND_COLOR": {"dir": "event", "task": "p01-process-040", "fields": "browser, 0xAARRGGBB of the page's own background"},
     "CURSOR": {"dir": "event", "task": "p01-process-045", "fields": "browser, cursor type, custom PNG as shm fd, hotspot"},
     "DICTIONARY_OVERLAY": {"dir": "event", "task": "p01-process-047", "fields": "browser, attributed string, baseline point in page-view coordinates"},
-    "IME_CANCEL": {"dir": "op", "task": "p01-process-170", "fields": "browser, input seq; the row names the fork's cmux_shim ime export once 170 adds it"},
+    "EDIT_COMMAND": {"dir": "op", "task": "p01-process-047", "fields": "browser, editing command name (ExecuteEditCommand's string, or centerSelectionInVisibleArea, pasteAndMatchStyle, startSpeaking, stopSpeaking), input seq; EDIT keeps its six fixed commands"},
+    "FOCUS_REQUEST": {"dir": "event", "task": "p01-process-032", "fields": "browser, cef_focus_source_t; sent when a page that is not embedder-active asks for focus (OnSetFocus), so cmux decides whether to make its page view first responder; the host never moves cmux's first responder"},
+    "IME_CANCEL": {"dir": "op", "task": "p01-process-170", "fields": "browser, input seq"},
     "IME_COMMIT_TEXT": {"dir": "op", "task": "p01-process-170", "fields": "browser, text, replacement range, input seq"},
     "IME_FINISH": {"dir": "op", "task": "p01-process-170", "fields": "browser, input seq"},
     "IME_SET_COMPOSITION": {"dir": "op", "task": "p01-process-170", "fields": "browser, text, text spans, replacement range, selection start and end, input seq"},
@@ -43,6 +45,9 @@
     "WIDGET_CLOSE": {"dir": "op", "task": "p01-process-066", "fields": "widget id"},
     "WIDGET_CONTEXT": {"dir": "event", "task": "p01-process-066", "fields": "widget id, kind (popup, extension popup, side panel, DevTools, PiP), owner browser, bounds, CAContext id"}
   },
+  "exports": {
+    "cmux_shim_browser_set_page_visibility": {"task": "p01-process-220", "args": "browser id, visible | hidden | occluded (post)"}
+  },
   "methods": {
     "PopupMenuRunner.Hide": {
       "events": ["POPUP_MENU_HIDE"],
@@ -63,6 +68,7 @@
       "not_needed": "cmux never draws page content into the NSView; pixels arrive only through the CALayerHost on the host's CAContext, so there is no NSView content to disable"
     },
     "RenderWidgetHostNSView.MakeFirstResponder": {
+      "events": ["FOCUS_REQUEST"],
       "cmux": "first responder is cmux's decision; the host lets a page take focus only when cmux marked it embedder-active and never moves cmux's first responder",
       "task": "p01-process-032"
     },
@@ -82,7 +88,8 @@
       "task": "p01-process-040"
     },
     "RenderWidgetHostNSView.SetVisible": {
-      "cmux": "visibility is cmux's: the page view pushes visible, hidden or occluded with cmux_shim_browser_set_page_visibility; the host never hides cmux's view",
+      "ops": ["cmux_shim_browser_set_page_visibility"],
+      "cmux": "visibility is cmux's: the page view pushes visible, hidden or occluded; the host never hides cmux's view",
       "task": "p01-process-220"
     },
     "RenderWidgetHostNSView.SetTooltipText": {
@@ -308,7 +315,7 @@
       "task": "p01-process-043"
     },
     "RenderWidgetHostNSViewHost.ExecuteEditCommand": {
-      "ops": ["EDIT"],
+      "ops": ["EDIT_COMMAND"],
       "cmux": "doCommandBySelector edit commands by name",
       "task": "p01-process-047"
     },
@@ -321,18 +328,18 @@
       "cmux": "Use Selection for Find writes the pushed selection text to the find pasteboard, no round trip",
       "task": "p01-process-048"
     },
-    "RenderWidgetHostNSViewHost.CenterSelection": {"ops": ["EDIT"], "cmux": "centerSelectionInVisibleArea:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.CenterSelection": {"ops": ["EDIT_COMMAND"], "cmux": "centerSelectionInVisibleArea:", "task": "p01-process-047"},
     "RenderWidgetHostNSViewHost.Paste": {"ops": ["EDIT"], "cmux": "paste:", "task": "p01-process-047"},
-    "RenderWidgetHostNSViewHost.PasteAndMatchStyle": {"ops": ["EDIT"], "cmux": "pasteAndMatchStyle:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.PasteAndMatchStyle": {"ops": ["EDIT_COMMAND"], "cmux": "pasteAndMatchStyle:", "task": "p01-process-047"},
     "RenderWidgetHostNSViewHost.SelectAll": {"ops": ["EDIT"], "cmux": "selectAll:", "task": "p01-process-047"},
     "RenderWidgetHostNSViewHost.StartSpeaking": {
-      "ops": ["EDIT"],
+      "ops": ["EDIT_COMMAND"],
       "events": ["SPEAKING_STATE"],
       "cmux": "startSpeaking:; the host pushes the speaking state",
       "task": "p01-process-047"
     },
     "RenderWidgetHostNSViewHost.StopSpeaking": {
-      "ops": ["EDIT"],
+      "ops": ["EDIT_COMMAND"],
       "events": ["SPEAKING_STATE"],
       "cmux": "stopSpeaking:",
       "task": "p01-process-047"
