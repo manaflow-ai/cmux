@@ -109,21 +109,23 @@ public struct RunawaySessionWarningPolicy: Equatable, Sendable {
 /// again after it clears. A dismissed warning stays quiet until it clears.
 public struct RunawaySessionWarningTracker<Key: Hashable & Sendable>: Sendable {
     /// Terminals currently over the policy.
-    public private(set) var warned: Set<Key> = []
+    private(set) var warned: Set<Key> = []
     /// Warned terminals whose warning the user dismissed.
-    public private(set) var dismissed: Set<Key> = []
+    private(set) var dismissed: Set<Key> = []
 
     /// Creates an empty tracker.
     public init() {}
 
     /// Ingests the current usage of every live terminal and returns the
-    /// terminals that newly need a warning. Terminals missing from `usages`
+    /// terminals that newly need a warning. Live terminals whose measurement
+    /// is unavailable retain their warning and dismissal state; closed ones
     /// are forgotten.
     public mutating func ingest(
         _ usages: [Key: RunawaySessionUsage],
+        unavailableKeys: Set<Key> = [],
         policy: RunawaySessionWarningPolicy
     ) -> Set<Key> {
-        let live = Set(usages.keys)
+        let live = Set(usages.keys).union(unavailableKeys)
         warned.formIntersection(live)
         dismissed.formIntersection(live)
         var newlyWarned: Set<Key> = []
@@ -156,7 +158,7 @@ public struct RunawaySessionWarningTracker<Key: Hashable & Sendable>: Sendable {
     }
 }
 
-/// Turns a process's argv into a short label such as `next dev`.
+/// Names a process without exposing arbitrary argv in desktop notifications.
 public struct RunawaySessionCommandLabeler: Sendable {
     /// Interpreters whose script argument names the command better.
     public let interpreters: Set<String>
@@ -172,16 +174,27 @@ public struct RunawaySessionCommandLabeler: Sendable {
         self.maximumLength = max(8, maximumLength)
     }
 
-    /// The label for `arguments`, falling back to `processName` without argv.
+    /// Uses the process name, or an allowlisted tool and subcommand such as
+    /// `next dev`. Paths, option values, code and other arguments stay private.
     public func label(arguments: [String], processName: String) -> String {
-        var words = arguments.filter { !$0.isEmpty }
-        guard let first = words.first else { return processName }
-        words[0] = basename(first)
-        if isInterpreter(words[0]),
-           let scriptIndex = words.indices.dropFirst().first(where: { !words[$0].hasPrefix("-") }) {
-            words = [basename(words[scriptIndex])] + words[(scriptIndex + 1)...]
+        let name = basename(processName)
+        var label = name
+        let commands: [String: Set<String>] = [
+            "next": ["dev", "build", "start"],
+            "vite": ["dev", "build", "preview"],
+            "webpack": ["serve", "watch"],
+        ]
+        // Only argv[1] may name a script. Looking past arbitrary flags could
+        // mistake a credential or inline program for a script name.
+        if isInterpreter(name), arguments.count > 1 {
+            let script = basename(arguments[1])
+            if let subcommands = commands[script] {
+                label = script
+                if arguments.count > 2, subcommands.contains(arguments[2]) {
+                    label += " " + arguments[2]
+                }
+            }
         }
-        let label = words.joined(separator: " ")
         guard label.count > maximumLength else { return label }
         return String(label.prefix(maximumLength - 1)) + "…"
     }

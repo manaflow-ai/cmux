@@ -301,4 +301,23 @@ struct RunawayPaneWarningCenterTests {
         await evaluate(center)
         #expect(notified == 2)
     }
+
+    @Test
+    func emptyCompleteTTYMeasurementConfirmsRecovery() async throws {
+        let source = WarningSnapshotSource(census(workers: 1_200))
+        let center = makeCenter(source: source, recorder: WarningSignalRecorder())
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+
+        source.set(CmuxTopProcessSnapshot(
+            processes: [], sampledAt: Date(), includesProcessDetails: false,
+            includesCMUXScope: false, enumerationIsComplete: true
+        ))
+        await evaluate(center)
+        #expect(center.warnings.isEmpty)
+
+        source.set(census(workers: 1_200))
+        await evaluate(center)
+        #expect(center.warnings.map(\.key) == [warning.key])
+    }
 }

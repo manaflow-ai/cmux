@@ -27,6 +27,9 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
 
+    /// Owns the user-facing runaway-terminal warning model for the app.
+    let runawayWarningCenter = RunawayPaneWarningCenter()
+
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
     @ObservationIgnored

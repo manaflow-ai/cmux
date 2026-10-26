@@ -2,6 +2,11 @@ import CmuxNotifications
 import Foundation
 
 extension AppDelegate {
+    /// The app-owned warning model for runaway terminal sessions.
+    var runawayPaneWarningCenter: RunawayPaneWarningCenter {
+        PaneMemoryGuardrail.shared.runawayWarningCenter
+    }
+
     /// Starts the per-pane runaway-memory guardrail and the central
     /// memory-pressure monitor. The pane guardrail keeps its existing
     /// process-tree accounting timer; global pressure is handled through
