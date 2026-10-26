@@ -114,6 +114,7 @@ mod tests {
             page: vec![json!({"sessionId": SESSION, "seq": 2, "at": 1, "dir": "mux",
                 "kind": "composer", "msg": {"text": "unsent"}})],
             watch: vec![json!({"sessionId": "acp_watched_child", "startedBy": SESSION})],
+            ..Fixture::default()
         }
     }
 
