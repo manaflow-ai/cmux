@@ -103,6 +103,7 @@ struct PointerCoalescingTests {
         queue.append(Self.record(.mouseMoved, x: 2, at: 2))
         queue.drain { _ in }
         #expect(queue.spareSampleBuffers == 1, "a move has no samples to give back")
+        // `single` is mutating; #require's expansion would call it on an immutable copy.
         let taken = queue.single(Self.record(.leftMouseDragged, x: 3, at: 3))
         var single = try #require(taken)
         #expect(queue.spareSampleBuffers == 0, "the next drag took the pooled buffer")

@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import Testing
@@ -417,9 +418,9 @@ struct CloudBringBackTests {
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
-        let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-back-mac-\(UUID().uuidString.prefix(6).lowercased())",
+        let mac = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-back-mac-\(UUID().uuidString.prefix(6).lowercased())",
                                                       stateDirectory: root.appendingPathComponent("mac-state")), environment: environment)
-        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-back-vm-\(UUID().uuidString.prefix(6).lowercased())",
+        let vm = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-back-vm-\(UUID().uuidString.prefix(6).lowercased())",
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

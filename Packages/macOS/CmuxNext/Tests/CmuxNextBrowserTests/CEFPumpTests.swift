@@ -162,10 +162,11 @@ import Testing
 
     @Test func recordWorkRunCountsTheSliceAsLong() {
         var stats = CEFPumpStats()
-        let half = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2)
-        #expect(!half)
-        let full = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice)
-        #expect(full)
+        // recordWorkRun is mutating; #expect's expansion would call it on an immutable copy.
+        let halfSliceIsLong = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2)
+        #expect(!halfSliceIsLong)
+        let fullSliceIsLong = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice)
+        #expect(fullSliceIsLong)
         #expect(stats.workRuns == 2)
         #expect(stats.longWorkRuns == 1)
         #expect(stats.workSeconds == CEFPumpSchedule.timeSlice * 1.5)

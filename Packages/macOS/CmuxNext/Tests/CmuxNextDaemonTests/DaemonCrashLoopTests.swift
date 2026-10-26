@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -20,6 +21,7 @@ struct DaemonCrashLoopTests {
         let base = ProcessInfo.processInfo.environment
         let environment = LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-crash-\(id)", stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         _ = try await launcher.ensure()

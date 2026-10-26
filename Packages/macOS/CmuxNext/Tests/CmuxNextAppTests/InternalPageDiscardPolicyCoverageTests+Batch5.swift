@@ -251,14 +251,14 @@ import CmuxNextWakeups
         #expect(tab.keepReasons(for: key) == [.unsavedEdits], "notes typed for a recording live only in the view")
         view.notesField.stringValue = ""
 
-        tab.nextDevice = PhoneDeviceID("sim:BBBB")
         tab.viewDiscarded(key)
         #expect(tab.route(for: key) == "sim:AAAA", "the tab forgot its phone")
         #expect(tab.keepReasons(for: key).isEmpty)
-        let second = try #require(tab.makeView(for: key, in: nil) as? PhoneTabView)
+        // Rebuilt while a `phone.show` for another phone runs: the tab keeps its own.
+        let rebuilt = tab.opens.during(PhoneDeviceID("sim:BBBB")) { tab.makeView(for: key, in: nil) }
+        let second = try #require(rebuilt as? PhoneTabView)
         #expect(second !== view)
-        #expect(second.route == "sim:AAAA")
-        #expect(tab.nextDevice == PhoneDeviceID("sim:BBBB"), "a rebuilt tab took the phone the next new tab shows")
+        #expect(second.route == "sim:AAAA", "a rebuilt tab took the phone another show asked for")
         tab.tabClosed(key)
     }
 

@@ -35,8 +35,9 @@ struct PaneFirstPaintCreateTabTests {
         let gated = Gated(painted: false)
         let outcomes = Outcomes()
         let firstFrame = gated.createTabFirstFrame(content: gated)
-        let sameContent = firstFrame.content === gated
-        #expect(sameContent)
+        // Compared before #expect: its expansion of `===` over AnyObject? and Gated crashes SILGen (Swift 6.3.3).
+        let isGated = firstFrame.content === gated
+        #expect(isGated)
         _ = firstFrame.wait(outcomes.done)
         #expect(outcomes.values.isEmpty)
         gated.paint()

@@ -163,11 +163,12 @@ private struct CEFRemoteReplySink {
     /// table as its context, and only copies the fields, which are valid during the call alone.
     static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
         guard let context else { return }
+        // The raw context is not Sendable; the main-actor table it points at is, so the closure
+        // captures the table (as the hello's callback captures its waiter).
+        let replies = Unmanaged<CEFHostReplies>.fromOpaque(context).takeUnretainedValue()
         let body = fields.map { Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
-        // The table, not its raw address, crosses into the main-actor closure: a main-actor class is Sendable.
-        let replies = Unmanaged<CEFHostReplies>.fromOpaque(context)
         MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)
-            _ = replies.takeUnretainedValue().resolve(token, fields: body)
+            _ = replies.resolve(token, fields: body)
         }
     }
 }

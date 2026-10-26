@@ -97,6 +97,9 @@ final class LayoutViewContext {
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?
+    /// A strip pan on the motion container shows at each display frame's time, resampled
+    /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
+    var resamplesStripPan = false
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.

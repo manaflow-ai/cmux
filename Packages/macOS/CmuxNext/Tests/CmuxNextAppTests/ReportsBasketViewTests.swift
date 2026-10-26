@@ -46,13 +46,13 @@ import CmuxNextWakeups
         while !condition(), tries < 400 {
             tries += 1
             await Task.yield()
-            Self.runLoopPass()
+            runLoopPass()
         }
     }
 
-    /// One main run loop pass of at most 5 ms. A synchronous function: `RunLoop.run(mode:before:)` is unavailable
-    /// from async contexts.
-    private static func runLoopPass() {
+    /// One bounded main run loop pass. Synchronous, because `RunLoop.run(mode:before:)` is
+    /// unavailable in an async context; `until` calls it between yields.
+    private func runLoopPass() {
         _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
     }
 

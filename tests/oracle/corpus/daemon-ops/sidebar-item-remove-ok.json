@@ -38,7 +38,7 @@
       "args": {
         "method": "sidebar.item.remove",
         "params": {
-          "id": "oracle"
+          "id": "itm_app_store"
         },
         "idempotencyKey": "sidebar-item-remove-ok.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a default item of the top section goes"
     }
   ],
   "invariants": [
@@ -59,8 +59,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

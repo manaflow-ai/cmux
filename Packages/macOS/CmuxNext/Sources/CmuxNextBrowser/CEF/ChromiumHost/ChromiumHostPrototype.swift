@@ -12,14 +12,30 @@ public import CmuxNextWakeups
 /// The host lives no longer than its pane and the tunable: the session
 /// closes (`quit`, then SIGKILL at the quit limit) when the page view leaves
 /// its window (the pane closed or moved out of every window) and when
-/// `browserHost.helper` goes off. A later `open` starts a new host.
+/// `browserHost.helper` goes off. A later `open` starts a new host. With an
+/// idle deadline (`chromiumHostIdleExit`), `detach` makes the page hidden
+/// instead: out of every window but still owned, its host quits at the
+/// deadline, and the next `open` starts a new one. (A parked workspace stays
+/// in its window, so its page stays live.) The stand-in of a restarted host is
+/// the page background only: the host's pixels are a remote layer
+/// (CALayerHost) that cmux cannot capture, and the wire has no snapshot yet.
 @MainActor
 public final class ChromiumHostPrototype {
     private var session: ChromiumHostSession?
     private let makeConfiguration: () -> ChromiumHostConfiguration?
+    /// The session over a configuration and idle deadline (tests pass one with a stand-in launcher).
+    private let makeSession: @MainActor (ChromiumHostConfiguration, ChromiumHostIdleExit?) -> ChromiumHostSession
+    /// The session's idle deadline (`chromiumHostIdleExit`'s `idleExitAfter`); nil keeps the host.
+    private let idleExitAfter: Duration?
+    /// The app's deadline scheduler the idle deadline waits on.
+    private let deadlines: MainDeadlineScheduler
     /// ``open(_:over:focus:)`` moves the page view to another pane: AppKit may
     /// take it out of the window on the way, which does not end the host.
     private var movingPageView = false
+    /// ``detach()`` takes the page view out of its pane to hide it, not to end its host.
+    private var hidingPageView = false
+    /// The session has an idle deadline: a detached page waits for it instead of closing.
+    private var sessionHasIdleExit = false
 
     /// The Debug Settings `browserHost.helper` is read from (off by default: every Chromium
     /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
@@ -32,10 +48,25 @@ public final class ChromiumHostPrototype {
     ///   - makeConfiguration: the host app of this build, or nil when it has none.
     ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
     ///   - mainWork: The app's one main-thread scheduler: a tunable change closes the host on it.
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore, mainWork: MainWorkScheduler) {
+    ///   - deadlines: The app's deadline scheduler: the idle deadline waits on it.
+    ///   - idleExitAfter: How long a host runs with its page in no window before it quits
+    ///     (`chromiumHostIdleExit`, resolved by the composition root); nil keeps it running.
+    public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore,
+                            mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil) {
+        // No picture source: the stand-in is the page background (see the type's comment).
+        self.init(makeConfiguration: makeConfiguration, tunables: tunables, mainWork: mainWork, deadlines: deadlines,
+                  idleExitAfter: idleExitAfter) { ChromiumHostSession(configuration: $0, idleExit: $1) }
+    }
+
+    init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore, mainWork: MainWorkScheduler,
+         deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil,
+         makeSession: @escaping @MainActor (ChromiumHostConfiguration, ChromiumHostIdleExit?) -> ChromiumHostSession) {
         self.makeConfiguration = makeConfiguration
+        self.makeSession = makeSession
         self.tunables = tunables
         self.mainWork = mainWork
+        self.deadlines = deadlines
+        self.idleExitAfter = idleExitAfter
     }
 
     /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
@@ -49,14 +80,29 @@ public final class ChromiumHostPrototype {
                                                  bundleIdentifier: identifier, environment: environment, fileManager: fileManager)
     }
 
-    /// `debug.chromium_host` {op: open {url, pane?, focus?} | close | kill | report}:
+    /// The `idle_exit_s` a `debug.chromium_host` open may ask for: the bounds of the feature's
+    /// `idleExitAfter`, down to 1 s so a bench need not wait for the feature's 10 s floor.
+    public static let debugIdleExitSeconds: ClosedRange<Double> = 1...3600
+
+    /// `debug.chromium_host` {op: open {url, pane?, focus?, idle_exit_s?} | detach | close | kill | report}:
     /// `container` is the pane content view `open` shows the page over; `focus`
-    /// (false unless the call asks) makes the page first responder.
-    public func handle(op: String?, url: String?, over container: NSView?, focus: Bool) -> [String: Any] {
+    /// (false unless the call asks) makes the page first responder; `idleExitSeconds`
+    /// (`idle_exit_s`, within ``debugIdleExitSeconds``) replaces the idle deadline of the
+    /// session the first `open` makes.
+    public func handle(op: String?, url: String?, over container: NSView?, focus: Bool,
+                       idleExitSeconds: Double? = nil) -> [String: Any] {
         switch op {
         case "open":
             guard let container else { return ["error": "no pane"] }
-            return open(url ?? "", over: container, focus: focus)
+            var idleExit: Duration?
+            if let seconds = idleExitSeconds {
+                guard Self.debugIdleExitSeconds.contains(seconds) else {
+                    return ["error": "idle_exit_s must be within \(Self.debugIdleExitSeconds)"]
+                }
+                idleExit = .seconds(seconds)
+            }
+            return open(url ?? "", over: container, focus: focus, idleExit: idleExit)
+        case "detach": return detach()
         case "close": return close()
         case "kill": return kill()
         default: return report
@@ -69,8 +115,9 @@ public final class ChromiumHostPrototype {
     }
 
     /// Starts the host (or navigates it) and shows its page over `container`,
-    /// first responder of `window` when `focus`.
-    public func open(_ url: String, over container: NSView, focus: Bool) -> [String: Any] {
+    /// first responder of `window` when `focus`. A page whose host quit at its idle
+    /// deadline starts a new one.
+    public func open(_ url: String, over container: NSView, focus: Bool, idleExit: Duration? = nil) -> [String: Any] {
         guard BrowserHostTunables.helper.value(in: tunables) else { return ["error": "browserHost.helper is off"] }
         guard !url.isEmpty else { return ["error": "pass url"] }
         guard container.window != nil else { return ["error": "the pane is not in a window"] }
@@ -81,9 +128,13 @@ public final class ChromiumHostPrototype {
             guard let configuration = makeConfiguration() else {
                 return ["error": "this build has no Chromium host app (Debug and bench builds with CEF only)"]
             }
-            session = ChromiumHostSession(configuration: configuration)
+            let idle = (idleExit ?? idleExitAfter).map { ChromiumHostIdleExit(after: $0, deadlines: deadlines) }
+            session = makeSession(configuration, idle)
+            sessionHasIdleExit = idle != nil
+            // A closed pane (or one moved out of every window) ends the host at once; only a
+            // detached page waits for the idle deadline.
             session.view.onLeftWindow = { [weak self, weak session] in
-                guard self?.movingPageView != true else { return }
+                guard let self, !self.movingPageView, !self.hidingPageView else { return }
                 session?.close()
             }
             self.session = session
@@ -97,6 +148,15 @@ public final class ChromiumHostPrototype {
         }
         guard session.open(url) else { return report }  // lastError says why
         if focus { container.window?.makeFirstResponder(session.view) }
+        return report
+    }
+
+    /// Takes the page view out of its pane without ending the host: a hidden page, whose host
+    /// quits at the idle deadline (and, with no deadline, at once, as a closed pane's).
+    public func detach() -> [String: Any] {
+        hidingPageView = sessionHasIdleExit
+        session?.view.removeFromSuperview()
+        hidingPageView = false
         return report
     }
 

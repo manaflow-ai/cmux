@@ -39,7 +39,8 @@ Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
             its declaration, trailing on the declaration line, or trailing on the `{` line of a wrapped
             signature); names the bench from scripts/cmux-next/perf-hot-benches.json to run before and after
-            on the fleet. A marker the push touches that marks no declaration warns too.
+            on the fleet, and the id's `trace` catalog names to read it under. A marker the push touches
+            that marks no declaration warns too.
   owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
@@ -4145,8 +4146,11 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
             entry = paths.get(hot, {})
             bench = entry.get("bench", "no bench mapped: add the path id to " + BENCHES)
             owner = f"; owner {entry['owner']}" if entry.get("owner") else ""
+            names = entry.get("trace") or []
+            trace = f" Read it in a trace under {', '.join(names)}." if names else ""
             out.append(f"{path}:{first}: changes perf-hot `{marker.declaration[:80]}` (budget {marker.budget}, "
-                       f"{hot or 'no path id'}{owner}). Run before and after on the fleet, light and STRESS: {bench}")
+                       f"{hot or 'no path id'}{owner}). Run before and after on the fleet, light and STRESS: {bench}"
+                       f"{trace}")
     for path, change in sorted(changes.items()):
         # Per path id: an edit of a marked declaration line (a parameter, an attribute) keeps its marker.
         gone = marker_ids(r.text for r in change.removed) - marker_ids(a.text for a in change.added)
