@@ -50,9 +50,9 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         // any thread), which then fails the wait on the main actor. It first runs after the wait
         // registers below, in this turn.
         let deadline = Task { [weak self] in
-            // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
             let failure: any Error
             do {
+                // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
                 try await clock.sleep(for: timeout)
                 failure = timeoutError()
             } catch {
