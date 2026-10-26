@@ -172,6 +172,16 @@ pub fn current() -> LiveQos {
     sys::live_self()
 }
 
+/// True when a thread at the process's base class (macOS: any class in the
+/// table; Linux: nice 0) can change to `qos` and take the change back. A
+/// process property, so a caller can ask once and skip a change it cannot
+/// make instead of having every attempt refused and counted. Linux: root,
+/// a class at nice 0, or an RLIMIT_NICE that allows nice 0 again (Chromium's
+/// `CanLowerNiceTo`).
+pub fn reversible(qos: ThreadQos) -> bool {
+    sys::reversible(qos)
+}
+
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
 /// `f` panics. [`QosScope`] is the same rule as a guard.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
@@ -341,6 +351,10 @@ mod sys {
         restore_class(saved).is_some()
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         let Some((qos, relative_priority)) = restore_class(saved) else {
             return Err(());
@@ -357,7 +371,7 @@ mod sys {
     use crate::registry::NativeThread;
 
     pub(super) struct Saved {
-        nice: Option<i32>,
+        pub(super) nice: Option<i32>,
     }
 
     fn self_tid() -> u64 {
@@ -427,6 +441,10 @@ mod sys {
         saved.nice.is_some_and(|nice| qos.linux_nice() <= nice || may_lower_nice_to(nice))
     }
 
+    pub(super) fn reversible(qos: ThreadQos) -> bool {
+        qos.linux_nice() <= 0 || may_lower_nice_to(0)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
     }
@@ -459,6 +477,10 @@ mod sys {
         true
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
     pub(super) fn restore(_saved: &Saved) -> Restored {
         Ok(None)
     }
@@ -472,6 +494,20 @@ mod tests {
     fn linux_nice_table_matches_spec_capped_at_zero() {
         let nice: Vec<i32> = ThreadQos::ALL.iter().map(|qos| qos.linux_nice()).collect();
         assert_eq!(nice, [10, 5, 0, 0, 0]);
+    }
+
+    #[test]
+    fn classes_at_the_base_nice_are_always_reversible() {
+        for qos in [ThreadQos::Default, ThreadQos::UserInitiated, ThreadQos::UserInteractive] {
+            assert!(reversible(qos), "{qos}");
+        }
+        // A lowering is reversible exactly when a thread at the base class
+        // could take it back: the rule a QosScope applies per change.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert_eq!(
+            reversible(ThreadQos::Utility),
+            sys::can_restore(ThreadQos::Utility, &sys::Saved { nice: Some(0) })
+        );
     }
 
     #[test]

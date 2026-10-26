@@ -151,16 +151,17 @@ fn refusal(mux: &Mux, client: u64) -> Option<ScriptError> {
 fn answer_later(
     writer: &MessageWriter,
     id: Option<Value>,
+    request_qos: crate::request_qos::RequestQos,
     job: impl FnOnce() -> Result<Value, ScriptError> + Send + 'static,
 ) -> bool {
     let writer = writer.clone();
-    // The job keeps the cause of the frame that started it.
+    // The job keeps the cause and class of the frame that started it.
     let cause = crate::event_cause::EventCause::current();
     let spawned = std::thread::Builder::new().name("cmux-script".into()).spawn({
         let writer = writer.clone();
         let id = id.clone();
         move || {
-            let _cause = crate::event_cause::EventCauseScope::enter(cause);
+            let _cause = request_qos.enter(cause);
             reply(&writer, id, job());
         }
     });
@@ -214,7 +215,7 @@ pub(super) fn try_handle(
             let budget = Arc::new(LogBudget::default());
             let tag = request_id;
             let log = log_sink(writer, budget.clone(), Arc::new(move || ("request", tag.clone())));
-            answer_later(writer, id, move || {
+            answer_later(writer, id, mux.request_qos(), move || {
                 mux.control_clients
                     .scripts
                     .run(
@@ -233,7 +234,7 @@ pub(super) fn try_handle(
         Command::Open => {
             let mux = mux.clone();
             let writer = writer.clone();
-            answer_later(&writer.clone(), id, move || {
+            answer_later(&writer.clone(), id, mux.request_qos(), move || {
                 // The session id is known only after the host starts, so the
                 // sink reads it from a cell set right after.
                 let session_tag = Arc::new(std::sync::OnceLock::<String>::new());
@@ -254,7 +255,7 @@ pub(super) fn try_handle(
         }
         Command::Eval { session, code, args, timeout_ms } => {
             let mux = mux.clone();
-            answer_later(writer, id, move || {
+            answer_later(writer, id, mux.request_qos(), move || {
                 mux.control_clients
                     .scripts
                     .eval(

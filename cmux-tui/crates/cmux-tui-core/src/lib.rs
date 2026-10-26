@@ -80,6 +80,8 @@ pub mod release;
 mod request_origin;
 /// Blocking notes on request threads (`server-stats` `request_path_io`).
 mod request_path;
+/// A request's cause and QoS class together (p06-scheduler-035).
+mod request_qos;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;

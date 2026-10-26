@@ -1723,6 +1723,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-config",
  "cmux-conversation",
+ "cmux-features",
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",

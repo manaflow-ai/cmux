@@ -71,7 +71,10 @@ struct Scheduler {
 fn scheduler() -> &'static Scheduler {
     static SCHEDULER: OnceLock<Scheduler> = OnceLock::new();
     SCHEDULER.get_or_init(|| {
-        let spawned = std::thread::Builder::new().name("surface-frames".into()).spawn(run);
+        let spawned = cmux_tui_platform::qos::spawn_outside_request(
+            std::thread::Builder::new().name("surface-frames".into()),
+            run,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: the frame producer did not start: {error}");
         }

@@ -27,6 +27,7 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
+cmux-features.workspace = true
 cmux-flow-trace.workspace = true
 cmux-threads.workspace = true
 cmux-trace.workspace = true

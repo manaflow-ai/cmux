@@ -166,25 +166,103 @@ fn calibrate(target: Duration) -> (u64, Duration) {
     (iterations, started.elapsed())
 }
 
-#[test]
-fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
-    let (iterations, uncontended) = calibrate(Duration::from_millis(10));
-    // Every core busy at the default class: a UTILITY thread would lose its
-    // core to them, a raised holder keeps it.
-    let spinners = std::thread::available_parallelism().map_or(4, |n| n.get()).min(64);
+/// The CPU the holder and the spinners share (Linux): the first CPU this
+/// process may run on.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn shared_cpu() -> usize {
+    // SAFETY: a zeroed cpu_set_t is an empty set; the pointer is valid for
+    // the call and the size is the set's.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::sched_getaffinity(0, size_of::<libc::cpu_set_t>(), &mut set);
+        (0..libc::CPU_SETSIZE as usize).find(|&cpu| libc::CPU_ISSET(cpu, &set)).unwrap_or(0)
+    }
+}
+
+/// Pins the calling thread to `cpu` (Linux).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn pin_to(cpu: usize) {
+    // SAFETY: as in `shared_cpu`; 0 is the calling thread.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::CPU_SET(cpu, &mut set);
+        libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), &set);
+    }
+}
+
+/// Where the contention runs: Linux pins the holder and two spinners to one
+/// core, so the scheduler's weights decide the holder's share; elsewhere a
+/// spinner per core keeps every core busy.
+struct Contention {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    cpu: usize,
+    spinners: usize,
+}
+
+impl Contention {
+    fn new() -> Self {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            Self { cpu: shared_cpu(), spinners: 2 }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            Self { spinners: std::thread::available_parallelism().map_or(4, |n| n.get()) }
+        }
+    }
+
+    /// Run on each contending thread before it starts work.
+    fn join(&self) {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        pin_to(self.cpu);
+    }
+
+    /// How many times longer than on an idle core a section takes when the
+    /// holder runs at the spinners' class.
+    fn fair_share_factor(&self) -> u32 {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.spinners as u32 + 1
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            // Raised above the spinners, the holder keeps a core.
+            4
+        }
+    }
+}
+
+struct Run {
+    lowered: bool,
+    raised: bool,
+    waited: Duration,
+}
+
+/// A UTILITY holder runs a section of `iterations` under the lock while a
+/// USER_INITIATED frontend waits for it, with every contended core busy at
+/// the default class. With `boost` the holder takes its [`LockBoost`]
+/// before it waits for the lock, as the ranked locks do.
+fn frontend_behind_utility_holder(
+    contention: &Arc<Contention>,
+    iterations: u64,
+    boost: bool,
+) -> Run {
     let stop = Arc::new(AtomicBool::new(false));
     let running = Arc::new(AtomicUsize::new(0));
     let mut threads = Vec::new();
-    for _ in 0..spinners {
-        let (stop, running) = (stop.clone(), running.clone());
+    for _ in 0..contention.spinners {
+        let (stop, running, contention) = (stop.clone(), running.clone(), contention.clone());
         threads.push(std::thread::spawn(move || {
+            contention.join();
+            // The default class, also when the test runs under `nice`.
+            let _ = cmux_threads::set_current(ThreadQos::Default);
             running.fetch_add(1, Ordering::AcqRel);
             while !stop.load(Ordering::Acquire) {
                 black_box(spin(10_000));
             }
         }));
     }
-    while running.load(Ordering::Acquire) < spinners {
+    while running.load(Ordering::Acquire) < contention.spinners {
         std::thread::yield_now();
     }
 
@@ -192,23 +270,24 @@ fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
     let ready = Arc::new(Barrier::new(2));
     let (held_tx, held_rx) = mpsc::sync_channel(1);
     let holder = {
-        let (lock, ready) = (lock.clone(), ready.clone());
+        let (lock, ready, contention) = (lock.clone(), ready.clone(), contention.clone());
         std::thread::spawn(move || {
+            contention.join();
+            let _ = cmux_threads::set_current(ThreadQos::Default);
             let request = WorkQos::enter(ThreadQos::Utility);
             ready.wait();
-            let guard = lock.lock().expect("lock");
-            let boost = LockBoost::hold();
+            let boost = boost.then(LockBoost::hold);
             let raised = boosted();
+            let guard = lock.lock().expect("lock");
             held_tx.send(()).expect("held");
-            let started = Instant::now();
             black_box(spin(iterations));
-            let hold = started.elapsed();
             drop(guard);
             drop(boost);
-            (request.applied(), raised, hold)
+            (request.applied(), raised)
         })
     };
     let frontend = std::thread::spawn(move || {
+        let _ = cmux_threads::set_current(ThreadQos::Default);
         let _request = WorkQos::enter(ThreadQos::UserInitiated);
         ready.wait();
         held_rx.recv().expect("holder took the lock");
@@ -216,26 +295,102 @@ fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
         drop(lock.lock().expect("lock"));
         started.elapsed()
     });
-    let (lowered, raised, hold) = holder.join().expect("holder");
+    let (lowered, raised) = holder.join().expect("holder");
     let waited = frontend.join().expect("frontend");
     stop.store(true, Ordering::Release);
     for thread in threads {
         thread.join().expect("spinner");
     }
+    Run { lowered, raised, waited }
+}
 
-    assert_eq!(raised, lowered, "a lowered holder is raised while it holds the lock");
-    // The frontend gets the lock when the one critical section ahead of it
-    // ends.
-    assert!(
-        waited <= hold + Duration::from_millis(50),
-        "waited {waited:?} behind a hold of {hold:?}"
+#[test]
+fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
+    let (iterations, uncontended) = calibrate(Duration::from_millis(10));
+    let contention = Arc::new(Contention::new());
+    let boosted_run = frontend_behind_utility_holder(&contention, iterations, true);
+    assert_eq!(
+        boosted_run.raised, boosted_run.lowered,
+        "a lowered holder is raised before it waits for the lock"
     );
-    if lowered {
-        // Raised above the spinners, the holder's section takes about its
-        // idle time, not the time a starved UTILITY thread takes.
-        assert!(
-            waited <= uncontended * 4 + Duration::from_millis(20),
-            "waited {waited:?}; the section takes {uncontended:?} on an idle core"
-        );
+    if !boosted_run.lowered {
+        // UTILITY is not applied here (Linux without RLIMIT_NICE): there is
+        // no inversion to measure.
+        return;
     }
+    let control = frontend_behind_utility_holder(&contention, iterations, false);
+    // One section at the spinners' class: the frontend waits for that one
+    // critical section, not for a starved UTILITY thread.
+    let bound = uncontended * contention.fair_share_factor() + Duration::from_millis(20);
+    assert!(
+        boosted_run.waited <= bound,
+        "waited {:?} (bound {bound:?}); the section takes {uncontended:?} on an idle core",
+        boosted_run.waited
+    );
+    // The same section at UTILITY, not raised, takes clearly longer.
+    assert!(
+        boosted_run.waited * 3 < control.waited * 2,
+        "raised {:?}, not raised {:?}",
+        boosted_run.waited,
+        control.waited
+    );
+}
+
+/// The class `spawn_outside_request`'s thread runs at, read in that thread.
+fn child_live(builder_name: &str) -> LiveOf {
+    spawn_outside_request(std::thread::Builder::new().name(builder_name.into()), live)
+        .expect("spawn")
+        .join()
+        .expect("child")
+}
+
+#[cfg(target_vendor = "apple")]
+type LiveOf = Option<ThreadQos>;
+#[cfg(not(target_vendor = "apple"))]
+type LiveOf = cmux_threads::LiveQos;
+
+#[test]
+fn qos_a_thread_started_in_a_request_runs_at_its_creators_own_class() {
+    let probe = cmux_threads::spawn("qos-spawn-probe", ThreadQos::Default, || {
+        let own = live();
+        let request = WorkQos::enter(ThreadQos::Utility);
+        let lowered = request.applied();
+        // A plain thread inherits the request's class...
+        let inherited = std::thread::spawn(live).join().expect("plain child");
+        // ...a thread started outside the request gets the creator's own.
+        let child = child_live("qos-spawn-child");
+        let boost = LockBoost::hold();
+        let child_of_holder = child_live("qos-spawn-child-of-holder");
+        drop(boost);
+        (lowered, own, inherited, child, child_of_holder)
+    })
+    .expect("probe thread");
+    let (lowered, own, inherited, child, child_of_holder) = probe.join().expect("probe");
+    assert_eq!(child, own, "not the request's class");
+    assert_eq!(child_of_holder, own, "not the lock boost's class");
+    if lowered {
+        assert_eq!(inherited, at(ThreadQos::Utility), "the control: a plain thread inherits");
+        assert_ne!(child, at(ThreadQos::Utility));
+    }
+}
+
+#[test]
+fn qos_a_class_the_process_cannot_take_back_is_not_entered_or_counted() {
+    let probe = cmux_threads::spawn("qos-refusal-probe", ThreadQos::Default, || {
+        let reversible = cmux_threads::reversible(ThreadQos::Utility);
+        for _ in 0..100 {
+            let request = WorkQos::enter(ThreadQos::Utility);
+            assert_eq!(request.applied(), reversible);
+            let boost = LockBoost::hold();
+            drop(boost);
+            drop(request);
+        }
+        let row = cmux_threads::snapshot()
+            .into_iter()
+            .find(|row| row.name == "qos-refusal-probe")
+            .expect("the probe's row");
+        row.refused_changes
+    })
+    .expect("probe thread");
+    assert_eq!(probe.join().expect("probe"), 0, "no request counts as a refused change");
 }

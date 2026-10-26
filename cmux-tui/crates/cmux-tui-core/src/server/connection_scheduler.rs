@@ -21,7 +21,6 @@ use super::terminal_create;
 use crate::Mux;
 use crate::SurfaceId;
 use crate::event_cause::EventCause;
-use crate::event_cause::EventCauseScope;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use std::collections::HashSet;
@@ -388,13 +387,6 @@ impl Drop for ConnectionDispatcherGuard {
     }
 }
 
-/// The class a request with `cause` runs at on this thread, until the scope
-/// drops: the reader (`connection_frame`), the dispatcher, a clear-history
-/// worker and a creation commit on the terminal work pool all enter it.
-pub(super) fn request_qos_scope(cause: EventCause) -> Option<cmux_tui_platform::qos::WorkQos> {
-    cause.request_qos().map(cmux_tui_platform::qos::WorkQos::enter)
-}
-
 pub(super) fn run_pending_request(
     scheduler: &ConnectionSurfaceScheduler,
     mux: &Arc<Mux>,
@@ -403,10 +395,8 @@ pub(super) fn run_pending_request(
     writer: &MessageWriter,
 ) -> bool {
     let PendingSurfaceRequest { request, arrival, cause, _bytes_permit, .. } = pending;
-    let _cause = EventCauseScope::enter(cause);
-    // The request runs at its cause's class; a state or registry lock
-    // raises an automation holder (cmux_tui_platform::qos).
-    let _qos = request_qos_scope(cause);
+    // The request runs at its cause's class (crate::request_qos).
+    let _cause = mux.request_qos().enter(cause);
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
@@ -456,8 +446,9 @@ fn run_connection_surface_dispatcher(
             let worker_scheduler = scheduler.clone();
             let worker_mux = mux.clone();
             let worker_writer = writer.clone();
-            let spawn =
-                std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
+            let spawn = cmux_tui_platform::qos::spawn_outside_request(
+                std::thread::Builder::new().name("mux-surface-control".into()),
+                move || {
                     let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
                     // Drop the mux-wide permit before `_active` wakes the next
                     // request queued behind this surface barrier.
@@ -476,7 +467,8 @@ fn run_connection_surface_dispatcher(
                     ) {
                         worker_scheduler.close();
                     }
-                });
+                },
+            );
             if let Err(error) = spawn {
                 let Some(pending) = shared_pending.lock().recover_poison().take() else {
                     scheduler.finish_clear(surface);

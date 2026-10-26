@@ -29,7 +29,7 @@ use parking_lot::{
 };
 use rusqlite::Connection;
 
-use crate::lock_rank::{HeldRank, LockRank};
+use crate::lock_rank::{HeldRank, LockRank, RankWait};
 use crate::request_path::BlockingKind;
 
 const CONNECTION_LOCK_NAME: &str = "registry.connection";
@@ -264,13 +264,13 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn get_at(&self, site: &'static Location<'static>) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
-        self.check_rank();
+        let wait = self.acquire_rank();
         let site =
             RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread(), site);
         let guard = self.connection.lock();
         RegistryConnectionGuard {
             guard,
-            _rank: record_rank(),
+            _rank: wait.held(),
             _request_path: RequestPathHold::held(site),
         }
     }
@@ -281,7 +281,7 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
-        self.check_rank();
+        let wait = self.acquire_rank();
         let site = RequestPathHold::note_acquire(
             self.connection.is_owned_by_current_thread(),
             Location::caller(),
@@ -289,17 +289,20 @@ impl RegistryConnection {
         let guard = self.connection.lock_arc();
         RegistryConnectionPin {
             _guard: guard,
-            _rank: record_rank(),
+            _rank: wait.held(),
             _request_path: RequestPathHold::held(site),
         }
     }
 
     /// Check the lock rank before a blocking acquisition that is not a
-    /// re-entry.
+    /// re-entry, and raise a lowered thread before it waits
+    /// (crate::lock_rank `RankWait`).
     #[track_caller]
-    fn check_rank(&self) {
-        if !self.connection.is_owned_by_current_thread() {
-            HeldRank::check(LockRank::RegistryConnection, CONNECTION_LOCK_NAME);
+    fn acquire_rank(&self) -> RankWait {
+        if self.connection.is_owned_by_current_thread() {
+            RankWait::reentry(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
+        } else {
+            HeldRank::acquire(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
         }
     }
 
@@ -337,12 +340,12 @@ impl RegistryConnection {
     /// `deadline`. `None` when the deadline passed first.
     #[track_caller]
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
-        self.check_rank();
+        let wait = self.acquire_rank();
         let guard = self.connection.try_lock_until(deadline)?;
         // The journal writer: never a request thread.
         Some(RegistryConnectionGuard {
             guard,
-            _rank: record_rank(),
+            _rank: wait.held(),
             _request_path: RequestPathHold::NONE,
         })
     }
@@ -358,6 +361,7 @@ impl RegistryConnection {
     }
 }
 
+#[cfg(test)]
 fn record_rank() -> HeldRank {
     HeldRank::record(LockRank::RegistryConnection, CONNECTION_LOCK_NAME)
 }

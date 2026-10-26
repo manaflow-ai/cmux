@@ -506,6 +506,8 @@ pub struct Mux {
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).
     request_path_stats: Arc<crate::request_path::RequestPathStats>,
+    /// Whether requests run at their cause's QoS class (crate::request_qos).
+    request_qos: crate::request_qos::RequestQosGate,
     started_at: Instant,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,

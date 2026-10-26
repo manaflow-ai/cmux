@@ -106,12 +106,22 @@ mod held {
 }
 
 impl LockRank {
-    /// The state and registry locks: a thread lowered to UTILITY for an
-    /// automation request is raised while it holds one (p06-scheduler-035,
-    /// `cmux_tui_platform::qos::LockBoost`), so a frontend request never
-    /// waits behind a UTILITY holder. The journal writer rank is not a lock.
+    /// Every lock: a thread lowered to UTILITY for an automation request is
+    /// raised before it waits for one and while it holds it
+    /// (p06-scheduler-035, `cmux_tui_platform::qos::LockBoost`), so a
+    /// frontend request or the PTY echo path never waits behind a UTILITY
+    /// thread. Release builds rank every `RankedMutex` as `Leaf`, so the rule
+    /// cannot depend on the rank. The journal writer rank is not a lock.
     const fn raises_holder(self) -> bool {
-        matches!(self, Self::WorkspaceRegistry | Self::RegistryConnection | Self::MuxState)
+        !matches!(self, Self::JournalWriter)
+    }
+
+    fn boost(self) -> cmux_tui_platform::qos::LockBoost {
+        if self.raises_holder() {
+            cmux_tui_platform::qos::LockBoost::hold()
+        } else {
+            cmux_tui_platform::qos::LockBoost::none()
+        }
     }
 }
 
@@ -122,6 +132,30 @@ pub(crate) struct HeldRank {
     id: u64,
     /// Dropped with the rank, after the lock the guard releases first.
     _boost: cmux_tui_platform::qos::LockBoost,
+}
+
+/// A checked rank this thread is about to block on: the boost is taken
+/// before the wait, so the lock is never handed to a lowered waiter.
+#[must_use = "the boost holds only until the lock is recorded with `held`"]
+pub(crate) struct RankWait {
+    rank: LockRank,
+    name: &'static str,
+    boost: cmux_tui_platform::qos::LockBoost,
+}
+
+impl RankWait {
+    /// A re-entry of a reentrant lock this thread holds: no order check and
+    /// no wait.
+    #[inline]
+    pub(crate) fn reentry(rank: LockRank, name: &'static str) -> Self {
+        Self { rank, name, boost: rank.boost() }
+    }
+
+    /// Record that this thread now holds the rank it waited for.
+    #[inline]
+    pub(crate) fn held(self) -> HeldRank {
+        HeldRank::with_boost(self.rank, self.name, self.boost)
+    }
 }
 
 impl HeldRank {
@@ -135,21 +169,35 @@ impl HeldRank {
         let _ = (rank, name);
     }
 
-    /// Record that this thread now holds `rank`.
+    /// [`Self::check`], then raise a lowered thread before it blocks on the
+    /// lock; [`RankWait::held`] records the acquisition.
+    #[track_caller]
+    #[inline]
+    pub(crate) fn acquire(rank: LockRank, name: &'static str) -> RankWait {
+        Self::check(rank, name);
+        RankWait { rank, name, boost: rank.boost() }
+    }
+
+    /// Record that this thread now holds `rank`, taken without a wait (a
+    /// `try_lock`, a re-entry).
     #[inline]
     pub(crate) fn record(rank: LockRank, name: &'static str) -> Self {
-        let _boost = if rank.raises_holder() {
-            cmux_tui_platform::qos::LockBoost::hold()
-        } else {
-            cmux_tui_platform::qos::LockBoost::none()
-        };
+        Self::with_boost(rank, name, rank.boost())
+    }
+
+    #[inline]
+    fn with_boost(
+        rank: LockRank,
+        name: &'static str,
+        _boost: cmux_tui_platform::qos::LockBoost,
+    ) -> Self {
         #[cfg(debug_assertions)]
         {
             Self { id: held::push(rank, name), _boost }
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = name;
+            let _ = (rank, name);
             Self { _boost }
         }
     }
@@ -198,12 +246,12 @@ impl<T> RankedMutex<T> {
     #[inline]
     pub(crate) fn lock(&self) -> LockResult<RankedGuard<'_, T>> {
         let (rank, name) = self.rank();
-        HeldRank::check(rank, name);
+        let wait = HeldRank::acquire(rank, name);
         match self.inner.lock() {
-            Ok(guard) => Ok(RankedGuard { guard, _held: HeldRank::record(rank, name) }),
+            Ok(guard) => Ok(RankedGuard { guard, _held: wait.held() }),
             Err(poison) => Err(PoisonError::new(RankedGuard {
                 guard: poison.into_inner(),
-                _held: HeldRank::record(rank, name),
+                _held: wait.held(),
             })),
         }
     }
