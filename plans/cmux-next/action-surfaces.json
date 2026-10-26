@@ -23021,6 +23021,62 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Memories…",
+      "title_key" : "action.chief.importMemories",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories-undo",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories.undo",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Undo Last Memory Import",
+      "title_key" : "action.chief.importMemories.undo",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action chief-open-usage",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -24690,8 +24746,8 @@
       },
       "palette_suggested" : null,
       "title" : "Attach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelAttach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24718,8 +24774,8 @@
       },
       "palette_suggested" : null,
       "title" : "Detach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelDetach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24746,8 +24802,8 @@
       },
       "palette_suggested" : null,
       "title" : "Rotate Cloud Tunnel Key",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelRotateKey",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24774,8 +24830,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Networks",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudNetworkList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24914,8 +24970,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Domains",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudDomainList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",

@@ -28,7 +28,7 @@ fn the_paid_plans_skill_ships_with_the_checkout_command_and_the_never_rules() {
     let text = std::fs::read_to_string(&skill.path).unwrap();
     for want in [
         "cmux billing checkout --plan <pro|max|team>",
-        "Tell the user in one line what the plan adds and its price",
+        "Tell the user in one line: what the plan adds and its price",
         "nothing is charged until they pay",
         "Never say you bought, paid for or upgraded anything",
         "never twice for one ask",
@@ -55,5 +55,39 @@ fn the_chief_prompt_says_when_to_send_a_checkout() {
         ] {
             assert!(flat.contains(want), "{name}: prompt lacks {want:?}");
         }
+    }
+}
+
+/// Eval baseline 2026-10-26 (upsell-a675-cloud-plan-required, 0/3): the Chief
+/// left out the price, offered "or I run it another way" as a choice, and
+/// waited for "tell me when you paid". The rules: the price in the line, no
+/// alternative offered as a choice, and a sleep() that checks the plan and
+/// resumes the blocked step by itself.
+#[test]
+fn a_checkout_line_has_the_price_offers_no_choice_and_resumes_by_itself() {
+    let text = chief_system_text(None, &Tools::Mcp, false, false)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for want in [
+        "what the plan adds and its monthly price (Pro $50, Max $200, Team $60 a seat)",
+        "never offer another way as a choice",
+        "`cmux billing status --json`",
+        "resume the blocked task yourself",
+    ] {
+        assert!(text.contains(want), "prompt lacks {want:?}");
+    }
+    let skill = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/skills/paid-plans/SKILL.md"
+    ))
+    .unwrap();
+    let skill = skill.split_whitespace().collect::<Vec<_>>().join(" ");
+    for want in [
+        "Pro $50/month",
+        "never offer another way as a choice",
+        "call `sleep(600",
+    ] {
+        assert!(skill.contains(want), "skill lacks {want:?}");
     }
 }

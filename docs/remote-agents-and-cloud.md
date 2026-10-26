@@ -66,6 +66,30 @@ acpmux host ls
 acpmux host doctor my-linux --json
 ```
 
+Run the SSH probe before adding a host. If the first connection is offline,
+`host add` saves the peer, exits 0, and prints a warning to stderr with the
+SSH probe and doctor commands to run next. With `--json`, the response includes
+`warning: {"reason":"peer_unreachable","try":"ssh -o BatchMode=yes HOST true",
+"detail":"the peer was saved and will keep reconnecting"}`. WebSocket URLs
+use `acpmux host ls` as the next command. Saving failures remain errors:
+
+```sh
+ssh -o BatchMode=yes my-linux true
+acpmux host add my-linux ssh://my-linux:47921
+acpmux host doctor my-linux --json
+```
+
+When testing a second home, clear inherited daemon variables. `ACPMUX_SOCKET`
+wins over `ACPMUX_HOME`, so a shell opened inside another agent can report that
+agent's live daemon and make `daemon start` a no-op:
+
+```sh
+env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/remote-ergo-walk/client acpmux daemon status
+```
+
+Inspect the selected home and socket before shutting anything down. The walk
+harness removes inherited `ACPMUX_*` variables after each command.
+
 An SSH URL can include a user, such as `ssh://me@host`. An explicit URL port
 selects the remote **acpmux listener** (default 47811), not the SSH server port;
 configure the SSH server port in your SSH alias. Accept the host key once, then
@@ -95,12 +119,38 @@ daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
 
 ```sh
-acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project -d
+acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
 acpmux ls
 acpmux session info my-linux/api-work
 acpmux send my-linux/api-work "Summarize this project's structure."
 acpmux attach my-linux/api-work
 ```
+
+`host doctor --harness ID` checks a client profile that can be copied to the
+host. If the remote daemon already discovers `ID` on its PATH, the check reports
+that discovery and skips profile copying. Verify actual readiness with
+`acpmux daemon harnesses`, then create and prompt a real remote session:
+
+```sh
+acpmux daemon harnesses
+acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project -d
+acpmux send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use tools."
+```
+
+`acpmux harness doctor codex` speaks ACP directly. A Codex app-server that
+answers `unknown variant session/new` is a protocol mismatch; it is not repaired
+by logging in. Use the bridge through a real `acpmux new --host` session.
+
+If a prompt needs permission, this build requires approval from the cmux Mac
+app's pending-permission card. `acpmux session allow` is intentionally refused
+for this remote route; `session deny` and `session cancel` remain available.
+
+Creation labels are repeatable and are applied before the session is listed:
+`acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
+If a remote policy, mode or folder check refuses a start, the JSON error's
+`error.data.try` is a complete shell-quoted command. Copy it verbatim; it keeps
+the prompt and launcher options. A `--prompt-file` is piped through stdin so
+the file does not need to exist on the remote host.
 
 Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
@@ -113,9 +163,35 @@ cmux agent open-tab api-work --host my-linux --focus
 
 The tab binds to the peer session mirrored by your Mac's daemon. If the name is
 ambiguous, use its session ID from `acpmux ls --json`. This does not move the
-agent. Remote sidebar group placement is a separate limitation: the checked
-launcher refuses combining `acpmux new --host` with `--group`; `agent open`
-creates workspaces for local/Chief sessions rather than performing this peer lookup.
+agent. For remote chat placement in local sidebar groups, see the
+[acpmux peer guide](../cmux-tui/crates/acpmux/README.md#peers-every-session-on-every-machine-from-one-mac).
+The generic action form also accepts the peer host:
+
+```sh
+cmux action run agent.openSessionTab --target PANE --session api-work --host my-linux
+```
+
+To create a remote chat inside a sidebar workspace group on the Mac where you
+run the command:
+
+```sh
+acpmux new --host my-linux -m codex --group "Remote demo" -d "say hi"
+```
+
+`--group` runs the local `cmux agent open` using the returned session ID. The
+workspace belongs to your Mac; the agent and its files stay on the peer. It
+joins a suitable group of that name or creates one. Opening the workspace may
+move focus.
+Use `--name api-work --reuse` to rerun a launch without creating another
+session. Without `--name`, each invocation creates a new session and row.
+
+If opening the sidebar fails, the session still runs and the warning gives a
+`cmux agent open ID --name ... --key ... --group ...` command to retry on your
+Mac. Run it with the CLI bundled with that Mac's app and the same local acpmux
+daemon that mirrors the peer. For wrappers that run acpmux **on the remote
+host**, omit `--group` there and open the returned session ID on the controller
+Mac after creation. Passing a peer name as `agent open --host` is not needed
+for an ID already mirrored locally.
 
 To end the current turn, stop the agent, or continue a saved session:
 
@@ -154,6 +230,7 @@ cmux cloud ssh --target machine:MACHINE_ID
 cmux cloud setup-github --target machine:MACHINE_ID
 cmux cloud pause-machine --target machine:MACHINE_ID
 cmux cloud resume-machine --target machine:MACHINE_ID
+cmux cloud exec --target machine:MACHINE_ID --command 'uname -a'
 ```
 
 `cloud ssh` opens a terminal in the app. It does not attach the invoking CLI's
@@ -167,6 +244,9 @@ The catalog also exposes file access, for example:
 ```sh
 cmux cloud file-read --target machine:MACHINE_ID --path /workspace/README.md
 ```
+
+`cloud exec` runs one command through the Cloud API and returns `exit_code`,
+`stdout` and `stderr`; pass the command with `--command`.
 
 File access is not automatic transcript backup or history hydration. Do not
 assume a particular no-wake behavior from the existence of this command.
@@ -202,9 +282,15 @@ not a complete copy of its transcript.
 
 | Symptom | Start here |
 | --- | --- |
-| Remote sessions unreachable | `acpmux host ls`, `acpmux host doctor my-linux --json`, then verify `ssh my-linux` and the remote listener. Resume a paused machine before expecting live agent traffic. |
+| Remote sessions unreachable | `acpmux host ls`, then `acpmux host doctor my-linux --json`; a peer-unreachable error says the prompt was not submitted and gives `acpmux host ls` as the retry check. Resume a paused machine before expecting live agent traffic. |
 | Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
 | Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
 | Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
 | Stuck or stale chat | `acpmux session info my-linux/api-work` and `acpmux session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
+
+Enroll preserves an existing peer URL and listener port. If the remote daemon
+already listens on a non-default port, pass that URL to `host add` or let
+`host enroll` find the saved peer; it will not restart the daemon on 47811 or
+change its listener. A restart can briefly show `reconnecting`; check
+`acpmux host ls`, then re-add the same `ssh://HOST:PORT` URL if needed.

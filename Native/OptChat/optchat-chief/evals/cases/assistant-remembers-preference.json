@@ -12,6 +12,11 @@
           "cmd": "remember"
         },
         {
+          "type": "file_contains",
+          "path": "optchat/person.md",
+          "re": "(?i)one line per agent"
+        },
+        {
           "type": "no_question"
         },
         {

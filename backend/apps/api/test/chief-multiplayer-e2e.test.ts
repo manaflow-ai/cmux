@@ -174,11 +174,21 @@ describe("Chief multiplayer: two people, two Chiefs, one group", { timeout: 180_
     const authorOf = new Map(h.map((m) => [m.id, m.author]))
     const crossTalk = h.filter((m) => chiefs.includes(m.author) && chiefs.includes(authorOf.get(m.reply_to?.message_id)) && authorOf.get(m.reply_to?.message_id) !== m.author)
     expect(crossTalk).toEqual([])
-    const quiet = h.length
+    // Quiet: once both brains are idle (no queued or running message, no reply waiting to post, every
+    // subagent reported), nothing more comes.
+    const idle = (chief: string) =>
+      runInDurableObject(brainOf(chief, group), async (_i, state) => {
+        const sql = state.storage.sql
+        const busy = sql.exec(`SELECT 1 FROM cb_inbox WHERE state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE status = 'running' OR post = 'pending' UNION ALL SELECT 1 FROM cb_spawn WHERE state NOT IN ('reported', 'done', 'failed')`).toArray()
+        return busy.length === 0
+      })
+    for (let i = 0; i < 60 && !((await idle(ann.chief.id)) && (await idle(ben.chief.id))); i++) await settle(group, chiefs)
+    expect((await idle(ann.chief.id)) && (await idle(ben.chief.id))).toBe(true)
+    const quiet = (await history(ann.token, group)).length
     await settle(group, chiefs)
     expect((await history(ann.token, group)).length).toBe(quiet)
 
     // Both people see the same transcript.
-    expect((await history(ben.token, group)).map((m) => m.id)).toEqual(h.map((m) => m.id))
+    expect((await history(ben.token, group)).map((m) => m.id)).toEqual((await history(ann.token, group)).map((m) => m.id))
   })
 })
