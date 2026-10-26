@@ -90,6 +90,8 @@ export interface OwnershipStoreService {
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
   /** The tenant's own resource of this kind that was marked deleted, or none (an idempotent delete's tombstone). */
   readonly findDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
+  /** Renames the tenant's live resource (null clears the name); false when there is none. Nothing but the display name changes. */
+  readonly setDisplayName: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, displayName: string | null) => Effect.Effect<boolean, StoreError>;
 }
 
 export interface AuditStoreService {
@@ -284,6 +286,21 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .pipe(
             Effect.flatMap(decodeRows(ResourceRow, "ownership.findDeleted")),
             Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
+          ),
+      setDisplayName: (tenantId, kind, cmuxId, displayName) =>
+        sql
+          .query(
+            "ownership.setDisplayName",
+            `WITH updated AS (
+               UPDATE cmux_vm.resources SET display_name = $4
+                WHERE tenant_id = $1 AND kind = $2 AND cmux_id = $3 AND deleted_at IS NULL
+               RETURNING 1)
+             SELECT count(*)::int AS live FROM updated`,
+            [tenantId, kind, cmuxId, displayName],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(CountRow, "ownership.setDisplayName")),
+            Effect.map((rows) => (rows[0]?.live ?? 0) > 0),
           ),
     };
 

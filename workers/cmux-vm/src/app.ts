@@ -32,6 +32,7 @@ import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
 import type { UpstreamTerminals } from "./upstream/terminals.ts";
 import { meshDeviceHandlers, meshEnrollHandlers, meshHandlers } from "./handlers/mesh.ts";
 import { overlayServerDeviceHandlers, overlayServerHandlers } from "./handlers/overlay-servers.ts";
+import { meshNetworkHandlers } from "./handlers/mesh-network.ts";
 import type { MeshStore } from "./db/mesh.ts";
 import type { MeshConfig } from "./mesh/config.ts";
 import type { UpstreamMesh } from "./upstream/mesh.ts";
@@ -109,6 +110,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(meshHandlers)),
     Layer.provide(authenticated(overlayServerHandlers)),
     Layer.provide(overlayServerDeviceHandlers),
+    Layer.provide(authenticated(meshNetworkHandlers)),
     // The one-time enrollment code is the credential (mesh M2, cx-0op.4).
     Layer.provide(meshEnrollHandlers),
     // The device's install-key signature is the credential (mesh M3, cx-0op.5).

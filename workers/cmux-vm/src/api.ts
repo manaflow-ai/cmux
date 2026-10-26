@@ -27,6 +27,7 @@ import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { AgentsGroupDefinition } from "./api/agents.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
 import { OverlayServerDeviceGroupDefinition, OverlayServersGroupDefinition } from "./api/overlay-servers.ts";
+import { MeshNetworkGroupDefinition } from "./api/mesh-network.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
@@ -540,6 +541,7 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(MeshDeviceGroupDefinition)
   .add(OverlayServersGroupDefinition.middleware(Authentication))
   .add(OverlayServerDeviceGroupDefinition)
+  .add(MeshNetworkGroupDefinition.middleware(Authentication))
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",

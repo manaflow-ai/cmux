@@ -13,6 +13,7 @@ import type { MeshProtocol } from "../mesh/acl.ts";
 import type { DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import type { CallerActsOnDevice } from "../proofs/device-owner.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { MeshDeviceTunnel } from "../proofs/mesh-device-tunnel.ts";
 import type { OwnedMeshRule, SameMesh } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -143,6 +144,18 @@ export interface UpstreamMeshService {
   readonly deleteRule: <C, M>(rule: OwnedMeshRule<C, M>) => Effect.Effect<void, UpstreamError>;
   /** Deletes a rule whose row could not be recorded. Accepts only a value `createRule` returned. */
   readonly discardCreatedRule: (created: CreatedRule) => Effect.Effect<void, UpstreamError>;
+
+  /**
+   * Each proven device's IPv4 address inside the mesh (`list_vpc_tunnels`, one
+   * request for the whole network), keyed by public device id; null when the
+   * provider reports no IPv4 address for it. Tunnels that are not one of
+   * `devices` are dropped, so no other tunnel or provider id leaves this call.
+   */
+  readonly listDeviceAddresses: <C, M>(
+    mesh: Named<M, MeshId>,
+    proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:read"> },
+    devices: ReadonlyArray<MeshDeviceTunnel<C, M>>,
+  ) => Effect.Effect<ReadonlyMap<string, string | null>, UpstreamError>;
 }
 
 export class UpstreamMesh extends Context.Tag("cmux-vm/UpstreamMesh")<UpstreamMesh, UpstreamMeshService>() {}

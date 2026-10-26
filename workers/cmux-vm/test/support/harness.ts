@@ -189,6 +189,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
       ),
+    setDisplayName: (tenantId, kind, cmuxId, displayName) =>
+      Effect.sync(() => {
+        const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row));
+        const row = resources[index];
+        if (row === undefined) return false;
+        resources[index] = { ...row, displayName };
+        return true;
+      }),
   });
 
   const auditStore = Layer.succeed(AuditStore, {
