@@ -2492,9 +2492,11 @@ jobs:
       # The dSYMs of every nightly-next build, a handoff to publish-nightly, which keeps a
       # published build's dSYMs on R2 (nightly-next/next/dsyms/): a crash or hang report
       # symbolicates from there when the Sentry download is not available (2026-10-10: a read
-      # with a scoped token got 403 for nightly 38005665577; the upload above works). Seven
-      # days, as the unsigned-resume inputs: resume-unsigned-nightly.py reads this artifact's
-      # name as the build's exact source commit. Not 90: Actions storage is not an archive.
+      # with a scoped token got 403 for nightly 38005665577; the upload above works). Fourteen
+      # days, the notarization-recovery window: a build recovered and published up to then
+      # still finds its dSYMs (this job holds no nightly-next R2 credentials to stage them
+      # earlier). resume-unsigned-nightly.py also reads this artifact's name as the build's
+      # source commit. Not 90: Actions storage is not an archive.
       - name: Keep the nightly-next dSYMs for publication
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true')
         continue-on-error: true
@@ -2503,7 +2505,7 @@ jobs:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
           compression-level: 6
 
       - name: Finish the dSYM upload to Sentry
@@ -5782,14 +5784,16 @@ jobs:
 
 
   # A published nightly-next build's dSYMs, kept on R2 (build-nightly-app's artifact is a
-  # seven-day handoff; Actions storage is not an archive). Its own job, outside the
+  # fourteen-day handoff; Actions storage is not an archive). Its own job, outside the
   # publication chain: nothing needs it, it continues on error, and its timeout is its own,
   # so it never delays, fails or cancels a publication. The dSYMs come from the run that
-  # built the app: this run, the run a recovered build came from, or the source run of an
-  # unsigned resume. A rerun of a build already published repairs a missing object; an
+  # compiled the app, found by artifact name (nightly-next-dsyms-<build sha>) across the
+  # repository: this run, a recovered build's run, or the run an unsigned resume (or a
+  # recovery of one) started from. A rerun of a build already published repairs a missing
+  # object; an
   # existing object (exit 75 from --write-once) counts as kept.
   keep-published-dsyms:
-    needs: [decide, publish-nightly, recover-nightly-next-notarization]
+    needs: [decide, publish-nightly]
     if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && (needs.publish-nightly.outputs.tag_status == 'updated' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.already_published == 'true') && needs.publish-nightly.outputs.build_sha != ''"
     environment: ${{ needs.decide.outputs.environment }}
     continue-on-error: true
@@ -5801,7 +5805,6 @@ jobs:
     env:
       BUILD: ${{ needs.publish-nightly.outputs.build }}
       BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
-      SOURCE_RUN: ${{ needs.publish-nightly.outputs.source == 'recovered' && needs.recover-nightly-next-notarization.outputs.run_id || inputs.nightly_next_unsigned_run || github.run_id }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -5811,11 +5814,24 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts
 
-      - name: Download the published build's dSYMs from the run that built it
+      - name: Find the run that compiled the published build
+        id: producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build commit $BUILD_SHA" >&2; exit 1; }
+          # Newest live artifact of that name from a nightly.yml run of this repository.
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=20&name=nightly-next-dsyms-$BUILD_SHA" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | .workflow_run.id // empty')"
+          [ -n "$run" ] || { echo "::warning title=No dSYMs to keep::no live nightly-next-dsyms-$BUILD_SHA artifact; Sentry has this build's symbols"; exit 1; }
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Download the published build's dSYMs from the run that compiled it
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nightly-next-dsyms-${{ env.BUILD_SHA }}
-          run-id: ${{ env.SOURCE_RUN }}
+          run-id: ${{ steps.producer.outputs.run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/published-dsyms/dSYMs
 
