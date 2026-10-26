@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTabs
 import QuartzCore
 
@@ -70,7 +71,7 @@ extension TabDragSession {
     func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
-        removeMonitors(drag)
+        endInput(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
         if commit { noteCommit(drag) }
@@ -143,15 +144,16 @@ extension TabDragSession {
     }
 
     func end(_ drag: Drag) {
-        removeMonitors(drag)
+        endInput(drag)
         drag.link?.deactivate()
         drag.link = nil
         drag.ghost.close()
     }
 
-    func removeMonitors(_ drag: Drag) {
-        if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
-        drag.monitor = nil
+    /// Stops the drag's input: its tap intercept and the app-resign observer.
+    func endInput(_ drag: Drag) {
+        drag.input?.cancel()
+        drag.input = nil
         resignObserver = nil
     }
 
