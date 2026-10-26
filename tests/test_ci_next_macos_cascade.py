@@ -628,7 +628,10 @@ class Wiring(unittest.TestCase):
         seen = set()
         for ready in ("true", ""):
             for attempt in ("1", "2"):
-                for fast in (("skipped", ""), ("failure", "")):
+                # Every fast-check state release-compile runs after: skipped, no verdict (failed, or the
+                # continue-on-error step left success with none), or an unavailable fleet.
+                for fast in (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
+                             ("failure", "unavailable")):
                     for outputs in ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "},
                                     {"retry": SMALL}):
                         context = self.nightly_push(ready, attempt, fast, **outputs)
@@ -638,6 +641,8 @@ class Wiring(unittest.TestCase):
                         with self.subTest(ready=ready, attempt=attempt, fast=fast, outputs=outputs):
                             self.assert_off_the_nightly_runner(evaluate(job["runs-on"], context), why)
                             self.assert_off_the_nightly_runner(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), why)
+        # The placement's runner output is taken as is; side_lane_placement never writes a nightly label there
+        # (test_ci_side_lane_placement.NightlyRunnerStaysOffTheRoutes).
         # Every route a push can take was evaluated: the cascade's two slots, the owned side label, and the
         # 6 vCPU literal (no placement runner, or a fast check that died before its verdict).
         self.assertEqual(seen, {LARGE, SMALL, SIDE})

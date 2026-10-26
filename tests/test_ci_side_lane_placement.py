@@ -259,6 +259,44 @@ SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.jso
 FAST = "glaeda-fast-light-xcode-26.6"
 
 
+class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
+    """The workflow takes the placement's runner outputs as they are (cmux-next.yml's release-compile and the
+    other Mac jobs), so no output names the dedicated nightly-next runner or its pool, whether that runner is
+    idle, busy or the only one online (test_ci_next_macos_cascade's guard on release-compile's runs-on)."""
+
+    ROUTES = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner", "fast_runner",
+              "gateway_runner", "retry_runner", "free_retry_runner", "hosted_runner")
+
+    def test_no_route_output_names_the_nightly_runner(self):
+        dedicated = runner("cmux22", labels=(NIGHTLY_POOL, NIGHTLY_RUNNER, "glaeda-trusted-next-nightly"))
+        fleets = {"idle nightly and side": [dedicated, runner("mini-a-glaeda-3")],
+                  "only the nightly runner online": [dedicated, runner("mini-a-glaeda-3", status="offline")],
+                  "nightly runner busy": [{**dedicated, "busy": True}, runner("mini-a-glaeda-3", busy=True)]}
+        for why, runners in fleets.items():
+            for side in (SIDE, "glaeda-side-light-xcode-26.6"):
+                with self.subTest(why=why, side=side), tempfile.TemporaryDirectory() as tmp:
+                    output = Path(tmp) / "out"
+                    values = env(SIDE_LABEL=side, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                                 GITHUB_REPOSITORY="manaflow-ai/cmux", NIGHTLY_POOL=NIGHTLY_POOL,
+                                 NIGHTLY_RUNNER=NIGHTLY_RUNNER, GATEWAY_LABEL="glaeda-side-light-xcode-26.6",
+                                 FAST_LABEL="glaeda-fast-light-xcode-26.6", CASCADE_RUNS=" release-compile ",
+                                 FIRST_JOBS="release-compile")
+                    free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+                    with mock.patch.object(placement.pool, "GitHub") as github, \
+                            mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                            contextlib.redirect_stdout(io.StringIO()):
+                        github.return_value.runners.return_value = runners
+                        placement.main(values)
+                    lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    for key in self.ROUTES:
+                        value = lines.get(key, "")
+                        self.assertNotIn(NIGHTLY_POOL, value, key)
+                        self.assertNotIn(NIGHTLY_RUNNER, value, key)
+                        self.assertNotIn("nightly", value, key)
+                    self.assertEqual(lines["nightly_runner_ready"], "true" if why == "idle nightly and side"
+                                     or why == "only the nightly runner online" else "")
+
+
 class FastRoute(unittest.TestCase):
     """The fast tier takes its reserved label only while a runner carrying it is idle (2026-10-25:
     15 runs' fast tiers queued an hour behind the two runners left on the light fast label)."""
