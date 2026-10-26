@@ -171,6 +171,11 @@
       "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
       "owner": "p09-observability"
     },
+    "metrics-record": {
+      "what": "one field-histogram sample (Metrics.record into MetricsStore): an acquire load of the runtime's store, one dictionary probe, an acquire load of the active block and three relaxed adds (bucket, count, sum)",
+      "bench": "swift test -c release --filter 'HistogramTests.*recordCost' (1000-record batch p50, ns per record)",
+      "owner": "p09-observability"
+    },
     "main-turn": {
       "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
       "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
