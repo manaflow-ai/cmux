@@ -12,6 +12,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
