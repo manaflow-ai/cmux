@@ -1,13 +1,16 @@
 public import Foundation
 internal import CmuxNextCompat
 
-/// macOS Low Power Mode, observed once for the app. It follows
+/// macOS Low Power Mode, observed once for the app: the composition root's ``EnergyMonitor``
+/// owns the one instance and hands it out by init. It follows
 /// `NSProcessInfoPowerStateDidChange` (no polling); `override` replaces the
 /// system value (the `debug.low_power_mode` socket method and tests).
 @MainActor
 public final class LowPowerMode {
-    /// The app's observer of the system power state.
-    public static let system = LowPowerMode(center: .default) { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    /// An observer of the system power state (``EnergyMonitor`` makes the app's one).
+    public static func system() -> LowPowerMode {
+        LowPowerMode(center: .default) { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    }
 
     /// Whether Low Power Mode is on: `override` when set, else the system value.
     public private(set) var isEnabled: Bool

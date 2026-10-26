@@ -31,13 +31,11 @@ import CmuxNextDesignTokens
         store.activate(file: nil)
         let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
         let reduced = ReduceTransparency(system: { true }, changes: NotificationCenter())
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: false) == .plain)
         GlassLensMode.choose(.spectrum, in: store)
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .spectrum)
-        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
-        let lowPower = LowPowerMode(enabled: false)
-        lowPower.override = true
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: lowPower) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: false) == .spectrum)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPowerMode: false) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPowerMode: true) == .plain)
     }
 
     /// Plain is the default and stores nothing; Release never activates the store, so it stays plain.
