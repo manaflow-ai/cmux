@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension ActionRegistry {
     /// Runs one action run's synchronous work inside ``runTiming`` (always-on `action.perform` and
@@ -81,7 +81,7 @@ extension ActionRegistry {
     }
 
     /// `event`'s timestamp when it is a key or a click, else nil.
-    static func inputTimestamp(of event: NSEvent?) -> Double? {
+    public static func inputTimestamp(of event: NSEvent?) -> Double? {
         guard let event else { return nil }
         switch event.type {
         case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
