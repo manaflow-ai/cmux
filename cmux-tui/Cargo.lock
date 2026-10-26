@@ -10,12 +10,14 @@ dependencies = [
  "base64",
  "clap",
  "cmux-agent-pane-policy",
+ "cmux-blocking",
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
@@ -832,6 +834,8 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
  "futures-util",
@@ -977,6 +981,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-blocking"
+version = "0.1.0"
+dependencies = [
+ "cmux-panic-log",
+ "cmux-threads",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1037,8 +1051,10 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -1195,6 +1211,8 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1262,6 +1280,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-lock-rank"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -1313,7 +1335,9 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-local-auth",
+ "cmux-panic-log",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1390,6 +1414,8 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-remote-protocol",
  "futures-util",
  "getrandom 0.3.4",
@@ -1410,8 +1436,10 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-build-identity",
  "cmux-link",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -1496,6 +1524,8 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1570,6 +1600,8 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
@@ -1634,11 +1666,13 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
  "cmux-holder",
  "cmux-host",
  "cmux-link",
+ "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
@@ -1724,6 +1758,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-blocking",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
@@ -1735,6 +1770,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
@@ -1890,6 +1926,8 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -1917,6 +1955,8 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",

@@ -284,6 +284,27 @@ mod tests {
     }
 
     #[test]
+    fn assert_at_reports_the_first_violation_at_a_site_once() {
+        use crate::blocking::{BlockingCheck, assert_blocking_allowed_at};
+        let site = std::panic::Location::caller();
+        let checks = run_on(true, move || {
+            [
+                assert_blocking_allowed_at(BlockingKind::Fs, site),
+                assert_blocking_allowed_at(BlockingKind::Fs, site),
+            ]
+        });
+        assert_eq!(
+            checks,
+            [
+                BlockingCheck::Violation { first_at_site: true },
+                BlockingCheck::Violation { first_at_site: false }
+            ]
+        );
+        let allowed = run_on(false, move || assert_blocking_allowed_at(BlockingKind::Fs, site));
+        assert_eq!(allowed, BlockingCheck::Allowed);
+    }
+
+    #[test]
     fn checked_read_records_nothing_on_an_ordinary_thread() {
         let path = manifest();
         let line = run_on(false, move || {

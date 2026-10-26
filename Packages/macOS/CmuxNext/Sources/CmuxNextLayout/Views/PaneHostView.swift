@@ -198,7 +198,8 @@ final class PaneHostView: NSView, RestingPlacement {
         var shown = bounds
         if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
         if let container = superview as? StripClipContainerView {
-            shown = shown.intersection(convert(container.bounds, from: container))
+            // The clip stays where it is while a strip pan moves this host by the container's translation.
+            shown = shown.intersection(convert(container.bounds.offsetBy(dx: -container.translation, dy: 0), from: container))
         }
         return shown.isNull ? .zero : shown
     }
