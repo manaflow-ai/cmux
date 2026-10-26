@@ -9,6 +9,7 @@ the real one, so no web test runs here.
 """
 
 import os
+import json
 import pathlib
 import shutil
 import subprocess
@@ -182,16 +183,22 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("retry budget exhausted", output)
 
     def test_a_retry_cannot_outlive_the_remaining_shared_budget(self):
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
         result, elapsed, calls = self.run_runner(
             ["test/retry-hang.test.ts"],
             contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
-            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1",
+                       "CMUX_WEB_TEST_RESULTS": str(results_path)},
         )
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         self.assertLess(elapsed, 3, output)
         self.assertEqual(calls, ["./test/retry-hang.test.ts"] * 2)
         self.assertIn("TIMEOUT test/retry-hang.test.ts", output)
+
+        self.assertEqual(json.loads(results_path.read_text()), {
+            "test/retry-hang.test.ts > first attempt assertion": False,
+        }, "an incomplete retry must preserve the named first failure")
 
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
