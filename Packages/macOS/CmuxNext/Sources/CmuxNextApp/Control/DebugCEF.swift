@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextDesign
 import CmuxNextInputDiagnostics
 import CmuxNextSettings
 import Darwin
@@ -81,9 +82,13 @@ enum DebugCEF {
                     "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
-                    // Host mode: the page's cursor (CSS name) and accessibility element (idle, asking, refused,
-                    // connected) in its page view; null in process.
+                    // Host mode: the page's cursor (CSS name), tooltip text and accessibility element (idle, asking,
+                    // refused, connected) in its page view; null in process. `tooltip_shown`: the app's tooltip on
+                    // screen now, whoever's (chromium-host-bench.py's tooltip row: the page's shows while the
+                    // pointer stays over the page).
                     "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
+                    "page_tooltip": ChromiumHostPageView.first(in: tab.contentView)?.pageTooltipText.map(JSONValue.string) ?? .null,
+                    "tooltip_shown": TooltipPresenter.shared.shown.map { JSONValue.string($0.text) } ?? .null,
                     "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
                     // Host mode: drags the page view sent as DragTarget calls (null in process).
                     "page_drag": ChromiumHostPageView.first(in: tab.contentView).map { pageDrag($0.dragCounts) } ?? .null,

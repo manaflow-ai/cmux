@@ -4297,7 +4297,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
+      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR and TOOLTIP events reach ChromiumHostPageView, tasks 045 and 054), so the remote export does nothing."
     }
   ],
   "events": [
@@ -4605,6 +4605,12 @@
       "kind": "CMUX_SHIM_DRAG_OPERATION",
       "value": 55,
       "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_TOOLTIP",
+      "value": 57,
+      "refreshes": [],
+      "reason": "The page's tooltip (OnTooltip, task 054): the host's page windows never show, so cmux's page view shows it, as Chrome's app shim view shows RenderWidgetHostNSView::SetTooltipText."
     }
   ],
   "optional_exports": [

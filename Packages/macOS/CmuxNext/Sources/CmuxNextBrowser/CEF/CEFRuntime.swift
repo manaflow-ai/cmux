@@ -123,6 +123,8 @@ final class CEFRuntime {
     var evaluationBrowsers: [Int32: Int32] = [:]
     var earlyEvaluations: [Int32: CEFEvaluationResult] = [:]
     var nextEvaluation: Int32 = 1
+    /// The one evaluation a synchronous turn waits for by callback (``evaluateLatest(_:world:script:done:)``).
+    var latestEvaluation: (token: Int32, browser: Int32, done: (CEFEvaluationResult?) -> Void)?
     /// What the running fork offers (`CEFForkFeatures`).
     var forkFeatures: CEFForkFeatures { shim.map(CEFForkFeatures.init) ?? CEFForkFeatures(forkAPIVersion: 0, shimHasRendererPaths: false) }
     /// Browser of each pending site reply, so a closed browser fails them.
