@@ -188,7 +188,7 @@ CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "
 # pass. Running them in the priority shard would execute the same coverage
 # twice and make the job more likely to hit its total deadline.
 ISOLATED_PRIORITY_SUITES = frozenset((
-    "CmuxNextControlTests", "BranchStateResourcesTests", "CloudBringBackTests", "CLISurfaceParityTests",
+    "CmuxNextControlTests", "BranchStateResourcesTests", "CLISurfaceParityTests",
 ))
 
 
