@@ -26,6 +26,7 @@ SOCKET = "/tmp/cmux-debug-%s.sock" % TAG
 SESSION = "cmux-app-%s" % TAG
 os.makedirs(OUT, exist_ok=True)
 results = []
+RUN = "%x" % (int(time.time()) % 0xFFFFFF)  # unique names: a tag's daemon keeps an earlier run's workspaces
 
 
 def check(name, ok, detail=""):
@@ -79,24 +80,26 @@ def rows():
 
 def group_row(group):
     """The group's header row: the row whose key or item names the group."""
-    return next((r for r in rows() if group in (r.get("key"), r.get("item")) and r.get("kind") in (None, "group")), None)
+    return next((r for r in rows() if r.get("key") == "group(%s)" % group), None)
 
 
 def menu(group):
     row = group_row(group)
     if not row:
         return []
-    x, y, w, h = row["window_frame"]
+    f = row["window_frame"]
+    x, y, w, h = f["x"], f["y"], f["width"], f["height"]
     return (rpc("debug.sidebar_rows", {"menu_x": x + w / 2, "menu_y": y + h / 2}) or {}).get("menu") or []
 
 
 def pinned_section_lists(group):
-    """The group's header sits above the first machine section header (Pinned lists first)."""
+    """The group's header lists before every loose workspace row of the machine list (Pinned lists first)."""
+    all_rows = rows()
     row = group_row(group)
-    machine = [s for s in window().get("sections", []) if str(s.get("id", "")).startswith("sec_m_")]
-    if not row or not machine:
+    loose = [r for r in all_rows if str(r.get("key", "")).startswith("workspace(") and not r.get("group")]
+    if not row or not loose:
         return None
-    return row["window_frame"][1] < min(s["window_frame"][1] for s in machine)
+    return row["window_frame"]["y"] < min(r["window_frame"]["y"] for r in loose)
 
 
 def reads_pinned(group):
@@ -133,20 +136,30 @@ def launch():
 
 def make_group(name):
     """A workspace in a new group; returns (the id the sidebar shows, the personal id)."""
-    title = "pin-%s" % name
-    print("workspace create:", cli("workspace", "create", "--name", title, "--json")[0][:300], flush=True)
+    title = "pin-%s-%s" % (name, RUN)
+    created, _ = cli("workspace", "create", "--name", title, "--json")
+    print("workspace create:", created[:300], flush=True)
     row = wait(lambda: next((r for r in rows() if r.get("title") == title), None), 15)
     check("%s-setup-row" % name, row, [r.get("title") for r in rows()])
     if not row:
         return None, None
-    reply = rpc("debug.toast", {"perform": "newWorkspaceGroup", "target_kind": "workspace", "target_id": row["key"],
-                                "arguments": {"name": "Pin %s" % name}})
-    grouped = wait(lambda: next((r for r in rows() if r.get("title") == title and r.get("group")), None), 15)
-    check("%s-setup-group" % name, grouped, reply)
+    made, _ = cli("workspace", "group", "create", "--name", "Pin %s" % name, "--json")
+    print("group create:", made[:300], flush=True)
+    try:
+        value = json.loads(made).get("value") or {}
+    except ValueError:
+        value = {}
+    group = value.get("id") or value.get("workspace_group") or (value.get("group") or {}).get("id")
+    added = cli("workspace", "group", str(group), "add", "--workspace", title, "--json") if group else ("no group id", 1)
+    print("group add:", added[0][:300], flush=True)
+    # The header lists under the document's item for the group (`itm_g_<id>`).
+    shown = "itm_g_%s" % group
+    grouped = wait(lambda: group_row(shown), 15)
+    check("%s-setup-group" % name, grouped, (made[:200], added[0][:200]))
     if not grouped:
         return None, None
-    shown = grouped["group"]
-    personal = shown[len("itm_g_"):] if shown.startswith("itm_g_") else shown
+    personal = group
+    json.dump(window(), open(os.path.join(OUT, "sidebar-%s.json" % name), "w"), indent=1)
     print("%s group shown=%s personal=%s header=%s" % (name, shown, personal, json.dumps(group_row(shown))[:300]), flush=True)
     return shown, personal
 

@@ -81,11 +81,18 @@ struct WorkspaceGroupPinLiveTests {
 
     /// A group of the launch workspace, as Group Workspace makes it, once the window's sidebar lists it on the
     /// sidebar document: its personal id and the id the sidebar shows it under (`itm_g_<id>`).
-    private static func makeGroup(_ name: String, _ launched: Launched) async throws -> (personal: WorkspaceGroupID, shown: CmuxNextSidebar.GroupID) {
+    /// `empty`: a group with no workspace (a saved group kept when its workspaces closed), made as the CLI makes one.
+    private static func makeGroup(_ name: String, empty: Bool = false,
+                                  _ launched: Launched) async throws -> (personal: WorkspaceGroupID, shown: CmuxNextSidebar.GroupID) {
         let services = launched.services, personal = services.machines.local.store.personal
         let window = try #require(services.windows.active?.state.id)
         let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
-        _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(arguments: ["name": .string(name)]))
+        if empty {
+            let connection = try #require(services.machines.local.connection)
+            _ = try await connection.state.createWorkspaceGroup(name: name, room: nil, color: nil)
+        } else {
+            _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(arguments: ["name": .string(name)]))
+        }
         func shown() -> CmuxNextSidebar.GroupID? {
             guard let group = personal.groups.first(where: { $0.name == name }) else { return nil }
             let id = sidebar.groupID(personal: group.id.rawValue)
@@ -129,6 +136,20 @@ struct WorkspaceGroupPinLiveTests {
         }
     }
 
+    /// An empty group (Pin's own case: a saved group stays when its workspaces close) drew its header in Pinned
+    /// as not pinned, so Pin Group showed again and was refused; Unpin was refused too (`no_machine`).
+    @Test func anEmptyGroupPinsFromTheMenuAndUnpinsFromTheCLI() async throws {
+        try await Self.withLaunched { launched in
+            let group = try await Self.makeGroup("empty-pin", empty: true, launched)
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.shown.rawValue), origin: .user)
+            #expect(launched.services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "Pin Group on an empty group")
+            let connection = try #require(launched.services.machines.local.connection)
+            try await connection.state.updateWorkspaceGroup(group.personal.rawValue, pinned: false)
+            await Self.expectPinned(false, group, launched, "update --pinned false on an empty group")
+        }
+    }
+
     /// `cmux workspace group <g> update --pinned true|false` writes the personal group; the document follows it.
     @Test func cliPinnedUpdateMovesTheGroup() async throws {
         try await Self.withLaunched { launched in
@@ -145,7 +166,7 @@ struct WorkspaceGroupPinLiveTests {
     @Test func pinnedArgumentSetsTheState() async throws {
         try await Self.withLaunched { launched in
             let group = try await Self.makeGroup("mcp-pin", launched)
-            func run(_ pinned: Bool) -> Bool {
+            @MainActor func run(_ pinned: Bool) -> Bool {
                 launched.services.registry.perform("workspaceGroup.togglePin", invocation: ActionInvocation(
                     target: ActionTargetRef(kind: .workspaceGroup, id: group.personal.rawValue), arguments: ["pinned": .bool(pinned)], origin: .mcp))
             }
