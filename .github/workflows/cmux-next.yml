@@ -668,6 +668,7 @@ jobs:
       full: ${{ steps.route.outputs.full }}
       vendored_pin: ${{ steps.route.outputs.vendored_pin }}
       swift_filter: ${{ steps.route.outputs.swift_filter }}
+      swift_priority_filter: ${{ steps.route.outputs.swift_priority_filter }}
       swift_targets: ${{ steps.route.outputs.swift_targets }}
       # ready, deferred, superseded or failed; empty when no tree tier runs.
       tree_state: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
@@ -746,6 +747,7 @@ jobs:
               echo 'daemon=false'
               echo 'full=false'
               echo 'swift_filter='
+              echo 'swift_priority_filter='
               echo 'swift_targets='
             } >> "$GITHUB_OUTPUT"
             {
@@ -787,6 +789,7 @@ jobs:
               echo 'daemon=false'
               echo 'full=false'
               echo 'swift_filter='
+              echo 'swift_priority_filter='
               echo 'swift_targets=all'
             } >> "$GITHUB_OUTPUT"
             {
@@ -2736,6 +2739,7 @@ jobs:
       # host and SDK.
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       SWIFT_FILTER: ${{ needs.path_route.outputs.swift_filter }}
+      SWIFT_PRIORITY_FILTER: ${{ needs.path_route.outputs.swift_priority_filter }}
       SWIFT_TARGETS: ${{ needs.path_route.outputs.swift_targets }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -2959,7 +2963,7 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
-      - name: Run package tests (selected targets; control deadline and isolated suites run below)
+      - name: Run package tests (changed suites first, then selected targets)
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
@@ -2977,7 +2981,26 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests
+          priority_skip=()
+          priority_status=0
+          if [[ -n "$SWIFT_PRIORITY_FILTER" ]]; then
+            echo "Changed Swift suites first: $SWIFT_PRIORITY_FILTER"
+            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$SWIFT_PRIORITY_FILTER"; then
+              :
+            else
+              priority_status=$?
+              echo "Changed Swift suite shard failed with status $priority_status; continuing with the selected target pass" >&2
+            fi
+            priority_skip=(--skip "$SWIFT_PRIORITY_FILTER")
+          fi
+          broad_status=0
+          if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
+              ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests; then
+            :
+          else
+            broad_status=$?
+          fi
+          (( priority_status == 0 && broad_status == 0 ))
 
       # Cloud bring-back round trips launch two daemons and mutate shared
       # AppKit/registry state. Run each case in a fresh process so a prior
