@@ -1,7 +1,10 @@
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
+import Foundation
 
 /// Set Workspace Localhost (`ActionRegistry.setWorkspaceLocalhost`): the App resolves the
 /// workspace and shows the approval sheet.
@@ -20,6 +23,25 @@ enum RemoteLocalhostHandlers {
                 return await UserOnlySettingConfirmation.ask(prompt, services: services)
             }
         })
+    }
+}
+
+extension AppServices {
+    /// Made on first use (a browser tab's route or store, a loopback page's chip, a machine browser),
+    /// never in init (p08-startup-021), as Chrome makes a keyed service on its first
+    /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
+    var remoteLocalhost: RemoteLocalhostService {
+        if let madeRemoteLocalhost { return madeRemoteLocalhost }
+        let made = machines.makeRemoteLocalhost(following: settings)
+        madeRemoteLocalhost = made
+        return made
+    }
+
+    /// The machine chip of browser tab `tab` at `url`: only a loopback page has one, so a tab strip of
+    /// other pages makes no remote localhost.
+    func localhostBadge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
+        guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
+        return remoteLocalhost.badge(for: tab, url: url, engine: engine)
     }
 }
 

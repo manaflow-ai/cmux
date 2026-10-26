@@ -200,7 +200,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 73 | `services.registerMacScreenDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
-| 74 | `services.remoteLocalhost.follow(` | afterStartup | main | 029 | Remote localhost forwarding settings. Gone (021): `makeRemoteLocalhost` and the `settings` `didSet` follow. |
+| 74 | `services.remoteLocalhost.follow(` | afterStartup | main | 029 | Remote localhost forwarding settings. Gone (021): `MachineRegistry.makeRemoteLocalhost(following:)` and the `settings` `didSet` follow. |
 | 75 | `services.startChromiumRuntime(` | afterFirstFrame (pane) | main | 079 | Runtime pack check; wires the engine reason a browser pane reads. |
 | 76 | `services.startCloud(` | afterFirstFrame | main | 020 | Cloud context; no cloud connect before the first frame (027). |
 | 77 | `services.terminalTheme.follow(` | critical: `TerminalTheme.follow` | main | 079 | See the allowlist. |
@@ -275,7 +275,7 @@ Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` 
 | S2 | `SidebarSnapshotStore(file:)` (sync read) | main() read | `.lane(.files, .userBlocking)` | 075 | The sidebar's first frame reads it; becomes a LaunchRead. |
 | S3 | `CrashRecoveryService(...)` (`AppRunMarker` read and write) | main() read, write afterFirstFrame | `.lane(.files, .userBlocking)` | 075 | Crash recovery decides the restore; the read is a LaunchRead. |
 | S4 | `AppCrashReporting(environment:)` (Sentry, crash forwarders) | root (handlers), integrations afterStartup | `.lane(.files, .bestEffort)` | 032, 078 | Crash and signal handlers at launch; forwarders and session I/O after startup. |
-| S5 | `remoteTerminals.start()` | afterFirstFrame if a remote-terminal tab shows at restore (`RemoteTerminals.start`), else at the first remote-terminal tab | main | 021 | Restored remote workspace reconnects. Done (021): `makeRemoteTerminals` starts it; no afterStartup post, as nothing follows a session no tab shows. |
+| S5 | `remoteTerminals.start()` | afterFirstFrame if a remote-terminal tab shows at restore (`RemoteTerminals.start`), else at the first remote-terminal tab | main | 021 | Restored remote workspace reconnects. Done (021): `AppServices.remoteTerminals` starts it when made; no afterStartup post, as nothing follows a session no tab shows. |
 | S6 | `surfaceInvariant.observeWindowOcclusion()` | afterFirstFrame | main | 031 | Occlusion observer. |
 | S7 | `updater.attach(sheet:services:simulating:)`, `serverUpdates.start(registry:)` | afterStartup | main | 031 | Update sheet and server updates. |
 | S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers. |
@@ -293,7 +293,7 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-1 | `_ = cloud` | onDemand once 020 splits out the auth; until then critical by reader, no gain | 020 (auth split assigned here) | Two readers run before the first frame: the `ManagedPolicyBridge.start` critical post reads `cloud.auth` (O20), and the `services.settings` `didSet` reads `cloud.hostReplica` (O45). Removing `_ = cloud` alone defers nothing. 020 makes `CloudAuth` its own `AppServices` member that `CloudService` takes by init, passes the bridge only that auth, and moves the host replica follow into the Cloud start post; then `startCloud` is the first reader. |
 | Q1-2 | `_ = feed` | onDemand | 020 | Built by its first reader. |
 | Q1-3 | `_ = rightSidebarSections` | onDemand; icon build afterStartup `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. |
-| Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `makeSSH` sets the install offer and the current policy. |
+| Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `AppServices.ssh` sets the install offer and the current policy when made. |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
 | Q1-7 | `_ = terminalColors` | onDemand (built by its first reader, the config-change hook or `TerminalTheme.follow`) | 022 (assigned here) | Same: no task named it. |

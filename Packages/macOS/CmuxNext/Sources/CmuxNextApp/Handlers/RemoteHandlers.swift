@@ -5,6 +5,23 @@ import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
 
+extension AppServices {
+    /// SSH machines (Connect to Machine…), made on first use (the `SSH.start` post, a remote action), never
+    /// in init (p08-startup-021); the install offer and the current remote-hosts policy are set before any
+    /// reader gets it.
+    var ssh: SSHService {
+        if let madeSSH { return madeSSH }
+        let made = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)
+        madeSSH = made
+        made.offerInstall = { [weak registry] session in
+            // Asks through the registry's confirmation sheet (remote.install is destructive).
+            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
+        }
+        made.applyPolicy(disabled: registry.disabledFeatures.contains(.remoteHosts))
+        return made
+    }
+}
+
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
 /// matched by id, sidebar name or destination), else the machine of the

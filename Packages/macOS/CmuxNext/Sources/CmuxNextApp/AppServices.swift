@@ -101,18 +101,7 @@ final class AppServices {
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    // The remote services (ssh, remoteLocalhost, remoteTerminals) are made on first use, never in init
-    // (p08-startup-021), as Chrome makes a keyed service on its first GetServiceForBrowserContext
-    // (components/keyed_service/content/browser_context_keyed_service_factory.cc).
-    /// Made on first use, the launch's `SSH.start` post at the latest.
-    var ssh: SSHService {
-        if let madeSSH { return madeSSH }
-        let made = SSHService.app(self)
-        madeSSH = made
-        return made
-    }
-    /// `ssh` once made: the quit and the policy reach it without making it.
-    var madeSSH: SSHService?
+    var madeSSH: SSHService?  // `ssh` once made (made on first use, RemoteHandlers.swift; p08-startup-021)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
@@ -414,15 +403,8 @@ final class AppServices {
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
-    /// Browser tabs of remote machines reach that machine's localhost. Made on first use (a browser tab's route).
-    var remoteLocalhost: RemoteLocalhostService {
-        if let madeRemoteLocalhost { return madeRemoteLocalhost }
-        let made = machines.makeRemoteLocalhost(following: settings)
-        madeRemoteLocalhost = made
-        return made
-    }
-    /// `remoteLocalhost` once made: a removed machine and a settings change reach it without making it.
-    var madeRemoteLocalhost: RemoteLocalhostService?
+    /// Browser tabs of remote machines reach that machine's localhost.
+    var madeRemoteLocalhost: RemoteLocalhostService?  // `remoteLocalhost` once made (on first use, RemoteLocalhostHandlers.swift)
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -500,16 +482,8 @@ final class AppServices {
     )
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
-    /// Remote-terminal tabs: mount, placeholder, snapshot, moves. Made on first use (a remote-terminal tab
-    /// shown, closed or moved), or by the launch post when the restore shows one.
-    var remoteTerminals: RemoteTerminalService {
-        if let madeRemoteTerminals { return madeRemoteTerminals }
-        let made = RemoteTerminalService.started(services: self)
-        madeRemoteTerminals = made
-        return made
-    }
-    /// `remoteTerminals` once made: the quit, a stash and a pane's existing content ask it without making it.
-    var madeRemoteTerminals: RemoteTerminalService?
+    /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
+    var madeRemoteTerminals: RemoteTerminalService?  // `remoteTerminals` once made (on first use, RemoteTerminalService.swift)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for
@@ -584,7 +558,7 @@ final class AppServices {
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
-        cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.findTab = { [weak self] key in self?.machines.daemons.lazy.compactMap { $0.store.tab(id: key) }.first }  // any machine's tab
         cache.onRelease = { [weak self] key in
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
@@ -691,9 +665,7 @@ final class AppServices {
         }
         _ = dragSession  // built here, as before
         _ = previews  // built here, as before
-        WorkspaceClose.willClose = { [weak self] workspace in
-            if !RemoteTerminalService.remoteTabIDs(in: workspace).isEmpty { self?.remoteTerminals.workspaceClosing(workspace) }
-        }
+        WorkspaceClose.willClose = { [weak self] in if !RemoteTerminalService.remoteTabIDs(in: $0).isEmpty { self?.remoteTerminals.workspaceClosing($0) } }
         daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self

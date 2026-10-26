@@ -135,12 +135,6 @@ public final class RemoteLocalhostService {
 
     // MARK: Badge
 
-    /// Whether a tab at `url` can have a machine chip (a loopback page): callers ask before they make
-    /// the service, so a tab strip of other pages makes none.
-    public nonisolated static func mayBadge(_ url: URL?) -> Bool {
-        url.flatMap(LoopbackHost.init(url:))?.isLoopback == true
-    }
-
     /// The machine chip of a browser tab showing `url`: shown only for a
     /// loopback page of a tab whose machine is not this Mac.
     public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {

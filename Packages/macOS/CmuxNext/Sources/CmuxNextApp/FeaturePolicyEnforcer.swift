@@ -25,7 +25,7 @@ struct FeaturePolicyEnforcer {
 
     private func apply(_ disabled: Set<ActionFeature>, to services: AppServices) {
         services.cloud.applyPolicy(disabled: disabled.contains(.cloud))
-        services.madeSSH?.applyPolicy(disabled: disabled.contains(.remoteHosts))  // made later: `SSHService.app` applies it
+        services.madeSSH?.applyPolicy(disabled: disabled.contains(.remoteHosts))  // made later: `AppServices.ssh` applies it
         services.serverReach.applyPolicy(disabled: disabled.contains(.remoteHosts))
         services.apps.applyPolicy(disabled: disabled.contains(.apps))
     }
