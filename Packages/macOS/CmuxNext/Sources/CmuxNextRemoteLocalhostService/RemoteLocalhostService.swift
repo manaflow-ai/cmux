@@ -115,6 +115,8 @@ public final class RemoteLocalhostService {
             return configuration
         case .derived:
             break
+        case .blank:
+            return nil
         }
         guard case .machine(let name) = route else { return configuration }
         let daemon = machines.daemon(forTab: tab)
