@@ -1001,7 +1001,10 @@ final class CmuxSettingsFileStore {
             }
         }
         if block.keys.contains("matrix") {
-            if let data = try? JSONSerialization.data(withJSONObject: block["matrix"] as Any, options: [.withoutEscapingSlashes]),
+            // Only an object may reach JSONSerialization: a scalar top-level value raises an
+            // uncatchable Objective-C exception.
+            if let object = block["matrix"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
                let matrix = try? SessionPriorityMatrix(json: data) {
                 snapshot.managedUserDefaults[automation.sessionPriorityMatrix.userDefaultsKey] = .string(matrix.canonicalJSONString())
             } else {
