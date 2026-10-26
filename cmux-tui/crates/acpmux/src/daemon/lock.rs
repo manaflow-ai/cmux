@@ -69,6 +69,44 @@ impl std::fmt::Display for LockHeld {
 
 impl std::error::Error for LockHeld {}
 
+/// `word` as one shell word: as is when it holds only safe characters, else single-quoted.
+fn shell_word(word: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+:@%=,".contains(c);
+    if !word.is_empty() && word.chars().all(safe) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
+}
+
+/// The pid the lock's holder wrote into it ([`record_pid`]), when that process still runs.
+#[cfg(unix)]
+fn holder_pid(file: &std::fs::File) -> Option<u32> {
+    use std::os::unix::fs::FileExt;
+    let mut buf = [0u8; 16];
+    let n = file.read_at(&mut buf, 0).ok()?;
+    let pid: libc::pid_t = std::str::from_utf8(&buf[..n]).ok()?.trim().parse().ok()?;
+    if pid <= 0 {
+        return None;
+    }
+    // SAFETY: signal 0 sends nothing; it only asks whether the process exists. EPERM: it does,
+    // as another user's.
+    let alive = unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    alive.then_some(pid as u32)
+}
+
+/// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
+/// Best effort: the lock itself is the flock, never the file's contents.
+#[cfg(unix)]
+fn record_pid(file: &std::fs::File) {
+    use std::os::unix::fs::FileExt;
+    let pid = format!("{}\n", std::process::id());
+    if file.set_len(0).is_ok() {
+        let _ = file.write_at(pid.as_bytes(), 0);
+    }
+}
+
 #[cfg(unix)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
