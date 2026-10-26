@@ -1,0 +1,20 @@
+{
+  "_doc": "Gaps of scripts/cmux-next/every-action-gaps.json the session fixture (scripts/cmux-next/oracle/action_fixtures/session_states.py) closes, each with how, and the ids of its family it leaves open, each with why. p15-oracle-087 applies every gap-closures file to every-action-gaps.json in one edit; action_fixtures.load_families refuses a CLOSES that differs from `closed`.",
+  "family": "session",
+  "task": "p15-oracle-086",
+  "fixture": "scripts/cmux-next/oracle/action_fixtures/session_states.py",
+  "closed": {
+    "space.newWindow": "space: the launch's scratch space, given 3 workspaces by PREPARE; the new window is an extra close_new closes",
+    "space.newWorkspace": "space: the scratch space with 3 workspaces; the new workspace is an extra, UNDO switches the window back to room:default",
+    "space.switch": "space: the scratch space with 3 workspaces; UNDO switches the window back to room:default",
+    "workspace.duplicateToSpace": "space: the scratch space with 3 workspaces; the duplicate of the base workspace is an extra, UNDO switches the window back to room:default",
+    "workspace.moveToSpace": "space: the scratch space with 3 workspaces; PREPARE adds a focused workspace (workspace.newAtBottom), the one it moves, an extra",
+    "workspaceGroup.moveToSpace": "space: the scratch space with 3 workspaces; PREPARE adds a focused workspace in a new group (workspace.newInNewGroup), the group it moves, both extras",
+    "workspaceGroup.addToSection": "section: sidebar-section:sec_top, the built-in top section; PREPARE adds a focused workspace in a new group (workspace.newInNewGroup), and the section drops its item when close_new closes that workspace"
+  },
+  "reasoned": {
+    "sidebar.priority.markRead": "the Priority view's row actions are unavailable while sidebar.priorityView.enabled is off, its default, and every restore puts the build's settings back, so no argument fixture keeps it on for a sample; it also needs an acpmux agent chat the view lists. Needs a settings overlay on the sweep's base",
+    "sidebar.priority.snooze": "as sidebar.priority.markRead: the Priority view is off by default and the restore turns it off again; needs a settings overlay on the sweep's base and an acpmux agent chat",
+    "sidebar.priority.togglePin": "as sidebar.priority.markRead: the Priority view is off by default and the restore turns it off again; needs a settings overlay on the sweep's base and an acpmux agent chat"
+  }
+}
