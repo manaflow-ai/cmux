@@ -55,6 +55,22 @@ public nonisolated final class FeatureList: Sendable {
         return resolutions[feature.index]
     }
 
+    /// `localOverride` when it decides `feature` in step 3, else nil: the Debug tunable the feature replaced,
+    /// whose file loads after the list is built, so each reader (the feature's one seam and `features.list`)
+    /// passes its value at each decision. It applies on DEV and NIGHTLY where neither policy nor the
+    /// environment lists decided the feature, over the remote document, the field trial and the channel
+    /// default, as Chrome keeps about:flags entries under policy and the command line (chrome/browser/about_flags.cc).
+    public func effectiveLocalOverride(_ feature: Feature, localOverride: Bool?) -> Bool? {
+        let source = resolution(of: feature).source
+        guard channel.allowsLocalOverrides, source != .policy, source != .environment else { return nil }
+        return localOverride
+    }
+
+    /// Whether `feature` is on with `localOverride` in step 3 (``effectiveLocalOverride(_:localOverride:)``).
+    public func isEnabled(_ feature: Feature, localOverride: Bool?) -> Bool {
+        effectiveLocalOverride(feature, localOverride: localOverride) ?? resolution(of: feature).isEnabled
+    }
+
     /// Every feature with its resolution, in registry order (Labs page,
     /// `cmux settings feature-flags`, reports).
     public var entries: [(feature: Feature, resolution: Feature.Resolution)] {
