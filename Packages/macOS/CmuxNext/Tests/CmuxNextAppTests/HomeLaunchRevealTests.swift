@@ -58,6 +58,26 @@ struct HomeLaunchRevealTests {
         #expect(home.alphaValue == 1, "a Home whose conversation never came stayed clear past its own deadline")
     }
 
+    /// A Home closed before its page came (a fresh Home replaced it) leaves its deadline behind:
+    /// the Home that replaced it waits its own, never the closed one's remainder.
+    @Test func aHomeThatReplacesAClosedOneWaitsItsOwnDeadline() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let first = NSView(), second = NSView()
+        reveal.hold(first, until: .home)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1000))
+        reveal.release(first)
+        reveal.hold(second, until: .home)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(600))
+        await Self.yield(until: { reveal.isReady(.home) })
+        #expect(second.alphaValue == 0, "the replacing Home showed at the closed Home's deadline, before its page")
+        clock.advance(by: .milliseconds(900))
+        await Self.yield(until: { reveal.isReady(.home) })
+        #expect(second.alphaValue == 1, "the replacing Home stayed clear past its own deadline")
+    }
+
     // MARK: Fixtures
 
     /// Lets a timer that fired run its main-actor work.

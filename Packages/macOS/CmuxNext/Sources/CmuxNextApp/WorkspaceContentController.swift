@@ -177,6 +177,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
+        // A Home closed before its page came stops counting toward `.home`'s wait.
+        services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
     }
 

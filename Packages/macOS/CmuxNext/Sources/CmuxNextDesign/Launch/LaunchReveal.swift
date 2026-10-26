@@ -57,6 +57,8 @@ public final class LaunchReveal {
         // a defaulted subscript would go to a temporary.
         let table = held[region] ?? NSHashTable<NSView>.weakObjects()
         held[region] = table
+        // Held alone (the views held before it went away): a region with its own deadline waits from here.
+        let alone = table.allObjects.allSatisfy { $0 === view }
         table.add(view)
         guard region.hasOwnDeadline else {
             deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
@@ -66,7 +68,11 @@ public final class LaunchReveal {
         }
         let timer = ownDeadlines[region] ?? DemandTimer(owner: "launch.reveal-deadline.\(region.rawValue)", clock: clock)
         ownDeadlines[region] = timer
-        timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+        if alone {
+            timer.schedule(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+        } else {
+            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+        }
     }
 
     /// Runs `work` once `region` is ready (at once when it is).
