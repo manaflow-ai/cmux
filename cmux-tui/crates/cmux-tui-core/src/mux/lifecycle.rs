@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// How long shutdown waits for the work items it waits for: block items (one
+/// short save each) and started skip items (short disk reads).
+const WORK_SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+
 impl Mux {
     /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
@@ -122,6 +126,13 @@ impl Mux {
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.browser_providers.wake_waiters();
+        // Block items (a Chief engine file save) and started skip items (a
+        // browser-runtime status read) finish; queued skip items and every
+        // continue item (an acpmux ask) are not waited for (work.rs).
+        let work = self.work.shutdown_until(Instant::now() + WORK_SHUTDOWN_WAIT);
+        if work.unfinished > 0 {
+            eprintln!("cmux-tui: {} work items did not finish before shutdown", work.unfinished);
+        }
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(

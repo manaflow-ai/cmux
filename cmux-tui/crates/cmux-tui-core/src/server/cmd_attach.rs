@@ -5,6 +5,7 @@
 
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
@@ -275,7 +276,7 @@ pub(super) fn attach_surface(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if worker_committed.recv().is_err() {
+            if waits::recv(&worker_committed).is_err() {
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
@@ -392,7 +393,7 @@ pub(super) fn attach_surface(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if worker_committed.recv().is_err() {
+            if waits::recv(&worker_committed).is_err() {
                 return;
             }
             let interrupt = StreamInterrupt::new();
@@ -521,7 +522,7 @@ pub(super) fn attach_surface(
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;
-        if worker_committed.recv().is_err() {
+        if waits::recv(&worker_committed).is_err() {
             return;
         }
         let interrupt = StreamInterrupt::new();

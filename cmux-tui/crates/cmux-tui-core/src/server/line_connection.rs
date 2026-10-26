@@ -3,6 +3,7 @@
 //! admission before anything parses or dispatches it.
 
 use super::*;
+use cmux_threads::checked::sync as waits;
 
 pub(super) fn handle_connection_with_permit(
     mux: Arc<Mux>,
@@ -63,6 +64,7 @@ pub(super) fn serve_line_connection(
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
+        // mq14-allow: the writer thread waits for its own queue (a checked wait).
         while let Some(item) = writer_outbound.recv() {
             if write_line_outbound_item(&mut *write_half, item).is_err() {
                 writer_outbound.close();
@@ -85,7 +87,7 @@ pub(super) fn serve_line_connection(
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
-        let _ = writer_thread.join();
+        let _ = waits::join(writer_thread);
         return;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -160,7 +162,7 @@ pub(super) fn serve_line_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
+    let _ = waits::join(writer_thread);
     drop(connection_permit);
 }
 

@@ -1733,6 +1733,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",

@@ -14,6 +14,7 @@ use crate::request_origin::{
     needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
+use cmux_threads::checked::fs as files;
 
 /// Applies the origin rules to one parsed `cmux.protocol/2` line, then
 /// validates and dispatches the same parse. The origin rules run before
@@ -454,12 +455,12 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 fn is_bundled_mobile_host_path(path: &Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
-        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
-        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+        let own = files::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = files::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        files::metadata(&sibling).ok()?.is_file().then_some(sibling)
     });
     let Some(sibling) = sibling else { return false };
-    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+    files::canonicalize(path).is_ok_and(|path| &path == sibling)
 }
 
 /// The executable of the accepted peer, read so that a process that reused
@@ -735,26 +736,6 @@ mod pairing_gate_tests;
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
 
-/// The peer executable is read only while the peer key or token still
-/// names the same process (review 2 finding 3): a stale pid version, as a
-/// process that reused the pid would have, reads nothing.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-mod peer_executable_tests {
-    use super::peer_executable;
-    use crate::platform::transport::Stream;
-
-    #[test]
-    fn peer_executable_needs_the_peers_own_pid_version() {
-        let (ours, _theirs) = std::os::unix::net::UnixStream::pair().unwrap();
-        let key = Stream::peer_process_key(&ours);
-        let token = Stream::peer_token(&ours);
-        let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
-        let read = peer_executable(key.as_deref(), token.as_ref()).expect("our own executable");
-        assert_eq!(std::fs::canonicalize(read).unwrap(), own);
-        let key = key.unwrap();
-        let (pid, _) = key.split_once('.').unwrap();
-        let stale_key = format!("{pid}.1");
-        let stale_token = token.map(|token| token.with_pid_version_for_test(1));
-        assert_eq!(peer_executable(Some(&stale_key), stale_token.as_ref()), None);
-    }
-}
+#[path = "origin_gate_peer_executable_tests.rs"]
+mod peer_executable_tests;
