@@ -693,17 +693,57 @@ class PathRoutingStructure(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
-        guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
-        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
-        # (the fast tier's fast_runner is attempt 1 only, so not counted here).
-        # The Release compile's owned-first PR route reads the placement output
-        # in both `runs-on` and `CMUX_NEXT_RUNNER`.
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 11)
-        self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
-                                    "needs.macos-placement.outputs.gui_runner)"), 4)
+        jobs = yaml.safe_load(text)["jobs"]
+        # Discover consumers from the placement outputs, independently of the guard,
+        # so adding a routed job needs no count update and deleting a guard still fails.
+        placement = re.compile(r"needs\.macos-placement\.outputs\.(?:runner|session_runner|gui_runner)\b")
+        routes = {name: job for name, job in jobs.items()
+                  if placement.search(str(job.get("runs-on", "")))}
+        self.assertIn("release-compile", routes)
+        for name, job in routes.items():
+            expression = job["runs-on"]
+            if "CMUX_NEXT_RUNNER" in job.get("env", {}):
+                with self.subTest(job=name, field="CMUX_NEXT_RUNNER"):
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], expression)
+            for event in ("pull_request", "workflow_dispatch"):
+                for attempt, actor, expected in (
+                    (1, "github-actions[bot]", "stale-owned-label"),
+                    (2, "github-actions[bot]", "blacksmith-6vcpu-macos-26"),
+                    (3, "github-actions[bot]", "blacksmith-6vcpu-macos-26"),
+                    (3, "someone", "stale-owned-label"),
+                ):
+                    context = {
+                        "github.repository_owner": "manaflow-ai",
+                        "github.repository": "manaflow-ai/cmux",
+                        "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                        "github.event_name": event,
+                        "github.run_attempt": attempt,
+                        "github.triggering_actor": actor,
+                        "needs.macos-placement.outputs.runner": "stale-owned-label",
+                        "needs.macos-placement.outputs.session_runner": "stale-owned-label",
+                        "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
+                        "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
+                    }
+                    with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
+                        self.assertEqual(evaluate(expression, context), expected)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
         self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
         self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
+
+    def test_owned_pool_guard_accepts_an_added_guarded_job(self):
+        """A new correctly routed job cannot break the rescue guard's coverage check."""
+        import textwrap
+        from unittest.mock import patch
+
+        text = WORKFLOW.read_text(encoding="utf-8")
+        job = yaml.safe_load(text)["jobs"]["swift-test"]
+        added = text + "\n" + textwrap.indent(yaml.safe_dump({"added-guarded-job": job}, width=100000), "  ")
+        self.assertIn("added-guarded-job", yaml.safe_load(added)["jobs"])
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "cmux-next.yml"
+            workflow.write_text(added, encoding="utf-8")
+            with patch.object(sys.modules[__name__], "WORKFLOW", workflow):
+                self.test_bot_attempt_three_drops_stale_owned_pool_placement()
 
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
