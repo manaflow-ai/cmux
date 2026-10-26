@@ -122,6 +122,9 @@ public struct CmuxNextApp {
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         let features = AppServices.launchFeatures(environment)
+        // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
+        environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
+            features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
         // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
         // person opted in to field data.
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
@@ -132,7 +135,7 @@ public struct CmuxNextApp {
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch)
+                                              hangWatch: hangWatch, featureHello: environment.daemonFeatureHello)
         DebugTimings.markLaunch("main.prestart")
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.

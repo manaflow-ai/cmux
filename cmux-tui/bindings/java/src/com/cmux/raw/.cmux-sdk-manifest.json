@@ -1001,19 +1001,34 @@
       "size": 2496
     },
     {
+      "path": "ClientHelloFeaturePending.java",
+      "sha256": "7342f79b8ef035718078a0dd02eef2be9890f26219ead2fc0a3ddb60bf3f9823",
+      "size": 3210
+    },
+    {
+      "path": "ClientHelloFeatureReport.java",
+      "sha256": "8a687d3460446f6b2629d9b93476b56ae501f578c77a2cb908797d172cc0c650",
+      "size": 3621
+    },
+    {
+      "path": "ClientHelloFeatures.java",
+      "sha256": "13d1560de267c1cbd6cd2e2c9a3f6681af099912cf09f754783e3d0f82d71547",
+      "size": 2672
+    },
+    {
       "path": "ClientHelloPageOperations.java",
       "sha256": "3ed2d7807662781c3231f14b7efc9bbdafb8f37342223254b30fbc7950f4b3f5",
       "size": 3678
     },
     {
       "path": "ClientHelloRequest.java",
-      "sha256": "fc0a15f4d4d8cedd012f2aa86ab42d2911a4bcfa13195f3490d7b3f6117c8b67",
-      "size": 3722
+      "sha256": "a6f469c1a79b1dcfc8f48f051b97da01109d6e59dbea2754fc6ac39f3de3f58b",
+      "size": 4430
     },
     {
       "path": "ClientHelloResult.java",
-      "sha256": "07b1fecb780dfa0a94ec89c95728e7a487efdcc54cbb780ad4309bfb7e8ab07f",
-      "size": 7100
+      "sha256": "9da9b4e940c66c392f9b6bf2239355074561873c0de08c99f227f684b3021476",
+      "size": 7796
     },
     {
       "path": "ClientInfo.java",
@@ -2967,7 +2982,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "73fda7a32be2fb1c4f4542dedbb261c65a3039d066ad6ded423b6764b8800c75",
+      "sha256": "6a3c848d694fa70fe68c3800e19f0ded6b9fb42d2d739c798f9512ae0ea905b5",
       "size": 7841
     },
     {
@@ -4432,7 +4447,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d",
+  "ir_sha256": "23c623a3f46667c217629473e225f55174864379ed149784efd9e889d4b9eab6",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -166,12 +166,13 @@ public final class DaemonService {
     /// to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``).
+    /// `work` (the app's one ``BackgroundWork``). `featureHello`: the app's daemon features for every hello
+    /// (the prestart's when there is one).
     public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil) {
+               prestart: DaemonPrestart? = nil, featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         if let prestart {
@@ -205,7 +206,7 @@ public final class DaemonService {
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-                                                    hangWatch: hangWatch)
+                                                    hangWatch: hangWatch, featureHello: prestart?.featureHello ?? featureHello)
         // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
         let marks = prestart?.marks ?? Self.launchConnectMarks()
         marks.mark(.connectStarted)

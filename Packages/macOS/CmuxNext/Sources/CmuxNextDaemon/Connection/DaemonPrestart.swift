@@ -32,6 +32,9 @@ public final class DaemonPrestart: Sendable {
     /// handoff check: read from here, because a run begun only once the app
     /// started its services was still going when the connection came back.
     public let bundledCommit: Task<String?, Never>
+    /// The app's daemon features its hellos carry (``ClientHelloIdentity/features``), for the connections after
+    /// this one and for `features.list`.
+    public let featureHello: DaemonFeatureHello?
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`. `marks` gets the connect
     /// milestones (the app passes one that sends them to its launch timings).
@@ -41,6 +44,7 @@ public final class DaemonPrestart: Sendable {
         self.launcher = launcher
         self.wake = wake
         self.marks = marks
+        featureHello = configuration.clientHello?.features
         marks.mark(.connectStarted)
         var configuration = configuration
         configuration.retryWake = wake

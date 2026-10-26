@@ -51,7 +51,8 @@ extension DaemonService {
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false,
                                      wireStats: DaemonWireStats? = nil,
-                                     hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
+                                     hangWatch: (any HangWatchScoping)? = nil,
+                                     featureHello: DaemonFeatureHello? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
@@ -60,7 +61,7 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            hangWatch: hangWatch), marks: launchConnectMarks())
+            hangWatch: hangWatch, featureHello: featureHello), marks: launchConnectMarks())
     }
 
     /// The launch's connect milestones, sent to the launch timings at the time each happened.
@@ -103,16 +104,18 @@ extension DaemonService {
     }
 
     /// The local daemon's connection configuration, for the first connect
-    /// begun in `main` (`prestart`) and for the connections after it.
+    /// begun in `main` (`prestart`) and for the connections after it. `featureHello`: the app's daemon features,
+    /// sent in every hello (the daemon outlives the app, p12-perf-process-150).
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
-                                               hangWatch: (any HangWatchScoping)? = nil) -> DaemonConnection.Configuration {
+                                               hangWatch: (any HangWatchScoping)? = nil,
+                                               featureHello: DaemonFeatureHello? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
                                                            resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
-                                                           clientHello: ClientHelloIdentity(installKey: installKey))
+                                                           clientHello: ClientHelloIdentity(installKey: installKey, features: featureHello))
         // A stopped or wedged owner keeps its socket open: only the heartbeat
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true

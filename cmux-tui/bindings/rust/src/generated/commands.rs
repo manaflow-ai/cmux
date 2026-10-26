@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d.
+// cmux-tui mux protocol 12, IR 23c623a3f46667c217629473e225f55174864379ed149784efd9e889d4b9eab6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1115,6 +1115,8 @@ pub struct ClientFocusResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ClientHelloRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub features: Optional<T::ClientHelloFeatures>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

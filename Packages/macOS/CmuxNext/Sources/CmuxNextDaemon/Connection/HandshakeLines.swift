@@ -34,7 +34,8 @@ enum HandshakeLines {
         }
         let first = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
-            PipelinedLine(ClientHelloRequest(role: .main, installID: hello.installKey?.installID)),
+            PipelinedLine(ClientHelloRequest(role: .main, installID: hello.installKey?.installID,
+                                             features: hello.features?.request)),
         ], timeout: configuration.requestTimeout)
         let started = (try? first[1].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: $0) }
         let proof = helloProof(hello, start: first[1])
@@ -42,11 +43,14 @@ enum HandshakeLines {
         let rest = await transport.pipeline((proof.map { [PipelinedLine($0)] } ?? []) + metadata + setup,
                                             timeout: configuration.requestTimeout)
         var userOriginAllowed = started?.userOriginAllowed == true
+        var featureReport = started?.features
         if proof != nil {
             let proved = (try? rest[0].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloProofRequest.Response.self, from: $0) }
             logger.info("client-hello install-key proof \(proved?.verified == true ? "accepted" : "refused", privacy: .public)")
             userOriginAllowed = proved?.verified == true && proved?.userOriginAllowed == true
+            featureReport = proved?.features ?? featureReport
         }
+        hello.features?.record(featureReport)
         let identity: Result<LineTransport.Response, any Error>
         if metadata.isEmpty {
             identity = first[0]

@@ -1,5 +1,7 @@
 @testable import CmuxNextControl
+@testable import CmuxNextDaemon
 import CmuxNextFeatures
+import Foundation
 import CmuxNextSettings
 import Testing
 
@@ -115,5 +117,24 @@ struct FeatureFlagsReportTests {
         #expect(plain == FeatureFlagsReport(features: list).json)
         #expect(loaded == plain)
         #expect(list.isEnabled(Self.registry.features[2]))
+    }
+
+    /// The daemon outlives the app (p12-perf-process-150): its answer to the last hello shows on each row it
+    /// concerns, a kill switch it turned off as `applied` and a value it keeps until it restarts as `pending`.
+    @Test func theDaemonsAnswerMarksPendingAndAppliedRows() throws {
+        let hello = DaemonFeatureHello(hash: "h", values: [:])
+        #expect(FeatureFlagsReport(features: Self.list(.release), daemon: hello).json["daemon"] == .null)
+        let answer = #"{"hash":"d1","applied":["killThing"],"pending":[{"name":"perfThing","app":true,"daemon":false}]}"#
+        hello.record(try JSONDecoder().decode(ClientHelloRequest.FeatureReport.self, from: Data(answer.utf8)))
+        let report = FeatureFlagsReport(features: Self.list(.release), daemon: hello).json
+        #expect(report["daemon"] == .object([
+            "hash": .string("d1"),
+            "applied": .array([.string("killThing")]),
+            "pending": .array([.object(["name": .string("perfThing"), "app": .bool(true), "daemon": .bool(false)])]),
+        ]))
+        let rows = try #require(report["features"]?.arrayValue)
+        #expect(rows.map { $0["daemon"]?.stringValue } == ["pending", "applied", nil])
+        #expect(rows.map { $0["daemon_enabled"]?.boolValue } == [false, false, nil])
+        #expect(rows[0]["state"] == .string("on"), "the row keeps the app's own value")
     }
 }

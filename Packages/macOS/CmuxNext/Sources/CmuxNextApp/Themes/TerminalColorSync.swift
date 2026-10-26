@@ -64,7 +64,8 @@ extension AppServices {
         daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart)
+                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart,
+                     featureHello: environment.daemonFeatureHello)
     }
 }
 

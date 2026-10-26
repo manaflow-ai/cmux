@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextSettings
@@ -24,7 +25,7 @@ struct FeatureFlagsPage {
     /// feature after launch read as its reader reads it (`agent.chromium` over `agentChromium`, as
     /// `AppServices.agentChromiumChat` reads it; `browserHost.helper` over `cefHelperHost`, through the Chromium
     /// host's switch), so each row is the value the app runs with and a bench records the arm it measured.
-    static func report(_ features: FeatureList, tunables: TunableStore) -> FeatureFlagsReport {
+    static func report(_ features: FeatureList, tunables: TunableStore, daemon: DaemonFeatureHello?) -> FeatureFlagsReport {
         var liveLocal: [String: FeatureFlagsReport.LiveLocalOverride] = [
             Feature.agentChromium.name: {
                 features.effectiveLocalOverride(.agentChromium, localOverride: AgentPaneTunables.chromium.override(in: tunables))
@@ -34,6 +35,6 @@ struct FeatureFlagsPage {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: tunables)
         liveLocal[Feature.cefHelperHost.name] = { hostSwitch.localOverride }
         #endif
-        return FeatureFlagsReport(features: features, liveLocal: liveLocal)
+        return FeatureFlagsReport(features: features, liveLocal: liveLocal, daemon: daemon)
     }
 }

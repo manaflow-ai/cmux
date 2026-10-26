@@ -8,36 +8,43 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
     crate::FeatureDef {
         name: "coldScrollbackCompression",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "daemonRequestQos",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "energySaver",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::Labs,
         process: crate::Process::Both,
     },
     crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryAcpmuxPressure",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::Labs,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryScrollbackPressure",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "terminalHolder",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Both,
     },
 ];
