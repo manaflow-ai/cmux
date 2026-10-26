@@ -268,6 +268,8 @@ open class ChromeLabel: NSView {
     private var drawn: (ink: Ink, weight: Int)?
     /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
     /// selected row's color and its plain one) swaps images and draws each weight once.
+    // memory: fixed one image per GlyphMask stem step (four) of this label's own text at its size;
+    // a change of text, shape, size or scale empties it.
     private var images: [Int: CGImage] = [:]
 
     nonisolated override open var wantsUpdateLayer: Bool { true }
