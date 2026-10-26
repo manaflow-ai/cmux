@@ -5933,20 +5933,23 @@ jobs:
           fi
 
 
-  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly). Its
-  # uploads may wait out GitHub's rate limits as long as they need: the feed never waits on
-  # this job, and no concurrency group can replace a waiting run of it. Two runs can overlap,
-  # so the mutable parts (rolling DMG name, feed copy, release body, tag) are written only
-  # while this build is still the newest on the live feed; immutable assets always upload.
+  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in two
+  # jobs nothing waits on. This one uploads the build's immutable assets: no concurrency group,
+  # so no run's uploads are ever replaced, and they may wait out GitHub's rate limits as long as
+  # they need. publish-nightly-next-github-names then writes the mutable state.
   publish-nightly-next-github:
     needs: [decide, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
-    # Nothing needs this job, so a failure shows red on the run and holds nothing.
+    # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 150
+    outputs:
+      release_id: ${{ steps.publish_assets.outputs.release_id }}
+      asset_names: ${{ steps.publish_assets.outputs.asset_names }}
+      newest: ${{ steps.order.outputs.newest }}
     env:
       NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -6010,27 +6013,6 @@ jobs:
           for feed in $NIGHTLY_FEEDS; do cp "next-github/$feed" "nightly-out/$feed"; done
           if [ -f next-github/nightly-prs.md ]; then cp next-github/nightly-prs.md "$RUNNER_TEMP/nightly-prs.md"; fi
 
-      # still-newest: exit 0 while no build above this one is on the live feed. Every mutable
-      # write below (rolling name, feed copy, body, tag) runs it just before writing, so an
-      # older run whose uploads waited out a rate limit never writes over a newer build's.
-      - name: Install the feed order check
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/still-newest" <<'SH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          live="$(mktemp)"
-          curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
-            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}-$RANDOM"
-          newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
-          rm -f "$live"
-          if (( newest > NIGHTLY_BUILD )); then
-            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: its release state stays as that run writes it."
-            exit 1
-          fi
-          SH
-          chmod +x "$RUNNER_TEMP/still-newest"
-
       - name: Prune old nightly release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -6063,19 +6045,6 @@ jobs:
           python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --github-output "$GITHUB_OUTPUT" "${args[@]}"
-          # The mutable names, each only while this build is still the feed's newest: the
-          # rolling DMG name (its upload takes seconds once the limit lets it through), then
-          # the feed copy, checked again after the DMG.
-          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg"
-          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          feeds=()
-          for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
-          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" --replace-feeds "${feeds[@]}"
-          echo "newest=true" >> "$GITHUB_OUTPUT"
 
       - name: Download the cmux-next source archive
         if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'own'
@@ -6125,9 +6094,117 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
+      # Enter the mutable writer only while this build is still the newest on the live feed,
+      # so a run the feed already passed never queues behind (and replaces) a newer writer.
+      - name: Check this build is still the feed's newest
+        id: order
+        run: |
+          set -euo pipefail
+          live="$(mktemp)"
+          curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
+            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}"
+          newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
+          if (( newest > NIGHTLY_BUILD )); then
+            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: the release's names stay as that run writes them."
+            echo "newest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "newest=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The release's mutable state for cmux NEXT: the rolling DMG name, the feed copy, the body
+  # with the cmux-published-sha marker, and the nightly-next tag. One writer at a time (the
+  # group), and each write only while no newer build is on the live feed, so no run moves them
+  # back: a newer run's writer waits behind this one and writes after it. The group can replace
+  # only a waiting writer with a newer run's, which writes the newer state; uploads never wait
+  # here (publish-nightly-next-github has no group).
+  publish-nightly-next-github-names:
+    needs: [decide, publish-nightly, publish-nightly-next-github]
+    if: "!cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
+    environment: ${{ needs.decide.outputs.environment }}
+    concurrency:
+      group: nightly-next-github-names
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 90
+    env:
+      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+    steps:
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      - name: Download nightly variant artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ${{ needs.publish-nightly.outputs.variant_pattern }}
+          path: nightly-out
+          merge-multiple: true
+
+      - name: Download the published feed
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
+          path: next-github
+
+      - name: Take the published feed
+        run: |
+          set -euo pipefail
+          for feed in $NIGHTLY_FEEDS; do cp "next-github/$feed" "nightly-out/$feed"; done
+          if [ -f next-github/nightly-prs.md ]; then cp next-github/nightly-prs.md "$RUNNER_TEMP/nightly-prs.md"; fi
+
+      # still-newest: exit 0 while no build above this one is on the live feed. Every mutable
+      # write below (rolling name, feed copy, body, tag) runs it just before writing, so an
+      # older run whose uploads waited out a rate limit never writes over a newer build's.
+      - name: Install the feed order check
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/still-newest" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          live="$(mktemp)"
+          curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
+            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}-$RANDOM"
+          newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
+          rm -f "$live"
+          if (( newest > NIGHTLY_BUILD )); then
+            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: its release state stays as that run writes it."
+            exit 1
+          fi
+          SH
+          chmod +x "$RUNNER_TEMP/still-newest"
+
+      - name: Publish the rolling DMG name and the feed copy
+        id: publish_names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
+        run: |
+          set -euo pipefail
+          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          feeds=()
+          for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" --replace-feeds "${feeds[@]}"
+          echo "newest=true" >> "$GITHUB_OUTPUT"
+
       - name: Mint release tag app token
         id: release-tag-token
-        if: steps.publish_assets.outputs.newest == 'true'
+        if: steps.publish_names.outputs.newest == 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6142,11 +6219,11 @@ jobs:
       # The release body with the cmux-published-sha marker decide reads, as publish-nightly's
       # Record step writes it on the other channels.
       - name: Record verified nightly publication
-        if: steps.publish_assets.outputs.newest == 'true'
+        if: steps.publish_names.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
-          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
-          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_ID: ${{ needs.publish-nightly-next-github.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ needs.publish-nightly-next-github.outputs.asset_names }}
           RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
           BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
           REF_NAME: ${{ github.ref_name }}
@@ -6179,7 +6256,7 @@ jobs:
             --prerelease true --make-latest false "${expect[@]}"
 
       - name: Move channel release tag to built commit
-        if: steps.publish_assets.outputs.newest == 'true'
+        if: steps.publish_names.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           GITHUB_TOKEN: ''

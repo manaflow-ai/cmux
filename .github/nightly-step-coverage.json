@@ -214,11 +214,16 @@
       "publish-nightly-next-github": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Require the DMG to match a tested digest": {"nightly_only": "inline shell over the verify jobs' tested/*.sha256 and the published DMG"},
-        "Install the feed order check": {"plumbing": true},
+        "Check this build is still the feed's newest": {"nightly_only": "reads the live nightly-next feed; a pull request has no published build"},
         "Prune old nightly release assets": {"nightly_only": "deletes assets from published release"},
         "Publish nightly-next release assets": {"nightly_only": "uploads assets to GitHub release (publish-release-assets.py tested by tests/test_github_release_publication.py)"},
         "Take the recovered build's source archive": {"plumbing": true},
-        "Publish the cmux-next source archive": {"nightly_only": "uploads source archive to release"},
+        "Publish the cmux-next source archive": {"nightly_only": "uploads source archive to release"}},
+      "publish-nightly-next-github-names": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
+        "Take the published feed": {"plumbing": true},
+        "Install the feed order check": {"plumbing": true},
+        "Publish the rolling DMG name and the feed copy": {"nightly_only": "replaces the rolling DMG and feed assets on the GitHub release"},
         "Mint release tag app token": {"nightly_only": "mints release tag App token"},
         "Record verified nightly publication": {"nightly_only": "edits published GitHub release body"},
         "Move channel release tag to built commit": {"nightly_only": "moves channel release tag (update-release-tag.py tested by tests/test_update_release_tag.py)"}},
