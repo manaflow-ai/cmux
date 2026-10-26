@@ -54,12 +54,12 @@ The cap is 15. Costs are not measured yet: task 072 seeds them at hour 0 and tas
 |---|---|---|---|---|
 | 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` (O3) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. It precedes `ThemeBridge.start` (the Ghostty overrides before the first config load). 025 makes the read a LaunchRead from `main()`; this post only takes it. | to measure (072); today a sync file read |
 | 2 | `ThemeBridge.start` | `ThemeBridge.start(` (Q2 26) | Chrome colors derive from the Ghostty theme; first `GhosttyRuntime.shared`. | to measure (072); 026 moves the config bytes off main |
-| 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | to measure (030) |
+| 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | test phase (030): Release launch, `debug.startup` p50/p95 of the `AppActions.bind` record |
 | 4 | `Settings.applyManagedFeaturesNow` | `SettingsController(registry:fileURL:launch:)` (O19), `settings.applyManagedFeaturesNow(` (Q2 80) | Managed (MDM) feature policy applies before any feature or page engine starts (101). The controller is made in this post: its init needs the `ActionRegistry`, which exists only after `AppServices` (O8), so it cannot be in post 1. | to measure (101) |
 | 5 | `ManagedPolicyBridge.start` | `ManagedPolicyBridge(...).start()` (O20) | Managed URL filter and updater policy before any page engine (101). | to measure (101) |
 | 6 | `TerminalTheme.follow` | `services.terminalTheme.follow(` (Q2 77) | Applies the loaded theme, background and backdrop art at once, so the first frame is not in the defaults. | to measure (072) |
 | 7 | `Themes.start` | `services.themes.start(` (Q2 78), `themes.followChromeTheme` (O32) | Per-workspace themes, backgrounds and the app accent are the look of the restored workspaces. | to measure (072) |
-| 8 | `MainMenu.make` | `MainMenu.make` (O13) | Menu key equivalents work from the first frame; 030 keeps only the top-level items here if the menu costs > 2 ms. | to measure (030) |
+| 8 | `MainMenu.make` | `MainMenu.make` (O13) | Menu key equivalents work from the first frame; 030 keeps only the top-level items here if the menu costs > 2 ms. | budget 2 ms p95; test phase (030): Release launch `debug.startup` record, and `swift test -c release --filter LaunchMenuAndBindingsTests` fails over it |
 | 9 | `WindowActivation.activateApp` | `WindowActivation.activateApp()` (O14) | The first window shows active (key, not a dimmed title bar that flips a frame later). | to measure (072) |
 | 10 | `Daemon.start` | `services.daemon.start(` (Q2 55) | Attaches the prestarted connection; the restore and the terminals need it. 074 moves `LaunchSnapshot.load` off main. | to measure (074) |
 | 11 | `FeaturePolicyEnforcer.start` | `FeaturePolicyEnforcer(...).start()` (O15) | Disabled features are enforced before any window shows them (101: not moved). | to measure (101) |
@@ -419,3 +419,65 @@ EOF
 
 After 014 splits `AppDelegate.swift` into `Startup/*.swift`, the Q2 rows are checked with
 `startup-lint.py` (104) instead of the awk range; the allowlist check is the same.
+
+## 9. Swift PGO and order toolchain (048)
+
+Spike for section F of [p08-startup.md](chrome-parity/p08-startup.md): which instrumentation, merge and
+`-profile-use` paths work on the Xcode the nightly builds with. The probe copies the fixtures in
+`scripts/cmux-next/pgo/probe-fixtures/` to a scratch directory, runs one path at a time, and exits 0 or 1
+for each:
+
+```sh
+cmux-ci run --class isolated --script scripts/cmux-next/pgo/probe-toolchain.sh --ref SHA
+scripts/cmux-next/pgo/probe-toolchain.sh flush        # one path: exit 0 works, 1 does not
+scripts/cmux-next/pgo/probe-toolchain.sh --keep merge # keep fixtures, logs and profiles
+```
+
+Xcode: the "26" pin in `scripts/ci/xcode-pins.txt`, selected the way `check-release-compile.sh` selects
+it (`DEVELOPER_DIR`, else `CMUX_PGO_PROBE_XCODE`, else `/Applications/Xcode_<pin>.app`). The probe prints
+`xcodebuild -version`, `swiftc --version` and `llvm-profdata --version` first; a changed pin means the
+probe runs again before 049 to 054 rely on it. With no path named, the exit is 0 only when F's plan
+holds: (`flush` and `merge`) or `trace-pc-guard`, and `use`, `use-weights` and `scope-xcodebuild`.
+`use`, `use-weights` and the scope paths take the merged flush profile, or the plain `generate` profile
+when the flush API fails, so they test `-profile-use` apart from the flush.
+
+Result: not run. On 2026-10-26 `cmux-ci run` refused the step for 93c63092d71 with "controller HTTP 400:
+invalid ci-step: script is not on the ci-step allowlist". The controller's ci-step allowlist (cmuxterm-hq)
+must list `scripts/cmux-next/pgo/probe-toolchain.sh`; then the command above runs it, and its job id, the
+observed `xcodebuild -version` build number and the PASS/FAIL table replace this paragraph. Until then the
+table is what the probe checks, not a measured fact, and 049 to 054 must not rely on it.
+
+| Path | Command the later tasks use | What the probe checks | Used by |
+| --- | --- | --- | --- |
+| `generate` | `swiftc -O -profile-generate`; `LLVM_PROFILE_FILE=<path>` at run time | a non-empty profraw at exit | 049 |
+| `flush` | `__llvm_profile_set_filename(launch)`, `__llvm_profile_write_file()`, `__llvm_profile_reset_counters()`, then `set_filename(rest)` and `write_file()` before quit | a launch-only function counts only in launch.profraw, a rest-only one only in rest.profraw | 103 (`startup_complete`, `debug.pgo_flush`) |
+| `merge` | `xcrun llvm-profdata merge -o cmux-next.profdata launch.profraw rest.profraw` | both functions keep their counts | 050 |
+| `use` | `swiftc -O -profile-use=cmux-next.profdata` | compiles, links and runs | 052 |
+| `use-weights` | the same with `-emit-ir`, and once more without `-profile-use` | the profile changes the IR: `function_entry_count` on `launchOnly` or the `branch_weights` tuples differ from the build without it (an `-O` build has `branch_weights` from `llvm.expect` anyway, so a count alone proves nothing) | 052 |
+| `trace-pc-guard` | `swiftc -O -sanitize=undefined -sanitize-coverage=func,trace-pc-guard` (`-sanitize=address` when undefined is refused) and a C `__sanitizer_cov_trace_pc_guard` that writes each function's first-hit PC; `atos -o` names them | the launch function comes before the rest function | 109 fallback |
+| `scope-swiftpm` | `Package.swift`: `Context.environment["CMUX_PGO_PROFDATA"]` adds `.unsafeFlags(["-profile-use=<file>"], .when(configuration: .release))`; `swift build -c release -v` | the root and a local path package get the flag; a package that does not ask (Sentry, Sparkle) does not | 052 |
+| `scope-xcodebuild` | the same manifest through `xcodebuild -configuration Release` with `OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS'` on the command line, as `check-release-compile.sh --bench-hooks` runs it | in one kept DerivedData: on, off, on, then on with the profile at a new path; after each build the root and the local package compile again with exactly that flag (or with none when the variable is unset), and the other package never gets it | 052 |
+| `cmdline-scoped` | `OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS -profile-use=<file>'` on the xcodebuild command line | expected FAIL: the command line reaches every target, remote packages too | rejected |
+
+Decisions the probe confirms or refutes:
+
+- `-profile-use` reaches CmuxNext targets only through `Package.swift`: the env var names the profile,
+  the flag is under `.when(configuration: .release)`, and the Release build sets the variable only when
+  the profile's sha256 matches (052). The command line (`OTHER_SWIFT_FLAGS`) is not used: it also
+  passes the profile to Sentry, Sparkle and the other remote packages, which have no functions in it and
+  warn for each. When `scope-xcodebuild` fails, 052 stops and this section names the next mechanism.
+- 052 puts the profile at a path that names its sha256, so a new profile is a new flag and a kept
+  DerivedData compiles again. The probe does not check whether Xcode tracks the profile's content at one
+  path; 052 must not depend on it.
+- Two profiles from one run use `write_file` plus `reset_counters`, not `__llvm_profile_dump`, which
+  writes once and then refuses (compiler-rt `InstrProfilingFile.c`). The runtime also writes at exit to
+  the last name set, so the rest profile is rewritten at quit with the same counters plus the quit path.
+  cmux differs from Chrome here: Chrome's on-demand flush (`base/test/clang_profiling.cc`,
+  `WriteClangProfilingProfile`) calls `__llvm_profile_dump` and writes one profile per process, because
+  it needs one. cmux needs two from one run (launch and rest). Chrome merges with `llvm-profdata` in
+  `tools/pgo/generate_profile.py`, as 050 does.
+- The app target links with clang, not swiftc, so the profile build (049) adds `-fprofile-instr-generate`
+  to `OTHER_LDFLAGS` to link the profile runtime; the probe links with swiftc and does not cover this.
+- The trace-pc-guard fallback needs a sanitizer in the profile build only, and gives first-hit order, not
+  counts. It is the order-file input when `flush` fails; Chrome's Android order file uses the same kind of
+  first-call instrumentation (`base/android/orderfile/orderfile_instrumentation.cc`).
