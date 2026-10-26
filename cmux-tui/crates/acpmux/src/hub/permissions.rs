@@ -30,11 +30,12 @@ impl Hub {
                                 .as_ref()
                                 .is_some_and(|c| c.generation == agent && !c.is_retired())
                             {
-                                self.on_update(&session, params.as_ref());
+                                self.on_update(&session, params.as_ref(), false);
                             }
                             continue;
                         }
-                        self.on_update(&session, params.as_ref());
+                        let replayed = session.replaying.load(Ordering::SeqCst) == agent;
+                        self.on_update(&session, params.as_ref(), replayed);
                     }
                 }
                 Inbound::Request { id, method: m, params } => {
@@ -71,7 +72,14 @@ impl Hub {
                 Inbound::Barrier(done) => {
                     let _ = done.send(());
                 }
-                Inbound::ReplayDone => session.replaying.store(false, Ordering::SeqCst),
+                Inbound::ReplayDone { agent } => {
+                    let _ = session.replaying.compare_exchange(
+                        agent,
+                        0,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    );
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -109,7 +117,8 @@ impl Hub {
         }
     }
 
-    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>) {
+    /// `replayed`: the update is history an agent's load replays (`Session::replaying`).
+    pub(super) fn on_update(&self, session: &Session, params: Option<&Value>, replayed: bool) {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
@@ -139,7 +148,7 @@ impl Hub {
                     .get("content")
                     .and_then(|c| c.get("text"))
                     .and_then(Value::as_str)
-                    .filter(|_| !session.replaying.load(Ordering::SeqCst))
+                    .filter(|_| !replayed)
                 {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);

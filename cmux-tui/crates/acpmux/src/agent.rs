@@ -60,10 +60,13 @@ pub enum Inbound {
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
     Barrier(tokio::sync::oneshot::Sender<()>),
-    /// The history an agent replayed on `session/load` (or a fork's prime) is all in front of
-    /// this: the session's preview takes the agent's words again (`Hub::replay_hold`). Queued
-    /// through the agent's own sender, behind everything its reader already queued.
-    ReplayDone,
+    /// The history the agent of this generation replayed on `session/load` (or a fork's prime)
+    /// is all in front of this: the session's preview takes that agent's words again
+    /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
+    /// everything its reader already queued.
+    ReplayDone {
+        agent: u64,
+    },
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -783,10 +786,10 @@ impl ChildAgent {
         true
     }
 
-    /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far. False when the
-    /// queue is full or closed.
-    pub fn queue_replay_done(&self) -> bool {
-        self.inbound.try_send(Inbound::ReplayDone).is_ok()
+    /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far, waiting for room.
+    /// False when the queue is closed.
+    pub async fn queue_replay_done(&self) -> bool {
+        self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
     }
 
     /// Send a request and wait for its response.

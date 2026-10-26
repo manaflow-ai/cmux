@@ -882,7 +882,7 @@ impl Hub {
                     .request(method::SESSION_PROMPT, json!({"sessionId": session.id, "prompt": [{"type": "text", "text": "This session was just forked. Reply with exactly: ready"}]}))
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
-                drop(hold);
+                hold.end().await;
                 if let Err(e) = primed {
                     let e = Self::explain_start_failure(session, e).await;
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
@@ -942,7 +942,7 @@ impl Hub {
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
-                drop(hold);
+                hold.end().await;
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
@@ -1354,9 +1354,11 @@ mod stop_fence_tests;
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it
 /// from the log. ACP answers a load once its history is sent, and every reader (direct, Codex
 /// bridge, agent host, a pooled agent's hold) queues an agent's notifications in order before
-/// it resolves the answer, so the `ReplayDone` queued when this ends lands behind the whole
-/// replay and before anything the next prompt brings. Dropped on every path, a cancelled start
-/// too; a queue that takes no `ReplayDone` (full or closed) lifts the hold at once.
+/// it resolves the answer, so the `ReplayDone` that `end` queues lands behind the whole replay,
+/// and before the next prompt is even written. The hold names the agent's generation: another
+/// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
+/// what that agent still had buffered stays out of the preview as well; the next agent holds
+/// under its own generation.
 struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
@@ -1364,15 +1366,21 @@ struct ReplayHold<'a> {
 
 impl<'a> ReplayHold<'a> {
     fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
-        session.replaying.store(true, Ordering::SeqCst);
+        session.replaying.store(agent.generation, Ordering::SeqCst);
         Self { session, agent }
     }
-}
 
-impl Drop for ReplayHold<'_> {
-    fn drop(&mut self) {
-        if !self.agent.queue_replay_done() {
-            self.session.replaying.store(false, Ordering::SeqCst);
+    /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
+    /// its queue is closed (nothing more can arrive).
+    async fn end(self) {
+        if !self.agent.queue_replay_done().await {
+            let generation = self.agent.generation;
+            let _ = self.session.replaying.compare_exchange(
+                generation,
+                0,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
         }
     }
 }
