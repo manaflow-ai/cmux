@@ -138,7 +138,11 @@ public actor ChromiumRuntimeInstaller {
         jobPriority = priority
         generation += 1
         let previous = job, current = generation
-        job = Task { [weak self] in
+        // A prefetch is work nobody waits for: its task runs at best effort, so the lanes it awaits are not
+        // raised to the launching caller's priority (Chrome's component updater, BEST_EFFORT). A person's
+        // request keeps the caller's priority.
+        let taskPriority: TaskPriority? = priority == .background ? WorkPriority.bestEffort.taskPriority : nil
+        job = Task(priority: taskPriority) { [weak self] in
             await previous?.value
             await self?.runJob(current)
         }
@@ -165,6 +169,8 @@ public actor ChromiumRuntimeInstaller {
                 publish(.installed(installation))
                 store.prune(keeping: keepAlso().union([pin.key]))
                 return state
+            } catch ChromiumRuntimeInstallError.cancelled {
+                return state  // a step stopped before it ran (cancelled, or dropped at quit): no failed attempt
             } catch let error as ChromiumRuntimeInstallError {
                 failures += 1
                 publish(.failed(error, attempt: failures))
@@ -232,7 +238,8 @@ public actor ChromiumRuntimeInstaller {
             let unpacked = ChromiumRuntimeInstallation(pin: pin, directory: staging)
             let items = try Self.requiredItems(of: unpacked)
             if let teamID = pin.teamID {
-                for item in items { try await signatures.check(item, teamID: teamID) }
+                // Read per item: a person's ensure(.user) during the checks raises the ones still to run.
+                for item in items { try await signatures.check(item, teamID: teamID, priority: jobPriority ?? .background) }
             }
             Self.removeQuarantine(in: staging)
             let installation: ChromiumRuntimeInstallation

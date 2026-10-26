@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -33,6 +34,7 @@ struct KeybindingsFileRelaunchTests {
         init(root: URL, session: String, binary: URL, noopActions: Bool = false) async throws {
             let config = root.appending(path: "cmux.json")
             let launcher = DaemonLauncher(
+                work: BackgroundWork(label: "test.daemon-launcher"),
                 configuration: .init(binary: binary, session: session, stateDirectory: root.appending(path: "state")),
                 environment: {
                     ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color",
