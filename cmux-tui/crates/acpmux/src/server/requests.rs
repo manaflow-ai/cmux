@@ -10,6 +10,8 @@ mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 mod presets;
+#[path = "watches.rs"]
+mod watches;
 
 /// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
 /// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
@@ -1372,6 +1374,9 @@ async fn dispatch_request(
             Ok(super::session_files::describe(hub, &s))
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
+            watches::handle(hub, conn, m, &params).await
+        }
         method::MUX_SCHEMA => {
             Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
         }
