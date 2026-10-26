@@ -120,7 +120,9 @@ fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
         relay,
         json_command(json!({
             "cmd": "set-client-info", "name": "mirror", "kind": "mac",
-            "capabilities": [SHARED_SIZING_CAPABILITY],
+            // Its phones show a larger grid (owner election, not the
+            // fixed-grid handheld ceiling, is under test here).
+            "capabilities": [SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY],
             "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
             "device_name": "Mac Studio",
         })),
@@ -336,7 +338,7 @@ fn detaching_a_relay_macs_own_view_keeps_its_connection_and_phones() {
         relay,
         json_command(json!({
             "cmd": "set-client-info", "kind": "mac",
-            "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY],
+            "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY, HOST_GRID_VIEW_CAPABILITY],
             "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
             "device_name": "Maya's MacBook Pro", "device_id": "laptop",
         })),
@@ -466,7 +468,7 @@ fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         &mux,
         relay,
         json_command(json!({
-            "cmd": "set-client-info", "capabilities": [SHARED_SIZING_CAPABILITY],
+            "cmd": "set-client-info", "capabilities": [SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY],
             "user_id": "u1", "device_kind": "mac",
         })),
         &writer,

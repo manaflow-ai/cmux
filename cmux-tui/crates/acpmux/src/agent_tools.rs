@@ -288,11 +288,19 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 /// Anthropic's (our routers), and then sends every schema in every turn.
 pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 
-/// The profile env that opts a harness in to cmux's code mode (two tools, `cmux_docs` and
-/// `cmux_exec`) instead of every tool: `1` turns it on. Off by default: on the agent evals
-/// (tests/agent-evals RESULTS, codemode-vs-all) every tool passed 8/12 Claude Code tasks to code
-/// mode's 6/12 at about half the cost, and tied for Codex.
+/// The profile env for cmux's code mode (one tool, `cmux_exec`): the default for every agent
+/// since Lawrence's 2026-10-23 call; `0` lists every tool instead. (The agent evals,
+/// tests/agent-evals RESULTS codemode-vs-all, had every tool pass 8/12 Claude Code tasks to code
+/// mode's 6/12, tied for Codex.)
 pub const CODE_MODE_ENV: &str = "CMUX_MCP_CODE_MODE";
+
+/// Whether a profile opted out of code mode (`CODE_MODE_ENV=0`): only then
+/// does its cmux server list every tool. Every other agent sees one cmux
+/// tool, `cmux_exec` (Lawrence 2026-10-23); on Claude Code 2.1.305 the 773
+/// names cost a bare request 11.4k of 36.3k prompt tokens.
+pub fn all_tools_opted_in(env: &BTreeMap<String, String>) -> bool {
+    env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "0")
+}
 
 /// Whether a harness defers MCP tools behind its own tool search, so its
 /// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
@@ -313,8 +321,9 @@ pub fn lists_all_tools(
     env: &BTreeMap<String, String>,
     cwd: &Path,
 ) -> bool {
-    // The profile's opt-in to code mode wins (`CODE_MODE_ENV`).
-    if env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
+    // Code mode for every agent (Lawrence 2026-10-23: an agent sees only
+    // cmux_exec); a profile lists every tool only with `CODE_MODE_ENV=0`.
+    if !all_tools_opted_in(env) {
         return false;
     }
     if is_claude_code(name, profile) {
@@ -426,10 +435,7 @@ pub fn claude_args_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
-            .listing(
-                claude_lists_all_tools(env, cwd)
-                    && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
-            )
+            .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
             .without_off(env)
             .folded()
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))

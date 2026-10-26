@@ -145,6 +145,18 @@ fn an_old_server_refusal_names_the_servers_own_update_command() {
 }
 
 #[test]
+fn an_overlapping_api_revision_range_is_accepted() {
+    let (current, minimum) = cmux_tui_core::server::api_revision_range();
+    validate_remote_identity(&json!({
+        "app": "cmux-tui",
+        "protocol": SUPPORTED_PROTOCOL_VERSION,
+        "api_revision": current,
+        "min_api_revision": minimum,
+    }))
+    .unwrap();
+}
+
+#[test]
 fn a_too_old_client_is_told_to_update_itself() {
     // A newer server protocol, or a server whose oldest translatable API
     // revision is newer than ours: this binary is the old side.

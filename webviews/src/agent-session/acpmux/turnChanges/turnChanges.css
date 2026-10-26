@@ -8,12 +8,12 @@
 .acpmux-edited-confirm-text{flex:1;min-width:0;line-height:18px}
 .acpmux-edited-confirm-skip{color:var(--agent-muted);font-size:var(--text-detail)}
 /* A path only failed calls named: "failed" where a row's counts go, as the transcript marks a failed call. */
-.acpmux-edited-failed{flex:none;color:var(--agent-danger);font-size:var(--text-detail)}
+.acpmux-edited-failed{flex:none;color:var(--agent-status-failure);font-size:var(--text-detail)}
 .acpmux-edited-cancel{flex:none;height:22px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
 .acpmux-edited-cancel:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent))}
 .acpmux-edited-undo-confirm{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:22px;padding:0 12px 4px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-edited-status-changed{color:var(--agent-warning,var(--agent-muted))}
+.acpmux-edited-status-changed{color:var(--agent-status-warning)}
 .acpmux-edited-viewdiff{height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer;text-decoration:underline}
 /* The card at Codex/Claude restraint (cx-ncc.99, 2026-10-14): one 1px theme rim, a 14px glyph with
    no tile, the title and the turn's +/- totals on one line, Undo as a text button and View

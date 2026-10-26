@@ -56,7 +56,8 @@
 //!   sender, child or parent: checked when it is sent and again when it
 //!   runs (a queued one, `turns.rs`).
 //!
-//! A family lives on one daemon: there is no start on another host. What
+//! A family lives on one daemon: there is no start on another host (a start's
+//! host `auto` only checks this machine has room, `server/place.rs`). What
 //! the tools read back of a family member (its title, last reply, capped
 //! at [`MAX_REPLY_CHARS`], error, running prompt and what it does now) is masked (`secret_scan`),
 //! the reply and the prompt before their cut, and only the caller's descendants and its own parent
@@ -329,6 +330,8 @@ pub struct StartRequest {
     pub name: Option<String>,
     pub harness: Option<String>,
     pub model: Option<String>,
+    /// Thinking effort (`acpmux new --parent -e`); None is the harness's default.
+    pub effort: Option<String>,
     pub cwd: Option<PathBuf>,
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
@@ -620,13 +623,6 @@ impl Hub {
             }
             kept.keep();
         }
-        let link = child.meta().subsession.clone();
-        self.append(
-            parent,
-            "mux",
-            RECORD_KIND,
-            json!({"event": "started", "childSessionId": child.id, "shortName": link.as_ref().map(|l| &l.short_name)}),
-        );
         Ok(reply)
     }
 
@@ -675,6 +671,7 @@ impl Hub {
             cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
+            effort: req.effort.clone(),
             remote: pm.remote_origin,
             workspace_id: pm.workspace_id.clone(),
             // Same family: the parent's mode, set below. Another family: the
@@ -695,8 +692,24 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
-        let accepted =
-            self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
+        // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
+        // and before that turn's `turn_ended`.
+        let (hub, to, child) = (self.clone(), parent.clone(), probe.clone());
+        let (prompt, asked) = (req.prompt.clone(), (req.model.clone(), req.effort.clone()));
+        let started: Box<dyn FnOnce() + Send> =
+            Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
+        let accepted = self
+            .send_family_prompt(
+                parent,
+                &probe,
+                text_block(&req.prompt),
+                None,
+                false,
+                false,
+                Some(started),
+                None,
+            )
+            .await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -764,17 +777,21 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// Sends `blocks` from `from` to `to` as a prompt with the family provenance; answers once it
     /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
-    /// `interrupt`: `Hub::interrupt_once_queued`.
+    /// `interrupt`: `Hub::interrupt_once_queued`. `accepted` runs at the acceptance, before the
+    /// turn can end. `saved`: the message's attachments, settled when its turn ends (`attach.rs`).
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
-        text: &str,
+        blocks: Vec<Value>,
         prompt_id: Option<String>,
         steer: bool,
         interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
+        saved: Option<crate::attach::Saved>,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
@@ -795,21 +812,31 @@ impl Hub {
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
         let stop = self.interrupt_once_queued(to, interrupt);
+        let on_accepted: Option<Box<dyn FnOnce(Value) + Send>> = Some(Box::new(move |v| {
+            stop(&v);
+            if let Some(accepted) = accepted {
+                accepted();
+            }
+            let _ = tx.send(v);
+        }));
         let opts = PromptOptions {
             control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
-            on_accepted: Some(Box::new(move |v| {
-                stop(&v);
-                let _ = tx.send(v);
-            })),
+            on_accepted: match &saved {
+                Some(saved) => saved.watch(on_accepted),
+                None => on_accepted,
+            },
             provenance: Some(provenance),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, to2) = (self.clone(), to.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
-            hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
+            let answer = hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await;
+            if let Some(saved) = saved {
+                saved.settle(&hub, &answer).await;
+            }
+            answer
         });
         match rx.await {
             Ok(v) => Ok(v),
@@ -856,6 +883,8 @@ impl Hub {
             // working, input, failed, lost or idle, and since when (`views::lane`).
             "state": summary["lane"]["state"].clone(),
             "stateSince": summary["lane"]["since"].clone(),
+            // Working, but quiet with no tool call in flight since then (`hub/activity.rs`).
+            "stalledSince": summary["lane"]["stalledSince"].clone(),
             "doing": super::subsession_send::doing(&summary),
             // question or permission: only the person allows a permission, in the app.
             "waitingOn": pick("waitingOn"),
@@ -1144,4 +1173,9 @@ impl Hub {
         }
         Some(cut)
     }
+}
+
+/// A prompt of `text` alone.
+fn text_block(text: &str) -> Vec<Value> {
+    vec![json!({"type": "text", "text": text})]
 }

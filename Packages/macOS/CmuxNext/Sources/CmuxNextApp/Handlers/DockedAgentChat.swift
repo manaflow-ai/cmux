@@ -10,6 +10,7 @@ import CmuxNextLayout
 /// Cmd-I focuses it and never opens a second dock or hides it: the chat is where the person
 /// types, and a key that sometimes hides it would take the keyboard away. A screen that is
 /// one lone chat (it docks when the first tool opens) is that chat: Cmd-I focuses it too.
+/// Home's pinned chat dock (the Chief) is not that chat: from Home a new chat opens beside it.
 /// A new chat starts with the selected tab's folder and selection (`agentSeedFromSelectedTab`)
 /// and with the workspace context the page adds to its first prompt (`workspaceContext`).
 @MainActor
@@ -18,10 +19,12 @@ enum DockedAgentChat {
     /// that cannot hold a chat or a chat dock (the caller opens a chat tab in the pane).
     static func open(from pane: PaneController, invocation: ActionInvocation, services: AppServices) -> Bool {
         guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
-              let content = pane.workspace, content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
+              let content = pane.workspace, content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return false }
         let columns = ChatColumnPlacement.columns(of: screen, containing: pane.layoutPaneID)
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat }), let target = dock.root.panes.first {
+        // Home's pinned dock holds the Chief, not this workspace's chat: a new chat opens beside it
+        // (`NewChatPlacement.besideDock`, 7b5ae883a3b), never a focus of the Chief.
+        if let dock = columns.first(where: { $0.dock?.role == .agentChat && $0.dock?.isPinned != true }), let target = dock.root.panes.first {
             PaneHandlers.focus(target, in: content)
             return true
         }

@@ -40,7 +40,7 @@
       "id": "motion-scale",
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionScale.generated.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift",
         "webviews/src/motion/scale.generated.ts"
       ],
       "inputs": ["schemas/motion-scale/**"],
@@ -87,7 +87,7 @@
       "generator": "scripts/cmux-next/gen-chrome-styles.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeStyle.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift"
       ],
       "inputs": ["schemas/settings/chrome-styles.json"],

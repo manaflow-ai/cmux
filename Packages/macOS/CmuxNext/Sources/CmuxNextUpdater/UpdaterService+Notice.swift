@@ -10,7 +10,8 @@ extension UpdaterService {
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {
         guard let card else { return nil }
-        var shown = card.presentation(version: identity.shortVersion, build: identity.build)
+        var shown = card.presentation(version: identity.shortVersion, build: identity.build,
+                                      install: card == .installing ? installStatus : nil)
         switch card {
         case .available, .note(.found):
             // The found build's short version, date and first changelog lines.
@@ -59,7 +60,10 @@ extension UpdaterService {
             dismissIndicatorNote()
         case .pulled:
             pulledWatch.perform(.waitForFix)
-        case .checking, .downloading, .installing, nil:
+        case .installing:
+            // Only the card of an install that never relaunched has an x.
+            if installStatus?.stage == .stalled { installCardDismissed = true }
+        case .checking, .downloading, nil:
             break
         }
         followCardExpiry()
@@ -69,7 +73,7 @@ extension UpdaterService {
     /// cancels it when the card changed to one that waits.
     func followCardExpiry() {
         let shown = card
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The update harness's timeline: what the user sees, as it changes.
         let kind = shown?.kind ?? (readyCard == nil ? "none" : "ready")
         if kind != markedCardKind {
