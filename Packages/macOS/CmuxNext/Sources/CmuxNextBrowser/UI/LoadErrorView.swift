@@ -89,7 +89,7 @@ final class LoadErrorView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The title and message shown (`debug.browser.page_status`).
     var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)" }
     #endif

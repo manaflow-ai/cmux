@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// One remote tab's rb/1 session: the rd transport (frames, service
 /// messages, service input), the Rust client reducer and the native UI.
 /// Host bodies go through the reducer; its effects drive the pane (menus,

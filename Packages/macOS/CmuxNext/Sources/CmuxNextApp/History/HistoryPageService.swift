@@ -14,7 +14,7 @@ import CmuxNextScreenshots
 import CmuxNextStash
 import Foundation
 import os
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -163,7 +163,7 @@ extension TabContentCache {
 
     /// A development remote tab record (`cmux://remote-browser`).
     static func isRemoteBrowserPage(_ url: URL?) -> Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         RemoteBrowserTabRecord.matches(url)
         #else
         false
@@ -180,7 +180,7 @@ extension TabContentCache {
         if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
             return MachineBrowserPages(cache: self).makePage(record, key: key, engine: engine, profile: profile)
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let url, RemoteBrowserTabRecord.matches(url) {
             return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
         }

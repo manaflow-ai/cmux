@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextCompat
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// One remote tab's page: owns the decode pipeline from a stream source to
 /// the presenter. Session state (menus, dialogs, cursor) lives in the Rust
 /// client reducer; this type only moves frames and reports sizes.
