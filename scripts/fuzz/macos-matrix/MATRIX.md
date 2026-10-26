@@ -82,7 +82,8 @@ Site Information opens its panel), `settings` (Settings opens and paints), `aliv
 
 `os-matrix.sh --build JOB --os 14,15,26 --suite chaos` (by hand: `vm.sh --suite chaos [--faults a,b] BUILD`) runs
 `chaos.py`, which drives the guest like the smoke (SSH `cmux app call`, VNC screenshots; needs a DEV build). The
-tour makes two terminal panes (a split), a Chromium tab and a WebKit tab on a page served in the guest. Then one
+tour makes two terminal panes (a split) and a third pane with a Chromium tab and a WebKit tab on a page served in
+the guest, so each terminal stays its pane's selected tab (`debug.surfaces` reads only that one). Then one
 fault at a time. Keys are typed into a terminal right before and right after each fault, and a typed echo is
 checked after recovery. Each fault has its own expected outcome:
 
@@ -96,18 +97,20 @@ checked after recovery. Each fault has its own expected outcome:
 | `agent-webcontent` | SIGKILL an agent page's WebContent (`debug.agent_pane`) | the page reloads in a new process by itself |
 | `acpmux` | SIGKILL the app's acpmux daemon | the app answers; terminals work |
 | `daemon` | SIGKILL the cmux-tui daemon (`debug.daemon` pid) | a new daemon connects; every terminal pane re-attaches; an echo runs |
-| `memory-pressure` | `sudo memory_pressure -S -l critical` for 15 s | the app answers; an echo runs |
-| `network-off` | a pf anchor drops all but loopback and SSH, for at most 45 s (the guest turns it off by itself) | the app answers; an echo runs; an unreachable page shows a load error, not the crash page; the local page answers |
-| `holder` | relaunch with `CMUX_TUI_TERMINAL_HOST_MODEL=holder`, SIGKILL `__holder` | the app stays up; each terminal pane shows the ended state and Restart (`tab.restart`, the overlay button's action) brings its shell back, or kept its shell (a new holder adopted the masters); other holders keep running |
+| `memory-pressure` | `sudo memory_pressure -S -l critical` for 15 s; `skip` when the level never reads critical (4) | the app answers; an echo runs |
+| `network-off` | a pf anchor drops all but loopback and SSH, for at most 45 s (the guest turns it off by itself) | the app answers; an echo runs; an unreachable page shows a load error (`page_status` `error` or `enginePage`), not the crash page; the local page answers |
+| `holder` | relaunch with `CMUX_TUI_TERMINAL_HOST_MODEL=holder`, SIGKILL the holder (`cmux-holder`, or `__holder` in cmux-tui-host) whose child is the left terminal's shell | the app stays up; each pane of that holder shows the ended state with "Restart Shell Here" (`debug.surfaces` `status_text`, `restart_offered`) and Restart (`tab.restart`, the button's action) brings its shell back, or kept the same shell while a new holder runs (it adopted the masters); other holders and their shells are untouched |
 | `fd-limit` | relaunch under `ulimit -n 256` (soft and hard), then 12 workspaces and 8 pages | the app stays up (refusals are errors, recorded); an echo runs |
-| `full-disk` | relaunch with HOME on a 512 MB sparse image, then the image filled | a new workspace, a split and Settings with a full home volume; an echo runs; the app answers after the space is freed |
+| `full-disk` | relaunch with HOME on a 512 MB sparse image, then the image filled | a new workspace, a split and Settings with a full home volume (`skip` when 1 MB or more stayed free), none refused; an echo runs in the new workspace; the app answers after the space is freed |
 
-Every fault also needs the same app pid, every main-thread ping answered within 10 s (their times are labeled
-"VM, not comparable") and no new crash report (`.ips`) of a cmux process. A late report goes to the fault whose
-time window holds it; a crash before any fault fails the run. `result.json` has one row per fault: `fault`,
-`expected`, `outcome` (`ok`, `FAIL` or `skip`), `detail` (what was killed and what was observed), `app_pid_kept`,
-`ping_ms_vm` and `crash_reports`. A fault the guest cannot inject (no passwordless sudo, no holder process, no
-acpmux) is `skip` with its reason; a skip makes the major NO-VERDICT, never PASS. The suite never pulls an image,
+Every fault also needs the same app pid, every main-thread ping answered within 10 s (one a second on a thread
+of its own while the fault and its recovery run, three after; their times are labeled "VM, not comparable") and
+no crash report (`.ips`) of a cmux process in its window. A report counts at its crash time (its `captureTime`,
+not when ReportCrash wrote it), and every window is in the guest's clock. A crash in a launch, a tour or a quit
+is no fault's (`crashes_outside_faults` names the stretch) and fails the run. `result.json` has one row per
+fault: `fault`, `expected`, `outcome` (`ok`, `FAIL` or `skip`), `detail` (what was killed and what was observed),
+`window`, `app_pid_kept`, `ping_ms_vm` and `crash_reports`. A fault the guest cannot inject (no passwordless sudo,
+no holder process, no acpmux, a pressure level or a full volume that never came) is `skip` with its reason; a skip makes the major NO-VERDICT, never PASS. The suite never pulls an image,
 and the guest is deleted after the run, so pf, the pressure level and the home image never outlive it.
 
 ### Exec suite (OS probes)

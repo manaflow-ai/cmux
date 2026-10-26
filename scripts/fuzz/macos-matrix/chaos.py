@@ -5,8 +5,8 @@ vm.sh runs it per major (`--suite chaos`) with the same guest, VNC and app argum
 fuzz.py, and reuses their guest connection: app calls go through the guest's bundled `cmux app call`
 over SSH, faults are guest commands over the same SSH connection, screenshots are VNC frames.
 
-During a typing and split tour (two terminal panes, a Chromium and a WebKit tab on a page served in
-the guest), each fault runs on its own and has its own expected outcome. Keys are typed into a terminal
+During a typing and split tour (two terminal panes, and a third pane with a Chromium and a WebKit tab
+on a page served in the guest), each fault runs on its own and has its own expected outcome. Keys are typed into a terminal
 right before and right after every kill; the checked echo comes after recovery.
 
   terminal-host      SIGKILL one terminal's host process: the daemon respawns that terminal (a new
@@ -23,30 +23,38 @@ right before and right after every kill; the checked echo comes after recovery.
   acpmux             SIGKILL the app's acpmux daemon: the app answers and the terminals keep working.
   daemon             SIGKILL the app's cmux-tui daemon: a new daemon connects (debug.daemon), every
                      terminal pane re-attaches and a typed echo runs.
-  memory-pressure    `memory_pressure -S -l critical` for 15 s: the app answers, terminals work.
+  memory-pressure    `memory_pressure -S -l critical` for 15 s (skip when the level never reads
+                     critical): the app answers, terminals work.
   network-off        pf drops every packet but loopback and the driving SSH for at most 45 s: the app
-                     answers, terminals work, a page that cannot load shows a load error (not the
-                     crash page), the page served in the guest still answers.
-  holder             (relaunch with CMUX_TUI_TERMINAL_HOST_MODEL=holder) SIGKILL the terminal holder:
-                     the app stays up, every terminal pane either shows the ended state and Restart
-                     (tab.restart, the overlay button's action) brings its shell back, or kept its shell
-                     (a new holder adopted the masters the daemon holds: pty-holder design); other
-                     holders keep their pids.
+                     answers, terminals work, a page that cannot load shows a load error (the cmux
+                     error page or Chromium's, not the crash page), the page served in the guest
+                     still answers.
+  holder             (relaunch with CMUX_TUI_TERMINAL_HOST_MODEL=holder) SIGKILL the holder whose child
+                     is the left terminal's shell (`cmux-holder`, or `__holder` in cmux-tui-host): the
+                     app stays up, each pane of that holder either shows the ended state with "Restart
+                     Shell Here" (debug.surfaces status_text, restart_offered) and Restart (tab.restart,
+                     the button's action) brings its shell back, or kept the same shell while a new
+                     holder runs (it adopted the masters the daemon holds: pty-holder design); other
+                     holders and their shells are untouched.
   fd-limit           (relaunch under `ulimit -n 256`, hard and soft, so the app cannot raise it) 12
                      workspaces and 8 pages: the app stays up, refuses what does not fit with an
                      error, and a typed echo runs.
   full-disk          (relaunch with HOME on a 512 MB sparse image, then the image filled) a new
-                     workspace, a split and Settings while the home volume is full: the app stays
-                     up and a typed echo runs; it keeps working after the space is freed.
+                     workspace, a split and Settings while the home volume is full (skip when dd left
+                     1 MB or more): the app stays up, nothing refuses, and a typed echo runs in the
+                     new workspace; it keeps working after the space is freed.
 
-Every fault also needs: the app's pid unchanged, every main-thread ping answered within 10 s (their
-times are recorded "VM, not comparable"), and no new crash report (.ips) of a cmux process. A fault
-the guest cannot inject (no passwordless sudo, no holder process) is `skip` with the reason, which is
-no verdict for the run: never a PASS.
+Every fault also needs: the app's pid unchanged, every main-thread ping answered within 10 s (one a
+second on a thread of its own while the fault and its recovery run, three after; their times are
+recorded "VM, not comparable"), and no crash report (.ips) of a cmux process whose crash time (the
+report's captureTime, in the guest's clock like every window) is in the fault's window. A crash in a
+launch, a tour or a quit is no fault's and fails the run. A fault the guest cannot inject (no
+passwordless sudo, no holder process, a level or a full volume that never came) is `skip` with the
+reason, which is no verdict for the run: never a PASS.
 
 result.json: {"suite": "chaos", "os", "build", "faults": [{"fault", "phase", "expected", "outcome":
-"ok"|"FAIL"|"skip", "ok", "detail", "seconds", "app_pid_kept", "ping_ms_vm", "crash_reports"}],
-"crashes", "failed_steps", "skipped", "ok"}.
+"ok"|"FAIL"|"skip", "ok", "detail", "seconds", "window", "app_pid_kept", "ping_ms_vm", "crash_reports"}],
+"segments", "crashes", "crashes_outside_faults", "failed_steps", "skipped", "ok"}.
 
 Usage (vm.sh does this): chaos.py --ssh admin@IP --vnc HOST:PORT:PW --app APP --out DIR [--faults a,b]
 """
@@ -54,11 +62,13 @@ Usage (vm.sh does this): chaos.py --ssh admin@IP --vnc HOST:PORT:PW --app APP --
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
 import shlex
 import sys
+import threading
 import time
 import traceback
 
@@ -70,6 +80,9 @@ TITLE = "cmux-chaos-page"
 PAGE_PORT = 8739
 EXIT_FILE = "/tmp/cmux-chaos-app-exit"
 PING_BOUND_MS = 10000  # an unanswered or longer ping is a hung app
+PING_EVERY = 1.0  # s between the background pings that run through a fault
+PRESSURE_CRITICAL = "4"  # kern.memorystatus_vm_pressure_level while memory_pressure holds critical
+FULL_FREE_KB = 1024  # a home volume with less free space than this is full
 REPORT_DEADLINE = 30  # s: ReportCrash writes a report up to ~20 s after a death
 NETWORK_OFF_SECONDS = 45  # the guest turns pf off again by itself after this, whatever the host does
 PRESSURE_SECONDS = 15
@@ -97,12 +110,12 @@ FAULTS = {
     "memory-pressure": ("app", "app answers through critical memory pressure; a typed echo runs"),
     "network-off": ("app", "app answers with the network off; a typed echo runs; a page that cannot load shows a load "
                            "error, not the crash page; the guest-served page still answers"),
-    "holder": ("holder", "app up; each terminal pane shows the ended state and Restart brings its shell back, or kept "
-                         "its shell; other holders untouched"),
+    "holder": ("holder", "app up; each pane of the killed holder shows the ended state with Restart and Restart brings "
+                         "its shell back, or kept the same shell under a new holder; other holders and shells untouched"),
     "fd-limit": ("fd-limit", "app stays up under RLIMIT_NOFILE 256 with 12 workspaces and 8 pages (or refuses the "
                              "rest with an error); a typed echo runs"),
-    "full-disk": ("full-disk", "app stays up with its home volume full: a new workspace, a split and Settings, a typed "
-                               "echo runs; it still answers after the space is freed"),
+    "full-disk": ("full-disk", "app stays up with its home volume full: a new workspace, a split and Settings, none "
+                               "refused; a typed echo runs in the new workspace; it still answers after the space is freed"),
 }
 PHASES = {  # phase: (extra environment, shell prelude) of its launch
     "app": ("", ""),
@@ -114,6 +127,32 @@ PHASES = {  # phase: (extra environment, shell prelude) of its launch
 
 class Skip(Exception):
     """The guest cannot inject this fault; the reason is the row's detail."""
+
+
+class Pinger:
+    """Main-thread pings through a fault, on a thread of their own (each ping is its own SSH session over
+    the guest's control connection), so a hang while a process is down or recovering is seen."""
+
+    def __init__(self, g: Guest):
+        self.g = g
+        self.samples: list[int | None] = []
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self.loop, name="chaos-pinger", daemon=True)
+
+    def loop(self) -> None:
+        while True:  # at least one ping, however short the fault
+            self.samples.append(self.g.ping_ms(PING_BOUND_MS / 1000))
+            if self.done.wait(PING_EVERY):
+                return
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> list[int | None]:
+        """Ends the pings after the one in flight; a ping still unanswered past its bound is a hang."""
+        self.done.set()
+        self.thread.join(PING_BOUND_MS / 1000 + 20)
+        return list(self.samples) + ([PING_BOUND_MS] if self.thread.is_alive() else [])
 
 
 class Chaos(Smoke):
@@ -162,7 +201,13 @@ class Chaos(Smoke):
         self.app_pid = None
 
     def tour(self) -> dict:
-        """Two terminal panes, a Chromium and a WebKit tab on a page served in the guest; returns what failed."""
+        """Two terminal panes, and a third pane with a Chromium and a WebKit tab on a page served in the
+        guest; returns what failed.
+
+        A pane reports a terminal's link, text and host only for its selected tab, and openBrowser opens
+        in the focused pane, so the pages get a pane of their own and `left` and `right` stay selected.
+        """
+        self.tabs = {}  # a role the tour does not set is missing, never the last phase's tab
         problems = {}
         if not self.wait(self.windows, 30):
             problems["window"] = "no window"
@@ -172,13 +217,16 @@ class Chaos(Smoke):
             problems["terminal"] = "newTab made no focused terminal"
             return problems
         self.tabs["left"] = left
-        before = self.panes()
-        self.call("action.run", {"action": "splitRight", "focus": True})
-        right = self.wait(lambda: self.panes() > before and (lambda t: t if t and t != left else None)(self.focused_terminal()), 30)
+        right = self.split("splitRight", {left})
         if right:
             self.tabs["right"] = right
         else:
             problems["split"] = "splitRight made no second terminal"
+        web = self.split("splitDown", {left, right} - {None})
+        if web:
+            self.tabs["web"] = web
+        else:
+            problems["web_pane"] = "splitDown made no pane for the pages"
         self.g.sh(f"mkdir -p /tmp/cmux-chaos-www && printf '<!doctype html><title>{TITLE}</title><p id=alive>alive</p>' "
                   "> /tmp/cmux-chaos-www/index.html && cd /tmp/cmux-chaos-www && "
                   f"( trap '' HUP; exec /usr/bin/perl -MIO::Socket::INET -e '{PERL_HTTP}' {PAGE_PORT} "
@@ -189,9 +237,19 @@ class Chaos(Smoke):
                 self.tabs[engine] = tab
             else:
                 problems[engine] = "the page did not load"
+        covered = [role for role in ("left", "right") if self.tabs.get(role) and not self.pane_of(self.tabs[role])]
+        if covered:
+            problems["layout"] = f"a page took the selected tab of the {', '.join(covered)} terminal pane"
         if not self.echo("left"):
             problems["echo"] = "a typed echo did not run"
         return problems
+
+    def split(self, action: str, existing: set) -> str | None:
+        """Runs a split from the focused pane; the new pane's terminal tab, focused."""
+        before = self.panes()
+        self.call("action.run", {"action": action, "focus": True})
+        return self.wait(lambda: self.panes() > before and (lambda t: t if t and t not in existing else None)(
+            self.focused_terminal()), 30)
 
     # --- app reads and input --------------------------------------------------------------------
     def surfaces(self, text: bool = False) -> list[dict]:
@@ -228,17 +286,26 @@ class Chaos(Smoke):
         keys = [{"key": "space" if ch == " " else "return" if ch == "\n" else ch} for ch in text]
         self.g.sh("; ".join(self.g._cli(["app", "call", "debug.key", json.dumps(k)]) for k in keys) + "; true", timeout=90)
 
-    def echo(self, role: str) -> bool:
-        """A fresh line (Ctrl-C drops what an outage left half typed) runs an echo in the `role` terminal."""
+    def typed(self, role: str, words: str, output: str) -> re.Match | None:
+        """A fresh line (Ctrl-C drops what an outage left half typed) runs `echo cmux-chaos-N-<words>` in the
+        `role` terminal; the match of `cmux-chaos-N-<output>` in what the terminal shows."""
         tab = self.tabs.get(role)
         if not tab:
-            return False
+            return None
         self.marker += 1
         self.focus(tab)
         self.g.sh(self.g._cli(["app", "call", "debug.key", json.dumps({"key": "c", "modifiers": ["ctrl"]})]))
-        self.keys(f"echo cmux-chaos-{self.marker}-$((6*7))\n")
-        expected = f"cmux-chaos-{self.marker}-42"  # the output line, never the typed command
-        return bool(self.wait(lambda: expected in (self.pane_of(tab, text=True).get("text") or ""), 30))
+        self.keys(f"echo cmux-chaos-{self.marker}-{words}\n")
+        expected = re.compile(f"cmux-chaos-{self.marker}-{output}")  # the output line, never the typed command
+        return self.wait(lambda: expected.search(self.pane_of(tab, text=True).get("text") or ""), 30)
+
+    def echo(self, role: str) -> bool:
+        return self.typed(role, "$((6*7))", "42") is not None
+
+    def shell_ids(self, role: str) -> tuple[int, int] | None:
+        """The `role` terminal's shell pid and its parent's (its holder or host), as the shell reports them."""
+        found = self.typed(role, "$$-$(ps -o ppid= -p $$)", r"(\d+)-\s*(\d+)")
+        return (int(found.group(1)), int(found.group(2))) if found else None
 
     def type_around(self, inject) -> None:
         """Half a line typed right before the fault and the rest right after: input during the fault."""
@@ -259,8 +326,19 @@ class Chaos(Smoke):
         return rows
 
     def owned(self, args: str) -> bool:
-        """Run from the build's bundle, or a terminal host or holder that names the build as its owner."""
-        return args.startswith(self.g.app + "/") or bool(self.bundle_id) and f"--owner {self.bundle_id}:" in args
+        """Run from the build's bundle, or a terminal host or holder that names the build as its owner:
+        `--owner <bundle>:<tag>@<daemon pid>`, the bundle being CMUX_BUNDLE_ID or else the .app's name with
+        every character but [A-Za-z0-9._-] made `_` (host_session.rs host_owner_args)."""
+        if args.startswith(self.g.app + "/"):
+            return True
+        app_name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(self.g.app.rstrip("/")).removesuffix(".app"))
+        return any(f"--owner {owner}:" in args for owner in (self.bundle_id, app_name) if owner)
+
+    def holders(self) -> list[int]:
+        """The build's terminal holders: the standalone holder (argv0 `cmux-holder`, which the daemon spawns
+        from a copy outside the bundle) or the holder built into cmux-tui-host (a `__holder` argument)."""
+        return [pid for pid, _, args in self.procs()
+                if (os.path.basename(args.split()[0]) == "cmux-holder" or "__holder" in args.split()) and self.owned(args)]
 
     def children(self, kind: str) -> list[int]:
         """The app's Chromium children started with --type=<kind>."""
@@ -287,29 +365,42 @@ class Chaos(Smoke):
         return found
 
     # --- one fault ------------------------------------------------------------------------------
+    def guest_time(self) -> float:
+        """The guest's clock: crash reports carry its times, so every window is in it too."""
+        out = self.g.sh("date +%s").stdout.strip()
+        if out.isdigit():
+            return float(out)
+        self.result["findings"].append({"kind": "guest-clock-unread", "reply": out[-200:]})
+        return time.time()
+
     def run_fault(self, name: str, phase: str) -> dict:
         row = {"fault": name, "phase": phase, "expected": FAULTS[name][1]}
-        started = time.time()
+        started, clock = self.guest_time(), time.time()
+        pinger = Pinger(self.g)
         try:
-            ok, detail = getattr(self, "fault_" + name.replace("-", "_"))()
-            pings = [self.g.ping_ms(PING_BOUND_MS / 1000) for _ in range(3)]
+            pinger.start()
+            try:
+                ok, detail = getattr(self, "fault_" + name.replace("-", "_"))()
+            finally:
+                during = pinger.stop()
+            pings = during + [self.g.ping_ms(PING_BOUND_MS / 1000) for _ in range(3)]
             answered = all(ms is not None and ms < PING_BOUND_MS for ms in pings)
             kept = self.app_pid is not None and self.g.pid() == self.app_pid
             row.update(outcome="ok" if ok and answered and kept else "FAIL", detail=detail,
-                       app_pid_kept=kept, ping_ms_vm=pings)
+                       app_pid_kept=kept, ping_ms_vm=pings, pings_during_fault=len(during))
         except Skip as why:
             row.update(outcome="skip", detail=str(why))
         except Exception as error:  # a runner error is that fault's FAIL, never the end of the run
             row.update(outcome="FAIL", detail={"error": repr(error), "trace": traceback.format_exc()[-1500:]})
-        row["seconds"] = round(time.time() - started, 1)
-        row["window"] = [started, time.time()]
-        row["crash_reports"] = []  # finish() files each report under the fault whose window holds it
+        row["crash_reports"] = []  # finish() files each report under the fault whose window holds its crash
         row["ok"] = row["outcome"] == "ok"
         print("%-18s %s %s" % (name, row["outcome"], json.dumps(row.get("detail"))[:400]), flush=True)
         try:
             self.shot("fault-" + name)
         except Exception as error:  # a screenshot is evidence, never the verdict
             self.result["findings"].append({"kind": "screenshot-failed", "fault": name, "error": str(error)})
+        row["seconds"] = round(time.time() - clock, 1)
+        row["window"] = [started, self.guest_time()]
         return row
 
     # --- the faults (each returns ok and its evidence) ------------------------------------------
@@ -433,8 +524,11 @@ class Chaos(Smoke):
             f">/tmp/cmux-chaos-pressure.log 2>&1 & sleep {PRESSURE_SECONDS}; "
             "sudo -n /usr/sbin/sysctl -w kern.memorystatus_vm_pressure_level=1 >/dev/null 2>&1 ) "
             "</dev/null >/dev/null 2>&1 & true"))
-        time.sleep(2)  # the simulated level takes effect
-        during = self.g.sh(level).stdout.strip()
+        during = self.wait(lambda: (lambda v: v if v == PRESSURE_CRITICAL else None)(self.g.sh(level).stdout.strip()), 10, 0.5)
+        if not during:
+            raise Skip(f"the pressure level never reached critical ({PRESSURE_CRITICAL}): it is "
+                       f"{self.g.sh(level).stdout.strip()!r}; memory_pressure said "
+                       f"{self.g.sh('tail -c 300 /tmp/cmux-chaos-pressure.log').stdout.strip()!r}")
         echoed = self.echo("left")
         hibernation = self.call("debug.surfaces").get("hibernation") or {}
         end = time.time() + PRESSURE_SECONDS + 10
@@ -456,47 +550,82 @@ class Chaos(Smoke):
         token = enabled.get("reply", "").partition("token=")[2]
         if not token:
             raise Skip(f"pf did not turn on: {enabled.get('reply')!r}")
+        created, failed = None, None
         try:
             offline = self.g.sh("/usr/bin/curl -s -m 5 -o /dev/null http://example.com/").returncode != 0
             echoed = self.echo("left")
+            self.focus(tab)  # the unreachable page opens in the pages' pane, not over a terminal
             remote = self.call("action.run", {"action": "openBrowser", "args": {"url": "http://example.com/?chaos-offline",
                                                                                 "engine": "cef"}, "focus": True})
             created = (remote.get("created") or [None])[0]
-            time.sleep(5)  # the load fails: a DNS or connect error within this
-            remote_gone = self.page_status(created).get("gone") if created else None
+            if created:
+                failed = self.wait(lambda: self.load_error(self.page_status(created)), 30)
+            status = self.page_status(created) if created else {}
             local = self.js(tab, "document.getElementById('alive')?.textContent") == "alive"
         finally:
             self.g.sh(f"sudo -n /sbin/pfctl -a {PF_ANCHOR} -F all >/dev/null 2>&1; sudo -n /sbin/pfctl -X {shlex.quote(token)} "
                       ">/dev/null 2>&1; true")
         if created:
             self.call("action.run", {"action": "closeTab", "target": "tab:" + created})
-        return offline and echoed and bool(created) and remote_gone != "1" and local, {
-            "offline": offline, "echo": echoed, "unloadable_tab": created, "unloadable_crash_page": remote_gone == "1",
+        return offline and echoed and bool(failed) and local, {
+            "offline": offline, "echo": echoed, "unloadable_tab": created, "load_error_shown": bool(failed),
+            "unloadable_status": {k: status.get(k) for k in ("gone", "error", "enginePage", "title")},
             "local_page_answers": local}
 
+    @staticmethod
+    def load_error(status: dict) -> dict | None:
+        """A page that shows its load error (the cmux error page, `error`, or Chromium's own, `enginePage`)
+        and not the crash page. A reply without `gone` is no page status (an unknown tab or a failed call)."""
+        shown = status.get("gone") == "0" and (bool(status.get("error")) or status.get("enginePage") == "1")
+        return status if shown else None
+
     def fault_holder(self):
-        holders = [pid for pid, _, args in self.procs() if "__holder" in args and self.owned(args)]
+        holders = self.holders()
         if not holders:
             raise Skip("no terminal holder runs (CMUX_TUI_TERMINAL_HOST_MODEL=holder started none)")
-        victim, others = holders[0], holders[1:]
+        roles = [role for role in ("left", "right") if self.tabs.get(role)]
+        shells = {role: self.shell_ids(role) for role in roles}  # (shell pid, the holder it is a child of)
+        if not (shells.get("left") and shells["left"][1] in holders):
+            raise Skip(f"the left terminal's shell is no holder's child (shell and parent {shells.get('left')}, "
+                       f"holders {holders})")
+        victim = shells["left"][1]
+        others = [pid for pid in holders if pid != victim]
         self.type_around(lambda: self.kill([victim]))
-        time.sleep(3)  # the daemon sees the holder's link close
-        panes = {}
-        for role in ("left", "right"):
-            tab = self.tabs.get(role)
-            if not tab:
-                continue
-            settled = self.wait(lambda: (lambda p: p if p.get("link") in ("exited", "connected") else None)(self.pane_of(tab)), 30)
-            link = (settled or {}).get("link")
-            if link == "exited":
-                ran = self.call("action.run", {"action": "tab.restart", "target": "tab:" + tab, "focus": True})
-                back = self.wait(lambda: self.pane_of(tab).get("link") == "connected", 60)
-                panes[role] = {"observed": "ended", "restart": ran, "restarted": bool(back), "echo": bool(back) and self.echo(role)}
-            else:
-                panes[role] = {"observed": "kept" if link == "connected" else f"link {link}", "echo": self.echo(role)}
+        panes = {role: self.after_holder_kill(role, shells[role], victim, holders) for role in roles}
         untouched = [pid for pid in others if self.g.sh(f"kill -0 {pid}").returncode == 0]
-        ok = bool(panes) and all(p["echo"] and p["observed"] in ("ended", "kept") for p in panes.values()) and untouched == others
-        return ok, {"killed": victim, "other_holders": others, "untouched": untouched, "panes": panes}
+        ok = all(p["echo"] and p["observed"] in ("ended", "kept", "untouched") for p in panes.values()) and untouched == others
+        return ok, {"killed": victim, "shells_before": shells, "other_holders": others, "untouched": untouched,
+                    "panes": panes}
+
+    def after_holder_kill(self, role: str, before: tuple[int, int] | None, victim: int, holders: list[int]) -> dict:
+        """What the `role` terminal shows after its holder (or another one) was killed."""
+        tab = self.tabs[role]
+        if not before or before[1] != victim:
+            now = self.shell_ids(role)  # another holder's terminal keeps its shell
+            return {"observed": "untouched" if before and now == before else f"shell {before} -> {now}",
+                    "echo": now is not None}
+        # The daemon reports the shell ended, or a new holder adopted the masters it holds.
+        settled = self.wait(lambda: (lambda p, new: {**p, "new_holders": new} if p.get("link") == "exited"
+                                     or (p.get("link") == "connected" and new) else None)(
+            self.pane_of(tab), sorted(set(self.holders()) - set(holders))), 30) or {}
+        if settled.get("link") == "exited":
+            # What the person sees: the banner and "Restart Shell Here", whose action is tab.restart.
+            overlay = self.wait(lambda: (lambda p: p if p.get("restart_offered") and p.get("status_text") else None)(
+                self.pane_of(tab)), 10) or self.pane_of(tab)
+            offered = bool(overlay.get("restart_offered")) and bool(overlay.get("status_text"))
+            seen = {"status_text": overlay.get("status_text"), "restart_offered": overlay.get("restart_offered")}
+            if not offered:
+                return {"observed": "ended without the Restart overlay", **seen, "echo": False}
+            ran = self.call("action.run", {"action": "tab.restart", "target": "tab:" + tab, "focus": True})
+            back = self.wait(lambda: self.pane_of(tab).get("link") == "connected", 60)
+            return {"observed": "ended", **seen, "restart": ran, "restarted": bool(back),
+                    "echo": bool(back) and self.echo(role)}
+        if settled.get("link") == "connected":
+            now = self.shell_ids(role)  # the same shell, its master now held by the new holder
+            kept = now is not None and now[0] == before[0]
+            return {"observed": "kept" if kept else f"shell {before[0]} -> {now}", "new_holders": settled["new_holders"],
+                    "echo": now is not None}
+        return {"observed": f"link {self.pane_of(tab).get('link')} and no new holder", "echo": False}
 
     def fault_fd_limit(self):
         limit = self.g.sh(f"/usr/sbin/lsof -p {self.app_pid} 2>/dev/null | wc -l").stdout.strip()
@@ -523,19 +652,24 @@ class Chaos(Smoke):
         g = self.g
         g.sh(f"dd if=/dev/zero of={HOME_MOUNT}/fill bs=1048576 >/dev/null 2>&1; true", timeout=180)
         free = g.sh(f"df -k {HOME_MOUNT} | awk 'NR==2 {{print $4}}'").stdout.strip()
+        if not free.isdigit() or int(free) >= FULL_FREE_KB:
+            g.sh(f"rm -f {HOME_MOUNT}/fill")
+            raise Skip(f"dd did not fill the home volume: {free or 'no df'} KB free")
         try:
+            known = set(self.tabs.values())
             self.call("action.run", {"action": "newTab", "focus": True, "wait": True})
-            fresh = self.wait(lambda: (lambda t: t if t and t not in self.tabs.values() else None)(self.focused_terminal()), 60)
+            fresh = self.wait(lambda: (lambda t: t if t and t not in known else None)(self.focused_terminal()), 60)
             if fresh:
                 self.tabs["full"] = fresh
             split = self.call("action.run", {"action": "splitRight", "focus": True})
             settings = self.call("settings.open", {"focus": True})
-            echoed = self.echo("full" if fresh else "left")
+            echoed = bool(fresh) and self.echo("full")
         finally:
             g.sh(f"rm -f {HOME_MOUNT}/fill")
         after = self.g.ping_ms(PING_BOUND_MS / 1000)
-        return echoed and after is not None and after < PING_BOUND_MS, {
-            "free_kb_when_full": free, "new_terminal": bool(fresh), "split": split, "settings": settings,
+        answered = after is not None and after < PING_BOUND_MS
+        return bool(fresh) and "error" not in split and "error" not in settings and echoed and answered, {
+            "free_kb_when_full": int(free), "new_workspace": bool(fresh), "split": split, "settings": settings,
             "echo": echoed, "ping_after_free_ms_vm": after}
 
     def missing(self, role: str):
@@ -557,12 +691,14 @@ class Chaos(Smoke):
 
     def run(self, faults: list[str]) -> None:
         g = self.g
+        self.since = self.guest_time() - 5  # report mtimes and the unified log are in the guest's clock
         self.result["os"] = g.sh("sw_vers -productVersion").stdout.strip()
         self.result["build"] = g.sh("sw_vers -buildVersion").stdout.strip()
         g.sh(": >/tmp/cmux-fuzz-app.log")
         rows = self.result["faults"]
         for phase in dict.fromkeys(FAULTS[f][0] for f in faults):
             names = [f for f in faults if FAULTS[f][0] == phase]
+            begun = self.guest_time()
             if self.app_pid is not None:
                 self.quit()
             why = self.prepare(phase)
@@ -571,58 +707,93 @@ class Chaos(Smoke):
             elif why is None and "error" in self.call("system.identify"):
                 why = "the app refused `cmux app call`: chaos needs a DEV build"
             problems = {} if why else self.tour()
+            setup = self.segment(phase, "launch and tour", begun)
             if problems:
                 # A fault that needs a missing tab fails on it (Chaos.missing); the rest still run.
                 self.result.setdefault("tour", {})[phase] = problems
             if why or "terminal" in problems:
-                # The phase never reached its faults: each is a FAIL with the reason.
+                # The phase never reached its faults: each is a FAIL with the reason and owns a crash in its setup.
                 for name in names:
                     rows.append({"fault": name, "phase": phase, "expected": FAULTS[name][1], "outcome": "FAIL",
-                                 "ok": False, "detail": {"phase_setup": why or problems}})
+                                 "ok": False, "detail": {"phase_setup": why or problems}, "window": setup,
+                                 "crash_reports": []})
                     print("%-18s FAIL %s" % (name, json.dumps(why or problems)[:400]), flush=True)
                 self.cleanup(phase)
                 continue
             for name in names:
                 if g.pid() is None or g.pid() != self.app_pid:
                     rows.append({"fault": name, "phase": phase, "expected": FAULTS[name][1], "outcome": "FAIL",
-                                 "ok": False, "detail": {"why": "the app was gone before this fault (see the one before)"}})
+                                 "ok": False, "detail": {"why": "the app was gone before this fault (see the one before)"},
+                                 "crash_reports": []})
                     continue
                 rows.append(self.run_fault(name, phase))
+            ending = self.guest_time()
             self.quit()
             self.cleanup(phase)
+            self.segment(phase, "quit", ending)
+
+    def segment(self, phase: str, part: str, begun: float) -> list[float]:
+        """Records a stretch of the run that is no fault (a launch and tour, a quit), in the guest's clock."""
+        window = [begun, self.guest_time()]
+        self.result.setdefault("segments", []).append({"phase": phase, "part": part, "window": window})
+        return window
+
+    @staticmethod
+    def crash_time(text: str, mtime: float) -> tuple[float, str]:
+        """When the process crashed, in the guest's clock: the report's `captureTime`, else its header's
+        `timestamp`. The file's mtime is when ReportCrash wrote it, up to ~20 s later (into the next fault)."""
+        for key in ("captureTime", "timestamp"):
+            found = re.search(r'"%s"\s*:\s*"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:\.\d+)? ([+-]\d{4})"' % key, text)
+            if found:
+                stamp = datetime.datetime.strptime(" ".join(found.groups()), "%Y-%m-%d %H:%M:%S %z")
+                return stamp.timestamp(), key
+        return mtime, "mtime"
+
+    @staticmethod
+    def owners(rows: list[dict], at: float) -> list[dict]:
+        """The fault rows whose window holds `at` (1 s either side: the guest clock has whole seconds). Two
+        fault windows meet at most at an edge, where the later one owns it; the phase-setup rows of a phase
+        share one window, so a crash there is each one's."""
+        held = [r for r in rows if r.get("window") and r["window"][0] - 1 <= at <= r["window"][1] + 1]
+        if not held:
+            return []
+        start = max(r["window"][0] for r in held)
+        return [r for r in held if r["window"][0] == start]
 
     def finish(self) -> None:
         g = self.g
         if self.app_pid is not None:
+            ending = self.guest_time()
             self.quit()
+            self.segment("end", "quit", ending)
         g.sh("kill $(cat /tmp/cmux-chaos-www.pid 2>/dev/null) 2>/dev/null; "
              f"sudo -n /sbin/pfctl -a {PF_ANCHOR} -F all >/dev/null 2>&1; "
              f"hdiutil detach -quiet -force {HOME_MOUNT} >/dev/null 2>&1; true", timeout=60)
         rows = self.result["faults"]
-        # ReportCrash writes a report up to ~20 s after a death: a late one belongs to the fault whose
-        # window holds its time (or the last fault before it).
-        time.sleep(REPORT_DEADLINE)
+        time.sleep(REPORT_DEADLINE)  # ReportCrash writes a report up to ~20 s after a death
         reports = self.reports_since(self.since)
         unowned = []
         for mtime, path in reports:
             name = os.path.basename(path)
-            open(os.path.join(self.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
+            text = g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout
+            open(os.path.join(self.out, name), "w").write(text)
             if report_kind(name) != "crash":
                 continue
-            owner = None
-            for row in rows:
-                if row.get("window") and row["window"][0] - 1 <= mtime:
-                    owner = row
-            if owner is None:
-                unowned.append(name)  # a crash at a launch or in a tour, before any fault
-            else:
-                owner["crash_reports"].append(name)
-                owner.update(outcome="FAIL", ok=False)
+            at, source = self.crash_time(text, mtime)
+            owners = self.owners(rows, at)
+            for row in owners:
+                row["crash_reports"].append(name)
+                row.update(outcome="FAIL", ok=False)
+            if not owners:
+                # A crash at a launch, in a tour or at a quit: no fault's, and it fails the run.
+                during = next((f"{s['phase']}: {s['part']}" for s in self.result.get("segments", [])
+                               if s["window"][0] - 1 <= at <= s["window"][1] + 1), None)
+                unowned.append({"report": name, "crashed_at": at, "time_from": source, "during": during})
         open(os.path.join(self.out, "app.log"), "w").write(g.sh("cat /tmp/cmux-fuzz-app.log", timeout=30).stdout)
         faults = g.sh(f"log show --style ndjson --start '@{int(self.since)}' --predicate "
                       "'(process CONTAINS \"cmux\") AND (messageType == fault)' 2>/dev/null | tail -500", timeout=120)
         open(os.path.join(self.out, "faults.ndjson"), "w").write(faults.stdout)
-        crashes = sorted({n for r in rows for n in r.get("crash_reports", [])} | set(unowned))
+        crashes = sorted({n for r in rows for n in r.get("crash_reports", [])} | {u["report"] for u in unowned})
         failed = [r["fault"] for r in rows if r["outcome"] == "FAIL"]
         skipped = [r["fault"] for r in rows if r["outcome"] == "skip"]
         self.result.update(reports=[{"kind": report_kind(os.path.basename(p)), "report": os.path.basename(p)} for _, p in reports],
