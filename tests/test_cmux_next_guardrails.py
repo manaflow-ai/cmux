@@ -2235,6 +2235,11 @@ MAIN_CLASS_CASES = {
         (f"{KIT}/Added.swift", "func start() {\n    NotificationCenter.default.addObserver(self, selector: #selector(resized), "
          "name: NSWindow.didResizeNotification, object: window)\n}\n",
          "func start() {\n    resize = windowEvents.subscribe(.didResize, node: node) { [weak self] in self?.resized() }\n}\n"),
+        # A notice name passed straight to a WindowEvents or AppEvents subscription is recipe R-notif's target.
+        (f"{KIT}/Added.swift", "func start() {\n    resign = MainActorObservation(NSApplication.didResignActiveNotification) "
+         "{ [weak self] in self?.stop() }\n}\n",
+         "func start() {\n    resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: \"Chord\") "
+         "{ [weak self] in self?.stop() }\n}\n"),
         (f"{KIT}/Added.swift", "func start() {\n    observation = webView.observe(\\.title) { _, _ in update() }\n}\n",
          "func start() {\n    // raw-observer-allow: WebKit's title has no notice; the tab node gates it\n"
          "    observation = webView.observe(\\.title) { _, _ in update() }\n}\n"),
