@@ -64,6 +64,8 @@ cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# Generated client request types (cmux_ipc::client, p05-ipc task 028).
+cmux-ipc = { workspace = true, features = ["client"] }
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.

@@ -651,6 +651,12 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-040: Fixture.state, one lock for the vendored MessagesLab palette snapshot and render fallbacks. It replaces five unsynchronized Fixture static vars (theme, lightAppearance, paletteGeneration, elevated, fallbackRenderScale) and Metrics.current; MessagesLabHome global_mutable_statics -29 net. It goes when MessagesWindowView owns its palette and passes it to the renderers."
     }
   ],
   "observer_wrappers": [
