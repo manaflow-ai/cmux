@@ -20,6 +20,12 @@ import CmuxNextTerminal
 /// - `update_visibility`: `LayoutRootView.updateVisibility()` calls of the mounted roots (`roots`: every
 ///   window's shown and parked workspaces); DC2 of plans/cmux-next/chrome-parity/p03-rendering.md wants
 ///   <= 2 per spring (motion-main-work.py). Per-root counts, so `reset` leaves it: read a delta.
+/// - `presented_hit_reads`: presentation-layer reads of pane hit tests of the mounted roots
+///   (`LayoutRootView.presentedHitReads`): one per moving host for a press mid render-server spring, none
+///   for a press at rest (p03-rendering-098). Per-host counts: read a delta.
+/// - `presses_mid_spring`: presses the layout's intercept handled while render-server springs ran on the
+///   active screen (`LayoutRootView.pressesMidRenderSpring`), whatever their hit test read: when a press came
+///   (every-action-sweep.py `click.during_motion`). Read a delta.
 /// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
 /// - `terminal_grid_reports`: grids terminals reported to their session (one PTY resize and shell
 ///   redraw each). A motion that moves the content edge over frames (a pane's layout spring, the
@@ -51,6 +57,7 @@ enum DebugLayoutCounters {
 
     static func handle(_ params: [String: JSONValue], roots: [LayoutRootView] = []) -> JSONValue {
         let visibilityUpdates = roots.reduce(UInt64(0)) { $0 &+ $1.visibilityUpdates }
+        let presentedHitReads = roots.reduce(0) { $0 + $1.presentedHitReads }
         let report: JSONValue = [
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
@@ -59,6 +66,8 @@ enum DebugLayoutCounters {
             "layout_root_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.layoutPasses)),
             "pane_chrome_updates": JSONValue(Int(truncatingIfNeeded: LayoutRootView.paneChromeUpdates)),
             "update_visibility": JSONValue(Int(truncatingIfNeeded: visibilityUpdates)),
+            "presented_hit_reads": JSONValue(presentedHitReads),
+            "presses_mid_spring": JSONValue(roots.reduce(0) { $0 + $1.pressesMidRenderSpring }),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),

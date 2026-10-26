@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-public import CmuxNextInput
+public import CmuxNextWakeups
 import CmuxNextCompat
 
 // Development builds only: the pane is not exposed in Release until the
@@ -47,7 +47,7 @@ public final class RemoteDesktopPane {
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): moves, drags and
     /// mid-gesture scrolls reach the host at most twice per display frame. Nil sends each at once.
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         get { view.capture.pointerFrames }
         set { view.capture.pointerFrames = newValue }
     }

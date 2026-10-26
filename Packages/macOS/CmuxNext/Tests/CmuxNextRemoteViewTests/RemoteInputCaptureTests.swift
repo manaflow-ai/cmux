@@ -1,12 +1,11 @@
 import AppKit
-import CmuxNextInput
 @testable import CmuxNextRemoteView
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The remote desktop's pointer once per frame (feature `pointerFrameRemoteInput`, p04-input-035): with
-/// the window's PointerFrameCoalescer (p04-input-030) a frame interval's first move goes to the host at
+/// the window's FrameInputCoalescer (p04-input-030) a frame interval's first move goes to the host at
 /// once and the rest once at the frame, to the latest point; scrolls in the middle of a gesture sum per
 /// phase; a button, a key or a scroll phase edge sends what waits first (Chromium's rAF-aligned input
 /// and `ShouldFlushQueue`, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
@@ -28,7 +27,7 @@ import Testing
         let sink = Recorder()
         let window: NSWindow
         let scheduler: FrameScheduler
-        let coalescer: PointerFrameCoalescer
+        let coalescer: FrameInputCoalescer
         private var frames = 0
 
         /// `coalesced`: the pointer goes through the window's coalescer (the feature on).
@@ -36,8 +35,7 @@ import Testing
             _ = NSApplication.shared
             let ledger = WakeupLedger()
             scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in RemoteCaptureTestLink() }
-            let coalescer = PointerFrameCoalescer(
-                scheduler: scheduler, fallback: DemandTimer(owner: "PointerFrameCoalescer.fallback", clock: ManualClock(), ledger: ledger))
+            let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: ledger)
             self.coalescer = coalescer
             window = KeyWindow(contentRect: capture.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -45,7 +43,7 @@ import Testing
             capture.geometry = { RemoteViewGeometry(framePixels: CGSize(width: 1600, height: 1200), bounds: CGRect(x: 0, y: 0, width: 800, height: 600),
                                                     backingScale: 2) }
             capture.controller.sink = sink
-            capture.pointerFrames = coalesced ? PointerFrameCoalescers(tap: nil) { _ in coalescer } : nil
+            capture.pointerFrames = coalesced ? FrameInputCoalescers { _ in coalescer } : nil
             capture.controlMode = true
             window.makeFirstResponder(capture)
         }

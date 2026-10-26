@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// What a Cloud action found, for whoever ran it: a person sees `text` in a
 /// sheet titled `title`; a CLI, MCP, script or remote run gets `text` and
@@ -69,27 +70,12 @@ extension CloudHandlers {
     }
 
     /// `work`'s answer if it comes within `wait`, else nil (the work keeps
-    /// running). Both sides yield into one stream and the first value wins:
-    /// awaiting an unstructured task's `value` ignores cancellation, so a
-    /// task group racing it would wait for the work to end anyway. The stream
-    /// keeps only the first of its two values.
+    /// running). A ``Deadline`` race: awaiting an unstructured task's `value`
+    /// ignores cancellation, so a task group racing it would wait for the
+    /// work to end anyway; the race resumes at the limit and drops the late
+    /// answer, and cancelling its wait leaves the work itself running.
     static func firstAnswer(_ work: ActionResultWork, within wait: Duration) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
-        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>
-            .makeStream(bufferingPolicy: .bufferingOldest(1))
-        // task-owner: relays the work's answer; it ends with the work (a yield after finish is dropped).
-        Task { continuation.yield(await work.value) }
-        // task-owner: the answer deadline; cancelled below once an answer is in.
-        let deadline = Task {
-            // wakeup-allow: one-shot answer deadline; cancelled when the work answers first
-            try? await Task.sleep(for: wait)
-            continuation.yield(nil)
-        }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-        }
-        for await answer in answers { return answer }
-        return nil
+        await Deadline(wait).value("CloudHandlers.answer") { await work.value }
     }
 
     /// `cloud new-machine` from a CLI or MCP: the run answers once the server
@@ -106,17 +92,7 @@ extension CloudHandlers {
         let creations = context.services.cloud.creations
         // task-owner: the action run; it ends when the create settles or the wait ends.
         let task: ActionResultWork = Task { @MainActor in
-            // concurrency-allow: the observation task is cancelled by the bounded race below
-            let settled = await withTaskGroup(of: CreatedMachine?.self) { group -> CreatedMachine? in
-                group.addTask { await settledCreation(creation, in: creations) }
-                group.addTask {
-                    // wakeup-allow: one-shot answer deadline; this task is cancelled when the create settles first
-                    try? await Task.sleep(for: wait)
-                    return nil
-                }
-                defer { group.cancelAll() }
-                return await group.next() ?? nil
-            }
+            let settled: CreatedMachine? = await Deadline(wait).value("CloudHandlers.createdMachine") { await settledCreation(creation, in: creations) } ?? nil
             switch settled {
             case .created?, .pending?, nil:
                 guard let session = creation.session else {

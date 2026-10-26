@@ -6,7 +6,7 @@ import Testing
 
 #if DEBUG
 /// A remote tab's page pointer once per frame (feature `pointerFrameRemoteInput`, p04-input-035): with
-/// the window's PointerFrameCoalescer (p04-input-030) a frame interval's first move goes to the page at
+/// the window's FrameInputCoalescer (p04-input-030) a frame interval's first move goes to the page at
 /// once and the rest once at the frame, to the latest point; scrolls in the middle of a gesture sum per
 /// phase; buttons, enter, leave, keys and scroll phase edges send what waits first (Chromium's
 /// rAF-aligned input and `ShouldFlushQueue`, `third_party/blink/renderer/platform/widget/input/
@@ -95,8 +95,9 @@ import Testing
         #expect(harness.target.calls == Array(repeating: .event(.mouseMoved), count: 8))
     }
 
-    /// A press, a release, a leave and a key each send the waiting moves first: the page sees every
-    /// event in the order it came, and a drag carries the press's click count.
+    /// A press, a release and a leave each send the waiting move first, and the move after them is a
+    /// leading edge again: the page sees every event in the order it came, and a drag carries the
+    /// press's click count.
     @Test func discreteEventsSendTheWaitingMovesFirst() {
         let harness = Harness()
         defer { harness.close() }
@@ -114,7 +115,8 @@ import Testing
             .frame(.move, x: 110, merged: 1, dy: 0, clickCount: 0),
             .frame(.move, x: 120, merged: 1, dy: 0, clickCount: 0),
             .event(.leftMouseDown),
-            .frame(.drag, x: 140, merged: 2, dy: 0, clickCount: 2),
+            .frame(.drag, x: 130, merged: 1, dy: 0, clickCount: 2),
+            .frame(.drag, x: 140, merged: 1, dy: 0, clickCount: 2),
             .event(.leftMouseUp),
             .frame(.move, x: 150, merged: 1, dy: 0, clickCount: 0),
             .event(.mouseExited),

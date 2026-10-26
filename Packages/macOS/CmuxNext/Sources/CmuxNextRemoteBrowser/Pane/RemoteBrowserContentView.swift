@@ -1,7 +1,8 @@
 public import AppKit
 import CmuxNextDesign
-public import CmuxNextInput
+import CmuxNextInput
 public import CmuxNextInputCore
+public import CmuxNextWakeups
 package import CmuxNextRemoteView
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -32,7 +33,7 @@ public final class RemoteBrowserContentView: NSView {
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
 
     /// The windows' frame-aligned pointer input; nil sends every move and scroll at once.
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         didSet { if pointerFrames !== oldValue { dropFramePointer() } }
     }
     /// This view's consumer of its window's coalescer, made on the first move in a window.

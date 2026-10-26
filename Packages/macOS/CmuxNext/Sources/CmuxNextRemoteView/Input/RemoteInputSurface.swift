@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The remote view's input surface for panes outside this module (Mac
 /// Screen tabs): the same capture view, keyboard policy, release chord and
@@ -77,7 +77,7 @@ public final class RemoteInputSurface {
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): moves, drags and
     /// mid-gesture scrolls reach the host at most twice per display frame. Nil sends each at once.
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         get { capture.pointerFrames }
         set { capture.pointerFrames = newValue }
     }

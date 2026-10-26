@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
-public import CmuxNextInput
+public import CmuxNextWakeups
 import CmuxNextIcons
 public import CmuxNextRemoteView
 import Foundation
@@ -88,7 +88,7 @@ public final class RemoteViewPageTab: BrowserTab {
 
     /// The windows' frame-aligned pointer input for the desktop pane (feature `pointerFrameRemoteInput`);
     /// a tab with no session has none.
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         get { session?.pointerFrames }
         set { session?.pointerFrames = newValue }
     }

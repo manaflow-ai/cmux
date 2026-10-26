@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 13330,
-            "T2": 18960
+            "T1": 17590,
+            "T2": 20520
           },
           "stories": {
             "T1": [
@@ -14,6 +14,7 @@
               "activation-stress",
               "blocking-hangs",
               "chat-anim",
+              "command-pan",
               "daemon-ops",
               "home-idle",
               "launch-cold",
@@ -28,14 +29,24 @@
               "new-tab-daemon",
               "new-tab-page",
               "omnibar",
+              "omnibar-click",
+              "omnibar-click-webkit",
               "open-panel",
+              "palette-open",
+              "palette-open-webkit",
               "pane-stress",
               "perf-gate",
               "sidebar",
+              "sidebar-mirror-rebuild",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
+              "sidebar-stress",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
-              "tab-switch-stages"
+              "tab-switch-stages",
+              "typing",
+              "typing-stress"
             ],
             "T2": [
               "action-sweep-light-1",
@@ -54,8 +65,13 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
+              "command-pan-stress",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "perceived-speed",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -70,7 +86,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 18960
+            "T2": 20520
           },
           "stories": {
             "T2": [
@@ -90,8 +106,13 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
+              "command-pan-stress",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "perceived-speed",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -106,7 +127,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6660
+            "T1": 8920
           },
           "stories": {
             "T0": [
@@ -115,44 +136,56 @@
             "T1": [
               "activation-stress",
               "blocking-hangs",
+              "command-pan",
               "daemon-ops",
-              "launch-cold",
               "launch-cold-realistic",
               "motion",
-              "new-browser-tab",
-              "new-tab-daemon",
-              "new-tab-page",
+              "new-browser-tab-webkit",
               "omnibar",
+              "omnibar-click",
+              "open-panel",
+              "palette-open-webkit",
               "pane-stress",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
               "switch",
-              "tab-switch-stages"
+              "tab-switch",
+              "tab-switch-repeat",
+              "typing-stress"
             ]
           }
         },
         {
           "index": 1,
           "seconds": {
-            "T0": 120,
-            "T1": 6670
+            "T0": 150,
+            "T1": 8670
           },
           "stories": {
             "T0": [
-              "launch-warm"
+              "launch-warm",
+              "typing-terminal"
             ],
             "T1": [
               "activation",
               "chat-anim",
               "home-idle",
+              "launch-cold",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
-              "new-browser-tab-webkit",
+              "new-browser-tab",
               "new-surfaces-matrix",
-              "open-panel",
+              "new-tab-daemon",
+              "new-tab-page",
+              "omnibar-click-webkit",
+              "palette-open",
               "perf-gate",
               "sidebar",
-              "tab-switch",
-              "tab-switch-repeat"
+              "sidebar-mirror-rebuild",
+              "sidebar-stress",
+              "tab-switch-stages",
+              "typing"
             ]
           }
         }

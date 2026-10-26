@@ -2,6 +2,7 @@ package import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextInput
+import CmuxNextWakeups
 package import CmuxNextInputCore
 
 /// The pane's input surface, over the video. It takes keyboard focus on
@@ -31,7 +32,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     /// (a state card over the picture), never to the host.
     var acceptsPointer = true
     /// The windows' frame-aligned pointer input; nil sends every move and scroll at once.
-    var pointerFrames: PointerFrameCoalescers? {
+    var pointerFrames: FrameInputCoalescers? {
         didSet { if pointerFrames !== oldValue { dropFramePointer() } }
     }
     /// This view's consumer of its window's coalescer, made on the first move in a window.

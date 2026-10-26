@@ -782,6 +782,9 @@ pub struct Mux {
     keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
+    /// This owner's memory registry: consumers register, sources vote.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by p07-memory-044 and 109"))]
+    pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,

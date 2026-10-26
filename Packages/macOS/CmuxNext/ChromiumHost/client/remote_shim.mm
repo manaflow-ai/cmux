@@ -756,4 +756,15 @@ CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void) {
   return static_cast<int>(sizeof(cmux_shim_password_entry));
 }
 
+// A Mach port name is this process's: in the host it would name nothing, or another right.
+// So nothing is sent and the result is a fork's without the call; host mode's fence is a port
+// right over XPC (task 052).
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
+                                                        unsigned int deadline_frames) {
+  (void)browser_id;
+  (void)fence_port;
+  (void)deadline_frames;
+  return 0;
+}
+
 }  // extern "C"

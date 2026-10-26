@@ -261,7 +261,7 @@ extension ControlRouter {
     /// this hop, so each has opened its first ticket by the time it runs,
     /// and a task opens its next ticket before yielding the main actor.
     static func awaitIdle(_ scope: ControlCommandScope) async {
-        // wakeup-allow: each iteration waits for the scope's open commands to reply, never polls
+        // wakeup-allow: bounded: each iteration waits for the scope's open commands to reply, never polls
         while !Task.isCancelled {
             if await MainActor.run(body: { scope.isIdle }) { return }
             await scope.waitUntilIdle()

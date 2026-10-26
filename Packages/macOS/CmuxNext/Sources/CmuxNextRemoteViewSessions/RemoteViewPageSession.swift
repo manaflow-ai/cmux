@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextInput
+public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxNextSettings
 
@@ -124,7 +124,7 @@ public final class RemoteViewPageSession {
     }
 
     /// The windows' frame-aligned pointer input for the pane (feature `pointerFrameRemoteInput`).
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         get { pane.pointerFrames }
         set { pane.pointerFrames = newValue }
     }
@@ -191,7 +191,7 @@ public final class RemoteViewPageSession {
         get { nil }
         set {}
     }
-    public var pointerFrames: PointerFrameCoalescers? {
+    public var pointerFrames: FrameInputCoalescers? {
         get { nil }
         set {}
     }
