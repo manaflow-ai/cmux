@@ -367,10 +367,10 @@ export default agentPaneEntry({
       },
     },
     // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page, and
-    // its More models submenu ends on Add harness….
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
+    // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
     "model-picker-open": {
-      note: "The New Tab model button's menu, open: the harness rail and the numbered models, never cut by the card; More models ends on Add harness….",
+      note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
@@ -386,10 +386,10 @@ export default agentPaneEntry({
         });
         // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
         // later in the document, and a text target takes the last match.
-        await ctx.hover({ role: "menuitem", name: "More models" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
-        const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
-        if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
+        await ctx.click({ role: "menuitem", name: "More models" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
+        const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
+        if (!more.nextElementSibling?.textContent?.includes("Add harness"))
           throw new Error("the model menu's More models does not end on Add harness…");
       },
     },

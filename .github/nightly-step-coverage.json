@@ -198,6 +198,9 @@
         "Record verified nightly publication": {"nightly_only": "edits published GitHub release body"},
         "Move channel release tag to built commit": {"nightly_only": "moves channel release tag (publication; update-release-tag.py tested by tests/test_update_release_tag.py)"},
         "Record nightly publication marker outcome": {"plumbing": true}},
+      "keep-published-dsyms": {
+        "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},
+        "Keep the published build's dSYMs on R2": {"nightly_only": "archives the published build's symbols to R2 with release credentials after publication"}},
       "legacy-identity-target": {
         "Compare the cmux NEXT feed with the old feed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"}},
       "sign-nightly-identity-legacy": {
@@ -231,6 +234,8 @@
         "Find the failure issue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Report a failed publication": {"nightly_only": "opens issue with write token"},
         "Fail a failed attempt": {"plumbing": true}},
+      "nightly-identity-legacy-published": {
+        "The old feed published, or had nothing to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"}},
       "generate-nightly-deltas": {
         "Select Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (job env; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},

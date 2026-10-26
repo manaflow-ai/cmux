@@ -72,3 +72,14 @@ fn the_prompt_says_to_decide_instead_of_asking() {
         "asks only for money, legal, destructive or sign-in steps"
     );
 }
+
+#[test]
+fn the_prompt_keeps_status_replies_to_one_line_per_task() {
+    let p = optchat_chief::prompt::claude_md(None);
+    assert!(p.contains("one line per task or agent"), "status shape");
+    assert!(p.contains("No intro line, no closing line"), "no filler");
+    assert!(
+        p.contains("Never narrate your own steps"),
+        "no tool narration"
+    );
+}

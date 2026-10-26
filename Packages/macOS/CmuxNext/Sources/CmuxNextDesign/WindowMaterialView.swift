@@ -208,28 +208,34 @@ public final class WindowMaterialView: NSView {
         return !(appActive && familyHoldsKey)
     }
 
-    func updateInactiveTint() {
+    /// Shows the wash for the window's key state now. `fades` eases it in or out (`scrim`), for a
+    /// setting or theme change. A key change passes false: the wash then lands in the same
+    /// transaction as AppKit's own key-state redraw (Liquid Glass dropping its tint, the traffic
+    /// lights), so losing focus is one change, as native glass and NSVisualEffectView switch, not
+    /// the glass frosting first and the wash fading in after it (Leo 2026-10-25: "it frosts the
+    /// glass before the background").
+    func updateInactiveTint(fades: Bool = true) {
         let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey, tintAlpha: tintAlpha,
                                                                    dim: CGFloat(DesignSettings.shared.inactiveWindowDim))
         let wash = alpha > 0 ? washColor : nil
         guard let layer = inactiveTintView.layer else { return }
         let previous = inactiveTintTarget
         inactiveTintTarget = alpha
+        // A window not on screen, or a key change, applies at once.
+        let eases = fades && window?.isVisible == true
         // Visible now, mid-fade included (the model opacity of a fading-out wash is already 0).
         let showing = !inactiveTintView.isHidden
         // The wash's color: a tint change while it shows blends like the glass under it. A wash
         // fading out keeps its color until it is gone.
         if let wash, layer.backgroundColor != wash {
-            if layer.backgroundColor != nil, showing, window?.isVisible == true {
+            if layer.backgroundColor != nil, showing, eases {
                 ColorTransition.current.animate(layer, to: wash)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = wash
             }
         }
-        // Showing or hiding the wash eases (`scrim`): the palette taking the keys darkened the
-        // whole window in one frame (Leo 2026-10-20). A window not on screen applies at once.
-        guard window?.isVisible == true else {
+        guard eases else {
             inactiveTintFade += 1
             layer.removeAnimation(forKey: "opacity")
             CATransaction.begin()
@@ -239,6 +245,8 @@ public final class WindowMaterialView: NSView {
             inactiveTintView.isHidden = alpha == 0
             return
         }
+        // Showing or hiding the wash for a setting or theme change eases (`scrim`): a whole-window
+        // dim in one frame reads as a flash (Leo 2026-10-20).
         // Same target: a fade under way runs on (a theme apply mid-fade does not cut it short).
         guard alpha != previous || (alpha > 0 && !showing) else { return }
         guard alpha > 0 || showing else { return }
