@@ -114,15 +114,14 @@ fn denied_paths(home: &Path, read_denies: &[PathBuf]) -> Result<BTreeSet<PathBuf
     Ok(denied)
 }
 
-/// Rebuild only ancestors of denied leaves; never mount the leaves. New
-/// host entries in rebuilt directories remain invisible for the session
-/// (stricter than Seatbelt). Symlinks are recreated, never bind-followed.
+/// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
 /// All traversals stop after the finite deny/ancestor/child snapshots.
 fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, String> {
-    let minimal: Vec<_> =
-        denied.iter().filter(|p| !denied.iter().any(|q| q != *p && p.starts_with(q))).collect();
     let mut dirs = BTreeSet::from([home.to_owned()]);
-    for path in minimal {
+    // Include every denied name: an ancestor is rebuilt even when another
+    // denial makes its leaf redundant, so Linux additions (including Claude's
+    // credential) can never be forgotten by the caller.
+    for path in denied {
         for parent in path.ancestors().skip(1).take_while(|p| p.starts_with(home)) {
             let parent = resolve_missing(parent)?;
             if !parent.starts_with(home) {
