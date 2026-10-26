@@ -652,6 +652,8 @@ final class AppServices {
     let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    /// Numeric launch values (the sidebar's launch rows, p08-startup-064): `debug.startup`'s counters, and the startup bench's pipe.
+    let launchValues = LaunchValueMarks { LaunchMarkSink.shared.writeValue(name: $0, value: $1) }
     /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
     var tabSwitch = TabSwitchSignpost()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
