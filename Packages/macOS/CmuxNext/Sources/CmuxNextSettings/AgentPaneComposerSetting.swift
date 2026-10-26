@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "subagentPanes": false }
+/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "subagentPanes": false }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -12,6 +12,9 @@ import CmuxNextDesign
 /// in every composer (a chat's and the New Tab page's); its right-click hides it, Settings shows it
 /// again. A bad value is the default plus a diagnostic.
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
+/// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
+/// (each in the text where it was added, as Messages does; the default) or `strip` (in a row). Only
+/// the look: a draft's text, its attachments and their order are the same in both.
 /// `subagentPanes`: subagents open in agent panes of their own right of the chat, and a click on
 /// one opens its pane; off (the default), they show in the chat. The summary card's Open subagents
 /// in panes switch writes it (webviews/src/agent-session/acpmux/subagents/subagentPanes.ts).
@@ -25,11 +28,13 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showContextUsagePath = ["agentPane", "showContextUsage"]
     public static let showDictationPath = ["agentPane", "showDictation"]
     public static let spellCheckingPath = ["agentPane", "spellChecking"]
+    public static let attachmentViewPath = ["agentPane", "attachmentView"]
     public static let subagentPanesPath = ["agentPane", "subagentPanes"]
 
     public var showContextUsage = true
     public var showDictation = true
     public var spellChecking = false
+    public var attachmentView = AgentPaneAttachmentView.inline
     public var subagentPanes = false
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
@@ -40,12 +45,13 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, subagentPanes, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, subagentPanes, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
             "showDictation": .bool(showDictation),
             "spellChecking": .bool(spellChecking),
+            "attachmentView": .string(attachmentView.rawValue),
             "subagentPanes": .bool(subagentPanes),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
@@ -57,6 +63,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
         var setting = fallback
         for descriptor in AgentPaneComposerSettingsSchema.descriptors {
             guard let value = root.value(at: descriptor.path) else { continue }
+            if descriptor.path == attachmentViewPath {
+                guard descriptor.accepts(value), let view = value.stringValue.flatMap(AgentPaneAttachmentView.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.attachmentView = view
+                continue
+            }
             guard descriptor.accepts(value), let flag = value.boolValue else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
@@ -68,6 +82,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
         }
         return setting
     }
+}
+
+/// How the composer and sent messages show attachments (`agentPane.attachmentView`).
+public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, CaseIterable {
+    /// Each attachment in the text where it was added, as Messages does.
+    case inline
+    /// The attachments together in a row.
+    case strip
 }
 
 /// The composer's rows (General > Agent Chat, next to the edited-files card's).
@@ -106,6 +128,20 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                                          "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat."),
                 kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.subagentPanes),
                 keywords: ["subagent", "subagents", "pane", "panes", "split", "agent", "chat"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.attachmentViewPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
+                help: SettingsText.keyed("settings.agentPane.attachmentView.help",
+                                         "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."),
+                kind: .choice([
+                    SettingChoice(AgentPaneAttachmentView.inline.rawValue,
+                                  SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
+                    SettingChoice(AgentPaneAttachmentView.strip.rawValue,
+                                  SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
+                ]),
+                default: .string(AgentPaneComposerSetting.fallback.attachmentView.rawValue),
+                keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "composer", "messages"]
             ),
         ]
     }

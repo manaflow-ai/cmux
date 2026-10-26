@@ -37,7 +37,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let root = settings.snapshot.root
         let colors = themeColors()
         return SettingsSchema.all.filter(\.isPaletteExposed).map { descriptor in
-            let current = pending[descriptor.id].map { $0.value ?? descriptor.defaultValue } ?? descriptor.effectiveValue(in: root)
+            let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
             return row(descriptor, current: current, colors: colors)
         }
     }

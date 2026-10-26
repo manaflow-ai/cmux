@@ -1556,6 +1556,8 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held
         assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
         assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
     } else {
+        // The lost turn's continuation goes first (`restart_resume.rs`), then the queue.
+        let queue: Vec<&str> = queue.into_iter().skip_while(|id| id.contains("~resume-")).collect();
         assert!(["q-1", "q-2"].ends_with(&queue), "the queue came back out of order: {attached:#}");
     }
 

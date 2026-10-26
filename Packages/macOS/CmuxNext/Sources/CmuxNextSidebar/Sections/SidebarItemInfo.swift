@@ -35,6 +35,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
+    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    public var workspace: WorkspaceID?
     /// The blue unread dot instead of a count, in every look (Home's unread conversations): a row
     /// draws a workspace row's dot on the trailing column, an icon look dots its glyph in the same blue.
     public var unreadDot = false

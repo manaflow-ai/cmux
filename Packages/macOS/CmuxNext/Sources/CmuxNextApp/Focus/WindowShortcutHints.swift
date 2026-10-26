@@ -16,6 +16,8 @@ final class WindowShortcutHints {
     private var monitor: WindowScopedShortcutHintModifierMonitor?
     private var settingsTask: Task<Void, Never>?
     private var held: NSEvent.ModifierFlags?
+    private var scrollMonitor: Any?
+    private var scrollRefresh: Task<Void, Never>?
 
     init(controller: WindowController) {
         self.controller = controller
@@ -25,6 +27,12 @@ final class WindowShortcutHints {
         monitor = WindowScopedShortcutHintModifierMonitor(window: window, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
+        }
+        // Chips are a snapshot of where rows, tabs and panes are. A scroll moves them without a window
+        // layout, so a scroll in this window while chips show re-places them.
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak window] event in
+            if let self, held != nil, event.window === window || event.window == nil { scrollDidChange() }
+            return event
         }
         settingsTask = Task { [weak self] in
             for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
@@ -37,6 +45,18 @@ final class WindowShortcutHints {
         guard let controller else { return }
         overlay.frame = controller.root.bounds
         overlay.hints = held.map(hints(held:)) ?? []
+    }
+
+    /// Content scrolled while chips show: re-place them once the scrolled view has taken the event
+    /// (the monitor runs before it), one refresh for any burst of events in the same turn.
+    func scrollDidChange() {
+        guard held != nil, scrollRefresh == nil else { return }
+        scrollRefresh = Task { [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            scrollRefresh = nil
+            if held != nil { refresh() }
+        }
     }
 
     /// The chips a hold of `held` shows in this window now, from its resolved binding table.
@@ -147,6 +167,11 @@ final class WindowShortcutHints {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
+    /// Shows the chips of a hold without the 0.3 s intentional-hold wait or key-window checks.
+    func debugShow(_ flags: NSEvent.ModifierFlags) {
+        held = flags
+        refresh()
+    }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }
         return await monitor.debugHold(flags, window: window)
@@ -156,6 +181,10 @@ final class WindowShortcutHints {
     func stop() {
         monitor?.stop()
         settingsTask?.cancel()
+        scrollRefresh?.cancel()
+        scrollRefresh = nil
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
         overlay.removeFromSuperview()
     }
 }
