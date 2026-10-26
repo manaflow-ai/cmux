@@ -638,6 +638,19 @@ export function ThreadMinimap({
       index === undefined || !ticks[index] ? undefined : { index, key: ticks[index]!.key };
     keyed.current = { focused: at(held.focused), hovered: at(held.hovered), card: at(held.card) };
   });
+  /// The rail going (a short chat, no room): its keyboard tick, hover and card go with it, so the rail
+  /// that comes back draws none of them. Only on the change, so a rail that mounts hidden cools nothing.
+  const wasShown = useRef(shown);
+  useLayoutEffect(() => {
+    const went = wasShown.current && !shown;
+    wasShown.current = shown;
+    if (!went) return;
+    setFocused(undefined);
+    setHovered(undefined);
+    setCardRow(undefined);
+    setReveal(undefined);
+    dismiss();
+  }, [shown, dismiss]);
 
   if (full)
     return (

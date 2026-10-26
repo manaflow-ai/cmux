@@ -463,6 +463,47 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
   }
 }, 120_000);
 
+test("a keyboard-focused tick whose rail hides comes back with no tick held and no card", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const show = (rows: AcpmuxRow[]) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="long-hide-key"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const scrollTo = async (top: number) => {
+    scroller().scrollTop = top;
+    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+  };
+  try {
+    const long = span(0, 2000);
+    await show(long);
+    // At the chat's top, keyboard focus on the first prompt's tick: it grows and its card opens.
+    await scrollTo(0);
+    await act(async () => document.querySelector<HTMLElement>(`[data-tick="0"]`)!.focus());
+    expect(document.querySelector(".acpmux-minimap__card")?.textContent).toContain("Question 0");
+    // The same chat drops to 3 prompts: the rail goes, with no blur.
+    await show(span(0, 3));
+    expect(document.querySelector(".acpmux-minimap__rail")).toBeNull();
+    // It comes back whole with the reader at its end: no card, and the first prompt's tick is not
+    // held drawn by the focus it had before.
+    await show(long);
+    await scrollTo(1e9);
+    expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
+    expect(document.querySelector(`[data-tick="0"]`)).toBeNull();
+    expect(document.querySelector(".acpmux-minimap__card")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);
+
 test("a scrolled rail hidden for lack of room comes back at its place, its rows drawn", async () => {
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
