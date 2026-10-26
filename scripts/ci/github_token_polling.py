@@ -36,6 +36,10 @@ Scripts in the repository: a loop that runs a script file (`scripts/x.sh`,
 API calls and sleeps, and that script's own scripts' in turn. A script the step
 runs anywhere is also read for its own polling loops, judged by the step's
 token. A script run through a variable (`$SCRIPT`) is not followed.
+
+Not caught: Python `requests` or `http.client`, an argv built as `["gh"] + args`, JavaScript
+class methods, `eval`, and script paths held in variables. No workflow polls through these
+today; a reviewer catches a new one.
 """
 
 from __future__ import annotations
