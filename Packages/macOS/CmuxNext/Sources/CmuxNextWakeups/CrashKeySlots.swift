@@ -2,9 +2,9 @@ import CmuxNextCompat
 import CmuxNextTrace
 
 /// The app's in-process crash keys (plans/cmux-next/chrome-parity/p10-stability.md section 3B, task 207): a
-/// fixed block of 64-bit words, allocated once when the slots are made and never resized, that the action
-/// pipeline and the hang monitor write with relaxed atomic stores and that the crash path and the hang
-/// reporter read with relaxed loads. Writing or reading a key allocates nothing and takes no lock.
+/// fixed block of 64-bit words, allocated once when the slots are made and never resized, that their owners
+/// write with relaxed atomic stores and that the crash path and the hang reporter read with relaxed loads.
+/// Writing or reading a key allocates nothing and takes no lock.
 ///
 /// Chrome's model: `components/crash/core/common/crash_key.h` keeps each key in static storage set up before
 /// the crash (`CrashKeyString<N>`), `ScopedCrashKeyString` restores the outer value at scope exit, and
@@ -13,9 +13,10 @@ import CmuxNextTrace
 /// every value is an index, a code, an epoch or a thread port, never a person's text, so a record of the keys
 /// is already scrubbed.
 ///
-/// The composition root makes one and passes it to the action timing (``CrashKeySlots/Key/actionID``),
-/// the main-thread watchdog's hang monitor (hung threads) and the crash path (`CrashKeys` in
-/// CmuxNextCrashReporting). Tests make their own.
+/// The composition root makes one and passes it to each owner: the action timing (``Key/actionID``), the
+/// focus coordinator (``Key/paneKind``), the Chromium runtime (``Key/cefState``), the local daemon's store
+/// (``Key/daemonEpoch``), the main-thread watchdog's hang monitor (hung threads) and the crash path
+/// (`CrashKeys` in CmuxNextCrashReporting). Tests make their own.
 ///
 /// ```swift
 /// let keys = CrashKeySlots()
@@ -38,35 +39,29 @@ public final class CrashKeySlots: Sendable {
         /// The running action's id as ``stableKey(_:)`` of its raw value (the same number in every build and
         /// launch, so a report maps it back to the catalog), or 0 outside action runs.
         case actionID = 0
-        /// The focused pane's kind (``PaneKind``'s raw value), 0 when none is focused.
+        /// What has the keyboard in the key window's focused pane (``PaneKind``'s raw value), 0 when no pane does.
         case paneKind = 1
         /// The Chromium runtime's state (``CEFState``'s raw value).
         case cefState = 2
-        /// The daemon connection's epoch (it moves on each reconnect), 0 before the first connection.
+        /// The local daemon connection's epoch (it moves on each connect and disconnect), 0 before the first.
         case daemonEpoch = 3
 
         /// The key's name in a crash record and a crash report's tags (`crash_key.<name>`).
-        public var name: StaticString {
-            switch self {
-            case .actionID: "action_id"
-            case .paneKind: "pane_kind"
-            case .cefState: "cef_state"
-            case .daemonEpoch: "daemon_epoch"
-            }
-        }
+        public var name: StaticString { CrashKeySlots.keyName(rawValue) }
     }
 
-    /// The kind of the focused pane, as ``Key/paneKind`` stores it. Fixed values: a record written by an older
-    /// build decodes.
+    /// What has the keyboard in the key window's focused pane, as ``Key/paneKind`` stores it (the app's focus
+    /// coordinator sets it from its resolved focus). Fixed values: a record written by an older build decodes.
     public enum PaneKind: UInt64, Sendable, CaseIterable {
         case terminal = 1
+        /// A web page, its address bar, find bar or DevTools.
         case browser = 2
+        /// An agent chat page or a conversation tab.
         case agent = 3
-        case markdown = 4
-        case diff = 5
-        case files = 6
-        /// A pane kind this list does not name.
-        case other = 7
+        /// An internal page tab (Markdown, diff, files and the other app pages).
+        case page = 4
+        /// A focused pane with nothing to type into (empty, loading).
+        case empty = 5
 
         /// The kind's name in a crash report's tags.
         public var name: StaticString {
@@ -74,22 +69,25 @@ public final class CrashKeySlots: Sendable {
             case .terminal: "terminal"
             case .browser: "browser"
             case .agent: "agent"
-            case .markdown: "markdown"
-            case .diff: "diff"
-            case .files: "files"
-            case .other: "other"
+            case .page: "page"
+            case .empty: "empty"
             }
         }
     }
 
-    /// The Chromium runtime's state, as ``Key/cefState`` stores it (0: Chromium never started). Fixed values.
+    /// The Chromium runtime's state, as ``Key/cefState`` stores it (0: Chromium never started). The runtime
+    /// (`CEFRuntime` in CmuxNextBrowser) sets it on each state change. Fixed values.
     public enum CEFState: UInt64, Sendable, CaseIterable {
+        /// The library is loading, or `CefInitialize` runs.
         case initializing = 1
         case running = 2
-        /// The message pump runs on this thread now (`CefDoMessageLoopWork`).
+        /// The message pump runs on the main thread now (`CefDoMessageLoopWork`).
         case inPump = 3
+        /// Quit closes Chromium's browsers before `CefShutdown`.
         case shuttingDown = 4
         case failed = 5
+        /// `CefShutdown` ran, or quit gave up on it.
+        case shutDown = 6
 
         /// The state's name in a crash report's tags.
         public var name: StaticString {
@@ -99,6 +97,7 @@ public final class CrashKeySlots: Sendable {
             case .inPump: "in_pump"
             case .shuttingDown: "shutting_down"
             case .failed: "failed"
+            case .shutDown: "shut_down"
             }
         }
     }
@@ -136,38 +135,75 @@ public final class CrashKeySlots: Sendable {
         public init() {}
 
         /// The value of `key`.
-        public subscript(key: Key) -> UInt64 {
-            switch key {
-            case .actionID: actionID
-            case .paneKind: paneKind
-            case .cefState: cefState
-            case .daemonEpoch: daemonEpoch
+        public subscript(key: Key) -> UInt64 { word(key.rawValue) }
+
+        /// The block word `index` (the keys in ``Key`` order, then the hung-thread entries), 0 past the end.
+        /// A switch over the stored fields, with no generic helper.
+        public func word(_ index: Int) -> UInt64 {
+            switch index {
+            case 0: actionID
+            case 1: paneKind
+            case 2: cefState
+            case 3: daemonEpoch
+            case 4: hung.0
+            case 5: hung.1
+            case 6: hung.2
+            case 7: hung.3
+            case 8: hung.4
+            case 9: hung.5
+            case 10: hung.6
+            case 11: hung.7
+            default: 0
             }
         }
 
         /// The hung-thread entry at `index` (`0..<hungThreadCapacity`), nil when it is empty.
         public func hungThread(at index: Int) -> HungThread? {
             guard index >= 0, index < CrashKeySlots.hungThreadCapacity else { return nil }
-            return withUnsafeBytes(of: hung) { HungThread(packed: $0.load(fromByteOffset: index * 8, as: UInt64.self)) }
+            return HungThread(packed: word(CrashKeySlots.firstHungWord + index))
         }
 
         /// Sets the hung-thread entry at `index` (`0..<hungThreadCapacity`; nil empties it): a snapshot read back
         /// from a crash record.
         public mutating func setHungThread(_ thread: HungThread?, at index: Int) {
-            guard index >= 0, index < CrashKeySlots.hungThreadCapacity else { return }
             let packed = thread?.packed ?? 0
-            withUnsafeMutableBytes(of: &hung) { $0.storeBytes(of: packed, toByteOffset: index * 8, as: UInt64.self) }
+            switch index {
+            case 0: hung.0 = packed
+            case 1: hung.1 = packed
+            case 2: hung.2 = packed
+            case 3: hung.3 = packed
+            case 4: hung.4 = packed
+            case 5: hung.5 = packed
+            case 6: hung.6 = packed
+            case 7: hung.7 = packed
+            default: break
+            }
         }
 
         /// How many hung-thread entries are set.
         public var hungThreadCount: Int {
-            (0..<CrashKeySlots.hungThreadCapacity).reduce(0) { $0 + (hungThread(at: $1) == nil ? 0 : 1) }
+            var count = 0, index = 0
+            while index < CrashKeySlots.hungThreadCapacity {
+                if word(CrashKeySlots.firstHungWord + index) & 0xFFFF_FFFF != 0 { count += 1 }
+                index += 1
+            }
+            return count
+        }
+
+        /// Writes these keys' crash record line into `buffer` (``CrashKeySlots/writeRecord(into:word:)``).
+        ///
+        /// - Returns: The number of bytes written.
+        public func writeRecord(into buffer: UnsafeMutableRawBufferPointer) -> Int {
+            CrashKeySlots.writeRecord(into: buffer) { word($0) }
         }
 
         public static func == (lhs: Snapshot, rhs: Snapshot) -> Bool {
-            guard lhs.actionID == rhs.actionID, lhs.paneKind == rhs.paneKind, lhs.cefState == rhs.cefState,
-                  lhs.daemonEpoch == rhs.daemonEpoch else { return false }
-            return (0..<CrashKeySlots.hungThreadCapacity).allSatisfy { lhs.hungThread(at: $0) == rhs.hungThread(at: $0) }
+            var index = 0
+            while index < CrashKeySlots.wordCount {
+                if lhs.word(index) != rhs.word(index) { return false }
+                index += 1
+            }
+            return true
         }
 
         /// The keys as a report's tags (`crash_key.<name>`): the action id's key in hex, the pane kind's,
@@ -232,7 +268,7 @@ public final class CrashKeySlots: Sendable {
 
     /// Runs `body` with `key` set to `value`, then puts the value it replaced back (Chrome's
     /// `ScopedCrashKeyString`): a nested action run puts the outer run's id back when it returns. The key belongs
-    /// to the thread that runs `body`; the action id is set on the main thread only.
+    /// to the thread that runs `body`; the action id and the pump state are set on the main thread only.
     @inline(__always)
     public func withKey<T>(_ key: Key, _ value: UInt64, _ body: () throws -> T) rethrows -> T {
         let slot = Self.slot(wordsAddress, key.rawValue)
@@ -284,20 +320,26 @@ public final class CrashKeySlots: Sendable {
     }
 
     /// The keys of the block at `address` (``wordsAddress`` of live slots), for a reader that holds only the
-    /// address: the crash path, which cannot retain an object. Async-signal-safe.
+    /// address.
     public static func read(wordsAt address: UInt) -> Snapshot {
         var snapshot = Snapshot()
-        guard address != 0 else { return snapshot }
-        snapshot.actionID = slot(address, Key.actionID.rawValue).load(ordering: .relaxed)
-        snapshot.paneKind = slot(address, Key.paneKind.rawValue).load(ordering: .relaxed)
-        snapshot.cefState = slot(address, Key.cefState.rawValue).load(ordering: .relaxed)
-        snapshot.daemonEpoch = slot(address, Key.daemonEpoch.rawValue).load(ordering: .relaxed)
+        snapshot.actionID = word(Key.actionID.rawValue, at: address)
+        snapshot.paneKind = word(Key.paneKind.rawValue, at: address)
+        snapshot.cefState = word(Key.cefState.rawValue, at: address)
+        snapshot.daemonEpoch = word(Key.daemonEpoch.rawValue, at: address)
         let first = firstHungWord
-        snapshot.hung = (slot(address, first).load(ordering: .relaxed), slot(address, first + 1).load(ordering: .relaxed),
-                         slot(address, first + 2).load(ordering: .relaxed), slot(address, first + 3).load(ordering: .relaxed),
-                         slot(address, first + 4).load(ordering: .relaxed), slot(address, first + 5).load(ordering: .relaxed),
-                         slot(address, first + 6).load(ordering: .relaxed), slot(address, first + 7).load(ordering: .relaxed))
+        snapshot.hung = (word(first, at: address), word(first + 1, at: address), word(first + 2, at: address),
+                         word(first + 3, at: address), word(first + 4, at: address), word(first + 5, at: address),
+                         word(first + 6, at: address), word(first + 7, at: address))
         return snapshot
+    }
+
+    /// Word `index` of the block at `address` with one relaxed load; 0 for a null address or an index past
+    /// ``wordCount``. Async-signal-safe.
+    @inline(__always)
+    public static func word(_ index: Int, at address: UInt) -> UInt64 {
+        guard address != 0, index >= 0, index < wordCount else { return 0 }
+        return slot(address, index).load(ordering: .relaxed)
     }
 
     @inline(__always)

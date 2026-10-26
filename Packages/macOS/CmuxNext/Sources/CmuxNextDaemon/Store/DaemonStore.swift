@@ -42,6 +42,8 @@ public final class DaemonStore: StateResourceQueries {
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
     @ObservationIgnored public internal(set) var connectionEpoch = 0
+    /// Names ``connectionEpoch`` in a crash record (``CrashKeySlots/Key/daemonEpoch``); nil names none.
+    @ObservationIgnored let crashKeys: CrashKeySlots?
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
@@ -202,12 +204,16 @@ public final class DaemonStore: StateResourceQueries {
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
-    /// - Parameter waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
-    ///   StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
-    ///   (tests, fixtures): a queue of the store's own.
-    public init(waitDeadlines: MainWakeUpQueue? = nil) {
+    /// - Parameters:
+    ///   - waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
+    ///     StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
+    ///     (tests, fixtures): a queue of the store's own.
+    ///   - crashKeys: The app's crash keys, whose ``CrashKeySlots/Key/daemonEpoch`` follows
+    ///     ``connectionEpoch`` (p10-stability-207): the local daemon's store only; nil sets none.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, crashKeys: CrashKeySlots? = nil) {
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+        self.crashKeys = crashKeys
     }
 
     // MARK: Lookup (O(1))

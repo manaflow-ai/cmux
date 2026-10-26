@@ -53,15 +53,17 @@ struct HangMonitor {
         return next > after ? next - after : 0
     }
 
-    /// Takes each named thread whose scope ended off the crash keys' hung threads. A closed scope changes its
-    /// slot, so the scan after it runs (the monitor parks only after a scan that saw no change) and gets here.
+    /// Takes each named scope that ended off ``named``, and its thread off the crash keys' hung threads once no
+    /// other named scope runs on that thread. A reported scope that closes asks the slot table for a scan now
+    /// (`HangWatch` close), which wakes the watchdog thread even when the monitor was parked, so this runs at once.
     private mutating func clearEndedHangs() {
         guard let crashKeys, !named.isEmpty else { return }
-        let watch = watch // the closure reads a local, not `self`, while `named` is being changed
-        named.removeAll { overdue in
-            guard !watch.isStillOpen(overdue) else { return false }
-            crashKeys.clearHung(port: overdue.port)
-            return true
+        var index = named.count
+        while index > 0 {
+            index -= 1
+            guard !watch.isStillOpen(named[index]) else { continue }
+            let port = named.remove(at: index).port
+            if !named.contains(where: { $0.port == port }) { crashKeys.clearHung(port: port) }
         }
     }
 

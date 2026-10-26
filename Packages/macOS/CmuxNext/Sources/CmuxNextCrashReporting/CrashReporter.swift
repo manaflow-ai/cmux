@@ -124,12 +124,12 @@ public final class CrashReporter: Sendable {
 
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
     /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
-    /// even if every thread of the app is suspended. Then the crash keys go into
-    /// `run.crashkeys` (``CrashKeys``). Async-signal-safe.
+    /// even if every thread of the app is suspended. Async-signal-safe.
+    /// Each crash path then writes its own record, then the crash keys
+    /// (``recordCrashKeys()``).
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
         CrashWatcher.arm()
-        writeCrashKeysRecord()
     }
 
     /// A crash path that blocks while every thread is suspended, for the crash
@@ -139,6 +139,7 @@ public final class CrashReporter: Sendable {
     /// ``CrashWatcher`` can end the process.
     public static func blockWithDeadlineSuspended() -> Never {
         beginCrashDeadline()
+        recordCrashKeys()
         CrashDeadline.suspendThread()
         // A semaphore nothing signals: the blocked crash path the watcher must end.
         var never = semaphore_t(0)
@@ -165,6 +166,7 @@ public final class CrashReporter: Sendable {
                                        record: (NSException) -> Void, report: () -> Void) {
         if crashes { beginCrashDeadline() }
         record(exception)
+        if crashes { recordCrashKeys() }
         reportingSurvivableException.store(!crashes, ordering: .releasing)
         defer { reportingSurvivableException.store(false, ordering: .releasing) }
         report()
@@ -174,8 +176,10 @@ public final class CrashReporter: Sendable {
     /// crash has begun, unless Sentry's reportException: hook calls it for
     /// an exception AppKit survives. Then `record`.
     public static func uncaughtException(_ exception: NSException, then record: (NSException) -> Void) {
-        if !(Thread.isMainThread && reportingSurvivableException.load(ordering: .acquiring)) { beginCrashDeadline() }
+        let crashes = !(Thread.isMainThread && reportingSurvivableException.load(ordering: .acquiring))
+        if crashes { beginCrashDeadline() }
         record(exception)
+        if crashes { recordCrashKeys() }
     }
 
     /// `debug.crash.app {"signal": "frozen"}`: starts the crash path, then
@@ -184,6 +188,8 @@ public final class CrashReporter: Sendable {
     /// 2026-10-20 freezes); only the crash deadline ends it.
     public func freezeNextTrap() {
         Self.beginCrashDeadline()
+        // The frozen trap never reaches a signal handler: the keys go now.
+        Self.recordCrashKeys()
         let task = mach_task_self_
         var port = mach_port_t(0)
         guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,

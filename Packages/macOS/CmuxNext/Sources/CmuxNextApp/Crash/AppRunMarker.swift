@@ -22,7 +22,8 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///
 /// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
 /// fault that runs again must reach the system's handler) and starts the
-/// crash deadline (2026-10-20 freezes).
+/// crash deadline (2026-10-20 freezes). The crash keys (`run.crashkeys`)
+/// are written after the signal number.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
@@ -33,6 +34,8 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
         _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
     }
+    // After run.signal: a fault in here re-runs under SIG_DFL and still leaves the signal recorded.
+    CrashReporter.recordCrashKeys()
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)

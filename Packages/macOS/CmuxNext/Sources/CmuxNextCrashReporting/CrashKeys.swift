@@ -6,16 +6,16 @@ import Darwin
 /// report reads them (plans/cmux-next/chrome-parity/p10-stability.md section 3B, task 207).
 ///
 /// Chrome reads its crash keys out of the dead process (Crashpad, components/crash/core/common/crash_key.h);
-/// cmux's crash path writes them itself, as one line into the run marker folder's `run.crashkeys`, from
-/// ``CrashReporter/beginCrashDeadline()``: every crash path (a fatal signal, an uncaught exception, the crash
-/// gate's frozen and suspended crashes) passes there. Writing allocates nothing, takes no lock and makes one
-/// `write(2)` from a buffer allocated at launch, so it is async-signal-safe.
+/// cmux's crash path writes them itself, as one line into the run marker folder's `run.crashkeys`
+/// (``CrashReporter/recordCrashKeys()``), after the crash's own record: the fatal-signal handler after
+/// `run.signal`, an uncaught exception after `run.exception`, the crash gate's frozen and suspended crashes
+/// after their deadline is armed. Writing loads each word straight from the slots, allocates nothing, takes no
+/// lock and makes one `write(2)` from a buffer allocated at launch, so it is async-signal-safe.
 ///
-/// The line is `crash_keys` and then `name=value` words, every value a decimal number:
-/// `crash_keys action_id=1234 pane_kind=1 cef_state=2 daemon_epoch=3 hung_threads=1 hung_kind_0=3`. Keys at 0
-/// are left out, and hung threads go by kind only (a thread port means nothing after the process ended).
-/// Reading a line back (``init(record:)``) keeps only the names this type writes and only decimal values, so
-/// whatever else a damaged or planted file holds never reaches a report: the keys are scrubbed.
+/// The line format is ``CmuxNextWakeups/CrashKeySlots/writeRecord(into:word:)``'s. Reading a line back
+/// (``init(record:)``) keeps only the names it writes and only decimal values, so whatever else a damaged or
+/// planted file holds never reaches a report: the keys are scrubbed. The next launch puts them into the
+/// previous run's app crash report and its GitHub issue text (`CrashRecoveryService` in CmuxNextApp).
 public struct CrashKeys: Sendable, Equatable {
     /// The keys' values.
     public var snapshot: CrashKeySlots.Snapshot
@@ -25,33 +25,15 @@ public struct CrashKeys: Sendable, Equatable {
         self.snapshot = snapshot
     }
 
-    /// The longest line ``write(into:)`` writes, its newline included (the longest possible line is under 300
-    /// bytes).
-    public static var maxRecordBytes: Int { 512 }
+    /// The longest line ``write(into:)`` writes, its newline included.
+    public static var maxRecordBytes: Int { CrashKeySlots.maxRecordBytes }
 
     /// Writes the record line into `buffer` (at least ``maxRecordBytes`` bytes for a whole line; a shorter buffer
-    /// gets a cut line). No allocation, no lock: async-signal-safe.
+    /// gets a cut line). No allocation, no lock.
     ///
     /// - Returns: The number of bytes written.
     public func write(into buffer: UnsafeMutableRawBufferPointer) -> Int {
-        var line = RecordWriter(buffer)
-        line.append("crash_keys")
-        line.field(CrashKeySlots.Key.actionID.name, snapshot.actionID)
-        line.field(CrashKeySlots.Key.paneKind.name, snapshot.paneKind)
-        line.field(CrashKeySlots.Key.cefState.name, snapshot.cefState)
-        line.field(CrashKeySlots.Key.daemonEpoch.name, snapshot.daemonEpoch)
-        line.field("hung_threads", UInt64(snapshot.hungThreadCount))
-        var named: UInt64 = 0
-        for index in 0..<CrashKeySlots.hungThreadCapacity {
-            guard let thread = snapshot.hungThread(at: index) else { continue }
-            line.append(" hung_kind_")
-            line.decimal(named)
-            line.append("=")
-            line.decimal(UInt64(thread.kind))
-            named += 1
-        }
-        line.append("\n")
-        return line.count
+        snapshot.writeRecord(into: buffer)
     }
 
     /// The keys of a line ``write(into:)`` wrote; nil when `record` is not one. Unknown names, values that are not
@@ -71,7 +53,7 @@ public struct CrashKeys: Sendable, Equatable {
             case "cef_state": snapshot.cefState = value
             case "daemon_epoch": snapshot.daemonEpoch = value
             default:
-                guard parts[0].hasPrefix("hung_kind_"), kinds < CrashKeySlots.hungThreadCapacity, value <= UInt64(UInt8.max),
+                guard parts[0].hasPrefix("hung_kind_"), kinds < CrashKeySlots.hungThreadCapacity,
                       let kind = UInt8(exactly: value) else { continue }
                 // The record has kinds, not ports: entry n gets port n + 1, so it reads as set.
                 snapshot.setHungThread(CrashKeySlots.HungThread(port: UInt32(kinds + 1), kind: kind), at: kinds)
@@ -85,56 +67,19 @@ public struct CrashKeys: Sendable, Equatable {
     public var tags: [String: String] { snapshot.tags }
 }
 
-/// Appends ASCII to a caller's buffer with no allocation; stops at the buffer's end.
-private struct RecordWriter {
-    let buffer: UnsafeMutableRawBufferPointer
-    private(set) var count = 0
-
-    init(_ buffer: UnsafeMutableRawBufferPointer) {
-        self.buffer = buffer
-    }
-
-    mutating func byte(_ value: UInt8) {
-        guard count < buffer.count else { return }
-        buffer[count] = value
-        count += 1
-    }
-
-    mutating func append(_ text: StaticString) {
-        text.withUTF8Buffer { for value in $0 { byte(value) } }
-    }
-
-    /// ` name=value`, left out when `value` is 0.
-    mutating func field(_ name: StaticString, _ value: UInt64) {
-        guard value != 0 else { return }
-        byte(0x20)
-        append(name)
-        byte(0x3D)
-        decimal(value)
-    }
-
-    mutating func decimal(_ value: UInt64) {
-        var divisor: UInt64 = 1
-        while value / divisor >= 10 { divisor *= 10 }
-        var rest = value
-        while divisor > 0 {
-            byte(0x30 + UInt8(truncatingIfNeeded: rest / divisor))
-            rest %= divisor
-            divisor /= 10
-        }
-    }
-}
-
 // MARK: - The crash path
 
 extension CrashReporter {
     /// Hands the crash path the app's crash keys (the composition root's ``CrashKeySlots``). The slots are kept
-    /// for the process's life: the crash path reads them by address. Call once at launch, on the main thread;
-    /// later calls are ignored.
+    /// for the process's life: the crash path reads them by address. Call once at launch, on the main thread,
+    /// after ``prepareCrashKeysRecord(descriptor:)``; later calls are ignored.
     public static func attachCrashKeys(_ slots: CrashKeySlots) {
         let block = CrashKeysRecordBlock.prepared()
         guard block.slotsWord.load(ordering: .acquiring) == 0 else { return }
         _ = Unmanaged.passRetained(slots) // released never: the crash path holds the address, not a reference
+        // One dry write at launch: every function and type the crash path's write uses has run once, so no
+        // first-use work (a symbol bind, type metadata) is left for a signal handler.
+        _ = CrashKeySlots.writeRecord(wordsAt: slots.wordsAddress, into: block.line)
         block.slotsWord.store(UInt64(slots.wordsAddress), ordering: .releasing)
     }
 
@@ -147,16 +92,17 @@ extension CrashReporter {
     }
 
     /// Writes this run's crash keys into `run.crashkeys` (``CrashKeys``), the first time a crash path calls it.
-    /// Async-signal-safe: no allocation, no lock, one `write(2)` from the buffer allocated at launch. Does nothing
-    /// before both halves are attached.
-    static func writeCrashKeysRecord() {
+    /// Call after the crash's own record (`run.signal`, `run.exception`), so a fault in here never costs that
+    /// record. Async-signal-safe: each word loaded straight from the slots, no allocation, no lock, one `write(2)`
+    /// from the buffer allocated at launch. Does nothing before both halves are attached.
+    public static func recordCrashKeys() {
         guard let block = CrashKeysRecordBlock.current else { return }
         let slots = UInt(truncatingIfNeeded: block.slotsWord.load(ordering: .acquiring))
         guard slots != 0 else { return }
         // Only the first crash path writes (an abort may follow a fatal signal's handler), on whichever thread.
         let taken = block.descriptorWord.exchange(0, ordering: .acquiringAndReleasing)
         guard taken != 0 else { return }
-        let count = CrashKeys(CrashKeySlots.read(wordsAt: slots)).write(into: block.line)
+        let count = CrashKeySlots.writeRecord(wordsAt: slots, into: block.line)
         // concurrency-allow: async-signal-safe crash path (the process is ending), which can run no seam; one write
         // of at most 512 bytes to this run's local file.
         _ = Darwin.write(Int32(truncatingIfNeeded: taken - 1), block.line.baseAddress, count)
@@ -176,9 +122,10 @@ private struct CrashKeysRecordBlock {
     var descriptorWord: AtomicPointerSlot { AtomicPointerSlot(base.assumingMemoryBound(to: UInt64.self) + 1) }
     var line: UnsafeMutableRawBufferPointer { UnsafeMutableRawBufferPointer(start: base + 16, count: CrashKeys.maxRecordBytes) }
 
-    /// The block, nil before launch made it. Async-signal-safe.
+    /// The block, nil before launch made it. Async-signal-safe (no generic `map`).
     static var current: CrashKeysRecordBlock? {
-        UnsafeMutableRawPointer(bitPattern: crashKeysRecordBlock).map(CrashKeysRecordBlock.init(base:))
+        guard let base = UnsafeMutableRawPointer(bitPattern: crashKeysRecordBlock) else { return nil }
+        return CrashKeysRecordBlock(base: base)
     }
 
     /// The block, made the first time (launch, main thread).
