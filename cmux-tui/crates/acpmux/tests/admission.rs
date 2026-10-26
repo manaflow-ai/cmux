@@ -35,11 +35,23 @@ const MACHINE: &str = "test-box";
 struct Daemon {
     root: PathBuf,
     child: Option<Child>,
+    /// `FLEET_REGISTRY`, relative to the root, when the test sets it.
+    registry: Option<&'static str>,
 }
 
 impl Daemon {
     /// A daemon whose registry (when `max_lanes` is Some) gives `MACHINE` that cap.
     fn start(tag: &str, max_lanes: Option<u64>, under_floor: bool) -> Self {
+        Self::start_with(tag, max_lanes, under_floor, None)
+    }
+
+    /// `start`, with `FLEET_REGISTRY` set to `registry` under the root.
+    fn start_with(
+        tag: &str,
+        max_lanes: Option<u64>,
+        under_floor: bool,
+        registry: Option<&'static str>,
+    ) -> Self {
         // Short: the socket path must stay under the macOS limit.
         let root = std::env::temp_dir().join(format!("adm-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -56,7 +68,7 @@ impl Daemon {
             json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
-        let daemon = Self { root, child: None };
+        let daemon = Self { root, child: None, registry };
         if let Some(max) = max_lanes {
             daemon.write_registry(
                 ".ssh/config.d",
@@ -127,6 +139,9 @@ impl Daemon {
             .env("FLEET_ORIGIN", MACHINE)
             .env_remove("ACPMUX_SESSION_ID")
             .stdin(Stdio::null());
+        if let Some(rel) = self.registry {
+            cmd.env("FLEET_REGISTRY", self.root.join(rel));
+        }
         cmd
     }
 
@@ -316,6 +331,30 @@ fn no_registry_or_no_entry_admits() {
     assert!(out.status.success(), "no entry for this machine: {}", text(&out));
     // FLEET_ORIGIN names a machine the registry does not list.
     daemon.wait_log(|l| l.contains("no lane cap"), "it says why it admits");
+}
+
+#[test]
+fn a_set_fleet_registry_that_is_missing_refuses() {
+    // FLEET_REGISTRY names the file on purpose: a rename, a failed mount or a
+    // typo must not lift the cap, as the usual copies being absent does.
+    let daemon = Daemon::start_with("setreg", None, false, Some("reg/fleet-registry.json"));
+    assert_refused(
+        &daemon.create("a", &[]),
+        "registry_unreadable",
+        "fleet registry cannot be read",
+    );
+    // Once it is there, its cap applies.
+    let dir = daemon.root.join("reg");
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = json!({"machines": {MACHINE: {"lanes": {"max_lanes": 1}}}});
+    std::fs::write(dir.join("fleet-registry.json"), registry.to_string()).unwrap();
+    let out = daemon.create("a", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    daemon.wait_live("a");
+    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
+    // Gone again: the last good copy keeps the cap.
+    std::fs::remove_file(dir.join("fleet-registry.json")).unwrap();
+    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
 }
 
 #[test]
