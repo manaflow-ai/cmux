@@ -4,8 +4,9 @@
 /// `USER_BLOCKING` for the rest of a person's action, `USER_VISIBLE` for what shows on screen,
 /// lower for the rest).
 ///
-/// The order is the coalescing order, lowest first: when two causes meet, the higher one wins
-/// (person > frontend > program > automation).
+/// The order is the coalescing order, lowest first. While an observer is dirty, each change of
+/// what it read raises its cause to the higher one (person > frontend > program > automation), and
+/// its flush runs in the class of that highest cause.
 ///
 /// The cause is for scheduling only. Authorization code never reads it.
 public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStringConvertible {
@@ -20,13 +21,14 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
 
     public static func < (lhs: ObservationCause, rhs: ObservationCause) -> Bool { lhs.rawValue < rhs.rawValue }
 
-    /// The budgeted class a flush of this cause runs in; nil for ``person``, whose flush is never
-    /// budgeted (the input-response pass applies it before the commit, or the next frame does).
-    public var budgetedClass: BudgetedWorkClass? {
+    /// The budgeted class a flush of this cause runs in when the input-response pass does not
+    /// apply it first (``ObservationCauses/flushPersonCaused()``). Until the userBlocking class
+    /// (task 208) exists, a person flush that missed the pass runs as `visible`: capped, ahead of
+    /// automation, never ahead of the person's own pending input.
+    public var budgetedClass: BudgetedWorkClass {
         switch self {
         case .automation: .automation
-        case .program, .frontend: .visible
-        case .person: nil
+        case .program, .frontend, .person: .visible
         }
     }
 
@@ -40,37 +42,43 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
     }
 }
 
-/// The app's current change cause and its person-cause epoch: the state each ``VisibleObservation``
-/// reads when its tracking fires, and the queue of observations dirty since then.
-///
-/// The app builds one at its composition root next to its ``MainWorkScheduler`` and passes the same
-/// instance to every observation and to the daemon store's drain; there is no shared instance.
-///
-/// Observation's `onChange` runs synchronously in the will-set of the first change, once per
-/// tracking. So an observer that an automation change made dirty does not see a person change of
-/// the same property later in the batch. ``personCauseEpoch`` fixes that: a person change moves
-/// it, and every observation dirty since an older epoch flushes as person.
+/// The cause of the changes made now, and the person-caused observations the input-response pass
+/// applies before the commit. The ``MainWorkScheduler`` builds it (``MainWorkScheduler/causes``),
+/// so every observation, the daemon store's drain and the pass share one instance with the
+/// scheduler they already get.
 ///
 /// ```swift
 /// // The drain, per envelope:
-/// causes.withCause(.automation) { store.apply(event) }
+/// mainWork.causes.withCause(.automation) { store.apply(event) }
 /// // A local intent apply in the input's turn:
-/// causes.withCause(.person) { model.title = newTitle }
+/// mainWork.causes.withCause(.person) { model.title = newTitle }
 /// ```
 @MainActor
 public final class ObservationCauses {
     /// The cause of the changes made now. Outside any ``withCause(_:_:)`` scope it is
     /// ``ObservationCause/program``: a change no request asked for.
     public private(set) var currentCause: ObservationCause = .program
-    /// Moves once each time a person's change starts (``notePersonChange()``).
-    public private(set) var personCauseEpoch: UInt64 = 0
-    /// The observations dirty and not flushed yet, weakly.
-    private var dirty: [ObjectIdentifier: WeakObservation] = [:]
+    /// Trackings that fired after their observation was released. A released token's deinit fires
+    /// its armed tracking once, so the registrar drops it; a count that grows with later changes
+    /// is a tracking a token leaked (p06-scheduler.md risk 13).
+    package private(set) var releasedTrackingFires = 0
 
-    public init() {}
+    private let budget: MainFrameBudget
+    /// The observations whose flush became person-caused, in that order, weakly. An entry is
+    /// stale once its observation flushed by another route or became person-caused again (a new
+    /// ticket); stale entries are skipped and compacted away.
+    private var personQueue: [PersonEntry] = []
+    private var head = 0
+    private var nextTicket: UInt64 = 0
+    /// The queue length at which ``enqueuePerson(_:)`` drops stale entries, doubled from the live
+    /// count after each pass, so dropping costs O(1) amortized per entry.
+    private var compactAt = 64
+
+    init(budget: MainFrameBudget) {
+        self.budget = budget
+    }
 
     /// Runs `body` with `cause` as the current cause, then restores the cause it had (scopes nest).
-    /// A person scope moves ``personCauseEpoch`` first.
     ///
     /// - Parameters:
     ///   - cause: The cause of the changes `body` makes.
@@ -80,62 +88,71 @@ public final class ObservationCauses {
         let saved = currentCause
         currentCause = cause
         defer { currentCause = saved }
-        if cause == .person { notePersonChange() }
         return try body()
     }
 
-    /// Records that a person's change starts: moves ``personCauseEpoch``, and every observation
-    /// that is dirty now flushes as person. O(dirty observations).
-    public func notePersonChange() {
-        personCauseEpoch &+= 1
-        guard !dirty.isEmpty else { return }
-        for observation in live() { observation.personCauseEpochMoved() }
-    }
-
-    /// Applies, now and unbudgeted, every dirty observation whose flush class is person. The
-    /// input-response pass calls it before the input turn's commit.
+    /// Applies the person-caused observations, oldest first, unbudgeted, until they took the
+    /// userBlocking cap (the visible + automation shares, p06-scheduler.md "userBlocking"); the
+    /// first always applies. The input-response pass calls it before the input turn's commit.
+    /// What it leaves applies in its `visible` flush, in a later frame.
     ///
     /// - Returns: How many observations it applied.
     @discardableResult
-    package func flushPersonCaused() -> Int {
+    package func flushPersonCaused() -> Int { // perf-hot: 3.5ms action-budget (in the input's turn, capped at the visible + automation shares)
+        let cap = MainFrameBudget.nanos(budget.budgets.visible + budget.budgets.automation)
+        let start = budget.uptimeNanos()
         var flushed = 0
-        for observation in live() where observation.flushIfPersonCaused() { flushed += 1 }
+        while head < personQueue.count {
+            if flushed > 0, budget.uptimeNanos() &- start >= cap { break }
+            let entry = personQueue[head]
+            personQueue[head] = PersonEntry()
+            head += 1
+            if let observation = entry.value, observation.flushPersonCaused(ticket: entry.ticket) { flushed += 1 }
+        }
+        if head == personQueue.count {
+            personQueue.removeAll(keepingCapacity: true)
+            head = 0
+        } else if head >= 64, head * 2 >= personQueue.count {
+            personQueue.removeFirst(head)
+            head = 0
+        }
         return flushed
     }
 
-    /// The observations dirty and not flushed yet (diagnostics and tests).
-    package var dirtyCount: Int { dirty.values.count(where: { $0.value != nil }) }
-
-    func register(_ observation: some CausedObservation) {
-        dirty[ObjectIdentifier(observation)] = WeakObservation(value: observation)
+    /// The person-caused observations not applied yet (diagnostics and tests). O(queue).
+    package var personPendingCount: Int {
+        personQueue[head...].count(where: { $0.value?.isPersonPending(ticket: $0.ticket) ?? false })
     }
 
-    func unregister(_ observation: some CausedObservation) {
-        dirty[ObjectIdentifier(observation)] = nil
+    /// Queues `observation` for the pass; returns its ticket, which names this entry.
+    func enqueuePerson(_ observation: some CausedObservation) -> UInt64 {
+        nextTicket &+= 1
+        if personQueue.count - head >= compactAt { compact() }
+        personQueue.append(PersonEntry(value: observation, ticket: nextTicket))
+        return nextTicket
     }
 
-    /// The live dirty observations (a copy: a flush may dirty others), dead entries dropped.
-    private func live() -> [any CausedObservation] {
-        var live: [any CausedObservation] = []
-        live.reserveCapacity(dirty.count)
-        var dead: [ObjectIdentifier] = []
-        for (id, entry) in dirty {
-            if let value = entry.value { live.append(value) } else { dead.append(id) }
-        }
-        for id in dead { dirty[id] = nil }
-        return live
+    func noteReleasedTrackingFire() {
+        releasedTrackingFires += 1
     }
 
-    private struct WeakObservation {
+    private func compact() {
+        personQueue = personQueue[head...].filter { $0.value?.isPersonPending(ticket: $0.ticket) ?? false }
+        head = 0
+        compactAt = max(64, personQueue.count * 2)
+    }
+
+    private struct PersonEntry {
         weak var value: (any CausedObservation)?
+        var ticket: UInt64 = 0
     }
 }
 
-/// An observation that ``ObservationCauses`` keeps while it is dirty.
+/// An observation that ``ObservationCauses`` queues for the input-response pass.
 @MainActor
 protocol CausedObservation: AnyObject {
-    /// A person's change started after this observation became dirty: its flush is person now.
-    func personCauseEpochMoved()
-    /// Applies now when the flush class is person; true when it applied.
-    func flushIfPersonCaused() -> Bool
+    /// Whether the entry `ticket` still names a person-caused flush that has not run.
+    func isPersonPending(ticket: UInt64) -> Bool
+    /// Applies now when ``isPersonPending(ticket:)`` and its node may run; true when it applied.
+    func flushPersonCaused(ticket: UInt64) -> Bool
 }

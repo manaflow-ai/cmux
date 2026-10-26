@@ -54,7 +54,8 @@ public final class MainFrameBudget {
     public let budgets: Budgets
     public private(set) var stats = Stats()
     private let input: any InputPendingSource
-    private let uptimeNanos: () -> UInt64
+    /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
+    let uptimeNanos: () -> UInt64
     private let signposts: Bool
     // Frame window.
     private var windowStart: UInt64 = 0

@@ -4,8 +4,8 @@ import Observation
 import Testing
 
 /// VisibleObservation (plans/cmux-next/chrome-parity/p06-scheduler.md, task 025): tracking only
-/// while the node is visible, one read per flush, the flush class from the change's cause, and
-/// person over automation through the person-cause epoch.
+/// while the node is visible, one apply per flush, the flush class from the highest cause of the
+/// changes to what it read, and the input-response pass's capped person flush.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct VisibleObservationTests {
     @Test func aHiddenObservationReadsNothingForAHundredChanges() {
         let harness = Harness(own: .hidden)
@@ -17,20 +17,22 @@ import Testing
         harness.frame()
         #expect(harness.reads == 1, "a hidden view read \(harness.reads - 1) times")
         #expect(watch.trackingCallbacks == 0, "a hidden observation armed a tracking")
-        watch.cancel()
+        harness.stop(watch)
     }
 
-    @Test func fiveChangesBeforeAFrameGiveOneReadAndOneApply() {
+    @Test func fiveChangesBeforeAFrameGiveOneApply() {
         let harness = Harness(own: .visible)
         let watch = harness.watch()
         for value in 1...5 { harness.model.value = value }
-        #expect(harness.reads == 1, "a change reads nothing in its own turn")
+        // Below person, each change re-arms the tracking (one read) so a higher cause can still raise it.
+        #expect(harness.reads == 6)
+        #expect(harness.applied == [0], "a change applies nothing in its own turn")
         harness.frame()
-        #expect(harness.reads == 2)
+        #expect(harness.reads == 7, "the flush reads once")
         #expect(harness.applied == [0, 5])
         harness.frame()
-        #expect(harness.reads == 2, "a frame with no change reads nothing")
-        watch.cancel()
+        #expect(harness.reads == 7, "a frame with no change reads nothing")
+        harness.stop(watch)
     }
 
     @Test func hideThenShowReadsOnceAndAppliesTheLatestValue() {
@@ -46,7 +48,7 @@ import Testing
         harness.model.value = 11
         harness.frame()
         #expect(harness.applied == [0, 10, 11], "tracking is armed again after show")
-        watch.cancel()
+        harness.stop(watch)
     }
 
     @Test func anOccludedNodeStopsTrackingLikeAHiddenOne() {
@@ -58,7 +60,7 @@ import Testing
         #expect(harness.reads == 1)
         harness.node.set(.visible)
         #expect(harness.applied == [0, 1])
-        watch.cancel()
+        harness.stop(watch)
     }
 
     @Test func afterHideTheRegistrarHoldsNoTracking() {
@@ -72,14 +74,27 @@ import Testing
         #expect(watch.trackingCallbacks == afterHide, "a tracking stayed registered after hide")
         harness.frame()
         #expect(harness.reads == 1)
-        watch.cancel()
+        harness.stop(watch)
+    }
+
+    @Test func aDirtyObservationDropsItsReArmedTrackingOnHide() {
+        let harness = Harness(own: .visible)
+        let watch = harness.watch()
+        harness.model.value = 1
+        harness.node.set(.hidden)
+        let afterHide = watch.trackingCallbacks
+        for value in 2...10 { harness.model.value = value }
+        #expect(watch.trackingCallbacks == afterHide, "the re-armed tracking stayed registered after hide")
+        harness.frame()
+        #expect(harness.applied == [0], "a hidden view applied a dropped flush")
+        harness.stop(watch)
     }
 
     @Test func anAutomationChangeFlushesInTheAutomationClass() {
         let harness = Harness(own: .visible)
         var classes: [MainWorkClass?] = []
         let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
-        harness.causes.withCause(.automation) { harness.model.value = 1 }
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
         // While a key is pending, automation yields for one frame and runs the next.
         harness.input.pending = true
         harness.frame()
@@ -87,7 +102,7 @@ import Testing
         harness.frame()
         #expect(harness.applied == [0, 1])
         #expect(classes == [nil, .automation])
-        watch.cancel()
+        harness.stop(watch)
     }
 
     @Test func programAndFrontendChangesFlushInTheVisibleClass() {
@@ -96,47 +111,144 @@ import Testing
         let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
         harness.model.value = 1
         harness.frame()
-        harness.causes.withCause(.frontend) { harness.model.value = 2 }
+        harness.work.causes.withCause(.frontend) { harness.model.value = 2 }
         harness.frame()
         #expect(classes == [nil, .visible, .visible])
-        watch.cancel()
+        harness.stop(watch)
+    }
+
+    @Test func automationThenFrontendOnTheSamePropertyFlushesInTheVisibleClass() {
+        let harness = Harness(own: .visible)
+        var classes: [MainWorkClass?] = []
+        let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        harness.work.causes.withCause(.frontend) { harness.model.value = 2 }
+        // An open input response holds automation; the app's own frontend update must not wait for it.
+        harness.work.noteDiscreteInput(expectsFrame: true)
+        harness.frame()
+        #expect(harness.applied == [0, 2])
+        #expect(classes == [nil, .visible])
+        harness.stop(watch)
     }
 
     @Test func automationThenPersonOnTheSamePropertyFlushesAsPerson() {
         let harness = Harness(own: .visible)
         var classes: [MainWorkClass?] = []
         let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
-        harness.causes.withCause(.automation) { harness.model.value = 1 }
-        // The tracking fired on the automation change; the person's change of the same property
-        // does not fire it again, but it moves the epoch.
-        harness.causes.withCause(.person) { harness.model.value = 2 }
-        #expect(harness.causes.flushPersonCaused() == 1)
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        // The first tracking fired on the automation change; the re-armed one sees the person's.
+        harness.work.causes.withCause(.person) { harness.model.value = 2 }
+        let reads = harness.reads
+        #expect(harness.work.causes.flushPersonCaused() == 1)
         #expect(harness.applied == [0, 2], "the person's value applies in the input-response pass")
         #expect(classes == [nil, .frame])
         harness.frame()
-        #expect(harness.reads == 2, "the pass flushed it: the frame reads nothing more")
-        watch.cancel()
+        #expect(harness.reads == reads + 1, "the pass flushed it: the frame reads nothing more")
+        #expect(harness.applied == [0, 2])
+        harness.stop(watch)
     }
 
-    @Test func aPersonChangeOutsideThePassRunsInTheNextFrameAheadOfPendingInput() {
+    @Test func aPersonChangeOfAnotherPropertyLeavesAnAutomationFlushAsAutomation() {
         let harness = Harness(own: .visible)
-        let watch = harness.watch()
-        harness.causes.withCause(.person) { harness.model.value = 1 }
+        var classes: [MainWorkClass?] = []
+        let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        let reads = harness.reads
+        harness.work.causes.withCause(.person) { harness.model.other = 1 }
+        #expect(harness.reads == reads, "a change of a property it did not read touched the observation")
+        #expect(harness.work.causes.flushPersonCaused() == 0)
+        #expect(harness.work.causes.personPendingCount == 0)
         harness.input.pending = true
         harness.frame()
-        #expect(harness.applied == [0, 1], "a person flush waited behind the budget")
-        watch.cancel()
+        #expect(harness.applied == [0], "the automation flush ran ahead of a pending key")
+        harness.frame()
+        #expect(classes == [nil, .automation])
+        harness.stop(watch)
+    }
+
+    @Test func aPersonFlushOutsideThePassRunsInTheVisibleClass() {
+        let harness = Harness(own: .visible)
+        var classes: [MainWorkClass?] = []
+        let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
+        harness.work.causes.withCause(.person) { harness.model.value = 1 }
+        #expect(harness.work.causes.personPendingCount == 1)
+        harness.frame()
+        #expect(harness.applied == [0, 1])
+        #expect(classes == [nil, .visible])
+        #expect(harness.work.causes.flushPersonCaused() == 0, "the visible flush left the pass nothing")
+        harness.stop(watch)
     }
 
     @Test func anAutomationOnlyChangeIsNotFlushedByThePass() {
         let harness = Harness(own: .visible)
         let watch = harness.watch()
-        harness.causes.withCause(.automation) { harness.model.value = 1 }
-        #expect(harness.causes.flushPersonCaused() == 0)
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        #expect(harness.work.causes.flushPersonCaused() == 0)
         #expect(harness.applied == [0])
         harness.frame()
         #expect(harness.applied == [0, 1])
-        watch.cancel()
+        harness.stop(watch)
+    }
+
+    /// 500 rows an agent made dirty, then one person change of each row's property: the pass stops
+    /// at the visible + automation shares (3.5 ms), and the rest follow in the visible class.
+    @Test func thePassStopsAtItsCapAndTheVisibleClassAppliesTheRest() {
+        let harness = Harness(own: .visible)
+        var applied = 0
+        let watches = (0..<500).map { _ in
+            harness.watch {
+                applied += 1
+                harness.clock.advance(ms: 0.1)
+            }
+        }
+        applied = 0
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        harness.work.causes.withCause(.person) { harness.model.value = 2 }
+        #expect(harness.work.causes.flushPersonCaused() == 35)
+        #expect(applied == 35)
+        var frames = 0
+        while applied < 500, frames < 100 {
+            let before = applied
+            harness.frame()
+            frames += 1
+            #expect(applied - before <= 41, "one frame applied \(applied - before) flushes past the 4 ms of scheduled work")
+        }
+        #expect(applied == 500)
+        harness.stop(watches)
+    }
+
+    /// 1000 rows an agent made dirty and one person change elsewhere: the person's turn reads,
+    /// promotes and applies none of them, and the frames drain them in the automation share.
+    @Test func aThousandAutomationDirtyRowsCostAnUnrelatedPersonChangeNothing() {
+        let harness = Harness(own: .visible)
+        var classes: Set<MainWorkClass?> = []
+        var applied = 0
+        let watches = (0..<1000).map { _ in
+            harness.watch {
+                applied += 1
+                classes.insert(harness.work.budget.board.running?.workClass)
+                harness.clock.advance(ms: 0.1)
+            }
+        }
+        applied = 0
+        classes = []
+        harness.work.causes.withCause(.automation) { harness.model.value = 1 }
+        harness.frame()
+        let firstFrame = applied
+        #expect(firstFrame > 0 && firstFrame <= 41)
+        let reads = harness.reads
+        harness.work.causes.withCause(.person) { harness.model.other = 1 }
+        #expect(harness.reads == reads)
+        #expect(harness.work.causes.flushPersonCaused() == 0)
+        #expect(applied == firstFrame, "the person's turn applied agent rows")
+        var frames = 0
+        while applied < 1000, frames < 200 {
+            harness.frame()
+            frames += 1
+        }
+        #expect(applied == 1000)
+        #expect(classes == [.automation])
+        harness.stop(watches)
     }
 
     @Test func anEqualValueIsNotAppliedAgain() {
@@ -144,10 +256,11 @@ import Testing
         let watch = harness.watch()
         harness.model.value = 1
         harness.model.value = 0
+        let reads = harness.reads
         harness.frame()
-        #expect(harness.reads == 2)
+        #expect(harness.reads == reads + 1)
         #expect(harness.applied == [0])
-        watch.cancel()
+        harness.stop(watch)
     }
 
     @Test func cancelStopsEveryLaterApply() {
@@ -160,26 +273,73 @@ import Testing
         harness.node.set(.visible)
         #expect(harness.applied == [0])
         #expect(watch.isCancelled)
+        harness.stop(watch)
     }
 
-    @Test func aReleasedTokenAppliesNothingAndLeavesNothingDirty() {
+    @Test func aFrozenNodeHoldsTheFlushAndThePassSkipsIt() {
+        let harness = Harness(own: .visible)
+        let watch = harness.watch()
+        harness.node.freeze()
+        harness.work.causes.withCause(.person) { harness.model.value = 1 }
+        #expect(harness.work.causes.flushPersonCaused() == 0)
+        harness.frame()
+        #expect(harness.applied == [0], "a frozen node's flush ran")
+        harness.node.unfreeze()
+        harness.frame()
+        #expect(harness.applied == [0, 1])
+        harness.stop(watch)
+    }
+
+    /// Released while armed and clean: the deinit's cancel signal fires the tracking at once, so
+    /// the registrar drops it and no later change reaches it.
+    @Test func aTokenReleasedWhileArmedDropsItsTracking() {
         let harness = Harness(own: .visible)
         var watch: VisibleObservation<Int>? = harness.watch()
-        harness.model.value = 1
-        #expect(harness.causes.dirtyCount == 1)
+        _ = watch
         watch = nil
-        #expect(watch == nil)
-        #expect(harness.causes.dirtyCount == 0, "a released observation stayed dirty")
-        for value in 2...10 { harness.model.value = value }
+        #expect(harness.work.causes.releasedTrackingFires == 1, "the release left the tracking armed")
+        for value in 1...10 { harness.model.value = value }
+        #expect(harness.work.causes.releasedTrackingFires == 1, "a released token's tracking stayed registered")
         harness.frame()
-        harness.node.set(.hidden)
-        harness.node.set(.visible)
         #expect(harness.reads == 1)
         #expect(harness.applied == [0])
+        harness.stop()
+    }
+
+    @Test func aDirtyTokenReleasedAppliesNothing() {
+        let harness = Harness(own: .visible)
+        var watch: VisibleObservation<Int>? = harness.watch()
+        harness.work.causes.withCause(.person) { harness.model.value = 1 }
+        _ = watch
+        watch = nil
+        #expect(harness.work.causes.personPendingCount == 0)
+        #expect(harness.work.causes.flushPersonCaused() == 0)
+        for value in 2...10 { harness.model.value = value }
+        harness.frame()
+        #expect(harness.applied == [0])
+        harness.stop()
+    }
+
+    /// Released off the main thread: the deinit's signal write reaches main one hop later.
+    @Test func aTokenReleasedOffTheMainThreadDropsItsTrackingOneHopLater() async {
+        let harness = Harness(own: .visible)
+        let retained = Unmanaged.passRetained(harness.watch())
+        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                retained.release()
+                // Queued behind the deinit's hop on the main queue.
+                MainDelivery().run { released.resume() }
+            }
+        }
+        #expect(harness.work.causes.releasedTrackingFires == 1, "the off-main release left the tracking armed")
+        harness.model.value = 1
+        #expect(harness.work.causes.releasedTrackingFires == 1)
+        harness.stop()
     }
 
     @Test func causeScopesNestAndRestore() {
-        let causes = ObservationCauses()
+        let harness = Harness(own: .visible)
+        let causes = harness.work.causes
         #expect(causes.currentCause == .program)
         causes.withCause(.automation) {
             #expect(causes.currentCause == .automation)
@@ -187,7 +347,7 @@ import Testing
             #expect(causes.currentCause == .automation)
         }
         #expect(causes.currentCause == .program)
-        #expect(causes.personCauseEpoch == 1)
+        harness.stop()
     }
 }
 
@@ -195,17 +355,19 @@ import Testing
 @MainActor @Observable
 private final class ObservedModel {
     var value = 0
+    var other = 0
 }
 
-/// A scheduler on a fake link, a visible root node and a model, with read and apply counters.
+/// A scheduler on a fake link kept up by a frame client (so posts wait for hand-fired frames), a
+/// root node and a model, with read and apply counters.
 @MainActor
 private final class Harness {
     let model = ObservedModel()
-    let causes = ObservationCauses()
     let input: HarnessInputPending
     let clock: HarnessClock
     let node: VisibilityNode
     let work: MainWorkScheduler
+    private let keeper: FrameClient
     private(set) var reads = 0
     private(set) var applied: [Int] = []
     private var timestamp: Double = 0
@@ -216,11 +378,13 @@ private final class Harness {
         self.clock = clock
         node = VisibilityNode(root: "window", own: own)
         work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in HarnessFrameLink() }
+        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
     }
 
     /// Observes `model.value`; `onApply` runs inside each apply.
     func watch(onApply: @escaping @MainActor () -> Void = {}) -> VisibleObservation<Int> {
-        VisibleObservation(node, owner: "test.watch", on: work, causes: causes) { [self] in
+        VisibleObservation(node, owner: "test.watch", on: work) { [self] in
             reads += 1
             return model.value
         } apply: { [self] value in
@@ -235,6 +399,14 @@ private final class Harness {
         timestamp += 1
         work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
     }
+
+    /// Cancels `watches` and stops the frames.
+    func stop(_ watches: VisibleObservation<Int>...) { stop(watches) }
+
+    func stop(_ watches: [VisibleObservation<Int>]) {
+        for watch in watches { watch.cancel() }
+        keeper.deactivate()
+    }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
@@ -242,7 +414,7 @@ private final class Harness {
 private final class HarnessClock {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [self] in self.now } }
-    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+    func advance(ms: Double) { now += UInt64((ms * 1_000_000).rounded()) }
 }
 
 @MainActor
