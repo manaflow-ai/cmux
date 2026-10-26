@@ -97,6 +97,24 @@ describe("dashboard Cloud plan prompt", () => {
     queryClient.clear();
   });
 
+  test.each([
+    { name: "Free to Team", previous: free },
+    { name: "Team to Free", previous: team },
+  ])("a failed $name switch refresh does not restore the previous team's answer", async ({ previous }) => {
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(planQuery.queryKey, previous);
+    await queryClient.invalidateQueries({ queryKey: planQuery.queryKey, refetchType: "none" });
+    await queryClient
+      .fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => Promise.reject(new Error("plan unavailable")) })
+      .catch(() => undefined);
+    expect(queryClient.getQueryState(planQuery.queryKey)?.status).toBe("error");
+
+    const html = await renderCloudWithClient(queryClient);
+    expect(html).toContain("Cloud machines");
+    expect(html).not.toContain('data-testid="requires-pro"');
+    queryClient.clear();
+  });
+
   test("a Cloud refresh does not confirm a welcome from the previous personal plan", async () => {
     const queryClient = createScreenQueryClient();
     queryClient.setQueryData(planQuery.queryKey, { ...free, planId: "pro", isPro: true });
