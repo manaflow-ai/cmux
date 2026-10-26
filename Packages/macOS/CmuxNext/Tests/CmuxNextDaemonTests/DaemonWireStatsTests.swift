@@ -247,7 +247,7 @@ struct DaemonWireStatsTests {
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"\(cmd)\"}".utf8) }
         await #expect(throws: DaemonError.self) {
-            _ = try await transport.request(cmd: cmd, timeout: .milliseconds(20), line)
+            _ = try await transport.request(cmd: DaemonCommandName(wire: cmd), timeout: .milliseconds(20), line)
         }
         try transport.sendNoReply(cmd: cmd, line)
         transport.close()
@@ -325,7 +325,7 @@ struct DaemonWireStatsTests {
             transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
             defer { transport.close() }
             let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"identify\"}".utf8) }
-            for _ in 0..<20 { _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line) }
+            for _ in 0..<20 { _ = try await transport.request(cmd: IdentifyRequest.commandName, timeout: .seconds(5), line) }
             var counts: [Int] = []
             for _ in 0..<20 {
                 let counted = WireMallocProbe.allocations {
@@ -333,7 +333,7 @@ struct DaemonWireStatsTests {
                 }
                 counts.append(try #require(counted))
                 // Its reply comes before this one's (one connection, FIFO), so nothing is pending after.
-                _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line)
+                _ = try await transport.request(cmd: IdentifyRequest.commandName, timeout: .seconds(5), line)
             }
             fewest.append(try #require(counts.min()))
         }

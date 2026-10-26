@@ -60,6 +60,9 @@ public struct EnergyPolicy: Sendable, Equatable {
     /// followed Low Power Mode before Energy Saver existed keep following it until the feature ships
     /// (``pageSaver``); nothing else reads it, so the schedulers, motion and the sidebar stay as they were.
     public let lowPowerFallback: Bool
+    /// "Turn Off Energy Saver for Now" holds (`EnergyPolicyResolver.isOffForSession`). The local daemon
+    /// is told it (`energy.set` `offForNow`) and keeps it after the app quits, until the Mac is plugged in.
+    public let isOffForNow: Bool
 
     /// Pages spend less: WebKit renders near 60 fps, no neighbor tab stays awake and hidden cmux pages
     /// freeze sooner. Energy Saver, or Low Power Mode while the `energySaver` feature is off
@@ -79,8 +82,9 @@ public struct EnergyPolicy: Sendable, Equatable {
     ///   - networkResumes: The wakes that found a satisfied network path so far.
     ///   - onBattery: The Mac runs on battery.
     ///   - lowPowerFallback: macOS Low Power Mode is on and the `energySaver` feature is off.
+    ///   - offForNow: "Turn Off Energy Saver for Now" holds.
     public init(saverReason: Reason? = nil, suspended: Bool = false, screensAsleep: Bool = false, networkResumes: UInt64 = 0,
-                onBattery: Bool = false, lowPowerFallback: Bool = false) {
+                onBattery: Bool = false, lowPowerFallback: Bool = false, offForNow: Bool = false) {
         let isSaver = saverReason != nil
         self.isSaver = isSaver
         reason = saverReason
@@ -93,6 +97,7 @@ public struct EnergyPolicy: Sendable, Equatable {
         self.networkResumes = networkResumes
         self.onBattery = onBattery
         self.lowPowerFallback = lowPowerFallback
+        isOffForNow = offForNow
     }
 
     /// The saver off, awake, on AC power.

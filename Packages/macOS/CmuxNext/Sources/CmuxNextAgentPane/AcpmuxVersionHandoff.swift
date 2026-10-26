@@ -3,6 +3,9 @@ import Foundation
 import CmuxNextWakeups
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// After an update: hand a running acpmux daemon of another build off to the
 /// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
@@ -137,7 +140,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
         let clock = clock
-        return await withCheckedContinuation { continuation in
+        // Abandoned (the source and the deadline dropped without an answer) is not an exit.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let once = Once(clock: clock)
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
             // crash-allow: an immutable let; a dispatch source is a thread-safe libdispatch object (handlers, resume, cancel from any thread).
@@ -154,6 +158,6 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
             source.setEventHandler { finish(true) }
             source.resume()
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
-        }
+        }) ?? false
     }
 }

@@ -59,6 +59,8 @@ const RAW_LABEL_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 // `HangReportBuilder.safeTask`: a code-defined identifier, or `other`.
 const TASK_OWNER_PATTERN = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
 const CHROME_HISTOGRAM_PATTERN = /^[A-Za-z0-9_.]{1,64}$/;
+// `HangSample.WatchedThread`: a hang-watch registration's catalog name (`daemon-reader`), or `other`.
+const THREAD_NAME_PATTERN = /^[a-z0-9._-]{1,48}$/;
 
 // MARK: field histograms and stability (p09-observability-063)
 
@@ -209,6 +211,15 @@ export const MainTask = Schema.Struct({
   class: Schema.String.pipe(Schema.pattern(CASE_NAME_PATTERN)),
 });
 
+/**
+ * `hangs[].thread` of a hang-watch hang (p09-observability-068): the watched
+ * thread's registration name and its kind (Chrome's `HangWatcher::ThreadType`).
+ */
+export const WatchedThread = Schema.Struct({
+  name: Schema.String.pipe(Schema.pattern(THREAD_NAME_PATTERN)),
+  kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
+});
+
 // MARK: the client's closed sets
 
 /** `TraceRuntime.Role` through `HangReport.blackBoxProcess`. */
@@ -225,6 +236,8 @@ export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
 ]);
 /** `BlockingContext` raw values (CmuxNextCompat/Threading/BlockingContext.swift). */
 export const BLOCKING_CONTEXTS: ReadonlySet<string> = new Set(["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"]);
+/** `HangWatch.ThreadKind` case names and `HangSample.WatchedThread.other`. */
+export const THREAD_KINDS: ReadonlySet<string> = new Set(["main", "io", "lane", "renderer", "pool", "control", "other"]);
 /** `MainWorkClass` descriptions and `HangSample.MainTask.unattributed`. */
 export const TASK_CLASSES: ReadonlySet<string> = new Set([
   "input", "frame", "userBlocking", "visible", "automation", "background", "idle", "unattributed",

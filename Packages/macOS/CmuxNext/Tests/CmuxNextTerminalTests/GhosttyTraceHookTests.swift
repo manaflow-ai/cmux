@@ -5,6 +5,7 @@ import CmuxNextMetrics
 @testable import CmuxNextTrace
 @testable import CmuxNextWakeups
 import Darwin
+import Dispatch
 import Testing
 
 /// The Ghostty trace hook (p09-observability-049): `ghostty.render` around a frame, `frame.gpu_done` at its GPU

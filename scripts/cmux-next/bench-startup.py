@@ -81,6 +81,9 @@ launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
 `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
 arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
+So do p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
+the sidebar row views built before startup_complete against the rows its clip showed
+(sent right after `startup_complete`, so they need --startup-complete).
 They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
@@ -182,6 +185,9 @@ MARKS = [
     ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
     ("launch.agent_page_warmup_chromium", "agent page WebKit warm-up not made (agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
+    # p08-startup-066: the daemon connect milestones (DaemonConnectMarks), once each per launch; connect_started
+    # lands in main(), before main.prestart (the table orders rows by time).
+    ("daemon.connect_started", "daemon connect started (prestart in main)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
     ("daemon.status_end", "server status exit"),
@@ -189,13 +195,16 @@ MARKS = [
     ("daemon.login_env_end", "login env ready (cold)"),
     ("daemon.ensure_start", "server ensure spawn (cold)"),
     ("daemon.ensure_end", "daemon ready (cold)"),
+    ("daemon.spawned", "daemon spawned by the first connect (cold)"),
     ("daemon.endpoint_resolved", "endpoint resolved"),
     ("daemon.socket_connected", "control socket connected"),
     ("daemon.identify_end", "identify answered"),
     ("daemon.handshake_end", "handshake done (client info, subscribe)"),
+    ("daemon.identified", "daemon identified (first connect)"),
     ("daemon_connected", "connection published"),
     ("daemon.snapshot_start", "snapshot requested"),
     ("daemon.snapshot_end", "snapshot received"),
+    ("daemon.snapshot_received", "first snapshot received (prefetched)"),
     ("daemon.first_tree_applied", "first live tree applied"),
     ("daemon_snapshot_loaded", "windows restored from live tree"),
     ("first_terminal_surface_created", "first Ghostty surface"),
@@ -274,7 +283,14 @@ PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
-VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED)
+# p08-startup-064: the sidebar row views built before startup_complete, and the rows its clip showed then.
+SIDEBAR_ROWS_BUILT = "launch.sidebar_rows_built"
+SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
+# The off-screen rows a launch may build (SidebarModel.LaunchRows.Report.slack).
+SIDEBAR_ROWS_SLACK = 2
+# How long a launch that completed waits for the sidebar's row counts, sent right after startup_complete.
+SIDEBAR_ROWS_WAIT_S = 0.5
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -807,6 +823,10 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
+            # The sidebar's row counts are sent in the same main turn, right after it (p08-startup-064); a build
+            # without them, or a launch with no window, costs SIDEBAR_ROWS_WAIT_S.
+            if STARTUP_COMPLETE in launch.marks:
+                launch.wait_for([SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE], SIDEBAR_ROWS_WAIT_S)
         for term in ORDER_MARKS if reached else []:
             launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)
         if HANG_THRESHOLD_MS:
@@ -946,6 +966,8 @@ def run_values(marks):
         shown.append(f"page-ins {marks[PAGEINS]:.0f}")
     if is_number(marks.get(MAIN_CPU)):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
+    if is_number(marks.get(SIDEBAR_ROWS_BUILT)) and is_number(marks.get(SIDEBAR_ROWS_VISIBLE)):
+        shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
@@ -992,11 +1014,26 @@ def value_summary(runs, temperature=None):
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
+    lines += sidebar_rows_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
                                          else f"none of {total} runs"))
     return lines
+
+
+def sidebar_rows_summary(runs):
+    """p08-startup-064: the sidebar row views built before startup_complete, as a spread, and the runs that built
+    more than the rows the clip showed plus SIDEBAR_ROWS_SLACK. No line when no run sent them (an older build)."""
+    pairs = [(run[SIDEBAR_ROWS_BUILT], run[SIDEBAR_ROWS_VISIBLE]) for run in runs
+             if is_number(run.get(SIDEBAR_ROWS_BUILT)) and is_number(run.get(SIDEBAR_ROWS_VISIBLE))]
+    if not pairs:
+        return []
+    cells = "  ".join(f"{column} {value:.0f}" for column, value in spread([built for built, _ in pairs]).items())
+    over = sum(built > visible + SIDEBAR_ROWS_SLACK for built, visible in pairs)
+    visible = perf_stats.pct([visible for _, visible in pairs], 0.5)
+    return [f"  {SIDEBAR_ROWS_BUILT}: {cells}  n {len(pairs)}; visible p50 {visible:.0f}; "
+            f"{over} of {len(pairs)} over visible + {SIDEBAR_ROWS_SLACK}"]
 
 
 def classified_not_cold(run):

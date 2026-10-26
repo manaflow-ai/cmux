@@ -1833,6 +1833,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "notify",
+ "objc2-foundation",
  "parking_lot",
  "proptest",
  "quick-xml",

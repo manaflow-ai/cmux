@@ -652,6 +652,8 @@ final class AppServices {
     let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    /// Numeric launch values (the sidebar's launch rows, p08-startup-064): `debug.startup`'s counters, and the startup bench's pipe.
+    let launchValues = LaunchValueMarks { LaunchMarkSink.shared.writeValue(name: $0, value: $1) }
     /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
     var tabSwitch = TabSwitchSignpost()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -738,7 +740,7 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
-        pages.showsStandIns = features.isEnabled(.pageStandIn)
+        pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
@@ -758,7 +760,7 @@ final class AppServices {
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages; crashRecovery.armSurvivalWindow(on: mainDeadlines)
-        cache.useLaunchPictures(environment.browserLaunchPictures, enabled: features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
+        cache.useLaunchPictures(environment.browserLaunchPictures, enabled: self.features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)

@@ -8,7 +8,6 @@ pub(super) mod machine_catalog;
 use super::*;
 use crate::diagnostics::{LockCaller, LockCallerScope};
 use crate::event_cause::EventCause;
-use crate::request_origin::page_router_table;
 use cmux_threads::work::{Lane, Priority, Shutdown};
 
 /// The caller class the lock acquisitions of `writer`'s connection count
@@ -201,17 +200,19 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
 
 /// A `cmux.protocol/2` line (its head has `protocol`). A routed namespace
 /// operation (page-router-v1) is not in the operation catalog, so its line
-/// goes to the page router without the catalog parse; a line the page
-/// router refuses gets the catalog parse's answer, as every other v2 line.
+/// goes to its operation route (server/routes.rs) without the catalog
+/// parse; a line the route refuses gets the catalog parse's answer, as
+/// every other v2 line.
 /// `None` only when the resource router does not take the line.
 fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     let stats = mux.request_stats();
     let mut page_span = None;
-    if head.operation().is_some_and(|operation| page_router_table::routed(operation).is_some()) {
-        line.stage(FrameStage::PageRouter);
+    if let Some(route) = head.operation().and_then(routes::find_operation) {
+        line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
-        if let Some(keep_open) = page_router::try_handle(mux, client, message, writer) {
+        let route_line = routes::RouteLine { mux, client, message, writer, head };
+        if let Some(keep_open) = (route.entry)(&route_line) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
