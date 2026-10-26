@@ -17,6 +17,7 @@ import {
   type HomeParticipant,
   type HomeRun,
   type HomeRunStep,
+  type HomeScheduled,
   type HomeThreadStats,
 } from "./types";
 
@@ -460,6 +461,10 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** My Send Later messages (`cmux.home.scheduled`), by id. The gallery never sends one at its
+   * time: Send Now does. */
+  private readonly scheduled = new Map<string, HomeScheduled>();
+  private nextScheduled = 1;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,
@@ -787,7 +792,13 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true } as R;
+        return { start: true, invite: true, chiefs: true, sendLater: true } as R;
+      case HomeOps.scheduled:
+        return {
+          scheduled: [...this.scheduled.values()].filter((entry) => entry.conversation === id),
+        } as R;
+      case HomeOps.schedule:
+        return this.scheduleChange(params) as R;
       case HomeOps.directory:
         return { people: this.directory() } as R;
       case HomeOps.startConversation: {
@@ -1037,6 +1048,54 @@ export class MockHomeProvider implements PageClient {
     this.emit({
       presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
     });
+  }
+
+  /** Queues a message of mine for `sendAt` (gallery `scheduled`). */
+  schedule(conversation: string, text: string, sendAt: number, failure?: string): HomeScheduled {
+    const entry: HomeScheduled = {
+      id: `sch_${this.nextScheduled++}`,
+      conversation,
+      text,
+      sendAt,
+      state: failure ? "failed" : "waiting",
+      attachments: 0,
+      ...(failure ? { failure } : {}),
+    };
+    this.scheduled.set(entry.id, entry);
+    this.emit({ scheduled: [conversation] });
+    return entry;
+  }
+
+  private scheduleChange(params: Record<string, unknown>): { scheduled?: HomeScheduled } {
+    const held = typeof params.id === "string" ? this.scheduled.get(params.id) : undefined;
+    switch (params.kind) {
+      case "create": {
+        const entry = this.schedule(String(params.conversation), String(params.text ?? ""), Number(params.sendAt));
+        if (Array.isArray(params.attachments)) entry.attachments = params.attachments.length;
+        return { scheduled: entry };
+      }
+      case "update": {
+        if (!held) throw pageError("schedule_rejected", "unknown_scheduled");
+        const entry: HomeScheduled = { ...held, state: "waiting" };
+        delete entry.failure;
+        if (typeof params.sendAt === "number") entry.sendAt = params.sendAt;
+        if (typeof params.text === "string") entry.text = params.text;
+        this.scheduled.set(entry.id, entry);
+        this.emit({ scheduled: [entry.conversation] });
+        return { scheduled: entry };
+      }
+      case "cancel":
+      case "sendNow": {
+        if (!held) throw pageError("schedule_rejected", "unknown_scheduled");
+        this.scheduled.delete(held.id);
+        if (params.kind === "sendNow")
+          void this.call(HomeOps.send, { conversation: held.conversation, text: held.text });
+        this.emit({ scheduled: [held.conversation] });
+        return {};
+      }
+      default:
+        throw pageError("cmux.page.invalid_params", "kind");
+    }
   }
 
   /** A participant starts or stops typing (gallery `teammates`). */

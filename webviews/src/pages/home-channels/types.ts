@@ -54,7 +54,40 @@ export const HomeOps = {
   chiefAvatarSet: "cmux.home.chiefAvatarSet",
   /** A Chief's picture, base64 (`{mediaType, data}`), or null. */
   chiefAvatar: "cmux.home.chiefAvatar",
+  /** My Send Later messages in one conversation (`{conversation}`): `{scheduled: HomeScheduled[]}`. */
+  scheduled: "cmux.home.scheduled",
+  /** One change of my Send Later queue (`HomeScheduleChange`): `{scheduled?: HomeScheduled}`. */
+  schedule: "cmux.home.schedule",
 } as const;
+
+/** One of my Send Later messages: the owner sends it at `sendAt` (ms) as me
+ * (`conversation-scheduled-v1`); `failed` when the owner refused it then (`failure`: its reason). */
+export interface HomeScheduled {
+  id: string;
+  conversation: string;
+  text: string;
+  sendAt: number;
+  state: "waiting" | "failed";
+  failure?: string;
+  threadRoot?: string;
+  /** The files it carries (they send with it). */
+  attachments: number;
+}
+
+/** `cmux.home.schedule`'s params. */
+export type HomeScheduleChange =
+  | {
+      kind: "create";
+      conversation: string;
+      text: string;
+      sendAt: number;
+      attachments?: readonly HomeAttachment[];
+      threadRoot?: string;
+      replyTo?: string;
+    }
+  | { kind: "update"; id: string; sendAt?: number; text?: string }
+  | { kind: "cancel"; id: string }
+  | { kind: "sendNow"; id: string };
 
 /** `cmux.home.capabilities`: each entry is hidden when its capability is missing (no dead ends). */
 export interface HomeCapabilities {
@@ -64,6 +97,8 @@ export interface HomeCapabilities {
   invite: boolean;
   /** Create Chiefs and edit their profile and picture (`chief-profile-ws-v1`). */
   chiefs: boolean;
+  /** Send Later in local conversations (`conversation-scheduled-v1`). */
+  sendLater?: boolean;
 }
 
 /** The tools a Chief may be granted (the daemon's closed catalog). */
@@ -436,6 +471,8 @@ export interface HomeEventBatch {
   avatars?: string[];
   /** A Chief's live run frames (`chief-live-v1`), in order: never stored by any owner. */
   live?: HomeLiveFrame[];
+  /** Conversations whose Send Later list of mine changed (`conversation-scheduled-changed`). */
+  scheduled?: string[];
 }
 
 /** One live frame of a running run (the "Live frames" contract both brains send). */

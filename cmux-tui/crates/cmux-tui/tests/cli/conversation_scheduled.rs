@@ -6,6 +6,8 @@
 //! a message survives a daemon kill and one that came due while the daemon was
 //! down goes out when it starts again.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde_json::{Value, json};
 
 use super::conversation_inbox_state::{Unix, last_ws_addr, restart};
@@ -13,7 +15,7 @@ use super::conversation_tree::{TOKEN, Ws};
 use super::*;
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
 fn send(key: &str, text: &str) -> Value {
