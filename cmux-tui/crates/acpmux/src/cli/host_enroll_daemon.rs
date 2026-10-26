@@ -97,6 +97,7 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
+    let used_path = used.as_ref().map(|u| u.path.clone());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before
@@ -112,8 +113,10 @@ pub(super) fn judge_daemon(
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
             Some((_, Some(b))) if b != build => {
-                let current_binary =
-                    probe.bins.iter().any(|(_, build)| build.as_deref() == Some(crate::hub::BUILD));
+                let current_binary = probe.bins.iter().any(|(path, build)| {
+                    Some(path.as_str()) == used_path.as_deref()
+                        && build.as_deref() == Some(crate::hub::BUILD)
+                });
                 let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
                     Some(_) if current_binary => StepResult::new(
                         Step::Daemon,

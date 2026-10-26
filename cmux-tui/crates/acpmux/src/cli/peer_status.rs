@@ -33,18 +33,12 @@ pub fn outdated_hint(name: &str, peer: &Value) -> Option<String> {
     let os = platform.get("os").and_then(Value::as_str);
     let arch = platform.get("arch").and_then(Value::as_str);
     let target = os.zip(arch).and_then(|(os, arch)| target_triple(os, arch));
-    if target != local_target() {
-        if let Some(target) = target {
-            return Some(format!(
-                "  (differs from this build: acpmux host update {name} --binary-dir DIR (DIR/acpmux-{target}), or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
-            ));
-        }
-        Some(format!(
-            "  (differs from this build: rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
-        ))
-    } else {
-        Some(format!("  (differs from this build: acpmux host update {name})"))
+    if let Some(target) = target.filter(|target| Some(*target) != local_target()) {
+        return Some(format!(
+            "  (differs from this build: acpmux host update {name} --binary-dir DIR (DIR/acpmux-{target}), or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
+        ));
     }
+    Some(format!("  (differs from this build: acpmux host update {name})"))
 }
 
 /// The lines `peer status` prints for `reply`: one per machine, then one
@@ -228,8 +222,7 @@ mod tests {
         );
         let unknown = json!({"outdated": true, "health": {"cpus": 4}});
         let hint = outdated_hint("unknown-platform", &unknown).unwrap();
-        assert!(hint.contains("rebuild acpmux on unknown-platform"), "{hint}");
-        assert!(!hint.contains("host update"), "{hint}");
+        assert!(hint.contains("acpmux host update unknown-platform"), "{hint}");
     }
 
     #[test]

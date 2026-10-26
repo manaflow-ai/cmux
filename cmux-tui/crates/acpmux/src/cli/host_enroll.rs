@@ -706,7 +706,7 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     };
     // No standalone acpmux, but a cmux-tui of this build (the app installs
     // one over ssh before it runs enroll again): only the link is missing.
-    let tui = (bin == DAEMON_BIN && found.0.is_none())
+    let tui = (bin == DAEMON_BIN && found.0.as_deref() != Some(want))
         .then(|| probed.current_cmux_tui(want))
         .flatten()
         .map(str::to_owned);
