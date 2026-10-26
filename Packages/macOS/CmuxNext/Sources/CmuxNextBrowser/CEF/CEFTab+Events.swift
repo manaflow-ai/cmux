@@ -105,8 +105,8 @@ extension CEFTab {
             loadFavicon(faviconURL)
         case .progress(_, let value): machine.apply(.progress(value))
         case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
-        case .findResult(_, let count, let active, let isFinal):
-            findRequests.result(count: count, active: active, isFinal: isFinal)
+        case .findResult(_, let findID, let count, let active, let isFinal):
+            findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
@@ -237,9 +237,22 @@ extension CEFTab {
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: nil)
+    }
+
+    /// ``BrowserFindUpdating``: Chromium's FIND_RESULT events of this search go to `update` too.
+    public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                     update: @escaping (BrowserFindResult) -> Void) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: update)
+    }
+
+    /// One `find` op (in host mode it goes over the wire): a new find id, whose FIND_RESULT
+    /// events answer the request (``CEFFindRequests``).
+    private func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                      deliveringTo update: ((BrowserFindResult) -> Void)?) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
         return await withCheckedContinuation { continuation in
-            let findID = findRequests.begin(continuation)
+            let findID = findRequests.begin(answer: { continuation.resume(returning: $0) }, update: update)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
     }
@@ -299,3 +312,5 @@ extension CEFTab {
         capturesTitleBeforeCommit = false
     }
 }
+
+extension CEFTab: BrowserFindUpdating {}
