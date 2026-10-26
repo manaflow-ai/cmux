@@ -61,8 +61,8 @@ const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user"
 test("an empty footer adds no height: its row is the turn gap alone", () => {
   // Between two prompts: no 24px line, only the 24px turn gap.
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(24);
-  // The chat's last one: the 8px message gap.
-  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(8);
+  // The chat's last one keeps that same turn gap before the composer.
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(24);
   // A footer with an answer to copy keeps its line.
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0, text: "Done." }), prompt("q")], 720).heights[1]).toBe(
     48,

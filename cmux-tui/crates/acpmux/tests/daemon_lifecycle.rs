@@ -344,6 +344,73 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     assert!(!bound.exists(), "the short socket stayed after shutdown");
 }
 
+/// A state write that fails while the daemon loads (huge-blue, 2026-10-25:
+/// `write .../daemon.tmp-N-0: No space left on device`) must not stop it. The
+/// pid file's path is a folder here, so every write of it fails; the daemon
+/// still reports ready, answers, leaves no temporary file behind (a full
+/// disk keeps none of them), and stops cleanly on SIGTERM.
+#[tokio::test]
+async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
+    let dir = scratch("nospc");
+    std::fs::create_dir_all(dir.join("daemon.pid")).unwrap();
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let Some(ready) = ready else {
+        let _ = child.kill();
+        panic!("the daemon exited on a failed pid file write: {:?}", child.wait());
+    };
+    assert_eq!(ready["pid"], pid);
+    let mut rpc = Rpc::connect(&socket).await;
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    // Past the first retries (1 s, then 2 s): still up, still answering.
+    tokio::time::sleep(Duration::from_millis(3_500)).await;
+    assert!(child.try_wait().unwrap().is_none(), "the daemon exited while retrying");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let term = Instant::now();
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        if term.elapsed() > Duration::from_secs(8) {
+            let _ = child.kill();
+            panic!("daemon still running 8 s after SIGTERM");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(code.success(), "{code:?}");
+    // The shutdown ended the retries before it exited: nothing writes now.
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("daemon.tmp-"))
+        .collect();
+    assert!(left.is_empty(), "failed writes left temporary files: {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
@@ -472,5 +539,89 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
     assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
     assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path under `dir` (itself included) whose mode lets the group or
+/// others write it, with that mode.
+fn writable_by_others(dir: &Path) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(path) = todo.pop() {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o022 != 0 {
+            found.push(format!("{mode:o} {}", path.display()));
+        }
+        if meta.is_dir() {
+            todo.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `acpmux ARGS` for home `home` under umask 002.
+fn umask_002_cli(dir: &Path, home: &Path, args: &[&str]) -> std::process::Output {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = daemon_env::acpmux(dir);
+    cmd.args(args)
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null());
+    // SAFETY: umask is async-signal-safe and changes only the child.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::umask(0o002);
+            Ok(())
+        });
+    }
+    cmd.output().unwrap()
+}
+
+/// Shuts down the daemon of `home`, also when an assert failed.
+struct ShutDown(PathBuf, PathBuf);
+
+impl Drop for ShutDown {
+    fn drop(&mut self) {
+        let _ = umask_002_cli(&self.0, &self.1, &["daemon", "shutdown"]);
+    }
+}
+
+/// A host whose umask is 002 (a Linux account in a shared group): the home and
+/// the log a daemon start makes are owner-only all the same, nothing the daemon
+/// makes in its home is writable by the group, and the next start finds
+/// nothing to refuse (ergo-walk2, 2026-10-25: "daemon run/start on a host with
+/// umask 002 -> refuses group-writable ~/.acpmux and daemon.log").
+#[test]
+fn a_daemon_started_under_umask_002_keeps_its_home_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("umask");
+    // Missing: `daemon start` makes it.
+    let home = dir.join("h");
+    let cli = |args: &[&str]| umask_002_cli(&dir, &home, args);
+    let _stop = ShutDown(dir.clone(), home.clone());
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    for start in ["first", "second"] {
+        let out = cli(&["daemon", "start"]);
+        assert!(
+            out.status.success(),
+            "{start} start: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(mode(&home), 0o700, "{start} start: the home");
+        assert_eq!(mode(&home.join("daemon.log")), 0o600, "{start} start: the log");
+        let status = cli(&["daemon", "status"]);
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        let shutdown = cli(&["daemon", "shutdown"]);
+        assert!(shutdown.status.success(), "{}", String::from_utf8_lossy(&shutdown.stderr));
+        let loose = writable_by_others(&home);
+        assert!(loose.is_empty(), "{start} start left paths the group may write: {loose:?}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

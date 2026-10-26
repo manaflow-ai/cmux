@@ -155,7 +155,18 @@ public final class HomeSidebarView: NSView {
             noteLabel.isHidden = model.note == nil
             needsLayout = true
         }
+        onContentChange()
     }
+
+    /// The list holds at most one conversation and nothing under it (no note, no Message Requests):
+    /// avatars only, it would be one avatar in an empty band (`HomeSidebarSplitView` folds it then).
+    /// The New Message draft row does not count: it comes and goes with the page.
+    public var holdsOneConversation: Bool {
+        model.pinned.count + model.rows.count <= 1 && noteLabel.isHidden && requestsButton.isHidden
+    }
+
+    /// ``holdsOneConversation`` may have changed (the split view lays out again).
+    var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
     /// grid, no time, as in Messages).
@@ -228,6 +239,7 @@ public final class HomeSidebarView: NSView {
         if requestsButton.isHidden != (count == 0) {
             requestsButton.isHidden = count == 0
             needsLayout = true
+            onContentChange()
         }
     }
 
@@ -370,7 +382,7 @@ public final class HomeSidebarView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
     public func debugSearch(_ open: Bool) {

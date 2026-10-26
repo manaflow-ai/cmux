@@ -90,6 +90,26 @@ extension WindowController {
         return WorkspaceViewSet.half(of: window.convertToScreen(view.convert(view.bounds, to: nil)), at: edge, yDown: false)
     }
 
+    /// The edge of the workspace on screen under `screenPoint` (screen coordinates) that one sidebar workspace dragged
+    /// there goes beside: the nearest edge, when the point is within `besideEdgeBand` of the content from it. The drag
+    /// takes it where the layout has no split edge (`WorkspaceDragResolver.outcome`): Home's pinned dock takes no drop,
+    /// and a screen edge dock band would merge the workspace into a new dock of the shown one.
+    func besideEdge(at screenPoint: CGPoint, dragging ids: [String], group: String?) -> TabDropEdge? {
+        guard SidebarTunables.multiView.value, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
+              ids.first != target.workspace.id, let window = target.contentView.window else { return nil }
+        let view = target.contentView
+        let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
+        guard rect.width > 0, rect.height > 0, rect.contains(screenPoint) else { return nil }
+        // Screen y runs up.
+        let x = (screenPoint.x - rect.minX) / rect.width, y = (screenPoint.y - rect.minY) / rect.height
+        let distances: [(edge: TabDropEdge, distance: CGFloat)] = [(.left, x), (.right, 1 - x), (.bottom, y), (.top, 1 - y)]
+        guard let nearest = distances.min(by: { $0.distance < $1.distance }), nearest.distance <= Self.besideEdgeBand else { return nil }
+        return nearest.edge
+    }
+
+    /// How far in from an edge of the shown workspace (a fraction of its size) a drop still goes beside it there.
+    static var besideEdgeBand: CGFloat { 0.25 }
+
     /// A press in a workspace shown beside the focused one focuses it first, so the press lands in focused content.
     /// The view the press hits decides, so a sheet, popover or floating pane over it keeps the press.
     func focusOnScreenWorkspace(at windowPoint: CGPoint) {

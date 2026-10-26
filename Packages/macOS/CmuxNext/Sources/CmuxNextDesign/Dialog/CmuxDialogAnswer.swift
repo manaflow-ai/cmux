@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextDesignTokens
 
 /// The one answer a dialog reports: the button pressed and every field's value.
 public nonisolated struct CmuxDialogAnswer: Equatable, Sendable {

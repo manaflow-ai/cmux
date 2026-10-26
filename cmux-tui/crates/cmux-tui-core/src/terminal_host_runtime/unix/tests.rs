@@ -5,6 +5,7 @@ mod attach_protocol;
 mod clipboard_read;
 mod host_fixture;
 mod input_records;
+mod kitty_file_media;
 mod launch_codec;
 mod parser_failure;
 mod parser_order;
@@ -244,7 +245,8 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
-    let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
+    let lease =
+        HostLivenessLease::acquire_deferring_sync(liveness_path(&record_path, &record)).unwrap().0;
     write_record(&record_path, &record).unwrap();
     (record_path, record, lease)
 }

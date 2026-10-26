@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering,
+    BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -36,6 +37,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var passwordFill = PasswordFillState()
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
+    /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
+    /// stands (`CEFRuntime+FileDialogs`).
+    @ObservationIgnored public private(set) lazy var agentFiles: BrowserAgentFiles = {
+        let files = BrowserAgentFiles()
+        files.onArmedChange = { [weak self] armed in
+            guard let self else { return }
+            runtime.agentFileOfferChanged(self, armed: armed)
+        }
+        return files
+    }()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -70,6 +81,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The page `attach` loads: an agent-driven tab was created blank
     /// (`takeInitialURLString`).
     @ObservationIgnored var loadAfterAttach: URL?
+    /// Focus cmux asked for while the page could not take it (no browser yet, or not shown):
+    /// granted once the page shows (``grantPendingFocusIfShown()``).
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
@@ -234,6 +247,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
+        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -242,7 +256,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { grantFocus(browser) }
+        if pendingFocus, shown {
+            pendingFocus = false
+            grantFocus(browser)
+        }
         if let action = pendingExtensionAction {
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
@@ -416,10 +433,24 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func setFocused(_ focused: Bool) {
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
-        pendingFocus = focused
-        // Never activate a hidden page's window (see `attach`).
+        // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
+        pendingFocus = focused && (!shown || browserID == nil)
         guard !focused || shown, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+    }
+
+    /// Grants focus asked for while this page could not take it, once it shows: its view entered a
+    /// window (`CEFPaneHost.present`) or the content lifecycle showed it (`setContentVisible`). A
+    /// Cmd-N New Tab page (a spare with a browser) asked a moment before it showed and kept no
+    /// focus: only a browser's creation used to replay the ask.
+    func grantPendingFocusIfShown() {
+        guard pendingFocus, host.visibleTab === self, !isOccluded, !awaitsWindowMove, let browserID else { return }
+        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
+        // the ask waits until this page's window has the keys again.
+        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
+        pendingFocus = false
+        host.lifecycleTrace.record(id, "focus(pending) granted")
+        grantFocus(browserID)
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by
@@ -434,6 +465,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
+        if visible { grantPendingFocusIfShown() }
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host
@@ -450,7 +482,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func exitContentFullscreen() {
         guard state.isContentFullscreen else { return }
-        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()"); withExtendedLifetime(runtime) {} }
+        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()", world: .page, gesture: .cmux); withExtendedLifetime(runtime) {} }
     }
 
     public func showDevTools() { performDevTools(.show) }
@@ -459,6 +491,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        agentFiles.withdraw()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
