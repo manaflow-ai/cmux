@@ -13,3 +13,6 @@
 .cmux-avatar-sheet-frames{display:flex;gap:4px}
 .cmux-avatar-sheet figure{display:flex;flex-direction:column;align-items:center;gap:4px;margin:0;padding:8px;border-radius:var(--radius-lg,12px);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .cmux-avatar-sheet figcaption{font-weight:600}
+.cmux-avatar-sheet[data-view=pick]{flex-direction:column}
+.cmux-avatar-sheet[data-view=pick] figure{flex-direction:row;gap:16px}
+.cmux-avatar-sheet[data-view=pick] figcaption{order:-1;width:72px}
