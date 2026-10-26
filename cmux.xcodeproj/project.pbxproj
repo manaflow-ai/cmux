@@ -392,8 +392,11 @@
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui.pin",
 				"$(SRCROOT)/scripts/cmux-next/write-daemon-capabilities.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-daemon-capabilities.sh",
+				"$(SRCROOT)/scripts/cmux-next/pgo/rust-pgo.sh",
+				"$(SRCROOT)/scripts/cmux-next/pgo",
 				"$(SRCROOT)/cmux-tui",
 				"$(CMUX_NEXT_TUI_BIN)",
+				"$(CMUX_RUST_PGO)",
 				"$(CMUX_TUI_CLIENT_LOCAL)",
 				"$(CMUX_NEXT_APP_HOST_BIN)",
 				"$(CMUX_NEXT_CLOUD_SERVER_BIN)",
@@ -426,7 +429,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\"\n";
+			shellScript = "# Release bundles the PGO cmux-tui of this tree when one is built (scripts/cmux-next/pgo/rust-pgo.sh, task 056).\nif [ \"${CONFIGURATION}\" = Release ] && [ -z \"${CMUX_NEXT_TUI_BIN:-}\" ]; then\n  pgo_tui=\"$(\"${SRCROOT}/scripts/cmux-next/pgo/rust-pgo.sh\" bundle-source)\"\n  if [ -n \"$pgo_tui\" ]; then\n    echo \"bundling the PGO cmux-tui $pgo_tui\"\n    CMUX_NEXT_TUI_BIN=\"$pgo_tui\"\n    export CMUX_NEXT_TUI_BIN\n  fi\nfi\nexec \"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\"\n";
 		};
 		CE7A00000000000000000020 /* Bundle acpmux */ = {
 			isa = PBXShellScriptBuildPhase;
