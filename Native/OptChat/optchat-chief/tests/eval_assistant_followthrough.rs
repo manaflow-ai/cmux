@@ -75,7 +75,10 @@ fn a_preference_learned_since_the_start_reaches_the_next_turn() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     let turn = text_of(&prompts[0]);
-    assert!(turn.contains(NEW), "the new preference is in the turn: {turn}");
+    assert!(
+        turn.contains(NEW),
+        "the new preference is in the turn: {turn}"
+    );
     assert!(
         !turn.contains(OLD),
         "a preference the system prompt holds is not repeated: {turn}"
@@ -123,8 +126,14 @@ fn a_preference_learned_since_the_start_reaches_a_new_subagent() {
         .map(|p| text_of(p))
         .find(|t| t.contains("Fix the flicker."))
         .expect("the subagent's first prompt");
-    assert!(task.contains(NEW), "the task names the new preference: {task}");
-    assert!(!task.contains(OLD), "not the one its system text has: {task}");
+    assert!(
+        task.contains(NEW),
+        "the task names the new preference: {task}"
+    );
+    assert!(
+        !task.contains(OLD),
+        "not the one its system text has: {task}"
+    );
 }
 
 #[test]

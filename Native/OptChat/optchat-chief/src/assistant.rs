@@ -77,12 +77,15 @@ fn plain(text: &str) -> String {
     text.replace(['\u{2019}', '\u{2018}'], "'").to_lowercase()
 }
 
-/// The sentences of `text`, split at `.`, `!`, `?` and line ends.
+/// The sentences of `text`, split at `.`, `!`, `?` before a space or the
+/// end ("README.md" and "v2.1" stay whole), and at line ends.
 fn sentences(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
-    for (i, c) in text.char_indices() {
-        if matches!(c, '.' | '!' | '?' | '\n') {
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let at_end = chars.peek().is_none_or(|(_, n)| n.is_whitespace());
+        if c == '\n' || (matches!(c, '.' | '!' | '?') && at_end) {
             let s = text[start..i + c.len_utf8()].trim();
             if !s.is_empty() {
                 out.push(s);
@@ -131,7 +134,7 @@ pub fn promise(text: &str) -> Option<String> {
             let s = plain(s);
             PROMISES.iter().any(|p| s.contains(p))
         })
-        .map(|s| quote(s))
+        .map(quote)
 }
 
 /// How an offer that hands the decision back starts.
@@ -155,8 +158,24 @@ const OFFERS: &[&str] = &[
 ];
 
 /// Words that make an ask the person's to answer: money, legal,
-/// destructive or sign-in steps (CHIEF_TURNS "Decide, do not ask").
+/// destructive or sign-in steps (CHIEF_TURNS "Decide, do not ask"), and
+/// steps that reach other people or shared state (push, merge, deploy,
+/// messages).
 const NEEDS_PERSON: &[&str] = &[
+    "push",
+    "merge",
+    "deploy",
+    "ship",
+    "send",
+    "message",
+    "reply to",
+    "post",
+    "share",
+    "invite",
+    "tweet",
+    "dm",
+    "notify",
+    "ping",
     "pay",
     "buy",
     "purchase",
@@ -232,6 +251,8 @@ fn needs_person(q: &str) -> bool {
 /// None otherwise.
 pub fn trailing_offer(text: &str) -> Option<String> {
     let last = text.lines().rev().map(str::trim).find(|l| !l.is_empty())?;
+    // Markdown emphasis around the question is not part of it.
+    let last = last.trim_matches(['*', '_', '`', ' ']);
     if !last.ends_with('?') {
         return None;
     }
@@ -250,7 +271,9 @@ pub fn trailing_offer(text: &str) -> Option<String> {
 
 /// `text` cut to `QUOTE_CHARS` characters, quotes made plain.
 fn quote(text: &str) -> String {
-    let text = text.replace('"', "'");
+    let text = text
+        .replace('"', "'")
+        .replace(['\u{2019}', '\u{2018}'], "'");
     if text.chars().count() <= QUOTE_CHARS {
         return text;
     }
@@ -271,7 +294,8 @@ const PROMISE_MARK: &str = "and set no wake, so the host set this one";
 /// Whether a queued text is the host's own nudge (a `[decide]` note or a
 /// promise wake): the turn it starts gets no nudge again.
 pub fn is_nudge(text: &str) -> bool {
-    text.starts_with(DECIDE_TAG) || text.contains(PROMISE_MARK)
+    // `contains`: a resumed turn's prompt puts its own words first.
+    text.contains(DECIDE_TAG) || text.contains(PROMISE_MARK)
 }
 
 /// The host's note after a reply that ended with offer `asked`.
@@ -331,6 +355,8 @@ mod tests {
         );
         assert!(trailing_offer("Fixed. Should I also add a test?").is_some());
         assert!(trailing_offer("**Shall I start a12 on it?**").is_some());
+        assert!(trailing_offer("Want me to update README.md?").is_some());
+        assert!(trailing_offer("Should I bump it to v2.1?").is_some());
     }
 
     #[test]
@@ -340,6 +366,9 @@ mod tests {
         assert!(trailing_offer("Should I sign in to Stripe for you?").is_none());
         assert!(trailing_offer("Should I force push it?").is_none());
         assert!(trailing_offer("Want me to explain the plan file?").is_none());
+        assert!(trailing_offer("Should I merge it?").is_none());
+        assert!(trailing_offer("Want me to message Austin about it?").is_none());
+        assert!(trailing_offer("Want me to deploy it?").is_none());
         assert!(trailing_offer("Want me to explain it?").is_some());
     }
 

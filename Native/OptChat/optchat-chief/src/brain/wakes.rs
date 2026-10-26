@@ -150,14 +150,17 @@ impl Brain {
             } else {
                 wake.note.trim().to_owned()
             };
-            let text = format!(
-                "[wake] {note}\n(You asked for this wake with sleep({asked}){}.)",
-                if late > 60 {
-                    format!(", {} late: the host was not running", human(late))
-                } else {
-                    String::new()
-                }
-            );
+            let late = if late > 60 {
+                format!(", {} late: the host was not running", human(late))
+            } else {
+                String::new()
+            };
+            // A promise wake (assist.rs) is the host's, not a sleep call.
+            let text = if crate::assistant::is_nudge(&note) {
+                format!("[wake] {note}\n(The host set this wake{late}.)")
+            } else {
+                format!("[wake] {note}\n(You asked for this wake with sleep({asked}){late}.)")
+            };
             (self.log)(&format!("a wake is due: {note}"));
             self.queue(text, Source::Note);
         }

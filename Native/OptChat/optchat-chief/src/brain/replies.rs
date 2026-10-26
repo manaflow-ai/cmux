@@ -281,7 +281,9 @@ impl Brain {
                 "outcome: noop. this reply to message {view_id} is already sent"
             ));
         }
-        self.note_said(Some(text));
+        if self.state.conversation.as_deref() == Some(message.conversation.as_str()) {
+            self.note_said(Some(text));
+        }
         let text = self.link_subagents(text);
         let mut entry = super::reply_entry(message.conversation.clone(), &key, &text);
         if let Op::MessageSend {

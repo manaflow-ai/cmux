@@ -277,6 +277,8 @@ struct TurnResult {
     unanswered: Option<(u64, String)>,
     /// `[no reply]` retry turns the reply ledger started after this turn.
     retry_turns: u32,
+    /// `[decide]` turns after a reply that ended with an offer (assist.rs).
+    decide_turns: u32,
 }
 
 fn label(item: &Item) -> String {
@@ -512,7 +514,8 @@ impl CaseRun<'_> {
             "remember" => {
                 let p = self.dir.join("home/optchat/person.md");
                 let text = input["text"].as_str().unwrap_or("");
-                match optchat_chief::remember::remember(&p, text, &optchat_chief::remember::today()) {
+                match optchat_chief::remember::remember(&p, text, &optchat_chief::remember::today())
+                {
                     Ok(answer) => (answer, false),
                     Err(e) => (e, true),
                 }
@@ -1092,7 +1095,12 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
             .posted
             .last()
             .and_then(|p| optchat_chief::assistant::trailing_offer(p));
-        if let Some(offer) = offer.filter(|_| !turn.item.text.starts_with(optchat_chief::assistant::DECIDE_TAG)) {
+        if let Some(offer) = offer.filter(|_| {
+            !turn
+                .item
+                .text
+                .starts_with(optchat_chief::assistant::DECIDE_TAG)
+        }) {
             let nudge = Turn {
                 item: Item {
                     kind: "user".into(),
@@ -1103,7 +1111,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
                 ..Turn::default()
             };
             let again = run.run_turn(&nudge);
-            r.retry_turns += 1;
+            r.decide_turns += 1;
             r.posted.extend(again.posted);
             r.calls.extend(again.calls);
             r.wall_ms += again.wall_ms;
@@ -1292,6 +1300,7 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
         "cache_hit": if input + read + write > 0 { ((read as f64 / (input + read + write) as f64) * 1000.0).round() / 1000.0 } else { 0.0 },
         "unsummarized_max": col("unsummarized").into_iter().max().unwrap_or(0),
         "retry_turns": sum("retry_turns"),
+        "decide_turns": sum("decide_turns"),
         "tokens_per_turn": (input + read + write + sum("output")) / turns.len().max(1) as u64,
         "groups": groups.iter().map(|(k, (p, n))| (k.clone(), json!(format!("{p}/{n}")))).collect::<serde_json::Map<_, _>>(),
     })

@@ -424,9 +424,7 @@ impl Brain {
         self.denial_stopped = None;
         self.turn_said.clear();
         self.turn_slept = false;
-        self.turn_nudged = items
-            .iter()
-            .any(|i| crate::assistant::is_nudge(&i.text));
+        self.turn_nudged = items.iter().any(|i| crate::assistant::is_nudge(&i.text));
         // A user message or a report replaces the `until: event` wakes.
         self.drop_event_wakes(
             items
