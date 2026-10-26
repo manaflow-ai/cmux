@@ -267,8 +267,13 @@ fn under_waiters(
         waits.push((id.clone(), w));
     }
     let mut rpc = Rpc::connect(&daemon.socket);
+    // Every wait has subscribed to the daemon's records before the first one lands.
+    let open = std::time::Instant::now();
+    while rpc.call("_acpmux/status", json!({}))["openWaits"] != waits.len() {
+        assert!(open.elapsed().as_secs() < 30, "the waits did not all open in 30 s");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     rpc.call("_acpmux/tag", json!({"sessionId": chat, "set": {"warm": "1"}}));
-    std::thread::sleep(std::time::Duration::from_millis(500));
     for (id, w) in &mut waits {
         assert!(still_open(w), "the wait on {id} answered before the records began");
     }
@@ -285,6 +290,7 @@ fn under_waiters(
     for (id, w) in &mut waits {
         assert!(still_open(w), "the wait on {id} answered before the records ended");
     }
+    assert_eq!(rpc.call("_acpmux/status", json!({}))["openWaits"], waits.len());
     (records, cpu, grew, waits)
 }
 
@@ -302,6 +308,11 @@ fn release(daemon: &Daemon, waits: Vec<(String, Rpc)>) {
         assert_eq!(v["result"]["timedOut"], false, "the wait on {id} missed its chat closing: {v}");
         assert_eq!(v["result"]["resolved"][0]["status"], "closed", "{v}");
     }
+    assert_eq!(
+        rpc.call("_acpmux/status", json!({}))["openWaits"],
+        0,
+        "an answered wait still counts"
+    );
 }
 
 /// huge-blue, 2026-10-22: 13 `acpmux wait` clients on a daemon with 460 chats and 40

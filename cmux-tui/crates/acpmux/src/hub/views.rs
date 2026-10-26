@@ -482,6 +482,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "openWaits": self.open_waits.load(Ordering::SeqCst),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

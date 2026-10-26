@@ -112,6 +112,8 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         return Ok(json!({"sessions": [], "timedOut": false, "resolved": []}));
     }
     let mut events = hub.subscribe();
+    // Counted from its subscription until it answers or its request ends.
+    let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
     // Only the chats it waits on: summarizing every chat on every record any chat logs
     // kept huge-blue's daemon at 6 to 8 cores and 4.5 GB with 13 waits open (2026-10-22).
@@ -195,4 +197,20 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
     let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
+}
+
+/// One `_acpmux/wait` in `Hub::open_waits` while it lives.
+struct OpenWait<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> OpenWait<'a> {
+    fn new(count: &'a std::sync::atomic::AtomicUsize) -> Self {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for OpenWait<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
