@@ -18,6 +18,7 @@ import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
+import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
@@ -147,7 +148,9 @@ final class AppServices {
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
-    var paletteShortcutEditor: PaletteShortcutEditor?
+    var paletteShortcutEditor: PaletteShortcutEditor? {
+        didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
+    }
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
@@ -167,14 +170,12 @@ final class AppServices {
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
-    private(set) lazy var palette: PaletteController = {
-        let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
-                                        usage: DaemonPaletteUsageStore(services: self))
-        palette.hiddenActionIDs = {
-            AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
-        }
-        return palette
-    }()  // first read in init (no IUO)
+    /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
+    /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
+    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, weak self] sources in
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) })
+    }
+    var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // built by its first reader
@@ -317,6 +318,8 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
+    /// Every window's parked workspaces held to the Mac's budget (`memoryDiscardParkedWorkspaces`; nil while off).
+    private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget? = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
@@ -467,6 +470,8 @@ final class AppServices {
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
     let hoverCards: HoverCardCoordinator
+    /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
+    let overlayChanges = OverlayChangeFeed()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -522,7 +527,8 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        hoverCards = HoverCardCoordinator(input: inputTap)
+        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
+        _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         self.launchStartup = launchStartup
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
@@ -673,7 +679,7 @@ final class AppServices {
         }
         WorkspaceClose.willClose = { [weak self] in if !RemoteTerminalService.remoteTabIDs(in: $0).isEmpty { self?.remoteTerminals.workspaceClosing($0) } }
         daemon.workTracker = { [registry] in registry.track($0) }
-        _ = palette  // built here, as before
+        palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch (p08-startup-023)
         terminalDelegate.services = self
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
@@ -683,7 +689,6 @@ final class AppServices {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
-        observePaletteForFocus()
         input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
         _ = chromiumWarmup  // built here, as before

@@ -561,7 +561,7 @@
       "nonDefaultKeys": ["ui.animations.enabled"],
       "motion": {"enabled": false, "speed": 1, "reduceMotion": false}
     },
-    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}},
+    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}, "lastRefusal": {"action": null, "intent": null}},
     "windows": {
       "count": 1,
       "order": ["win_000000000000000000000000000000a1"],

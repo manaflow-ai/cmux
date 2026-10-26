@@ -30,3 +30,8 @@ nonisolated enum ChildWindowPageFallback {
         return []
     }
 }
+
+/// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`).
+extension CEFHostView: ChildWindowContent {
+    var drawsInChildWindow: Bool { layerHosting.page == nil }
+}
