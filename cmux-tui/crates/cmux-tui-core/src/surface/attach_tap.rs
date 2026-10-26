@@ -224,6 +224,54 @@ impl AttachFrame {
         }
     }
 
+    /// The colors one output transition replaces, if it carries them.
+    pub(crate) fn output_colors(&self) -> Option<&TerminalColors> {
+        match self {
+            Self::OutputWithColors { colors, .. } => Some(colors),
+            _ => None,
+        }
+    }
+
+    /// The fields of a grid replacement, with or without its colors.
+    pub(crate) fn resize(&self) -> Option<AttachResize<'_>> {
+        match self {
+            Self::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            } => Some(AttachResize {
+                cols: *cols,
+                rows: *rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state: *kitty_state,
+                colors: None,
+                pending_sequence,
+            }),
+            Self::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                colors,
+                pending_sequence,
+            } => Some(AttachResize {
+                cols: *cols,
+                rows: *rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state: *kitty_state,
+                colors: Some(colors),
+                pending_sequence,
+            }),
+            _ => None,
+        }
+    }
+
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
@@ -256,6 +304,19 @@ impl TakenFrame {
             Self::Frame(frame) => frame,
         }
     }
+}
+
+/// A grid replacement (`Resized` or `ResizedWithColors`) by reference.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AttachResize<'a> {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) replay: &'a [u8],
+    pub(crate) kitty_image_aliases: &'a [ghostty_vt::KittyImageAlias],
+    pub(crate) kitty_state: KittyReplayState,
+    pub(crate) colors: Option<&'a TerminalColors>,
+    /// The incomplete sequence the replay ends inside (see [`AttachStream`]).
+    pub(crate) pending_sequence: &'a [u8],
 }
 
 /// One item of a viewer queue.
