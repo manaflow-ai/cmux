@@ -246,7 +246,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
-        guard content?.workspace !== workspace else { return arrangeOnScreen() }
+        guard content?.workspace !== workspace else { DebugWorkspaceSwitch.unchanged(self); return arrangeOnScreen() }
         if let current = content { park(current) }
         DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = unpark(workspace.id)
