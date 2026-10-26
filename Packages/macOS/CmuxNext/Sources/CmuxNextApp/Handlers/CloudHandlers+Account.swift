@@ -16,9 +16,7 @@ extension CloudHandlers {
             reportCreatedMachine(creation, context)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
-            // Keeps the active-window fallback for any caller: it only opens a workspace,
-            // and with no machine a CLI run would start a new one instead.
-            let target = try? machine(invocation, context, fallsBack: true)
+            let target = try workspaceMachine(invocation, context)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 // A new machine, or one still on its way: show its progress
@@ -26,13 +24,29 @@ extension CloudHandlers {
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
                 creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
+                result("new cloud workspace", context) {
+                    (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
+                }
                 return
             }
-            run("new cloud workspace", context) {
-                if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+            result("new cloud workspace", context) {
+                let id = await context.services.windows.createWorkspace(on: session.daemon)
                 RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
+                guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
+                show(id, context)
+                return machineFields(session.machineID, ["workspace_id": .string(id)])
             }
         }
+    }
+
+    /// The machine New Cloud Workspace opens on, nil for a new one. It keeps the
+    /// active-window fallback for any caller (it only opens a workspace, and with
+    /// no machine a CLI run starts a new one), but a named `--target machine:<id>`
+    /// that is not there is refused, never answered with a new machine.
+    static func workspaceMachine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession? {
+        if invocation.target?.kind == .machine { return try machine(invocation, context) }
+        return try? machine(invocation, context, fallsBack: true)
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).

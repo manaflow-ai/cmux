@@ -48,8 +48,18 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 7] =
-    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+    "turnId",
+    "promptId",
+    "status",
+    "stopReason",
+    "errorText",
+    "errorSource",
+    "detail",
+    "errorKind",
+    "recovery",
+    "details",
+];
 
 impl Hub {
     /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
@@ -419,6 +429,8 @@ impl Hub {
         v["goal"] = m.goal.clone().unwrap_or(Value::Null);
         // What the context holds by category, as Claude Code's /context says after each turn.
         v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
+        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();
@@ -444,6 +456,12 @@ impl Hub {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
+        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+        // (statvfs and a bounded, cached folder walk), so off the async workers.
+        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
+        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+            .await
+            .unwrap_or(Value::Null);
         let sessions = self.sessions();
         let mut live = 0;
         for s in &sessions {
@@ -473,6 +491,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "disk": disk,
             // `deny`: this daemon starts no agent process (cx-9ettq).
             "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.

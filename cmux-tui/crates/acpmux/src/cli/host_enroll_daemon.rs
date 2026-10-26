@@ -117,7 +117,9 @@ pub(super) fn judge_daemon(
                     StepState::Warn,
                     format!("the daemon runs build {b}, this is {build}"),
                 )
-                .with_fix(format!("Run `acpmux host update {name}`.")),
+                .with_fix(format!("Run `acpmux host update {name}`."))
+                .with_reason("peer_version_skew")
+                .with_try(format!("acpmux host update {name}")),
             ),
             Some((pid, _)) => Verdict::Done(StepResult::new(
                 Step::Daemon,

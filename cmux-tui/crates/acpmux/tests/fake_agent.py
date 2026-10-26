@@ -393,7 +393,8 @@ def handle_prompt(rid, params):
                 asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
-                                "rawInput":{"fixture":item["title"]},
+                                "rawInput":({"command":item["command"]} if "command" in item
+                                             else {"fixture":item["title"]}),
                                 "_meta":{"acpmux":{"interactive":item.get("interactive", False)}}},
                     "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"}] +
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
@@ -490,6 +491,31 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "preview-question: Q" asks Q with an option preview (its text ends in a line break the
+    # card trims) and echoes the answers and annotations acpmux put into the tool input.
+    if text.startswith("preview-question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "pq1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[17:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "preview": "[ A ]\n"},
+                                                                     {"label": "B", "preview": "[ B ]\n"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        updated = (res or {}).get("_meta", {}).get("updatedInput", {})
+        said = json.dumps({"answers": updated.get("answers"), "annotations": updated.get("annotations")},
+                          sort_keys=True)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"got {said}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
