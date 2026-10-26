@@ -82,7 +82,22 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
+    /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
+    private var turnMeter: MainTurnMeter?
+
+    /// Times every main run-loop turn on `meter`, each `sendEvent` as its input-dispatch span. Called
+    /// once in `CmuxNextApp.main`, before `run()`.
+    func meterTurns(_ meter: MainTurnMeter) {
+        turnMeter = meter
+        meter.observe()
+    }
+
     override func sendEvent(_ event: NSEvent) {
+        guard let turnMeter else { return dispatchInContext(event) }
+        turnMeter.inputDispatch { dispatchInContext(event) }
+    }
+
+    private func dispatchInContext(_ event: NSEvent) {
         guard let inputDispatch else { return route(event) }
         inputDispatch.dispatching(event) { route(event) }
     }

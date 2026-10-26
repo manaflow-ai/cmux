@@ -65,7 +65,10 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart,
+        // The one main-thread scheduler; every main run-loop turn is timed and split (MainTurnMeter).
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        (app as? CmuxApplication)?.meterTurns(mainWork.budget.turns)
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, mainWork: mainWork,
                                    launchReads: (work, launchImages, relaunchWake))
         app.delegate = delegate
         app.setActivationPolicy(.regular)

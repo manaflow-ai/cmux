@@ -46,6 +46,9 @@ public final class MainFrameBudget {
     public let board: MainTaskBoard
     public let budgets: Budgets
     public private(set) var stats = Stats()
+    /// The main run loop's turns: each task this budget runs is a scheduled span in the turn
+    /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
+    public let turns: MainTurnMeter
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
@@ -85,11 +88,15 @@ public final class MainFrameBudget {
     ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
     ///   - input: The pending-input check (the app: ``SessionInputPending``; tests: a fake).
     ///   - board: Where the running task is published for the watchdog.
-    ///   - signposts: Whether each task opens a `stall.main_task` interval (the app: true).
+    ///   - signposts: Whether each task opens a `stall.main_task` interval and a long turn emits
+    ///     `stall.main_turn` (the app: true).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
+    ///   - turns: The run-loop turn meter (default: one on this clock).
     public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+                turns: MainTurnMeter? = nil) {
         self.budgets = budgets
+        self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: uptimeNanos)
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
@@ -205,6 +212,7 @@ public final class MainFrameBudget {
                             budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
         if let index { ranThisFrame[index] = true }
         open.append(task)
+        turns.beginSpan(.scheduled, at: task.start)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
         let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name) : nil
         defer {
@@ -220,6 +228,7 @@ public final class MainFrameBudget {
         let elapsed = end &- task.start
         let own = elapsed > task.childNanos ? elapsed - task.childNanos : 0
         if !open.isEmpty { open[open.count - 1].childNanos &+= elapsed }
+        turns.endTask(at: end, ownNanos: own)
         var over = false
         if let index {
             spent[index] &+= own
@@ -274,9 +283,10 @@ public final class MainFrameBudget {
         return total
     }
 
-    /// Clears the counters (`debug.main_budget reset`).
+    /// Clears the counters and the turn meter's (`debug.main_budget reset`).
     public func resetStats() {
         stats = Stats()
+        turns.reset()
     }
 
     private func inputPending(_ now: UInt64) -> Bool {
