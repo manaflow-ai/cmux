@@ -127,7 +127,7 @@ public final class WebKitEngine: BrowserEngine {
     /// configuration that links the new page to its opener.
     public func makeWebKitTab(id: BrowserTabID = .random(), profile: BrowserProfileID = .default, initialURL: URL? = nil,
                               zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil) -> WebKitTab {
-        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom),
+        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom, origin: .user),
                 webViewConfiguration: webViewConfiguration)
     }
 
