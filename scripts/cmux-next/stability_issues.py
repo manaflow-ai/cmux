@@ -14,7 +14,7 @@ only after its progression task stops reproducing the crash on newer builds
                               "findings": [{<crash_signature fields>, "lane": "smoke", "major": "26",
                                             "sha": "<build sha, default tip>", "at": "<iso time>",
                                             "repro": {"minimal": URL, "seed": S, "test_id": T, "fuzz_input": URL},
-                                            "source": "lab"}, ...]}
+                                            "source": "<artifact name, or sentry>"}, ...]}
   bisect-result --hash12   record stability_bisect.py's verdict: the first bad commit, or flaky (1-2 of 3 replays).
   fix-verified --hash12    record the fix commit once its repro no longer reproduces on a build that has it.
 
@@ -111,7 +111,8 @@ class GhCli:
                 for row in json.loads(out or "[]")]
 
     def ensure_labels(self, names: list[str]) -> None:
-        out = self._run(["label", "list", "--search", LABEL, "--limit", "2000", "--json", "name"])
+        # One search covers stability-sig, stability-sig:<hash12> and stability-kind:<kind>.
+        out = self._run(["label", "list", "--search", "stability-", "--limit", "2000", "--json", "name"])
         have = {row["name"] for row in json.loads(out or "[]")}
         for name in names:
             if name not in have:

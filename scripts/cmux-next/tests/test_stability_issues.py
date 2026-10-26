@@ -371,7 +371,7 @@ FAKE_GH = textwrap.dedent('''\
         print(json.dumps([dict(i, labels=[{"name": n} for n in i["labels"]]) for i in db["issues"]
                           if label in i["labels"]]))
     elif args[:2] == ["label", "list"]:
-        print(json.dumps([{"name": n} for n in db["labels"]]))
+        print(json.dumps([{"name": n} for n in db["labels"] if opt("--search", "") in n]))
     elif args[:2] == ["label", "create"]:
         db["labels"].append(args[2])
     elif args[:2] == ["issue", "create"]:
@@ -419,6 +419,14 @@ class GhCliTests(unittest.TestCase):
         self.assertEqual(calls.count(["issue", "create"]), 1)
         self.assertEqual(calls.count(["label", "list"]), 1)
         self.assertNotIn(["issue", "edit"], calls)
+
+        # A second signature of the same kind creates only its own hash label: stability-kind:ips already exists.
+        run_file.write_text(json.dumps(run("r2", sha(2), [finding(H2)])))
+        third = sync()
+        self.assertEqual(third.returncode, 0, third.stderr)
+        created = [json.loads(line)[2] for line in (tmp / "log.jsonl").read_text().splitlines()
+                   if json.loads(line)[:2] == ["label", "create"]]
+        self.assertEqual(created, ["stability-kind:ips", "stability-sig", f"stability-sig:{H1}", f"stability-sig:{H2}"])
 
 
 if __name__ == "__main__":
