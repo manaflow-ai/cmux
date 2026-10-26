@@ -445,6 +445,9 @@ pub struct Spawner {
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
     /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
     agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
+    /// The person profile `remember` writes (`optchat/person.md`); None: no
+    /// profile on this host.
+    person: Option<std::path::PathBuf>,
 }
 
 impl Spawner {
@@ -472,7 +475,14 @@ impl Spawner {
             cloud_text: None,
             cloud_vms: None,
             agent_keys: None,
+            person: None,
         }
+    }
+
+    /// `remember` keeps preferences in the profile at `path`.
+    pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
+        self.person = Some(path);
+        self
     }
 
     /// Cloud subagents get their own sandbox key from `keys` (None: off).
@@ -1628,6 +1638,19 @@ impl Orchestrator for Spawner {
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn remember(&self, text: &str) -> Result<String, String> {
+        let Some(person) = &self.person else {
+            return Err("this Chief host has no person profile to remember in".into());
+        };
+        let answer = crate::remember::remember(person, text, &crate::remember::today())?;
+        (self.log)(&format!("remember: {answer}"));
+        self.trace.emit(
+            "chief.remember",
+            serde_json::json!({"text": self.trace.text(text), "noop": answer.starts_with("outcome: noop")}),
+        );
+        Ok(answer)
     }
 
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
