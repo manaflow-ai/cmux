@@ -2,40 +2,35 @@
 internal import Atomics
 
 /// The per-site atomics of one ``BlockingContext``: a call count, a wall-time total and a maximum
-/// (nanoseconds) per site id. Fixed at init, so a recording thread never allocates; any thread adds,
-/// any thread reads.
+/// (nanoseconds) per site id, in one fixed allocation of three words per site. Fixed at init, so a recording
+/// thread never allocates; any thread adds, any thread reads.
 final class BlockingSiteCounters: Sendable {
     private let capacity: Int
-    nonisolated(unsafe) private let counts: UnsafeMutablePointer<UnsafeAtomic<Int>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
-    nonisolated(unsafe) private let totalNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
-    nonisolated(unsafe) private let maxNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
+    /// Site `id` owns words `3 * id` (count), `3 * id + 1` (total) and `3 * id + 2` (maximum).
+    nonisolated(unsafe) private let words: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
 
     init(capacity: Int) {
         self.capacity = capacity
-        counts = .allocate(capacity: capacity)
-        totalNanos = .allocate(capacity: capacity)
-        maxNanos = .allocate(capacity: capacity)
-        for slot in 0..<capacity {
-            (counts + slot).initialize(to: UnsafeAtomic<Int>.Storage(0))
-            (totalNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
-            (maxNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
+        words = .allocate(capacity: capacity * 3)
+        for slot in 0..<(capacity * 3) {
+            (words + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
         }
     }
 
     deinit {
-        counts.deinitialize(count: capacity)
-        counts.deallocate()
-        totalNanos.deinitialize(count: capacity)
-        totalNanos.deallocate()
-        maxNanos.deinitialize(count: capacity)
-        maxNanos.deallocate()
+        words.deinitialize(count: capacity * 3)
+        words.deallocate()
+    }
+
+    private func word(_ site: Int, _ field: Int) -> UnsafeAtomic<UInt64> {
+        UnsafeAtomic<UInt64>(at: words + (site * 3 + field))
     }
 
     /// Counts one ended call at `site` and adds its `nanos` (nil: not timed) to the site's total and maximum.
     func add(site: Int, nanos: UInt64?) {
         if let nanos {
-            UnsafeAtomic<UInt64>(at: totalNanos + site).wrappingIncrement(by: nanos, ordering: .relaxed)
-            let maximum = UnsafeAtomic<UInt64>(at: maxNanos + site)
+            word(site, 1).wrappingIncrement(by: nanos, ordering: .relaxed)
+            let maximum = word(site, 2)
             var seen = maximum.load(ordering: .relaxed)
             while nanos > seen {
                 let (exchanged, original) = maximum.weakCompareExchange(expected: seen, desired: nanos, ordering: .relaxed)
@@ -43,22 +38,20 @@ final class BlockingSiteCounters: Sendable {
                 seen = original
             }
         }
-        UnsafeAtomic<Int>(at: counts + site).wrappingIncrement(ordering: .relaxed)
+        word(site, 0).wrappingIncrement(ordering: .relaxed)
     }
 
     /// The site's count and wall times now.
     func read(site: Int) -> (count: Int, totalNanos: UInt64, maxNanos: UInt64) {
-        (UnsafeAtomic<Int>(at: counts + site).load(ordering: .relaxed),
-         UnsafeAtomic<UInt64>(at: totalNanos + site).load(ordering: .relaxed),
-         UnsafeAtomic<UInt64>(at: maxNanos + site).load(ordering: .relaxed))
+        (Int(truncatingIfNeeded: word(site, 0).load(ordering: .relaxed)),
+         word(site, 1).load(ordering: .relaxed),
+         word(site, 2).load(ordering: .relaxed))
     }
 
     /// Zeroes every site.
     func reset() {
-        for slot in 0..<capacity {
-            UnsafeAtomic<Int>(at: counts + slot).store(0, ordering: .relaxed)
-            UnsafeAtomic<UInt64>(at: totalNanos + slot).store(0, ordering: .relaxed)
-            UnsafeAtomic<UInt64>(at: maxNanos + slot).store(0, ordering: .relaxed)
+        for slot in 0..<(capacity * 3) {
+            UnsafeAtomic<UInt64>(at: words + slot).store(0, ordering: .relaxed)
         }
     }
 }

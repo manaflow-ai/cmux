@@ -179,7 +179,7 @@ final class BlockingViolationTable: Sendable {
         guard allowance == nil else { return nil }
         #if DEBUG
         if mode == .trap && kind != .lockWait {
-            fatalError("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
+            Self.trap("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
                 + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
         }
         #endif
@@ -199,6 +199,14 @@ final class BlockingViolationTable: Sendable {
         wake.add(data: 1)
         return id
     }
+
+    #if DEBUG
+    /// Trap mode (Debug only: `CMUX_BLOCKING_TRAP=1`, `CMUX_BLOCKING_TRAP_POOL=1` and the detector's tests): stops
+    /// the process at the violation.
+    private static func trap(_ message: String) -> Never {
+        fatalError(message)
+    }
+    #endif
 
     // MARK: the pool path (a cooperative pool or GCD root queue thread)
 
@@ -239,7 +247,7 @@ final class BlockingViolationTable: Sendable {
     private func recordedPoolSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         #if DEBUG
         if poolMode == .trap {
-            fatalError("blocking \(kind.rawValue) on the cooperative pool or a GCD root queue at \(fileID):\(line): "
+            Self.trap("blocking \(kind.rawValue) on the cooperative pool or a GCD root queue at \(fileID):\(line): "
                 + "run it on a BackgroundWork lane, work.run(_:mayBlock:) (plans/cmux-next/threading-model.md)")
         }
         #endif
