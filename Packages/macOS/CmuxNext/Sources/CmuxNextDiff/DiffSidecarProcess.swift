@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Why one sidecar request produced no reply.
 nonisolated enum DiffSidecarError: Error, Equatable, Sendable {
@@ -82,18 +83,22 @@ private nonisolated final class Invocation: Sendable {
         var exitStatus: Int32?
         var continuation: CheckedContinuation<Data, any Error>?
         var outcome: Result<Data, DiffSidecarError>?
-        var deadlines: [Task<Void, Never>] = []
     }
 
     private let state = Mutex(State())
     private let request: Data
     private let grace: Duration
     private let clock: any Clock<Duration>
+    /// The child's `startup` bound, then its `request` bound from the ready marker; the outcome cancels both.
+    private let startup: DemandTimer
+    private let reply: DemandTimer
 
     init(request: Data, grace: Duration, clock: any Clock<Duration>) {
         self.request = request
         self.grace = grace
         self.clock = clock
+        startup = DemandTimer(owner: "DiffSidecar.startup", clock: clock)
+        reply = DemandTimer(owner: "DiffSidecar.reply", clock: clock)
     }
 
     func start(executable: URL, arguments: [String], limits: DiffSidecarProcess.Limits,
@@ -147,7 +152,7 @@ private nonisolated final class Invocation: Sendable {
             stop(process, group: false)
             return
         }
-        arm(after: limits.startup) { $0.ready ? nil : .startFailed }
+        arm(startup, after: limits.startup) { $0.ready ? nil : .startFailed }
     }
 
     /// Fails with `error` (unless already finished) and stops the child.
@@ -155,26 +160,28 @@ private nonisolated final class Invocation: Sendable {
         let (continuation, process, ready) = state.withLock { state -> (CheckedContinuation<Data, any Error>?, Process?, Bool) in
             guard state.outcome == nil else { return (nil, nil, false) }
             state.outcome = .failure(error)
-            for deadline in state.deadlines { deadline.cancel() }
             try? state.stdin?.close()
             state.stdin = nil
             return (state.continuation.take(), state.exitStatus == nil ? state.process : nil, state.ready)
         }
+        cancelDeadlines()
         continuation?.resume(throwing: error)
         if let process { stop(process, group: ready) }
     }
 
-    private func arm(after delay: Duration, _ check: @escaping @Sendable (State) -> DiffSidecarError?) {
-        let clock = clock
-        let task = Task { [weak self] in
-            // wakeup-allow: one-shot deadline (sidecar startup or reply)
-            do { try await clock.sleep(for: delay) } catch { return }
+    /// Fails with `check`'s error when `timer` fires first; an outcome reached before or after the arm
+    /// cancels it (``cancelDeadlines()``).
+    private func arm(_ timer: DemandTimer, after delay: Duration, _ check: @escaping @Sendable (State) -> DiffSidecarError?) {
+        timer.schedule(after: delay) { [weak self] in
             guard let self, let error = self.state.withLock({ check($0) }) else { return }
             self.fail(error)
         }
-        state.withLock { state in
-            if state.outcome == nil { state.deadlines.append(task) } else { task.cancel() }
-        }
+        if state.withLock({ $0.outcome != nil }) { timer.cancel() }
+    }
+
+    private func cancelDeadlines() {
+        startup.cancel()
+        reply.cancel()
     }
 
     private func receiveStderr(_ data: Data, handle: FileHandle) {
@@ -190,7 +197,10 @@ private nonisolated final class Invocation: Sendable {
             defer { state.stdin = nil }
             return (state.stdin, state.requestLimit)
         }
-        if let requestLimit { arm(after: requestLimit) { _ in .timedOut } }
+        if let requestLimit {
+            startup.cancel()
+            arm(reply, after: requestLimit) { _ in .timedOut }
+        }
         // The group exists now, so a stop reaches git and cmux children too.
         guard let stdin else { return }
         do {
@@ -227,13 +237,13 @@ private nonisolated final class Invocation: Sendable {
     }
 
     private func finishIfDone() {
-        let continuation = state.withLock { state -> CheckedContinuation<Data, any Error>? in
-            guard state.outcome == nil, state.replyClosed, let status = state.exitStatus else { return nil }
-            for deadline in state.deadlines { deadline.cancel() }
+        let (finished, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Data, any Error>?) in
+            guard state.outcome == nil, state.replyClosed, let status = state.exitStatus else { return (false, nil) }
             let valid = status == 0 && !state.reply.isEmpty && state.reply.count <= DiffSidecarProcess.maximumReply
             state.outcome = valid ? .success(state.reply) : .failure(.failed(status: status))
-            return state.continuation.take()
+            return (true, state.continuation.take())
         }
+        if finished { cancelDeadlines() }
         if let continuation { resumeIfFinished(continuation) }
     }
 
@@ -252,8 +262,9 @@ private nonisolated final class Invocation: Sendable {
         let clock = clock, grace = grace
         // task-owner: one-shot escalation for a child that ignores SIGTERM; ends after `grace`
         Task { [self] in
-            // wakeup-allow: one-shot deadline (SIGTERM grace)
-            try? await clock.sleep(for: grace)
+            // wakeup-allow: deadline of the SIGTERM grace before SIGKILL; not a DemandTimer: it must outlive
+            // the request that stopped the child, and nothing replaces or cancels it
+            try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
             guard state.withLock({ $0.exitStatus == nil }) else { return }
             kill(target, SIGKILL)
         }

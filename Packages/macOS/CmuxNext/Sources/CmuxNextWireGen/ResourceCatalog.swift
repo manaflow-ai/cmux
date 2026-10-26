@@ -64,20 +64,23 @@ struct ResourceCatalog: Decodable {
         }
     }
 
-    /// The operations `client` calls, sorted.
-    func operationNames(client: String) -> [String] {
-        operations.filter { $0.value.clients?.contains(client) ?? true }.keys.sorted()
+    /// The named types and generics operation `name`'s params, result and stream mention.
+    func typeReferences(operation name: String) throws(ResourceEmitterError) -> [String] {
+        guard let operation = operations[name] else { throw .unknownOperation(name) }
+        var out = operation.params.fields.values.flatMap(\.type.references) + operation.result.references
+        if let stream = operation.stream { out += stream.item.references + stream.end.references }
+        return out
     }
 
-    /// Every named type and generic reachable from `names`' params, results and streams and from
-    /// the error details, sorted. A name the catalog does not declare is refused.
-    func reachableTypeNames(operations names: [String]) throws(ResourceEmitterError) -> [String] {
-        var pending: [String] = errors.values.flatMap(\.details.references)
-        for name in names {
-            guard let operation = operations[name] else { throw .unknownOperation(name) }
-            pending += operation.params.fields.values.flatMap(\.type.references) + operation.result.references
-            if let stream = operation.stream { pending += stream.item.references + stream.end.references }
-        }
+    /// The named types and generics the error details mention.
+    var errorTypeReferences: [String] {
+        errors.values.flatMap(\.details.references)
+    }
+
+    /// Every named type and generic reachable from `roots`. A name the catalog does not declare
+    /// is refused.
+    func reachableTypeNames(from roots: [String]) throws(ResourceEmitterError) -> Set<String> {
+        var pending = roots
         var seen = Set<String>()
         while let name = pending.popLast() {
             guard seen.insert(name).inserted else { continue }
@@ -89,7 +92,7 @@ struct ResourceCatalog: Decodable {
                 throw .unknownType(name)
             }
         }
-        return seen.sorted()
+        return seen
     }
 }
 
@@ -165,6 +168,8 @@ enum ResourceEmitterError: Error, Equatable, CustomStringConvertible {
     case unsupported(path: String, reason: String)
     /// Two catalog names that would get the same Swift name, with the place of the second.
     case nameCollision(path: String, swiftName: String)
+    /// A requested operation whose `clients` leave out the client the bindings are for.
+    case notForClient(operation: String, client: String)
 
     var description: String {
         switch self {
@@ -174,6 +179,8 @@ enum ResourceEmitterError: Error, Equatable, CustomStringConvertible {
         case .unsupported(let path, let reason): "resource-operations-v2.json: \(path): \(reason)"
         case .nameCollision(let path, let swiftName):
             "resource-operations-v2.json: \(path): its Swift name \(swiftName) is already taken"
+        case .notForClient(let operation, let client):
+            "resource-operations-v2.json: $.operations.\(operation).clients: does not include \(client)"
         }
     }
 }

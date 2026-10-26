@@ -77,6 +77,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
+    /// The current document's first content frame (`WebKitFirstPaintHandler`, or its load end with nothing painted).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
     /// Bounds how long the theme color stands in for a committed document
@@ -284,6 +286,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         removeStandIn()
+        firstContentFrame.closed()
         faviconTask?.cancel()
         titleTimer.cancel()
         rateReshow?.cancel()

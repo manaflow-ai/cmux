@@ -24,8 +24,8 @@ struct TerminalClipboardReadServiceTests {
         defer { service.stop() }
         #expect(service.handOffs == 1, "start hands the current state over in its own turn")
         let store = services.daemon.store
-        store.apply(.disconnected("first"))
-        store.apply(.disconnected("second"))
+        store.apply(.disconnected(reason: "first"))
+        store.apply(.disconnected(reason: "second"))
         #expect(service.handOffs == 1, "a change reached the broker inside its will-set")
         await drainMainTurns()
         #expect(service.handOffs == 2, "\(service.handOffs - 1) hand-offs for two changes in one turn (want 1)")
@@ -37,7 +37,7 @@ struct TerminalClipboardReadServiceTests {
         let (services, service) = Self.started()
         defer { service.stop() }
         let store = services.daemon.store
-        store.apply(.disconnected("dropped"))
+        store.apply(.disconnected(reason: "dropped"))
         #expect(service.handOffs == 1)
         // No run loop pass between them: the handler hands the disconnect over before the broker sees the event.
         store.sideEvents.deliver(.terminalClipboardReadCancelled(requestID: "r1"))
@@ -49,7 +49,7 @@ struct TerminalClipboardReadServiceTests {
     @Test func nothingReachesTheBrokerAfterStop() async {
         let (services, service) = Self.started()
         service.stop()
-        services.daemon.store.apply(.disconnected("after stop"))
+        services.daemon.store.apply(.disconnected(reason: "after stop"))
         await drainMainTurns()
         #expect(service.handOffs == 1)
     }

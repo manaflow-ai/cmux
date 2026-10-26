@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
@@ -13,14 +14,21 @@ import Foundation
 final class ErrorJournalService {
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
-    private var harvesting: Task<Void, Never>?
+    /// The clock the periodic harvest sleeps on; tests pass a `ManualClock`.
+    private let clock: any Clock<Duration>
+    private let ledger: WakeupLedger
+    /// The cadence between ``start()`` and ``stop()``.
+    private var cadence: HarvestCadence?
 
     /// How often the journal reads its sources while the app runs.
-    static let harvestInterval: Duration = .seconds(300)
+    nonisolated static let harvestInterval: Duration = .seconds(300)
 
-    init(journal: ErrorJournal, sources: [any ErrorHarvestSource]) {
+    init(journal: ErrorJournal, sources: [any ErrorHarvestSource], clock: any Clock<Duration> = ContinuousClock(),
+         ledger: WakeupLedger = .shared) {
         self.journal = journal
         self.sources = sources
+        self.clock = clock
+        self.ledger = ledger
     }
 
     /// The journal folder of a build.
@@ -53,29 +61,45 @@ final class ErrorJournalService {
     }
 
     /// Starts the periodic harvest; the first one runs at once.
+    ///
+    /// The cadence never wakes the main thread, as Chromium's `RepeatingTimer` on a ThreadPool sequenced task runner
+    /// (base/timer/timer.h): each harvest runs off main, then a ``DemandTimer`` with no main wake-up queue sleeps
+    /// ``harvestInterval`` on its clock, with ``WakeLeeway``'s tolerance, and starts the next. The next one is planned
+    /// only when one ends, so two never overlap. Owner `ErrorJournalService.harvest` of idle-budget.json
+    /// `allowed_periodic`.
     func start() {
-        guard harvesting == nil else { return }
-        let journal = journal
-        let sources = sources
-        let interval = Self.harvestInterval
-        // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
-        // the delay is the intended cadence; nothing waits on it).
-        harvesting = Task.detached(priority: .utility) {
-            // concurrency-allow: a detached utility task, never the main thread; each pass awaits a harvest, then the cancellable cadence sleep
-            // wakeup-allow: one harvest every 300 s (harvestInterval) while the app runs, ended by stop()
-            while !Task.isCancelled {
-                await journal.harvest(sources)
-                // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
-                // wakeup-allow: the 300 s harvest cadence; nothing waits on it
-                guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
-            }
-        }
+        guard cadence == nil else { return }
+        let cadence = HarvestCadence(timer: DemandTimer(owner: "ErrorJournalService.harvest", clock: clock, ledger: ledger))
+        self.cadence = cadence
+        let journal = journal, sources = sources
+        // task-owner: the first harvest of this start; the next ones start from the cadence's timer, stop() ends them
+        Task.detached(priority: .utility) { await Self.harvest(journal, sources, cadence: cadence) }
     }
 
-    /// Stops harvesting and writes what is pending.
+    /// Stops harvesting and writes what is pending. A harvest in flight ends and plans no next one.
     func stop() async {
-        harvesting?.cancel()
-        harvesting = nil
+        cadence?.stopped.store(true, ordering: .relaxed)
+        cadence?.timer.cancel()
+        cadence = nil
         await journal.flush()
+    }
+
+    /// One harvest off the main thread, then the next one ``harvestInterval`` later unless ``stop()`` came.
+    @concurrent private nonisolated static func harvest(_ journal: ErrorJournal, _ sources: [any ErrorHarvestSource],
+                                                        cadence: HarvestCadence) async {
+        guard !cadence.stopped.load(ordering: .relaxed) else { return }
+        _ = await journal.harvest(sources)
+        guard !cadence.stopped.load(ordering: .relaxed) else { return }
+        cadence.timer.schedule(after: harvestInterval) { await harvest(journal, sources, cadence: cadence) }
+    }
+}
+
+/// One start's cadence: its timer, and whether ``ErrorJournalService/stop()`` ended it.
+private nonisolated final class HarvestCadence: Sendable {
+    let timer: DemandTimer
+    let stopped = Atomic<Bool>(false)
+
+    init(timer: DemandTimer) {
+        self.timer = timer
     }
 }

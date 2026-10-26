@@ -39,6 +39,9 @@ private let shapeOperations = #"""
          "fields": {"text": {"required": false, "type": {"kind": "primitive", "name": "string"}},
                     "class": {"required": false, "type": {"kind": "enum", "values": ["a", "public"]}}}},
        "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "EmptyResult"}]}},
+     "notification.clear": {"class": "mutation", "idempotency": "required", "errors": ["validation.invalid"],
+       "params": {"selectors": {"machine": "required", "session": "required"}, "fields": {}, "extra": false},
+       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "EmptyResult"}]}},
      "shape.get": {"class": "read", "idempotency": "forbidden", "errors": ["validation.invalid"],
        "params": {"selectors": {"machine": "required", "session": "required"}, "fields": {}, "extra": false},
        "result": {"kind": "ref", "name": "Shape"}},
@@ -47,30 +50,70 @@ private let shapeOperations = #"""
        "result": {"kind": "ref", "name": "CliThing"}}}
     """#
 
-/// The `cmux.protocol/2` bindings generator (p05-ipc-024): typed params and results per
-/// operation the app calls, the catalog's errors with typed details, open enums, tagged unions,
-/// and refusals that name the catalog place. The byte goldens of the generated types (3 ops
-/// encode to today's lines) are ResourceRequestLineTests in CmuxNextIPCTests.
+/// Every operation of `catalog`, for refusal cases that need no app list.
+private func everyOperation(_ catalog: ResourceCatalog) throws -> ResourceEmitter {
+    try ResourceEmitter(catalog: catalog, operations: Array(catalog.operations.keys))
+}
+
+/// All generated files as one text, for checks that do not care which file holds a declaration.
+private func allSource(_ emitter: ResourceEmitter) throws -> String {
+    try emitter.files().map(\.text).joined()
+}
+
+/// The `cmux.protocol/2` bindings generator (p05-ipc-024): typed params and results for the
+/// operations the app names, one file per family, the catalog's errors with typed details, open
+/// enums, tagged unions, and refusals that name the catalog place. The byte goldens of the
+/// generated types (3 ops encode to today's lines) are ResourceRequestLineTests in
+/// CmuxNextIPCTests; CmuxNextDaemonTests' ResourceRequestLineParityTests compares the same calls
+/// with today's `ResourceRequestEnvelope` bytes.
 @Suite struct ResourceEmitterTests {
+    private static let appOperations = ["shape.get", "terminal.input.write", "notification.clear"]
+
     private static func shapes() throws -> ResourceEmitter {
-        try ResourceEmitter(catalog: catalog(types: shapeTypes, operations: shapeOperations))
+        try ResourceEmitter(catalog: catalog(types: shapeTypes, operations: shapeOperations), operations: appOperations)
     }
 
-    @Test func keepsTheMacOSOperationsAndWhatTheyReach() throws {
+    /// Only the named operations, split by family; a type one family reaches is in that family's
+    /// file, a type two families (or the errors) reach is in the shared file.
+    @Test func splitsTheNamedOperationsByFamily() throws {
         let emitter = try Self.shapes()
-        #expect(emitter.operationNames == ["shape.get", "terminal.input.write"])
-        // CliThing is only cli.only's result.
-        #expect(emitter.typeNames == ["Circle", "EmptyResult", "MutationResult", "Shape"])
-        #expect(try emitter.declarations().map(\.name) == [
-            "V2MachineID", "V2SessionID", "V2TerminalID",
-            "V2Circle", "V2EmptyResult", "V2MutationResult", "V2Shape",
-            "V2ValidationInvalidDetails", "V2ResourceError",
-            "V2ShapeGetRequest", "V2TerminalInputWriteRequest",
+        #expect(emitter.operationNames == ["notification.clear", "shape.get", "terminal.input.write"])
+        #expect(emitter.sharedTypeNames == ["EmptyResult", "MutationResult"])
+        #expect(emitter.families == [
+            ResourceEmitter.Family(name: "notification", operationNames: ["notification.clear"], typeNames: []),
+            ResourceEmitter.Family(name: "shape", operationNames: ["shape.get"], typeNames: ["Circle", "Shape"]),
+            ResourceEmitter.Family(name: "terminal", operationNames: ["terminal.input.write"], typeNames: []),
         ])
+        #expect(try emitter.sharedDeclarations().map(\.name) == [
+            "V2MachineID", "V2SessionID", "V2TerminalID", "V2EmptyResult", "V2MutationResult",
+            "V2ValidationInvalidDetails", "V2ResourceError",
+        ])
+        #expect(try emitter.declarations(of: emitter.families[1]).map(\.name)
+            == ["V2Circle", "V2Shape", "V2ShapeGetRequest"])
+        let files = try emitter.files()
+        #expect(files.map(\.name) == [
+            "ResourceOperations.swift", "ResourceOperations+notification.swift", "ResourceOperations+shape.swift",
+            "ResourceOperations+terminal.swift",
+        ])
+        #expect(files[0].text.contains("public typealias Response = ResourceResponse<Self.Result, V2ResourceError>"))
+        #expect(files[2].text.contains("public struct V2ShapeGetRequest: ResourceUnkeyedRequest, Equatable {"))
+        #expect(!files[2].text.contains("V2TerminalInputWriteRequest") && !files[3].text.contains("struct V2Shape"))
+        // CliThing is only the result of cli.only, which the app does not name.
+        #expect(!files.contains { $0.text.contains("CliThing") })
+    }
+
+    @Test func refusesAnOperationTheAppCannotCall() throws {
+        let shapes = try catalog(types: shapeTypes, operations: shapeOperations)
+        #expect(throws: ResourceEmitterError.notForClient(operation: "cli.only", client: "macos")) {
+            try ResourceEmitter(catalog: shapes, operations: ["cli.only"])
+        }
+        #expect(throws: ResourceEmitterError.unknownOperation("shape.list")) {
+            try ResourceEmitter(catalog: shapes, operations: ["shape.get", "shape.list"])
+        }
     }
 
     @Test func emitsATypedMutationRequest() throws {
-        let source = try Self.shapes().source()
+        let source = try allSource(Self.shapes())
         #expect(source.contains("""
             /// `terminal.input.write` (mutation). Errors: `validation.invalid`.
             public struct V2TerminalInputWriteRequest: ResourceMutationRequest, Equatable {
@@ -114,7 +157,7 @@ private let shapeOperations = #"""
     }
 
     @Test func emitsObjectsGenericsUnionsAndErrors() throws {
-        let source = try Self.shapes().source()
+        let source = try allSource(Self.shapes())
         #expect(source.contains("public struct V2MutationResult<T: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {"))
         #expect(source.contains("        self.value = try container.decode(T.self, forKey: .value)\n"))
         // A required nullable field is always written, null included; it decodes with decode(T?.self).
@@ -129,9 +172,16 @@ private let shapeOperations = #"""
         #expect(source.contains("        case \"circle\": self = .circle(try V2Circle(from: decoder))\n"))
         #expect(source.contains("        default: self = .unknown(tag: tag, raw: try ResourceJSON(from: decoder))\n"))
         #expect(source.contains("        case validationInvalid(V2ValidationInvalidDetails)\n"))
+        // A known code whose details have another shape still keeps code, message and retryable.
         #expect(source.contains("""
-                        self.details = .validationInvalid(try container.decode(V2ValidationInvalidDetails.self, forKey: .details))
+                    case "validation.invalid":
+                        if let value = try? container.decode(V2ValidationInvalidDetails.self, forKey: .details) {
+                            self.details = .validationInvalid(value)
+                        } else {
+                            self.details = .malformed(try container.decode(ResourceJSON.self, forKey: .details))
+                        }
             """))
+        #expect(source.contains("        case malformed(ResourceJSON)\n"))
         #expect(source.contains("extension ResourceOperationRequest {"))
         // Objects decode; requests only encode.
         #expect(source.components(separatedBy: "public init(from decoder: any Decoder) throws {").count - 1 == 6)
@@ -140,20 +190,22 @@ private let shapeOperations = #"""
     }
 
     @Test func emitsTheSameBytesEveryRun() throws {
-        #expect(try Self.shapes().source() == Self.shapes().source())
-        let real = try specData("resource-operations-v2.json")
-        #expect(try ResourceEmitter(resourceOperations: real).source() == ResourceEmitter(resourceOperations: real).source())
+        #expect(try Self.shapes().files() == Self.shapes().files())
+        // The order the names come in does not matter.
+        let reversed = try ResourceEmitter(catalog: catalog(types: shapeTypes, operations: shapeOperations),
+                                           operations: Self.appOperations.reversed())
+        #expect(try reversed.files() == Self.shapes().files())
+        let real = try ResourceCatalog(data: specData("resource-operations-v2.json"))
+        #expect(try everyOperation(real).files() == everyOperation(real).files())
     }
 
-    /// The real catalog: a request per operation the app calls (every one, while no operation is
-    /// tagged with `clients`), the catalog's 28 errors, and no refusal.
+    /// The real catalog: every operation spells (so adding any of them to the app's list builds),
+    /// a request per operation, the catalog's 28 errors, and no refusal.
     @Test func coversTheRealCatalog() throws {
-        let data = try specData("resource-operations-v2.json")
-        let catalog = try ResourceCatalog(data: data)
-        let emitter = try ResourceEmitter(catalog: catalog)
-        #expect(emitter.operationNames == catalog.operationNames(client: "macos"))
-        #expect(!emitter.operationNames.isEmpty)
-        let source = try emitter.source()
+        let catalog = try ResourceCatalog(data: specData("resource-operations-v2.json"))
+        let emitter = try everyOperation(catalog)
+        #expect(emitter.operationNames == catalog.operations.keys.sorted())
+        let source = try allSource(emitter)
         #expect(source.components(separatedBy: "    public static let resourceOperation = ").count - 1
             == emitter.operationNames.count)
         let errors = try emitter.errorCases().cases
@@ -163,6 +215,27 @@ private let shapeOperations = #"""
         #expect(source.contains("public struct V2TerminalInputWriteRequest: ResourceMutationRequest, Equatable {"))
         #expect(source.contains("public struct V2SessionEventsRequest: ResourceStreamRequest, Equatable {"))
         #expect(source.contains("public typealias V2JsonValue = ResourceJSON\n"))
+        // `local.io` gets SwiftNaming's initialisms, as the v1 bindings spell `io`.
+        #expect(errors.contains(ResourceEmitter.ErrorCase(code: "local.io", caseName: "localIO",
+                                                          detailsType: "V2LocalIODetails")))
+    }
+
+    /// The three golden operations of ResourceRequestLineTests alone: a file per family, and the
+    /// shared file holds the ids and the errors.
+    @Test func splitsTheRealCatalogsGoldenOperations() throws {
+        let catalog = try ResourceCatalog(data: specData("resource-operations-v2.json"))
+        let emitter = try ResourceEmitter(catalog: catalog,
+                                          operations: ["terminal.input.write", "notification.clear", "screen.get"])
+        let files = try emitter.files()
+        #expect(files.map(\.name) == [
+            "ResourceOperations.swift", "ResourceOperations+notification.swift", "ResourceOperations+screen.swift",
+            "ResourceOperations+terminal.swift",
+        ])
+        #expect(files[0].text.contains("public struct V2ResourceError: Error, Codable, Sendable, Equatable {"))
+        #expect(files[0].text.contains("public struct V2TerminalID: ResourceIdentifier {"))
+        #expect(files[2].text.contains("public struct V2ScreenGetRequest: ResourceUnkeyedRequest, Equatable {"))
+        #expect(files[3].text.contains("public struct V2TerminalInputWriteRequest: ResourceMutationRequest, Equatable {"))
+        #expect(!files.contains { $0.text.contains("V2SessionEventsRequest") })
     }
 
     @Test func namesFollowSwiftConventions() throws {
@@ -179,6 +252,10 @@ private let shapeOperations = #"""
         #expect(try ResourceSwiftName.nestedType("result", path: "$") == "ResultValue")
         #expect(try ResourceSwiftName.nestedType("layout", path: "$") == "Layout")
         #expect(try ResourceSwiftName.identifier(scope: "frontend_projection", path: "$") == "V2FrontendProjectionID")
+        // SwiftNaming's words: camelCase and capital runs split; `api`, `cli` and `io` are initialisms.
+        #expect(try member("HTTPServer") == "httpServer")
+        #expect(try member("cli_api") == "cliAPI")
+        #expect(try ResourceSwiftName.upperCamel("local.io", path: "$") == "LocalIO")
         #expect(throws: ResourceEmitterError.unsupported(path: "$", reason: "`2fa` has no Swift name")) {
             try ResourceSwiftName.member("2fa", path: "$")
         }
@@ -210,10 +287,23 @@ private let shapeOperations = #"""
                 "Shape": {"kind": "union", "discriminator": "kind", "variants": [{"kind": "ref", "name": "Plain"}]}}"#,
              .unsupported(path: "$.types.Shape.variants[0]",
                           reason: "a tagged variant must name an object whose required kind is an enum of its tags")),
+            // An idempotency the envelope builder has no protocol for, and a stream with a key.
+            (#"{"a.set": {"class": "mutation", "idempotency": "optional", "errors": [], "params": {\#(selectors),
+                "fields": {}}, "result": {"kind": "primitive", "name": "string"}}}"#,
+             "{}", .unsupported(path: "$.operations.a.set.idempotency",
+                                reason: "idempotency is required or forbidden, not optional")),
+            (#"{"a.watch": {"class": "stream_open", "idempotency": "required", "errors": [], "params": {\#(selectors),
+                "fields": {}}, "result": {"kind": "primitive", "name": "string"},
+                "stream": {"item": {"kind": "primitive", "name": "string"}, "end": {"kind": "primitive", "name": "string"}}}}"#,
+             "{}", .unsupported(path: "$.operations.a.watch.idempotency", reason: "a stream takes no idempotency key")),
+            // A family is a file name.
+            (#"{"Tab-Group.get": {\#(read), "params": {\#(selectors), "fields": {}},
+                "result": {"kind": "primitive", "name": "string"}}}"#,
+             "{}", .unsupported(path: "$.operations.Tab-Group.get", reason: "its family `Tab-Group` is not a file name")),
         ]
         for (operations, types, expected) in refusals {
             #expect(throws: expected, "\(operations)") {
-                try ResourceEmitter(catalog: catalog(types: types, operations: operations)).source()
+                try everyOperation(catalog(types: types, operations: operations)).files()
             }
         }
     }

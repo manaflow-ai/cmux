@@ -6,10 +6,12 @@ import Testing
 /// the envelope builder `ResourceRequestLine` write the same lines the hand-built
 /// `ResourceRequestEnvelope` writes today, and read responses into typed results and errors.
 ///
-/// Each golden line is what `ResourceRequestEnvelope(...).line()` in CmuxNextDaemon encodes for
-/// the same call (DaemonConnection+TerminalResource `writeTerminal`, +Notifications
+/// Each golden line spells out what `ResourceRequestEnvelope(...).line()` in CmuxNextDaemon
+/// encodes for the same call (DaemonConnection+TerminalResource `writeTerminal`, +Notifications
 /// `clearNotifications(terminal:)`, +ColumnUpdate's `screen.get`): sorted keys, unescaped
 /// slashes, the id as a decimal string, `machine` and `session` filled in as `current`.
+/// CmuxNextDaemonTests' ResourceRequestLineParityTests checks the same calls byte for byte
+/// against the hand-built envelope itself.
 @Suite struct ResourceRequestLineTests {
     private static func text(_ data: Data) -> String {
         String(decoding: data, as: UTF8.self)
@@ -106,6 +108,22 @@ import Testing
         }
         #expect(error.details == .unknown(.object(["n": .number(1)])) && error.retryable)
         #expect(V2ResourceError.codes.count == 28 && !V2ResourceError.codes.contains("future.code"))
+    }
+
+    /// A known code whose details lack fields the catalog requires (an older daemon) still reads
+    /// as that error, with its raw details, instead of failing the whole response line.
+    @Test func keepsAKnownErrorCodeWithOtherDetails() throws {
+        let line = Data(#"""
+            {"ok":false,"error":{"code":"selector.ambiguous","message":"more than one screen",\#
+            "details":{"scope":"screen"},"retryable":true}}
+            """#.utf8)
+        let response = try V2ScreenGetRequest.Response(line: line, operation: "screen.get", using: JSONDecoder())
+        guard case .failure(let error) = response else {
+            Issue.record("not a failure")
+            return
+        }
+        #expect(error.code == "selector.ambiguous" && error.message == "more than one screen" && error.retryable)
+        #expect(error.details == .malformed(.object(["scope": .string("screen")])))
     }
 
     /// A tagged union decodes by its tag, and one that keeps unknown variants keeps the raw object.

@@ -10,60 +10,153 @@ import Foundation
 /// - a `V2<Operation>Request` per operation: its params (selectors first, `machine` and
 ///   `session` defaulting to `current`), its `Result` and, for a stream, `StreamItem`/`StreamEnd`.
 ///
+/// This is Chromium's Mojo bindings generator for cmux (mojo/public/tools/bindings/generators/
+/// mojom_cpp_generator.py): a typed params struct and response type per method, the message
+/// built from the struct instead of by hand, one output file per mojom, here per operation family
+/// (`ResourceOperations+terminal.swift`) with the types several families share in
+/// `ResourceOperations.swift`, so a family edit recompiles one small file. It differs in two
+/// places. Mojo's `[Extensible]` enums (mojo/public/tools/bindings/README.md) turn a value this
+/// build does not know into the enum's `[Default]`; cmux enums are open string structs that keep
+/// the value, and an unknown union variant or error code keeps its raw JSON, because the app
+/// shows, logs and sends back what a newer daemon (a Cloud VM, a remote host) wrote. And Mojo
+/// generates every method of an interface; this generates only the operations the caller names
+/// (the plugin's `appResourceOperations`), as p05-ipc.md limits generated Swift to the app's.
+///
 /// The hand-written half is in CmuxNextIPC: `ResourceRequestLine` (the envelope builder that
 /// replaces hand-built `ResourceRequestEnvelope`s), `ResourceResponse`, `ResourceJSON`,
-/// `ResourceSelector` and the request protocols. Operations are those whose `clients` include
-/// `macos`; an operation without `clients` serves every client, as in MethodTableSchema.
+/// `ResourceSelector` and the request protocols.
 struct ResourceEmitter {
-    /// The file name main writes `source()` to.
-    static let outputFileName = "ResourceOperations+Schema.swift"
+    /// One generated file: its name in the output directory and its source.
+    struct File: Equatable {
+        let name: String
+        let text: String
+    }
+
+    /// One operation family (the name before the first dot): its operations and the named types
+    /// only they reach.
+    struct Family: Equatable {
+        let name: String
+        let operationNames: [String]
+        let typeNames: [String]
+    }
+
+    /// The ids, the types several families (or the errors) reach, the errors and `Response`.
+    static let sharedFileName = "ResourceOperations.swift"
+
+    /// The file of `family`; CmuxNextWireGenPlugin declares the same names as the command's outputs.
+    static func fileName(family: String) -> String {
+        "ResourceOperations+\(family).swift"
+    }
 
     let catalog: ResourceCatalog
     let operationNames: [String]
-    let typeNames: [String]
+    let families: [Family]
+    let sharedTypeNames: [String]
     let renderer: ResourceTypeRenderer
 
-    init(catalog: ResourceCatalog, client: String = MethodTableSchema.macOSClient) throws(ResourceEmitterError) {
+    /// The bindings of `operations` (each once, any order). A name the catalog does not declare,
+    /// or whose `clients` leave out `client`, is refused; an operation without `clients` serves
+    /// every client, as in MethodTableSchema.
+    init(catalog: ResourceCatalog, operations: [String],
+         client: String = MethodTableSchema.macOSClient) throws(ResourceEmitterError) {
+        let names = Set(operations).sorted()
+        var byFamily: [String: [String]] = [:]
+        for name in names {
+            guard let operation = catalog.operations[name] else { throw .unknownOperation(name) }
+            if let clients = operation.clients, !clients.contains(client) {
+                throw .notForClient(operation: name, client: client)
+            }
+            let family = String(name.prefix { $0 != "." })
+            guard !family.isEmpty, family.unicodeScalars.allSatisfy(Self.isFileNameScalar) else {
+                throw .unsupported(path: "$.operations.\(name)", reason: "its family `\(family)` is not a file name")
+            }
+            byFamily[family, default: []].append(name)
+        }
+        var reached: [String: Set<String>] = [:]
+        var reachCount: [String: Int] = [:]
+        for (family, members) in byFamily {
+            var roots: [String] = []
+            for name in members { roots += try catalog.typeReferences(operation: name) }
+            let types = try catalog.reachableTypeNames(from: roots)
+            reached[family] = types
+            for type in types { reachCount[type, default: 0] += 1 }
+        }
+        var shared = try catalog.reachableTypeNames(from: catalog.errorTypeReferences)
+        shared.formUnion(reachCount.filter { $0.value > 1 }.keys)
         self.catalog = catalog
-        self.operationNames = catalog.operationNames(client: client)
-        self.typeNames = try catalog.reachableTypeNames(operations: operationNames)
+        self.operationNames = names
+        self.families = byFamily.keys.sorted().map { family in
+            Family(name: family, operationNames: byFamily[family] ?? [],
+                   typeNames: (reached[family] ?? []).subtracting(shared).sorted())
+        }
+        self.sharedTypeNames = shared.sorted()
         self.renderer = ResourceTypeRenderer(catalog: catalog)
     }
 
-    init(resourceOperations: Data) throws(ResourceEmitterError) {
-        try self.init(catalog: ResourceCatalog(data: resourceOperations))
+    init(resourceOperations: Data, operations: [String]) throws(ResourceEmitterError) {
+        try self.init(catalog: ResourceCatalog(data: resourceOperations), operations: operations)
     }
 
-    /// The Swift source. Two runs over the same catalog write the same bytes.
-    func source() throws(ResourceEmitterError) -> String {
+    /// The shared file, then one file per family in name order. Two runs over the same catalog
+    /// and operations write the same bytes.
+    func files() throws(ResourceEmitterError) -> [File] {
+        let shared = try sharedDeclarations()
+        var perFamily: [[ResourceDeclaration]] = []
+        for family in families {
+            perFamily.append(try declarations(of: family))
+        }
+        try ResourceTypeRenderer.checkUnique((shared + perFamily.flatMap { $0 }).map(\.name), path: "$")
+        let response = [
+            "",
+            "extension ResourceOperationRequest {",
+            "    /// This request's response line: its `Result`, or the catalog's typed error.",
+            "    public typealias Response = ResourceResponse<Self.Result, \(Self.errorTypeName)>",
+            "}",
+        ]
+        var out = [File(name: Self.sharedFileName, text: Self.text(shared, footer: response))]
+        for (family, declarations) in zip(families, perFamily) {
+            out.append(File(name: Self.fileName(family: family.name), text: Self.text(declarations, footer: [])))
+        }
+        return out
+    }
+
+    /// Ids, shared types and errors, each group sorted by name.
+    func sharedDeclarations() throws(ResourceEmitterError) -> [ResourceDeclaration] {
+        var out = try identifiers()
+        for name in sharedTypeNames {
+            out += try renderer.declarations(named: name)
+        }
+        out += try errorDeclarations()
+        return out
+    }
+
+    /// The family's own types, then its requests, each group sorted by name.
+    func declarations(of family: Family) throws(ResourceEmitterError) -> [ResourceDeclaration] {
+        var out: [ResourceDeclaration] = []
+        for name in family.typeNames {
+            out += try renderer.declarations(named: name)
+        }
+        for name in family.operationNames {
+            out.append(.object(try request(name)))
+        }
+        return out
+    }
+
+    private static func text(_ declarations: [ResourceDeclaration], footer: [String]) -> String {
         var writer = ResourceSourceWriter()
         writer.line("// Generated by CmuxNextWireGen (ResourceEmitter) from cmux-tui/spec/resource-operations-v2.json")
         writer.line("// at build time. Do not edit; never committed.")
         writer.line("// swiftlint:disable all")
-        for declaration in try declarations() {
+        for declaration in declarations {
             writer.line("")
             writer.write(declaration)
         }
-        writer.line("")
-        writer.line("extension ResourceOperationRequest {")
-        writer.line("/// This request's response line: its `Result`, or the catalog's typed error.", 1)
-        writer.line("public typealias Response = ResourceResponse<Self.Result, V2ResourceError>", 1)
-        writer.line("}")
+        for text in footer { writer.line(text) }
         return writer.lines.joined(separator: "\n") + "\n"
     }
 
-    /// Ids, types, errors and requests, in that order, each group sorted by name.
-    func declarations() throws(ResourceEmitterError) -> [ResourceDeclaration] {
-        var out = try identifiers()
-        for name in typeNames {
-            out += try renderer.declarations(named: name)
-        }
-        out += try errorDeclarations()
-        for name in operationNames {
-            out.append(.object(try request(name)))
-        }
-        try ResourceTypeRenderer.checkUnique(out.map(\.name), path: "$")
-        return out
+    private static func isFileNameScalar(_ scalar: Unicode.Scalar) -> Bool {
+        ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) || scalar == "_"
     }
 
     private func identifiers() throws(ResourceEmitterError) -> [ResourceDeclaration] {
@@ -95,13 +188,10 @@ struct ResourceEmitter {
         }
         var header = ["public static let resourceOperation = \(ResourceSourceWriter.literal(name))"]
         header += try associatedType("Result", operation.result, path: path + ".result", nested: &nested)
-        let conformance: String
+        let conformance = try Self.conformance(operation, path: path)
         if let stream = operation.stream {
-            conformance = "ResourceStreamRequest"
             header += try associatedType("StreamItem", stream.item, path: path + ".stream.item", nested: &nested)
             header += try associatedType("StreamEnd", stream.end, path: path + ".stream.end", nested: &nested)
-        } else {
-            conformance = operation.idempotency == "required" ? "ResourceMutationRequest" : "ResourceUnkeyedRequest"
         }
         try ResourceTypeRenderer.checkUnique(fields.map(\.member.spelling), path: path + ".params")
         try ResourceTypeRenderer.checkUnique(nested.map(\.name), path: path)
@@ -115,6 +205,25 @@ struct ResourceEmitter {
             nested: nested,
             decodes: false
         )
+    }
+
+    /// The request protocol, from `idempotency`: `required` is a mutation (the envelope builder
+    /// takes a key), `forbidden` a read or a stream open (it takes none). A stream with a key, or
+    /// any other value, would build a request the daemon refuses, so it is refused here.
+    private static func conformance(_ operation: ResourceCatalog.Operation,
+                                    path: String) throws(ResourceEmitterError) -> String {
+        switch operation.idempotency {
+        case "required":
+            guard operation.stream == nil else {
+                throw .unsupported(path: path + ".idempotency", reason: "a stream takes no idempotency key")
+            }
+            return "ResourceMutationRequest"
+        case "forbidden":
+            return operation.stream == nil ? "ResourceUnkeyedRequest" : "ResourceStreamRequest"
+        default:
+            throw .unsupported(path: path + ".idempotency",
+                               reason: "idempotency is required or forbidden, not \(operation.idempotency)")
+        }
     }
 
     /// A selector parameter. `machine` and `session` default to `current`, the connected owner and

@@ -66,8 +66,19 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// DevTools path, a `Runtime.evaluate` in ``calls`` answered as any call is (``answer``).
     public var rendererEvaluate: ((_ script: String) throws -> String)?
 
+    /// What ``copySurface(maxPixelSize:done:)`` answers; nil: no picture.
+    public var surfaceCopy: PageEncodedSnapshot?
+    /// The size of every surface copy asked for, in order.
+    public private(set) var surfaceCopies: [CGSize] = []
+
     /// Makes a page with no calls yet.
     public init() {}
+
+    /// Records the size in ``surfaceCopies`` and answers ``surfaceCopy`` at once; makes no DevTools call.
+    public func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) {
+        surfaceCopies.append(maxPixelSize)
+        done(surfaceCopy)
+    }
 
     /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate``, or through
     /// the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``) when that is nil.

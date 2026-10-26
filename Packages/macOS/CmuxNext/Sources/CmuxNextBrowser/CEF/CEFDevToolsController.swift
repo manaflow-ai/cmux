@@ -297,6 +297,8 @@ final class CEFDevToolsController {
         let host = CEFHostView()
         let divider = CEFDevToolsDivider()
         divider.devTools = self
+        divider.onMove = { [weak self] point in self?.dragDivider(to: point) }
+        divider.pointerFrames = tab.runtime.pointerFrames
         tab.container.addSubview(host)
         tab.container.addSubview(divider)
         views = (host, divider)

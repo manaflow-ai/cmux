@@ -523,6 +523,7 @@ fn version_of(cli: &Path) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // wakeup-allow: cli-only `cmux agents doctor`'s one bound on an agent's --version; its exit ends the wait first
     if !matches!(child.wait_timeout(VERSION_TIMEOUT), Ok(Some(_))) {
         let _ = child.kill();
         let _ = child.wait();

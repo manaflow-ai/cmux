@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// Move to Cloud (cmuxterm-hq#1874 slice 3): the one action behind the palette's
@@ -336,20 +337,13 @@ struct CloudMove {
         handle.onAction = { retry?() }
     }
 
-    /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
-    static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+    /// Whether `condition` holds within `limit`: an observation raced against a ``Deadline`` (the limit wakes
+    /// once, with its ``WakeLeeway`` tolerance; the observation is cancelled when the limit wins). `clock` times the
+    /// limit; tests pass a `ManualClock`.
+    static func holds(within limit: Duration, clock: any Clock<Duration> = ContinuousClock(),
+                      until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's start
-        return await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await observe(condition) }
-            group.addTask {
-                // wakeup-allow: one-shot deadline for a machine link to come up
-                try? await Task.sleep(for: limit)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
+        return await Deadline(limit, clock: clock).value("CloudMove.holds") { await observe(condition) } ?? false
     }
 
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {

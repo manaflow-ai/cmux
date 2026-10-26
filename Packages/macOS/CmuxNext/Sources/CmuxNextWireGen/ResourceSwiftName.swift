@@ -1,6 +1,8 @@
-/// Swift spellings of catalog names for ResourceEmitter: `V2` + the catalog's UpperCamel type
-/// names, UpperCamel request and details names from dotted wire names, and lowerCamel members
-/// with `id`, `ids`, `url` and `urls` as `ID`, `IDs`, `URL` and `URLs` after the first word.
+/// Swift spellings of catalog names for ResourceEmitter. Words, initialisms (`terminal_id` is
+/// `terminalID`, `local.io` is `LocalIO`) and keywords are SwiftNaming's, so the v1 and v2
+/// bindings spell a wire name the same way; this adds only the v2 rules: the `V2` prefix, the
+/// members and nested types the generated declarations already use, and refusing a name with no
+/// identifier instead of inventing one.
 ///
 /// Every generated top-level name starts with `V2`, so CmuxNextIPC's v2 types never shadow a
 /// CmuxNextDaemon type a file imports beside them.
@@ -9,15 +11,6 @@ struct ResourceSwiftName {
     let spelling: String
 
     static let prefix = "V2"
-
-    /// Swift keywords a member may be named with backquotes.
-    private static let keywords: Set<String> = [
-        "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "inout",
-        "internal", "let", "open", "operator", "private", "precedencegroup", "protocol", "public", "rethrows",
-        "static", "struct", "subscript", "typealias", "var", "break", "case", "catch", "continue", "default",
-        "defer", "do", "else", "fallthrough", "for", "guard", "if", "in", "repeat", "return", "throw", "switch",
-        "where", "while", "as", "await", "false", "is", "nil", "super", "throws", "true", "try", "Any",
-    ]
 
     /// Members that even backquoted mean something else (`x.self`, `.init`) or that the generated
     /// declarations already use; a field or value with one of these names gets `Value` appended.
@@ -34,21 +27,19 @@ struct ResourceSwiftName {
         "ResourceJSON", "ResourceSelector", "ResourceCodingKey",
     ]
 
-    private static let acronyms = ["id": "ID", "ids": "IDs", "url": "URL", "urls": "URLs"]
-
     /// A member (property, coding key, case or static) for wire name `name` at catalog `path`.
     static func member(_ name: String, path: String) throws(ResourceEmitterError) -> ResourceSwiftName {
-        let parts = try words(name, path: path)
-        var identifier = lowercasedFirst(parts[0])
-        for word in parts.dropFirst() { identifier += acronyms[word] ?? uppercasedFirst(word) }
+        try checkIdentifier(name, path: path)
+        var identifier = SwiftNaming.propertyName(name)
         if takenMembers.contains(identifier) { identifier += "Value" }
-        return ResourceSwiftName(spelling: keywords.contains(identifier) ? "`\(identifier)`" : identifier)
+        return ResourceSwiftName(spelling: SwiftNaming.identifier(identifier))
     }
 
     /// An UpperCamel name for wire name `name` (`terminal.input.write` is `TerminalInputWrite`),
     /// without the prefix: the caller adds `V2` and a suffix, or nests it.
     static func upperCamel(_ name: String, path: String) throws(ResourceEmitterError) -> String {
-        try words(name, path: path).map { acronyms[$0] ?? uppercasedFirst($0) }.joined()
+        try checkIdentifier(name, path: path)
+        return SwiftNaming.typeName(name)
     }
 
     /// A nested type for the inline shape of field (or role) `name`.
@@ -67,21 +58,11 @@ struct ResourceSwiftName {
         try prefix + upperCamel(scope, path: path) + "ID"
     }
 
-    /// Splits on every character that is not an ASCII letter or digit; the first word must start
-    /// with a letter, or there is no Swift identifier to make.
-    private static func words(_ name: String, path: String) throws(ResourceEmitterError) -> [String] {
-        let parts = name.split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }.map(String.init)
-        guard let first = parts.first?.first, first.isLetter else {
+    /// The first of SwiftNaming's words must start with a letter, or there is no Swift identifier
+    /// to make (SwiftNaming would prefix `_`).
+    private static func checkIdentifier(_ name: String, path: String) throws(ResourceEmitterError) {
+        guard let first = SwiftNaming.words(name).first?.unicodeScalars.first, ("a"..."z").contains(first) else {
             throw .unsupported(path: path, reason: "`\(name)` has no Swift name")
         }
-        return parts
-    }
-
-    private static func lowercasedFirst(_ word: String) -> String {
-        word.prefix(1).lowercased() + word.dropFirst()
-    }
-
-    private static func uppercasedFirst(_ word: String) -> String {
-        word.prefix(1).uppercased() + word.dropFirst()
     }
 }

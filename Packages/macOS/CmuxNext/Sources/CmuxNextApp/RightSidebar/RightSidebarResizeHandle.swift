@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The grab strip on the right sidebar's edge facing the content: a drag
 /// resizes the sidebar. Invisible at rest; a hairline fades in while the
@@ -16,6 +18,13 @@ final class RightSidebarResizeHandle: NSView {
     static let grabWidth: CGFloat = 6
 
     var onDrag: ((Phase) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a drag resizes on a
+    /// frame interval's first event and once more at its frame, to the latest point, as Chromium
+    /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
+    /// main_thread_event_queue.cc`). Nil: every drag event resizes at once.
+    var pointerFrames: FrameInputCoalescers?
+    /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
+    private var frameDrag: PointerFrameConsumer?
     /// The sidebar edge the strip sits on (`.minX` beside content on its left, `.maxX` on its right).
     var edge: NSRectEdge = .minX { didSet { if edge != oldValue { needsLayout = true } } }
     private var isDragging = false { didSet { updateLine() } }
@@ -93,17 +102,46 @@ final class RightSidebarResizeHandle: NSView {
     override func mouseDown(with event: NSEvent) {
         isDragging = true
         startX = event.locationInWindow.x
+        endFrameDrag()
+        frameDrag = window.flatMap { pointerFrames?.coalescer(for: $0) }?.consumer(owner: "RightSidebarResizeHandle") { [weak self] input in
+            self?.deliver(input)
+        }
         onDrag?(.began)
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
-        onDrag?(.changed(event.locationInWindow.x - startX))
+        if let frameDrag {
+            frameDrag.post(event)
+        } else {
+            onDrag?(.changed(event.locationInWindow.x - startX))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
+        // The frame's pending resize lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        endFrameDrag()
         isDragging = false
         onDrag?(.ended)
+    }
+
+    /// Leaving the window mid-drag: no mouse-up comes, so nothing it has pending may land later.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil { endFrameDrag() }
+    }
+
+    /// One delivery of the frame-aligned drag: the width follows the latest point.
+    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
+        guard isDragging else { return }
+        onDrag?(.changed(input.latest.location.x - startX))
+    }
+
+    /// Drops this drag's consumer and anything it still has pending.
+    private func endFrameDrag() {
+        frameDrag?.cancel()
+        frameDrag = nil
     }
 }
