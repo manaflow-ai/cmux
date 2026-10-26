@@ -79,31 +79,43 @@ public final class AgentPageWarmup {
     /// Ends a page started after the launch settled once its load ends (WebKit holds its navigation
     /// delegate weakly).
     private lazy var loadEnd = AgentPageWarmupLoadEnd(warmup: self)
-    /// Whether the agent chat may run in Chromium, read when the warm-up runs.
+    /// Whether the agent chat may run in Chromium, read at each engine decision.
     private let chromiumChat: @MainActor () -> Bool
 
-    /// - Parameter chromiumChat: Whether the agent chat may run in Chromium; the app's
-    ///   `AgentPaneTunables.chromium` by default, a test's own value otherwise.
-    public init(chromiumChat: @escaping @MainActor () -> Bool = { AgentPaneTunables.chromium.value }) {
+    /// - Parameter chromiumChat: Whether the agent chat may run in Chromium (the app passes
+    ///   `AgentPaneTunables.chromium`'s value). Every engine decision of the warm-up and of its
+    ///   post (``agentPagesShowInWebKit(webUI:)``) reads this one seam.
+    public init(chromiumChat: @escaping @MainActor () -> Bool) {
         self.chromiumChat = chromiumChat
+    }
+
+    /// Whether a new agent page opens in WebKit now: the one decision that places the warm-up's post
+    /// (afterFirstFrame for a visible WebKit agent chat) and lets the warm-up make its page.
+    ///
+    /// - Parameter webUI: The app's page host (`AppServices.webUI`), whose Chromium page maker decides.
+    /// - Returns: ``AgentPaneView/newPagesShowInWebKit(chromiumChat:hosting:)`` with this warm-up's seam.
+    public func agentPagesShowInWebKit(webUI: WebUIHost) -> Bool {
+        AgentPaneView.newPagesShowInWebKit(chromiumChat: chromiumChat(), hosting: webUI.chromium)
     }
 
     /// Makes the warm-up page: the first `WKProcessPool` and its web content process.
     ///
     /// - Parameter webUI: The app's page host (`AppServices.webUI`), whose grouped pages it warms
     ///   and whose Chromium page maker decides the agent pages' engine.
-    /// - Returns: True when it made the page; false when new agent pages open in Chromium, an agent
-    ///   page already started WebKit or the warm-up already ran this launch.
+    /// - Returns: What it did; its ``AgentPageWarmupOutcome/launchMark`` is the launch mark.
     @discardableResult
-    public func start(webUI: WebUIHost) -> Bool {
-        let showsInWebKit = AgentPaneView.newPagesShowInWebKit(chromiumChat: chromiumChat(), hosting: webUI.chromium)
-        guard let dropsOnLoad = plan.start(agentPagesShowInWebKit: showsInWebKit) else { return false }
+    public func start(webUI: WebUIHost) -> AgentPageWarmupOutcome {
+        let dropsOnLoad: Bool
+        switch plan.start(agentPagesShowInWebKit: agentPagesShowInWebKit(webUI: webUI)) {
+        case let .skip(outcome): return outcome
+        case let .make(drops): dropsOnLoad = drops
+        }
         // webview-allow: WebKit warm-up for the agent pages the page host shows in WebKit
         let view = WKWebView(frame: .zero, configuration: webUI.groupedWebKitConfiguration())
         if dropsOnLoad { view.navigationDelegate = loadEnd }
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         page = view
-        return true
+        return .made
     }
 
     /// The launch settled (`LaunchSettle`): the warm-up page goes. A warm-up that has not run yet
@@ -147,17 +159,26 @@ nonisolated struct AgentPageWarmupPlan: Equatable, Sendable {
     /// The warm-up page exists.
     private(set) var pageAlive = false
 
+    /// What a start request does.
+    nonisolated enum Start: Equatable, Sendable {
+        /// Make the page; `dropsOnLoad` when it goes once its load ends (it starts after the launch settled).
+        case make(dropsOnLoad: Bool)
+        /// Make nothing, for this reason.
+        case skip(AgentPageWarmupOutcome)
+    }
+
     /// The warm-up asks to start.
     ///
     /// - Parameter agentPagesShowInWebKit: Whether a new agent page opens in WebKit now. When it
     ///   opens in Chromium a WebKit page warms nothing it will use, so none is made.
-    /// - Returns: Nil when it must not start; else whether its page goes once its load ends (true
-    ///   when it starts after the launch settled).
-    mutating func start(agentPagesShowInWebKit: Bool) -> Bool? {
-        guard agentPagesShowInWebKit, !started, !pageMade else { return nil }
+    /// - Returns: Whether it makes its page, and if not, why.
+    mutating func start(agentPagesShowInWebKit: Bool) -> Start {
+        if started { return .skip(.alreadyRan) }
+        if pageMade { return .skip(.agentPageStartedWebKit) }
+        if !agentPagesShowInWebKit { return .skip(.agentPagesInChromium) }
         started = true
         pageAlive = true
-        return launchSettled
+        return .make(dropsOnLoad: launchSettled)
     }
 
     /// An agent page was made.

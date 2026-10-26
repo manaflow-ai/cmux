@@ -97,9 +97,10 @@ the executable after the launch, before any result is written.
 
 --order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run. A
 term A|B is any one of the marks (the earliest that arrived): a launch marks
-launch.agent_page_warmup when the warm-up made its page and
-launch.agent_page_warmup_not_needed when an agent page had started WebKit first or
-agent pages open in Chromium.
+launch.agent_page_warmup when the warm-up made its page,
+launch.agent_page_warmup_not_needed when an agent page had started WebKit first, and
+launch.agent_page_warmup_chromium when agent pages open in Chromium, so it made no
+WebKit page (p13-webui-046).
 """
 import argparse
 import glob
@@ -166,7 +167,8 @@ MARKS = [
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up made its page"),
-    ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit, or agent pages open in Chromium)"),
+    ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
+    ("launch.agent_page_warmup_chromium", "agent page WebKit warm-up not made (agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
@@ -223,7 +225,7 @@ REALISTIC_WORKSPACES = 24
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
     "first_window_frame_committed<launch.post_window_warmups",
-    "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed",
+    "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed|launch.agent_page_warmup_chromium",
 ]
 
 # Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
