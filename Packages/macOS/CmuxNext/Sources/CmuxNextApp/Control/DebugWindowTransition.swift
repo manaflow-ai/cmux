@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextTerminal
-import CmuxNextCompat
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.window_transition` (DEBUG builds): what a window does while it
@@ -25,15 +25,18 @@ final class DebugWindowTransition {
     private var start: CFTimeInterval = 0
     private var events: [JSONValue] = []
     private var layoutDurations: [Double] = []
-    private var observers: [MainActorObservation] = []
+    /// Each shell window's notices through its one ``WindowEvents``, and the Space change through the app's
+    /// NSWorkspace ``AppEvents``; released by `end()`.
+    private var subscriptions: [EventSubscription] = []
     private var baseRootLayouts: UInt64 = 0
     private var baseResizeSends: UInt64 = 0
     private var baseGridReports: UInt64 = 0
     private static let capacity = 20_000
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    /// - Parameter workspaceEvents: The app's ``AppEvents`` on NSWorkspace's center (the Space change).
+    func handle(_ params: [String: JSONValue], workspaceEvents: AppEvents) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
-        case "start": begin()
+        case "start": begin(workspaceEvents)
         case "geometry": return geometry
         case "click_zoom":
             // The green button's own path (AppKit's zoom button action).
@@ -63,7 +66,11 @@ final class DebugWindowTransition {
 
     private var now: Double { ((CACurrentMediaTime() - start) * 1_000 * 10).rounded() / 10 }
 
-    private func begin() {
+    /// The window notices the trace records, by label.
+    // raw-observer-allow: names each shell window's one WindowEvents subscribes to (recipe R-notif); no observer of its own
+    private static let notices: [(Notification.Name, String)] = [(NSWindow.willEnterFullScreenNotification, "willEnter"), (NSWindow.didEnterFullScreenNotification, "didEnter"), (NSWindow.willExitFullScreenNotification, "willExit"), (NSWindow.didExitFullScreenNotification, "didExit"), (NSWindow.didResizeNotification, "resize"), (NSWindow.didChangeScreenNotification, "screen"), (NSWindow.didChangeOcclusionStateNotification, "occlusion")]
+
+    private func begin(_ workspaceEvents: AppEvents) {
         end()
         events.removeAll()
         layoutDurations.removeAll()
@@ -72,20 +79,17 @@ final class DebugWindowTransition {
         baseResizeSends = ResizeCoordinator.sent
         baseGridReports = TerminalSurfaceView.gridReports
         isActive = true
-        let center = NotificationCenter.default
-        let names: [(Notification.Name, String)] = [
-            (NSWindow.willEnterFullScreenNotification, "willEnter"), (NSWindow.didEnterFullScreenNotification, "didEnter"),
-            (NSWindow.willExitFullScreenNotification, "willExit"), (NSWindow.didExitFullScreenNotification, "didExit"),
-            (NSWindow.didResizeNotification, "resize"), (NSWindow.didChangeScreenNotification, "screen"),
-            (NSWindow.didChangeOcclusionStateNotification, "occlusion"),
-        ]
-        for (name, label) in names {
-            observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
-                guard let window, window is ShellWindow else { return }
-                self?.record(label, window)
-            })
+        // The shell windows open at the start; a trace follows one window through its transition.
+        for window in NSApp.windows.compactMap({ $0 as? ShellWindow }) {
+            let events = WindowEvents.of(window)
+            for (name, label) in Self.notices {
+                subscriptions.append(events.subscribe(name, owner: "DebugWindowTransition") { [weak self, weak window] in
+                    guard let window else { return }
+                    self?.record(label, window)
+                })
+            }
         }
-        observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+        subscriptions.append(workspaceEvents.subscribe(NSWorkspace.activeSpaceDidChangeNotification, owner: "DebugWindowTransition") { [weak self] in
             self?.events.append(["t": .number(self?.now ?? 0), "e": "space"])
         })
     }
@@ -97,7 +101,7 @@ final class DebugWindowTransition {
     }
 
     private func end() {
-        observers.removeAll()
+        subscriptions.removeAll()
         isActive = false
     }
 
@@ -138,6 +142,7 @@ final class DebugWindowTransition {
 }
 /// A shown view's frame in window coordinates, or null.
 private func shownRect(_ view: NSView?) -> JSONValue {
+    // visibility-walk-allow: the trace reports the geometry AppKit shows during a full-screen transition, its own view state
     guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return .null }
     return rect(view.convert(view.bounds, to: nil))
 }
