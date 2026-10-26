@@ -451,6 +451,12 @@ impl Hub {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
+        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+        // (statvfs and a bounded, cached folder walk), so off the async workers.
+        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
+        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+            .await
+            .unwrap_or(Value::Null);
         let sessions = self.sessions();
         let mut live = 0;
         for s in &sessions {
@@ -480,10 +486,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
-            // The space of acpmux's disk, `disk.low` with what to free under the floor.
-            "disk": crate::recovery::disk_status(
-                cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES)
-            ),
+            "disk": disk,
             // `deny`: this daemon starts no agent process (cx-9ettq).
             "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.

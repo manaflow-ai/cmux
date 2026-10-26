@@ -1100,7 +1100,7 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 
 - `errorKind`: `disk.full` (a write hit a full disk or quota), `disk.low` (`daemon status`:
   under `diskLowBytes`, 1 GiB by default, free on acpmux's disk), `peer.unreachable` (the peer
-  did not answer; the request was not sent), `tailscale.down`, `daemon.restarting` (the daemon is
+  did not answer; the request was not sent), `daemon.restarting` (the daemon is
   shutting down), `spawn.failed` (the harness's program or folder is missing) or `agent.exited`
   (the agent's process ended mid-turn). A client treats a kind it does not know as a plain error.
 - `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
@@ -1108,7 +1108,7 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
   use 3.0 GB; `acpmux session stop <session> --purge` removes a chat you no longer need."
   acpmux never deletes anything itself.
 - `details`: only the keys that apply: `path`, `freeBytes`, `totalBytes`, `peer` (its name in
-  `acpmux host ls`), `lastSeenAt` (RFC 3339), `tailscaleOnline`, `binary`, `cwd`, `exitCode`,
+  `acpmux host ls`), `lastSeenAt` (RFC 3339), `binary`, `cwd`, `exitCode`,
   `signal`, `queued` (the message waits in the outbox and goes when the peer or daemon is back),
   `retryAfterMs`. The schema is `ErrorDetails` in `spec/acpmux-protocol.json`.
 

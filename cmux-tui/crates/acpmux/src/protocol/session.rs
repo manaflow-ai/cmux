@@ -351,9 +351,9 @@ pub struct LastTurn {
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
     /// What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-    /// `peer.unreachable`, `tailscale.down`, `daemon.restarting`, `spawn.failed` or
-    /// `agent.exited`. A client treats a kind it does not know as a plain error. The same key
-    /// is on a request's error `data` and on the `turn_error` and `turn_result` records.
+    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
+    /// treats a kind it does not know as a plain error. The same key is on a request's error
+    /// `data` and on the `turn_error` and `turn_result` records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
     /// One sentence saying what to do about the failure.
@@ -381,9 +381,6 @@ pub struct ErrorDetails {
     /// When the peer last answered (RFC 3339).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_seen_at: Option<String>,
-    /// Whether Tailscale shows the peer online; absent without a `tailscale` CLI.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tailscale_online: Option<bool>,
     /// The program that could not start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary: Option<String>,

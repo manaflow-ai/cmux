@@ -196,10 +196,17 @@ async fn typed_error_a_harness_that_cannot_start_says_what_to_check() {
 /// `disk.low` with what to free.
 #[tokio::test]
 async fn typed_error_daemon_status_names_a_low_disk() {
-    let mut c = C::new(hub_with(|_| {})).await;
+    // `diskLowBytes` 0: no disk is under it, whatever the runner has free.
+    let mut c = C::new(hub_with(|cfg| {
+        let mut v = serde_json::to_value(&*cfg).unwrap();
+        v["diskLowBytes"] = json!(0);
+        *cfg = serde_json::from_value(v).unwrap();
+    }))
+    .await;
     let v = c.call(method::MUX_STATUS, json!({})).await.unwrap();
     assert!(v.pointer("/disk/freeBytes").and_then(Value::as_u64).is_some(), "{v}");
     assert_eq!(v.pointer("/disk/low"), Some(&json!(false)), "{v}");
+    assert!(v.pointer("/disk/errorKind").is_none(), "{v}");
 
     // `diskLowBytes` above any disk's free space: the disk reads as low.
     let mut c = C::new(hub_with(|cfg| {

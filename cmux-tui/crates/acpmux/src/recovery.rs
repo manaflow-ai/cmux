@@ -31,8 +31,6 @@ pub mod kind {
     pub const DISK_LOW: &str = "disk.low";
     /// The peer machine did not answer; the request was not sent.
     pub const PEER_UNREACHABLE: &str = "peer.unreachable";
-    /// The peer is down because Tailscale says it (or this machine) is offline.
-    pub const TAILSCALE_DOWN: &str = "tailscale.down";
     /// The daemon is restarting or shutting down.
     pub const DAEMON_RESTARTING: &str = "daemon.restarting";
     /// The agent's program could not be started.
@@ -217,7 +215,7 @@ pub fn free_space_sentence(space: &Space) -> String {
     let home = crate::config::home();
     let chats = home.join("sessions");
     if same_disk(&home, &space.path)
-        && let Some(size) = dir_size(&chats)
+        && let Some(size) = chats_size(&chats)
         && size >= 100 << 20
     {
         text.push_str(&format!(
@@ -231,7 +229,8 @@ pub fn free_space_sentence(space: &Space) -> String {
 }
 
 /// The `disk` entry of `daemon status`: the space of acpmux's home, and when it is under
-/// `low_bytes` the `disk.low` kind with its recovery.
+/// `low_bytes` the `disk.low` kind with its recovery. Blocking (statvfs, and the chats folder's
+/// size when low): call it off the async workers.
 pub fn disk_status(low_bytes: u64) -> Value {
     let Some(space) = space(&crate::config::home()) else { return Value::Null };
     let mut v = json!({"path": space.path, "freeBytes": space.free, "totalBytes": space.total, "low": space.free < low_bytes});
@@ -263,7 +262,28 @@ fn same_disk(a: &Path, b: &Path) -> bool {
     a.components().next() == b.components().next()
 }
 
-/// The bytes under `dir`, from at most 200,000 entries (an error path, so bounded).
+/// How long a measured size of the chats folder is reused: a low disk polled by `daemon
+/// status`, or a burst of disk-full errors, walks the folder once a minute at most.
+const CHATS_SIZE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+type SizeCache = std::sync::Mutex<Option<(std::time::Instant, PathBuf, Option<u64>)>>;
+
+/// [`dir_size`] of `dir`, reused for [`CHATS_SIZE_TTL`]. Blocking.
+fn chats_size(dir: &Path) -> Option<u64> {
+    static CACHE: SizeCache = std::sync::Mutex::new(None);
+    if let Some((at, path, size)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && path == dir
+        && at.elapsed() < CHATS_SIZE_TTL
+    {
+        return *size;
+    }
+    let size = dir_size(dir);
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((std::time::Instant::now(), dir.to_owned(), size));
+    size
+}
+
+/// The bytes under `dir`, from at most 200,000 entries (an error path, so bounded). Blocking.
 fn dir_size(dir: &Path) -> Option<u64> {
     let mut total = 0u64;
     let mut seen = 0usize;
