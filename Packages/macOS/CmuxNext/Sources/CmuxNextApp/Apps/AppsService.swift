@@ -101,8 +101,12 @@ final class AppsService {
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
         let route = Self.storeRoute(appID: appID, tab: tab)
-        let key = focus ? storeOpens.during(route) { TopPages.show(.page(.appStore), services: services) }
-            : storeOpens.open(route) { services.pages.show(.appStore, in: services.windows.active, focus: false) }?.key
+        let key: String?
+        if focus {
+            key = storeOpens.during(route) { TopPages.show(.page(.appStore), services: services) }
+        } else {
+            key = storeOpens.open(route) { services.pages.show(.appStore, in: services.windows.active, focus: false) }?.key
+        }
         if let key {
             // An open page moves to the route; a page this show made already opened on it, and a
             // tab with no page yet opens on it at its first show.
