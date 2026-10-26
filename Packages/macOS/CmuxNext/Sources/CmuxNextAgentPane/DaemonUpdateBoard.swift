@@ -31,9 +31,12 @@ public final class DaemonUpdateBoard {
     /// that host has an update state. O(targets): a handful of machines.
     public func detail(sshHost host: String) -> String? {
         let host = host.lowercased()
-        return targets.values.sorted { $0.id < $1.id }
-            .first { $0.sshHost?.lowercased() == host }
-            .map { Self.line($0.state) }
+        // One pass; of several targets on one host, the lowest id, so the line never flips between them.
+        var match: DaemonUpdateEvent?
+        for event in targets.values where event.sshHost?.lowercased() == host {
+            if match.map({ event.id < $0.id }) ?? true { match = event }
+        }
+        return match.map { Self.line($0.state) }
     }
 
     public nonisolated static func line(_ state: DaemonUpdateEvent.State) -> String {

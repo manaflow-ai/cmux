@@ -79,6 +79,9 @@ import Testing
         #expect(board.detail(sshHost: "CMUX16") == line)
         #expect(board.detail(id: "acpmux-peer:cmux16") == line)
         #expect(board.detail(sshHost: "huge-blue") == nil)
+        // Two targets on one host (an ssh peer and a Cloud machine reached over ssh): the lowest id's line.
+        board.apply(DaemonUpdateEvent(id: "z-cloud:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating))
+        #expect(board.detail(sshHost: "cmux16") == line)
         #expect(DaemonUpdateBoard.line(.updated(build: "abc123def 2026-10-20")).contains("abc123def 2026-10-20"))
         #expect(DaemonUpdateBoard.line(.failed(reason: "new daemon reported 0123456ff", rolledBack: true)).contains("0123456ff"))
         #expect(!DaemonUpdateBoard.line(.updating).isEmpty && !DaemonUpdateBoard.line(.retrying).isEmpty)
