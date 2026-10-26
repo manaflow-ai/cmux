@@ -4,6 +4,7 @@
 //! a failure the app acts on.
 
 use serde::Serialize;
+use serde_json::{Value, json};
 
 /// The steps, in the order they run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -44,6 +45,9 @@ pub struct StepResult {
     /// ([`REASON_WRONG_PLATFORM`], [`REASON_NOT_THIS_PROGRAM`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
+    /// Machine-readable recovery advice for callers and scripts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 /// `install`: this build is for another OS or CPU than the host's, so the
@@ -55,7 +59,7 @@ pub const REASON_NOT_THIS_PROGRAM: &str = "not-this-program";
 
 impl StepResult {
     pub fn new(step: Step, state: StepState, detail: impl Into<String>) -> Self {
-        Self { step, state, detail: detail.into(), fix: None, reason: None }
+        Self { step, state, detail: detail.into(), fix: None, reason: None, data: None }
     }
 
     pub fn with_reason(mut self, reason: &'static str) -> Self {
@@ -65,6 +69,11 @@ impl StepResult {
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
+        self
+    }
+
+    pub fn with_try(mut self, command: impl Into<String>) -> Self {
+        self.data = Some(json!({"try": command.into()}));
         self
     }
 

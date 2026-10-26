@@ -115,12 +115,15 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
-            now.step.remove(&prompt_id)
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
+        // Counted in the turn before the agent can read it (`lane_reports.rs`).
+        let count = self.lane_steer_in(session, opts.provenance.as_ref());
         let answer = agent_prompt(session, &child, params, turn_id, true).await;
         session
             .steer_now
@@ -128,6 +131,9 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
+        if let Some(count) = count {
+            count.done(steer_entered_turn(&answer));
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
@@ -159,5 +165,27 @@ impl Hub {
         };
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
+    }
+}
+
+/// Whether a steer's answer means it went into the running turn: any answer but one that found
+/// no turn or was withdrawn before the agent read it. One the turn took that ended in an error
+/// was still part of it.
+fn steer_entered_turn(answer: &Result<Value, RpcError>) -> bool {
+    !matches!(answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)
+        || e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_steer_the_turn_took_counts_as_in_it() {
+        let err = |m: &str| Err(RpcError::internal(m.to_owned()));
+        assert!(steer_entered_turn(&Ok(json!({}))));
+        assert!(steer_entered_turn(&err("agent process closed")));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_NO_TURN)));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }

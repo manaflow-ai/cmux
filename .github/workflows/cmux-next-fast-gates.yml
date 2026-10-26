@@ -16,7 +16,8 @@ name: cmux-next fast gates
 # with pr=N on feat-cmux-next, which merges the PR head into the current tip and
 # runs the gates again, plus the webviews checks (a check that landed after the
 # PR's CI runs before it merges). No paths filter: every pull request gets a
-# status. About two minutes on Linux.
+# status; a draft gets it when it is marked ready (a draft cannot merge, and a
+# merger that finds no status dispatches the gates). About two minutes on Linux.
 #
 # Three jobs, so pull request code never runs next to a write token: `resolve`
 # names the head and base without running any checked-out code (a dispatch
@@ -26,6 +27,7 @@ name: cmux-next fast gates
 on:
   pull_request:
     branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr:
@@ -43,6 +45,8 @@ concurrency:
 jobs:
   resolve:
     name: resolve head and base
+    # A draft is gated when it is marked ready; a dispatch always runs.
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

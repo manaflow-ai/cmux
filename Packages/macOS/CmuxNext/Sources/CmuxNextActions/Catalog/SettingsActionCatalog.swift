@@ -2,7 +2,7 @@
 
 nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "reloadConfiguration",
                 title: String(localized: "action.reloadConfiguration", defaultValue: "Reload Configuration", bundle: .module),
@@ -519,5 +519,12 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
+        // A CLI or agent run answers with the result: the feed's newest build, or whether the
+        // update installs and why not (UpdateHandlers+Results.swift).
+        let waitsForResult: Set<ActionID> = ["palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.attemptUpdate"]
+        for index in actions.indices where waitsForResult.contains(actions[index].id) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 }

@@ -213,3 +213,141 @@ async fn an_agent_that_dies_of_a_refused_request_is_not_continued() {
     assert_eq!(records(&hub, &id, "user_message").len(), 1);
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
 }
+
+/// A wait that resolves at the end of a turn a capacity error cut off answers once that turn's
+/// retry is scheduled, so its row says when the next attempt runs: a failed turn never reads as
+/// final (gui-push, 2026-10-20: "acpmux wait --print after a turn that failed (capacity) prints
+/// the previous turn's reply, not the error, so a failed turn reads as done").
+#[tokio::test]
+async fn a_wait_that_ends_with_a_cut_turn_answers_with_its_retry() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let id = new_session(&mut c, "cap-wait").await;
+    let seq0 = row(&hub, &id)["stateSeq"].as_u64().unwrap();
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-once: build it"}], "_meta": {"acpmux": {"promptId": "p-wait"}}}),
+    )
+    .await;
+    let w = c
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [id.clone()], "afterSeq": {id.clone(): seq0}, "timeoutMs": 10000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(w["timedOut"], false, "{w}");
+    let resolved = &w["resolved"][0];
+    assert_eq!(resolved["lastTurn"]["status"], "failed", "{w}");
+    assert_eq!(resolved["retry"]["reason"], "capacity", "{w}");
+    assert_eq!(resolved["retry"]["attempt"], 1, "{w}");
+    assert_eq!(resolved["retry"]["promptId"], "p-wait", "{w}");
+    // After Stop no retry waits: a wait answers at once, with none.
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let w = c
+        .request(method::MUX_WAIT, json!({"sessions": [id.clone()], "timeoutMs": 3000}))
+        .await
+        .unwrap();
+    assert_eq!(w["timedOut"], false, "{w}");
+    assert_eq!(w["resolved"][0]["retry"], Value::Null, "{w}");
+}
+
+/// No row of a chat whose turn a capacity error cut off reads that turn as settled without its
+/// retry: from the turn's end until the retry's wait is set, the row says `retryDeciding`, read
+/// in one step with `retry` (Codex review: a row read between the two showed neither).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_row_of_a_cut_turn_reads_settled_before_its_retry_is_set() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let id = new_session(&mut c, "cap-rows").await;
+    let session = hub.resolve(&id).unwrap();
+    let reader = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let mut bad = Vec::new();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            while tokio::time::Instant::now() < deadline {
+                let row = hub.session_summary(&session);
+                if row["retry"].is_object() {
+                    return (bad, row);
+                }
+                let settled = row["lastTurn"]["status"] == "failed"
+                    && row["turn"].is_null()
+                    && row["retryDeciding"] != true;
+                if settled {
+                    bad.push(row);
+                }
+                tokio::task::yield_now().await;
+            }
+            (bad, Value::Null)
+        })
+    };
+    cap_fail(&mut c, &id, "p-rows").await;
+    let (bad, retried) = reader.await.unwrap();
+    assert!(retried["retry"].is_object(), "the retry was never set");
+    assert_eq!(retried["retryDeciding"], Value::Null, "{retried}");
+    assert!(
+        bad.is_empty(),
+        "{} rows read the cut turn as settled with no retry: {}",
+        bad.len(),
+        bad[0]
+    );
+}
+
+/// A cut turn that gets no retry (here automatic retries are off) records that decision, so
+/// a watcher, and a peer that keeps the chat's row, hears the row stop saying `retryDeciding`
+/// (Codex review, round 2: a peer's row kept saying it, and each wait there held for it).
+#[tokio::test]
+async fn a_cut_turn_with_no_retry_records_the_decision_for_watchers() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let id = new_session(&mut c, "cap-off").await;
+    cap_fail(&mut c, &id, "p-off").await;
+    let settled = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_settled"
+        })
+        .await;
+    let row = &settled["session"];
+    assert_eq!(row["lastTurn"]["status"], "failed", "{settled}");
+    assert_eq!(row["retry"], Value::Null, "{settled}");
+    assert_eq!(row["retryDeciding"], Value::Null, "{settled}");
+    let decided = records(&hub, &id, "auto_resume_settled");
+    assert_eq!(decided.len(), 1, "{decided:?}");
+    assert_eq!(decided[0]["why"], "off", "{decided:?}");
+    assert_eq!(decided[0]["turnId"], row["lastTurn"]["turnId"], "{decided:?}");
+    // A turn that failed on another error, or ended well, records none.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "fine now"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(records(&hub, &id, "auto_resume_settled").len(), 1);
+}
+
+/// Stop on a chat whose cut turn's retry waits records that decision too, so a peer that keeps
+/// the row hears it settle: an idle Stop records nothing else (Codex review, round 3).
+#[tokio::test]
+async fn stop_records_the_decision_for_a_retry_that_waited() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let id = new_session(&mut c, "cap-stop-settle").await;
+    cap_fail(&mut c, &id, "p-stop-settle").await;
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let settled = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_settled"
+        })
+        .await;
+    assert_eq!(settled["session"]["retry"], Value::Null, "{settled}");
+    assert_eq!(settled["session"]["retryDeciding"], Value::Null, "{settled}");
+    let decided = records(&hub, &id, "auto_resume_settled");
+    assert_eq!(decided.len(), 1, "{decided:?}");
+    assert_eq!(decided[0]["why"], "stopped", "{decided:?}");
+}

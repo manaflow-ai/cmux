@@ -34,6 +34,7 @@ blob backend/catalog/cloud-operations.json
 blob backend/packages/home-core/conformance/conversation-cases.json
 blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
+blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 # Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
