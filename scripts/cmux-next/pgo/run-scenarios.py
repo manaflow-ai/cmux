@@ -70,8 +70,10 @@ profdata (052) and that build's link map (LD_GENERATE_MAP_FILE=YES, 051):
 
 The app is the bench config of that build (Release optimization with the bench hooks, so `debug.timings` answers).
 `--runs` cold launches (default 3), each after `sudo -n purge` (bench-startup.py's purge, refused up front), each
-under `xctrace record` of System Trace (trace.py's XcTrace) from before the launch until `startup_complete`. The
-virtual-memory table gives the app's fault addresses, vmmap the address its `__TEXT` was mapped at, kept in
+under `xctrace record` of System Trace (trace.py's XcTrace) from before the launch until the stage saw
+`startup_complete` (no lab host validation in the launch). The virtual-memory table gives the app's fault addresses,
+cut at the trace time of its `startup_complete` launch mark (the os-signpost table), so the bench's own requests and
+the work after startup are not in them; vmmap gives the address its `__TEXT` was mapped at; both are kept in
 `DIR/order-runs/<run>/faults.json`. page-fault-order.py then maps them and stage 1's launch-functions.txt (from
 `--profile-dir`, default DIR) through the link map. The stage refuses unless launch-functions.txt, stage 1's
 cmux-next.profdata.sha256 and the build's `--profdata-sha256` (default Resources/build/cmux-next.profdata.sha256)
@@ -335,9 +337,10 @@ class BenchLauncher:
     config and socket wait) and quits it with the run's debug.quit fixture. `errors`: what a failed launch raises
     (bench_launch.LaunchError and its other SystemExit reports, RecordError)."""
 
-    def __init__(self, app, timeout=180, quit_timeout=60):
+    def __init__(self, app, timeout=180, quit_timeout=60, validate_host=True):
         self.bench_launch = load_by_path("bench_launch", os.path.join(CMUX_NEXT, "bench_launch.py"))
         self.app, self.timeout, self.quit_timeout = app, timeout, quit_timeout
+        self.validate_host = validate_host
         self.errors = (SystemExit, self.bench_launch.RecordError)
 
     def end_tag(self):
@@ -350,7 +353,7 @@ class BenchLauncher:
     def launch(self, run, run_dir, env):
         bench = self.bench_launch.BenchApp(self.app, out=run_dir, env=env, log_name="app.log",
                                            teardown=run.quit == "end-sessions", fresh_state=not run.keep_state)
-        bench.launch(timeout=self.timeout)
+        bench.launch(timeout=self.timeout, validate_host=self.validate_host)
         completed = False
         try:
             yield LiveApp(bench)
@@ -662,26 +665,39 @@ class VmFaultRecorder:
         """Ends xctrace without saving."""
         self.recording.kill()
 
+    def export(self, schema):
+        """The path of the recording's `schema` table, exported; None when xctrace wrote nothing."""
+        path = os.path.join(self.run_dir, f"xctrace-{schema}.xml")
+        self.trace.export_file([*XCTRACE, "export", "--input", self.recording.path, "--xpath",
+                                f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], path,
+                               self.trace.EXPORT_TIMEOUT_S, schema)
+        return path if os.path.exists(path) else None
+
     def faults(self, pid):
-        """The fault addresses of process `pid`, in time order."""
+        """(the fault addresses of process `pid` up to its startup_complete launch mark, in time order; that mark's
+        trace time in ns). The recording runs on past the mark (the launcher's socket wait, the startup poll), so
+        the faults after it, the bench's own requests among them, are cut."""
         lib, trace = order_lib(), self.trace
         toc = os.path.join(self.run_dir, "xctrace-toc.xml")
         trace.export_file([*XCTRACE, "export", "--input", self.recording.path, "--toc"], toc, trace.EXPORT_TOC_S,
                           "toc", to_stdout=True)
         schemas = trace.parse_toc(toc)["schemas"]
         tables = [schema for schema in schemas if lib.is_vm_schema(schema)]
-        if not tables:
-            raise StageError(f"the System Trace has no virtual-memory table (tables: {', '.join(schemas) or 'none'})")
+        if not tables or lib.SIGNPOST_SCHEMA not in schemas:
+            raise StageError(f"the System Trace needs a virtual-memory and an {lib.SIGNPOST_SCHEMA} table (tables: "
+                             f"{', '.join(schemas) or 'none'})")
+        signposts = self.export(lib.SIGNPOST_SCHEMA)
+        if signposts is None:
+            raise StageError(f"xctrace exported no {lib.SIGNPOST_SCHEMA} table")
+        cutoff = lib.startup_cutoff(trace.xctrace_rows(signposts), pid)
         for schema in tables:
-            path = os.path.join(self.run_dir, f"xctrace-{schema}.xml")
-            trace.export_file([*XCTRACE, "export", "--input", self.recording.path, "--xpath",
-                               f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], path,
-                              trace.EXPORT_TIMEOUT_S, schema)
-            if os.path.exists(path):
-                addresses = lib.fault_addresses(trace.xctrace_rows(path), pid)
+            path = self.export(schema)
+            if path is not None:
+                addresses = lib.fault_addresses(trace.xctrace_rows(path), pid, cutoff)
                 if addresses:
-                    return addresses
-        raise StageError(f"the virtual-memory tables {', '.join(tables)} have no fault of pid {pid}")
+                    return addresses, cutoff
+        raise StageError(f"the virtual-memory tables {', '.join(tables)} have no fault of pid {pid} up to "
+                         f"{STARTUP_COMPLETE}")
 
 
 def vmmap_load_address(pid, binary):
@@ -697,7 +713,8 @@ def vmmap_load_address(pid, binary):
 
 class OrderStage:
     """Stage 2's recording: `plan`'s cold launches, each after `cold()` (the purge) under a fresh `recorder(run_dir)`
-    until `startup_complete`, then `load_address(pid, binary)`; each run's faults go to its faults.json."""
+    until `startup_complete`, then `load_address(pid, binary)`; each run's faults up to its startup_complete mark
+    (`recorder.faults(pid)`: the addresses and the mark's trace time) go to its faults.json."""
 
     def __init__(self, out, launcher, cold, recorder, load_address=vmmap_load_address, plan=None, timeout=180,
                  wait=wait_until, log=print):
@@ -735,23 +752,28 @@ class OrderStage:
                     if not self.wait(lambda: startup_completed(app) or not app.alive(), self.timeout) \
                             or not app.alive():
                         raise StageError(f"the app never reached {STARTUP_COMPLETE}")
-                    recorder.stop()  # the cold launch's faults end at startup_complete
+                    recorder.stop()
                     pid, load_address = app.pid, self.load_address(app.pid, app.binary)
             except BaseException:
                 recorder.kill()  # a failed run keeps no recording
                 raise
-            addresses = recorder.faults(pid)
+            addresses, cutoff = recorder.faults(pid)
         except (StageError, order_lib().OrderError) as error:
             raise StageError(f"{run.name}: {error}") from error
         except self.launcher.errors as error:
             raise StageError(f"{run.name}: launch: {type(error).__name__}: {error}") from error
         except recorder.errors as error:
             raise StageError(f"{run.name}: recording: {type(error).__name__}: {error}") from error
-        record = {"run": run.name, "pid": pid, "load_address": hex(load_address), "faults": len(addresses),
-                  "addresses": [hex(address) for address in addresses]}
+        record = {"run": run.name, "pid": pid, "load_address": hex(load_address), "startup_complete_ns": cutoff,
+                  "faults": len(addresses), "addresses": [hex(address) for address in addresses]}
         with open(faults_path, "w") as target:
             json.dump(record, target)
         return {key: record[key] for key in ("run", "pid", "load_address", "faults")}
+
+
+def order_launcher(app, timeout):
+    """The launcher of the cold launches: no lab host validation (its minute of nettop would run in the recording)."""
+    return BenchLauncher(app, timeout=timeout, validate_host=False)
 
 
 def same_profdata(profile_dir, build_sha256, lib):
@@ -862,7 +884,7 @@ def main_order(args, out, launcher=None, cold=None, recorder=None, load_address=
         if args.merge_only:
             reports = read_order_reports(out, plan)
         else:
-            stage = OrderStage(out, launcher or BenchLauncher(args.app, timeout=args.timeout), cold or PurgedCache(),
+            stage = OrderStage(out, launcher or order_launcher(args.app, args.timeout), cold or PurgedCache(),
                                recorder or VmFaultRecorder, load_address or vmmap_load_address, plan,
                                timeout=args.timeout)
             reports = stage.run()

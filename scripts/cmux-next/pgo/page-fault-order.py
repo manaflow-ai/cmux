@@ -9,8 +9,9 @@ header with it. It makes the order from two sources, both against the final `-pr
                        that ran before `startup_complete`), each mapped to its linker symbol in the map's
                        `__TEXT,__text`, in the map's address order. Only instrumented code (the CmuxNext Swift
                        targets) is in a profile.
-  page-fault symbols   the symbol at each `__TEXT,__text` page fault of the cold launches (a Virtual Memory trace
-                       up to `startup_complete`), in first-fault order: this also covers the Rust, Zig and C code
+  page-fault symbols   the symbol at each `__TEXT,__text` page fault of the cold launches (System Trace's
+                       virtual-memory table, cut at the app's `startup_complete` launch mark in its os-signpost
+                       table), in first-fault order: this also covers the Rust, Zig and C code
                        linked into the binary, which has no Swift profile.
 
 The order lists the launch symbols first, then the page-fault symbols not already listed, each line once. Its
@@ -147,20 +148,33 @@ def object_name(path):
     return member.group(1) if member else os.path.basename(path)
 
 
+LOCAL_LABEL = re.compile(r"^(?:ltmp\d|l_|L)")  # assembler and linker-private labels: ltmpN, l_..., L...
+
+
+def is_local_label(name):
+    """A label the compiler made, not a function: LLVM's zero-size section label `ltmpN` (arm64 Mach-O), a linker-
+    private `l_` or an assembler-local `L` name. ld cannot place one, and it can share a function's address."""
+    return bool(LOCAL_LABEL.match(name))
+
+
 class TextIndex:
-    """The code symbols of `__TEXT,__text` by address and by name. A symbol of size 0 runs to the next one."""
+    """The code symbols of `__TEXT,__text` by address and by name, local labels left out. Where several symbols
+    start at one address, a fault there is the sized one's (then the first by name); a symbol of size 0 runs to the
+    next address."""
 
     def __init__(self, link_map):
         self.link_map = link_map
         start, size = link_map.section(TEXT_SEGMENT, TEXT_SECTION)
         self.start, self.end = start, start + size
-        inside = sorted({s for s in link_map.symbols if self.start <= s.address < self.end},
-                        key=lambda s: (s.address, s.name))
-        self.symbols, self.starts, self.ends, self.by_name = inside, [s.address for s in inside], [], {}
-        for index, symbol in enumerate(inside):
-            following = inside[index + 1].address if index + 1 < len(inside) else self.end
-            self.ends.append(symbol.address + symbol.size if symbol.size else following)
+        at, self.by_name = {}, {}
+        for symbol in sorted({s for s in link_map.symbols if self.start <= s.address < self.end
+                              and not is_local_label(s.name)}, key=lambda s: (s.address, s.name)):
+            at.setdefault(symbol.address, []).append(symbol)
             self.by_name.setdefault(symbol.name, []).append(symbol)
+        self.starts = sorted(at)
+        self.symbols = [min(at[address], key=lambda s: (s.size == 0, s.name)) for address in self.starts]
+        self.ends = [symbol.address + symbol.size if symbol.size else following
+                     for symbol, following in zip(self.symbols, [*self.starts[1:], self.end])]
 
     def symbol_at(self, address):
         index = bisect.bisect_right(self.starts, address) - 1
@@ -272,9 +286,49 @@ def row_pid(row):
     return None
 
 
-def fault_addresses(rows, pid):
+def cell_text(value):
+    """A string cell of trace.xctrace_rows: its text, else its `fmt` (an os-log-metadata message has only a fmt)."""
+    if isinstance(value, tuple):
+        return value[0] if isinstance(value[0], str) and value[0] else value[1]
+    return value
+
+
+SIGNPOST_SCHEMA, SUBSYSTEM, LAUNCH_MARK = "os-signpost", "com.cmuxterm.app.next", "launch.mark"
+STARTUP_COMPLETE = "startup_complete"
+MARK_MS = re.compile(r"(?:^|\s)ms=([0-9]+(?:\.[0-9]+)?)\b")
+
+
+def startup_cutoff(rows, pid, mark=STARTUP_COMPLETE):
+    """The trace time (ns since the recording began) of process `pid`'s launch mark `mark`, from an os-signpost table:
+    the app's `launch.mark` events (LaunchSignposts: `<mark> ms=<ms since process start>`) give its process start
+    (the earliest `time - ms`: a mark is emitted at or after the time it names, trace.py's launch_process_start),
+    plus the mark's ms. Raises when the app emitted no such mark."""
+    starts, marked = [], None
+    for row in rows:
+        if cell_text(row.get("name")) != LAUNCH_MARK or row_pid(row) != pid:
+            continue
+        subsystem = cell_text(row.get("subsystem"))
+        if subsystem is not None and subsystem != SUBSYSTEM:
+            continue
+        time = cell_int(row.get("time"))
+        message = cell_text(row.get("message")) or cell_text(row.get("format-string")) or ""
+        name, _, rest = message.partition(" ")
+        ms = MARK_MS.search(rest)
+        if time is None or not ms:
+            continue
+        ms_ns = round(float(ms.group(1)) * 1_000_000)
+        starts.append(time - ms_ns)
+        if name == mark and marked is None:
+            marked = ms_ns
+    if marked is None:
+        raise OrderError(f"the {SIGNPOST_SCHEMA} table has no {LAUNCH_MARK} {mark} of pid {pid}")
+    return min(starts) + marked
+
+
+def fault_addresses(rows, pid, cutoff_ns=None):
     """The fault addresses of process `pid` in a virtual-memory table (rows of trace.xctrace_rows), in time order
-    (the `start` column, else the table's order). Raises when no row has an address column."""
+    (the `start` column, else the table's order). With `cutoff_ns` (startup_cutoff), only the faults that started
+    by then: a row of `pid` with no start is refused. Raises when no row has an address column."""
     faults, saw_address, columns = [], False, set()
     for position, row in enumerate(rows):
         columns.update(row)
@@ -283,9 +337,16 @@ def fault_addresses(rows, pid):
             continue
         saw_address = True
         address = cell_int(row[column])
-        if address is not None and row_pid(row) == pid:
-            start = cell_int(row.get("start"))
-            faults.append((start if start is not None else position, position, address))
+        if address is None or row_pid(row) != pid:
+            continue
+        start = cell_int(row.get("start"))
+        if cutoff_ns is not None:
+            if start is None:
+                raise OrderError(f"a fault of pid {pid} has no start time to cut at {STARTUP_COMPLETE} "
+                                 f"(columns: {sorted(row)})")
+            if start > cutoff_ns:
+                continue
+        faults.append((start if start is not None else position, position, address))
     if not saw_address:
         raise OrderError(f"the virtual-memory table has no address column (columns: {sorted(columns)})")
     return [address for _, _, address in sorted(faults)]

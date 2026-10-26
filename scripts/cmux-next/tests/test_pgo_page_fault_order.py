@@ -4,7 +4,8 @@ read (thin and universal), the ASLR slide from vmmap, the fault table of an xctr
 the first fleet run confirms the real column names, and the stage names the columns it saw when none is an
 address), profile names to linker symbols, the order (launch symbols first, then the page-fault symbols of a
 majority of the cold launches, no line twice, a duplicate static name qualified with its object), the stage's flow
-over a fake app (purge, then the recording, the launch, the recording's end at startup_complete), the profdata
+over a fake app (purge, then the recording, the launch, the recording's end at startup_complete), the faults cut at the
+app's startup_complete launch mark, a local label (ltmpN) at a function's address never in the order, the profdata
 binding, and check.py refusing an order of another profdata. Runs on any OS:
 python3 -I scripts/cmux-next/tests/test_pgo_page_fault_order.py"""
 
@@ -55,14 +56,20 @@ LINK_MAP = """# Path: /build/cmux DEV.app/Contents/MacOS/cmux DEV
 0x100005100\t0x00000200\t__TEXT\t__cstring
 # Symbols:
 # Address\tSize    \tFile  Name
+0x100004000\t0x00000000\t[  1] ltmp0
 0x100004000\t0x00000100\t[  1] _main
 0x100004100\t0x00000100\t[  1] _$s7CmuxNext6launchyyF
 0x100004200\t0x00000100\t[  1] _$s7CmuxNext7restoreyyF
 0x100004300\t0x00000100\t[  1] _$s7CmuxNext4idleyyF
+0x100004400\t0x00000000\t[  2] ltmp0
 0x100004400\t0x00000200\t[  2] _ghostty_init
+0x100004480\t0x00000000\t[  2] Ltmp_inner
 0x100004600\t0x00000100\t[  2] _helper
 0x100004700\t0x00000100\t[  4] _helper
+0x100004800\t0x00000000\t[  3] ltmp1
+0x100004800\t0x00000000\t[  3] _cmux_ffi_start_alias
 0x100004800\t0x00000100\t[  3] _cmux_ffi_start
+0x100004800\t0x00000000\t[  3] l_private
 0x100004900\t0x00000000\t[  3] _rust_zero_size
 0x100004A00\t0x00000600\t[  1] -[CmuxAppDelegate applicationDidFinishLaunching:]
 0x100005100\t0x0000000C\t[  0] literal string: hello world
@@ -182,6 +189,16 @@ class LinkMapTests(unittest.TestCase):
         self.assertIsNone(self.index.symbol_at(0x100005150))
         self.assertIsNone(self.index.symbol_at(0x100003FFF))
 
+    def test_a_fault_at_a_shared_address_is_the_sized_function_never_a_local_label(self):
+        self.assertEqual(self.index.symbol_at(0x100004010).name, "_main")  # ltmp0 of CmuxNextApp.o shares it
+        self.assertEqual(self.index.symbol_at(0x100004410).name, "_ghostty_init")  # ltmp0 of terminal.o
+        self.assertEqual(self.index.symbol_at(0x100004490).name, "_ghostty_init")  # past the Ltmp_inner label
+        self.assertEqual(self.index.symbol_at(0x100004810).name, "_cmux_ffi_start")  # a zero-size alias too
+        for label in ("ltmp0", "ltmp1", "Ltmp_inner", "l_private"):
+            self.assertNotIn(label, self.index.by_name)
+        self.assertEqual([pfo.is_local_label(n) for n in ("ltmp12", "l_OBJC_x", "LBB0_1")], [True] * 3)
+        self.assertFalse(pfo.is_local_label("_ltmp0") or pfo.is_local_label("-[A b]") or pfo.is_local_label("_main"))
+
     def test_a_name_twice_in_text_is_qualified_with_its_object(self):
         first, second = self.index.by_name["_helper"]
         self.assertEqual((self.index.order_line(first), self.index.order_line(second)),
@@ -236,6 +253,49 @@ VM_EXPORT = """<?xml version="1.0"?>
 """
 
 
+# The app's launch marks: first_window_frame_committed (20 ms after process start) at 100 ms of the trace,
+# startup_complete (100 ms) at 190 ms (emitted 10 ms late); the marks of another app (pid 7) and of another subsystem
+# are ignored.
+SIGNPOST_EXPORT = """<?xml version="1.0"?>
+<trace-query-result>
+<node xpath='//trace-toc[1]/run[1]/data[1]/table[8]'><schema name="os-signpost">
+<col><mnemonic>time</mnemonic><name>Timestamp</name><engineering-type>event-time</engineering-type></col>
+<col><mnemonic>thread</mnemonic><name>Thread</name><engineering-type>thread</engineering-type></col>
+<col><mnemonic>process</mnemonic><name>Process</name><engineering-type>process</engineering-type></col>
+<col><mnemonic>event-type</mnemonic><name>Event Type</name><engineering-type>event-type</engineering-type></col>
+<col><mnemonic>name</mnemonic><name>Name</name><engineering-type>signpost-name</engineering-type></col>
+<col><mnemonic>subsystem</mnemonic><name>Subsystem</name><engineering-type>subsystem</engineering-type></col>
+<col><mnemonic>message</mnemonic><name>Message</name><engineering-type>os-log-metadata</engineering-type></col>
+</schema>
+<row><event-time id="1" fmt="00:00.100">100000000</event-time><thread id="2" fmt="Main Thread 0x1a (cmux DEV, pid: 42)"><tid id="3">26</tid><process id="4" fmt="cmux DEV (42)"><pid id="5">42</pid></process></thread><process ref="4"/><event-type id="6" fmt="Event">Event</event-type><signpost-name id="7" fmt="launch.mark">launch.mark</signpost-name><subsystem id="8" fmt="com.cmuxterm.app.next">com.cmuxterm.app.next</subsystem><os-log-metadata id="9" fmt="first_window_frame_committed ms=20.0"><narrative-text id="10" fmt="first_window_frame_committed ms=20.0">first_window_frame_committed ms=20.0</narrative-text></os-log-metadata></row>
+<row><event-time id="11" fmt="00:00.120">120000000</event-time><thread id="12" fmt="Main Thread 0x2 (other, pid: 7)"><tid id="13">2</tid><process id="14" fmt="other (7)"><pid id="15">7</pid></process></thread><process ref="14"/><event-type ref="6"/><signpost-name ref="7"/><subsystem ref="8"/><os-log-metadata id="16" fmt="startup_complete ms=1.0"><narrative-text id="17" fmt="startup_complete ms=1.0">startup_complete ms=1.0</narrative-text></os-log-metadata></row>
+<row><event-time id="18" fmt="00:00.150">150000000</event-time><thread ref="2"/><process ref="4"/><event-type ref="6"/><signpost-name ref="7"/><subsystem id="19" fmt="com.example">com.example</subsystem><os-log-metadata id="20" fmt="startup_complete ms=5.0"><narrative-text id="21" fmt="startup_complete ms=5.0">startup_complete ms=5.0</narrative-text></os-log-metadata></row>
+<row><event-time id="22" fmt="00:00.190">190000000</event-time><thread ref="2"/><process ref="4"/><event-type ref="6"/><signpost-name ref="7"/><subsystem ref="8"/><os-log-metadata id="23" fmt="startup_complete ms=100.0"><narrative-text id="24" fmt="startup_complete ms=100.0">startup_complete ms=100.0</narrative-text></os-log-metadata></row>
+</node></trace-query-result>
+"""
+
+
+class FakeTrace:
+    """trace.py's export seam over the two fixture tables: `export_file` writes the table the xpath names."""
+
+    def __init__(self, root):
+        self.real = rs.load_by_path("cmux_trace", os.path.join(rs.CMUX_NEXT, "trace.py"))
+        self.root = root
+        self.EXPORT_TOC_S = self.EXPORT_TIMEOUT_S = 1
+        self.xctrace_rows = self.real.xctrace_rows
+
+    def XcTrace(self, run_dir, system_trace, cap_s):
+        return type("Recording", (), {"path": os.path.join(run_dir, "trace.trace")})()
+
+    def export_file(self, command, path, timeout, name, to_stdout=False):
+        tables = {"os-signpost": SIGNPOST_EXPORT, "virtual-memory": VM_EXPORT}
+        if name in tables:
+            write(path, tables[name])
+
+    def parse_toc(self, path):
+        return {"schemas": ["time-profile", "os-signpost", "virtual-memory"]}
+
+
 class FaultTableTests(unittest.TestCase):
     def test_the_app_faults_of_an_export_in_time_order(self):
         trace = rs.load_by_path("cmux_trace", os.path.join(rs.CMUX_NEXT, "trace.py"))
@@ -246,6 +306,35 @@ class FaultTableTests(unittest.TestCase):
     def test_a_table_without_an_address_column_names_its_columns(self):
         with self.assertRaisesRegex(pfo.OrderError, "operation"):
             pfo.fault_addresses([{"operation": ("Page In", "Page In"), "start": (1, "1")}], 42)
+
+    def test_faults_after_startup_complete_are_cut(self):
+        trace = rs.load_by_path("cmux_trace", os.path.join(rs.CMUX_NEXT, "trace.py"))
+        with tempfile.TemporaryDirectory() as root:
+            signposts = write(os.path.join(root, "xctrace-os-signpost.xml"), SIGNPOST_EXPORT)
+            cutoff = pfo.startup_cutoff(trace.xctrace_rows(signposts), 42)
+            # process start = min(100 ms - 20 ms, 190 ms - 100 ms) = 80 ms; startup_complete at 100 ms after it.
+            self.assertEqual(cutoff, 180_000_000)
+            path = write(os.path.join(root, "xctrace-virtual-memory.xml"), VM_EXPORT)
+            self.assertEqual(pfo.fault_addresses(trace.xctrace_rows(path), 42, cutoff), [0x104F34110])
+            self.assertEqual(pfo.fault_addresses(trace.xctrace_rows(path), 42, 200_000_000), [0x104F34110, 0x104F34450])
+
+    def test_no_startup_complete_mark_is_refused(self):
+        trace = rs.load_by_path("cmux_trace", os.path.join(rs.CMUX_NEXT, "trace.py"))
+        with tempfile.TemporaryDirectory() as root:
+            signposts = write(os.path.join(root, "xctrace-os-signpost.xml"), SIGNPOST_EXPORT)
+            with self.assertRaisesRegex(pfo.OrderError, "no launch.mark startup_complete of pid 99"):
+                pfo.startup_cutoff(trace.xctrace_rows(signposts), 99)
+
+    def test_a_cut_needs_the_fault_start(self):
+        rows = [{"address": (0x104F34110, "0x104f34110"), "process": {"pid": 42}}]
+        self.assertEqual(pfo.fault_addresses(rows, 42), [0x104F34110])
+        with self.assertRaisesRegex(pfo.OrderError, "no start time"):
+            pfo.fault_addresses(rows, 42, 1)
+
+    def test_the_recorder_cuts_its_faults_at_startup_complete(self):
+        with tempfile.TemporaryDirectory() as root:
+            recorder = rs.VmFaultRecorder(root, trace=FakeTrace(root))
+            self.assertEqual(recorder.faults(42), ([0x104F34110], 180_000_000))
 
     def test_vm_schema_names(self):
         self.assertTrue(pfo.is_vm_schema("virtual-memory"))
@@ -277,6 +366,7 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(len(lines), len(set(lines)))
         self.assertNotIn("_$s7CmuxNext4idleyyF", lines)  # faulted in one launch of three
         self.assertNotIn("util.o:_helper", lines)
+        self.assertFalse([line for line in lines if "ltmp" in line or line.rpartition(":")[2].startswith("l")])
 
     def test_the_order_is_the_same_for_the_runs_in_any_order(self):
         launch, _ = pfo.launch_symbols(LAUNCH_NAMES, self.index)
@@ -397,7 +487,7 @@ class FakeRecorder:
         self.events.append("record kill")
 
     def faults(self, pid):
-        return [address + SLIDE for address in FAULT_RUNS[self.run - 1]]
+        return [address + SLIDE for address in FAULT_RUNS[self.run - 1]], 300_000_000 + self.run
 
 
 class StageTests(unittest.TestCase):
@@ -422,6 +512,8 @@ class StageTests(unittest.TestCase):
             manifest = json.loads(workspace.read(rs.ORDER_MANIFEST))
             self.assertEqual((manifest["order"]["page_fault_symbols"], manifest["launch_functions"]["missing"]), (4, 2))
             self.assertEqual([r["load_address"] for r in manifest["runs"]], [hex(LOAD_ADDRESS)] * 3)
+            with open(os.path.join(workspace.out, "order-runs", "order-cold-2", rs.FAULTS)) as source:
+                self.assertEqual(json.load(source)["startup_complete_ns"], 300_000_002)
             self.assertIn('"stage": "order"', out)
             code, _, _ = quiet(check.main, ["--order", os.path.join(workspace.out, rs.ORDER),
                                             "--profdata-sha256", workspace.build_sha])
@@ -487,6 +579,10 @@ class StageTests(unittest.TestCase):
     def test_order_runs_launch_cold_and_end_their_sessions(self):
         self.assertEqual([(r.name, r.keep_state, r.quit) for r in rs.order_plan(2)],
                          [("order-cold-1", False, "end-sessions"), ("order-cold-2", False, "end-sessions")])
+
+    def test_the_cold_launches_skip_the_lab_host_validation(self):
+        launcher = rs.order_launcher("/fake/cmux DEV.app", 30)
+        self.assertEqual((launcher.validate_host, launcher.timeout), (False, 30))
 
     def test_order_needs_the_link_map(self):
         with tempfile.TemporaryDirectory() as root:
