@@ -1597,7 +1597,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // PointerFrameConsumer.post(NSEvent) feeds the window's FrameInputCoalescer.
         .target(
             name: "CmuxNextInput",
-            dependencies: ["CmuxNextInputCore", "CmuxNextWakeups"],
+            // CmuxNextCompat: MemoryPressureEvents for IntentPrewarmService (p04-input-043).
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The debug.input control method and its JSON (Control and Settings, which sit above the tap's
