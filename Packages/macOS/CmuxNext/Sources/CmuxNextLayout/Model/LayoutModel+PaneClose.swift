@@ -118,14 +118,25 @@ extension LayoutModel {
         for screen in new {
             guard let before = old.first(where: { $0.id == screen.id }), !before.zoomed, !screen.zoomed,
                   landed.contains(where: { before.layout.contains($0) }) else { continue }
-            let sizing = CloseSizing(old: applyingLandedCloseSizes(before.layout), new: applyingLandedCloseSizes(screen.layout))
-            if splitSizing == .even {
-                for pane in landed where before.layout.contains(pane) && !screen.layout.contains(pane) {
-                    for change in sizing.splitChanges(closing: pane) { landedCloseRatios[change.split] = Self.clampedRatio(change.ratio) }
+            // One by one in show order, against a running tree: closes that land in one snapshot (adjacent
+            // panes, each the other's sibling) each size what the one before left, as the overlay showed.
+            var current = applyingLandedCloseSizes(before.layout)
+            for pane in orderedPaneCloses where landed.contains(pane) && current.contains(pane) && !screen.layout.contains(pane) {
+                guard var after = Self.removingSplitPane(pane, from: current) else { continue }
+                let sizing = CloseSizing(old: current, new: after)
+                if splitSizing == .even {
+                    for change in sizing.splitChanges(closing: pane) {
+                        landedCloseRatios[change.split] = Self.clampedRatio(change.ratio)
+                        after = after.settingRatio(Self.clampedRatio(change.ratio), for: change.split)
+                    }
                 }
-            }
-            if newColumnWidthMode == .fitScreen {
-                for resize in sizing.columnResizes() { landedCloseWidths[resize.column] = resize.width }
+                if newColumnWidthMode == .fitScreen {
+                    for resize in sizing.columnResizes() {
+                        landedCloseWidths[resize.column] = resize.width
+                        after = after.settingWidth(resize.width, for: resize.column)
+                    }
+                }
+                current = after
             }
         }
     }
