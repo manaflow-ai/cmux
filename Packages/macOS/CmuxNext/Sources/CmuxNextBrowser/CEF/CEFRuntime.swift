@@ -171,6 +171,7 @@ final class CEFRuntime {
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
+    private var callbackToken: CallbackToken? // every shim callback's context, never the runtime's address (from(_:))
     /// The argv Chromium started with, owned for the runtime's life.
     private var switchArguments: CEFSwitchArguments?
     /// The off-main library load; every concurrent first tab awaits it.
@@ -538,16 +539,15 @@ final class CEFRuntime {
         switchArguments = arguments
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
-        // SAFETY: the runtime is the shared one, which lives for the rest of the process once started, so the
-        // unretained context every callback gets back stays valid (CEFRuntime.from).
-        let context = unsafe Unmanaged.passUnretained(self).toOpaque()
+        let token = callbackToken ?? CallbackRegistry.shared.register(self) // once: a new host initializes again
+        callbackToken = token
+        // SAFETY: the token's bits, which the shim only hands back; CEFRuntime.from resolves them in the registry.
+        let context = unsafe token.context
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
-        // SAFETY: the callback is a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime,
-        // which lives for the process once started.
+        // SAFETY: a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime's token.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }
         // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
-        // SAFETY: the handler is a C function of `cmux_shim_window_request_fn`; its context is `context`, the
-        // runtime, which lives for the process once started.
+        // SAFETY: a C function of `cmux_shim_window_request_fn`; its context is `context`, the runtime's token.
         unsafe shim.setWindowRequestHandler(cefWindowRequestCallback)
         installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths

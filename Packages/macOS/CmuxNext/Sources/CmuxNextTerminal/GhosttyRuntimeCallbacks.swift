@@ -18,7 +18,7 @@ import GhosttyNextKit
 // handlers still check and hop so an off-main caller can never touch AppKit.
 
 // Every `userdata` below is what cmux registered for its callback: the runtime's
-// RuntimeCallbackContext, or a surface's SurfaceBridge, which outlives its surface
+// RuntimeCallbackContext's registry token, or a surface's SurfaceBridge, which outlives its surface
 // (TerminalSurfaceView.deinit releases it after ghostty_surface_free returns).
 
 nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
