@@ -1,0 +1,17 @@
+{
+  "title": "Chat header toggles in the palette",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
+     "optional": "agent backend unavailable on this runner"},
+    {"title": "Open the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1.5, "shot": false},
+    {"title": "Type b", "rpc": {"method": "debug.key", "params": {"key": "b", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type e", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type s", "rpc": {"method": "debug.key", "params": {"key": "s", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type i", "rpc": {"method": "debug.key", "params": {"key": "i", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type d", "rpc": {"method": "debug.key", "params": {"key": "d", "target": "palette"}}, "wait": 0.2, "shot": false},
+    {"title": "Type e", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 1.5, "shot": false},
+    {"title": "Palette: \"beside\" in an agent chat", "wait": 0.5},
+    {"title": "Close the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1, "shot": false}
+  ]
+}
