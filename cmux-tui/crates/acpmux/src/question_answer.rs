@@ -252,9 +252,9 @@ pub fn usage(question: &Value, session: &str) -> String {
 /// What `acpmux pending` and a streaming turn print as the way to answer a
 /// pending request. The CLI is never the person (`hub/person.rs`): the
 /// daemon refuses it an allow and a question's answer, so those are named
-/// in the app, and deny, which it may run, as a command.
+/// in the app, and deny and cancel, which it may run, as commands.
 pub fn pending_hint(request: &Value, session: &str) -> String {
-    let deny = format!("acpmux session deny {session}");
+    let deny = format!("acpmux session deny {session} | acpmux session cancel {session}");
     if question(request).is_some() {
         return format!("answer it in the cmux app (the chat's question card) | {deny}");
     }
@@ -267,7 +267,10 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// (approve-all) or denies by itself (deny-all), or is not known.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
-    let policy: PermissionPolicy = info.get("policy")?.as_str()?.parse().ok()?;
+    // A session's own policy, else the daemon default it runs under.
+    let policy = info.get("policy").and_then(Value::as_str);
+    let policy = policy.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
+    let policy: PermissionPolicy = policy?.parse().ok()?;
     if matches!(policy, PermissionPolicy::ApproveAll | PermissionPolicy::DenyAll) {
         return None;
     }
@@ -317,6 +320,7 @@ mod tests {
         assert!(!hint.contains("session allow"), "{hint}");
         assert!(hint.contains("allow it in the cmux app (the chat's permission card)"), "{hint}");
         assert!(hint.contains("acpmux session deny my-linux/api-work"), "{hint}");
+        assert!(hint.contains("acpmux session cancel my-linux/api-work"), "{hint}");
 
         let question = json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": [
             {"id": "q1", "prompt": "Pick?", "options": [{"label": "Red"}]}]}}}},
@@ -325,6 +329,7 @@ mod tests {
         assert!(!hint.contains("session answer"), "{hint}");
         assert!(hint.contains("answer it in the cmux app (the chat's question card)"), "{hint}");
         assert!(hint.contains("acpmux session deny s"), "{hint}");
+        assert!(hint.contains("acpmux session cancel s"), "{hint}");
     }
 
     /// `new` and `send` say before the work starts that an allow needs the
@@ -337,6 +342,12 @@ mod tests {
             assert!(note.contains("`acpmux session deny api-work`"), "{note}");
             assert!(!note.contains("session allow"), "{note}");
         }
+        // A session on the daemon default has no policy of its own: the
+        // default it runs under counts (`enforcement.policy`).
+        let default = json!({"policy": null, "enforcement": {"policy": "ask"}});
+        assert!(app_allow_note(&default, "api-work").is_some());
+        let own = json!({"policy": "approve-all", "enforcement": {"policy": "approve-all"}});
+        assert_eq!(app_allow_note(&own, "api-work"), None);
         for info in [json!({"policy": "approve-all"}), json!({"policy": "deny-all"}), json!({})] {
             assert_eq!(app_allow_note(&info, "api-work"), None, "{info}");
         }
