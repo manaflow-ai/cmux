@@ -484,6 +484,8 @@ fn remove_registration(folder: Dir<'_>, admin: &Path, root: &Path) {
             && git.parent().is_some_and(|r| spelled(r) == spelled(root))
     });
     if admin.parent() == Some(worktrees.as_path()) && points_back {
+        #[cfg(test)]
+        before_registration_removal(&admin);
         let _ = std::fs::remove_dir_all(&admin);
     }
 }
@@ -764,6 +766,21 @@ thread_local! {
 fn after_dup(fd: i32) {
     if let Some(f) = AFTER_DUP.with(|h| h.borrow_mut().take()) {
         f(fd);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on the next registration [`remove_worktree`] removes, right before its folder
+    /// is removed by name.
+    static BEFORE_REGISTRATION_REMOVAL: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(test, unix))]
+fn before_registration_removal(admin: &Path) {
+    if let Some(f) = BEFORE_REGISTRATION_REMOVAL.with(|h| h.borrow_mut().take()) {
+        f(admin);
     }
 }
 
@@ -1264,6 +1281,30 @@ mod tests {
         std::fs::rename(&away, &other).unwrap();
         let staged = sh(&other, &["diff", "--cached", "--name-only"]);
         assert_eq!(staged.trim(), "staged.txt", "the other worktree keeps its index");
+    }
+
+    /// A registration that takes the removed worktree's registration's place while it is being
+    /// removed is left alone, with its branch.
+    #[cfg(unix)]
+    #[test]
+    fn a_registration_that_takes_the_removed_ones_place_is_left_alone() {
+        let (scratch, repo, home) = repo();
+        let other = scratch.0.join("other");
+        sh(&repo, &["worktree", "add", "-q", "-b", "other", &other.to_string_lossy()]);
+        let worktrees = std::fs::canonicalize(repo.join(".git/worktrees")).unwrap();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let aside = scratch.0.join("registration-aside");
+        let others = worktrees.join("other");
+        BEFORE_REGISTRATION_REMOVAL.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |admin: &Path| {
+                std::fs::rename(admin, &aside).unwrap();
+                std::fs::rename(&others, admin).unwrap();
+            }))
+        });
+        remove_worktree(repo.as_path().into(), &made);
+        let admin = worktrees.join(made.root.file_name().unwrap());
+        assert!(admin.join("HEAD").exists(), "the registration that took its place stays");
+        assert_ne!(sh(&repo, &["branch", "--list", "other"]), "", "its branch stays");
     }
 
     /// The descriptor removal reads a folder through never reaches a child another thread
