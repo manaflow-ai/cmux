@@ -24,8 +24,11 @@ import re
 import subprocess
 import time
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+try:
+    _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+except OSError:  # not macOS: the pure parts (kinds, `ps` parsing) still import, so their unit tests run anywhere
+    _libproc = _libsystem = None
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -39,7 +42,8 @@ class _Timebase(ctypes.Structure):
 
 
 _timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+if _libsystem is not None:
+    _libsystem.mach_timebase_info(ctypes.byref(_timebase))
 MB = 1048576.0
 
 
@@ -80,6 +84,90 @@ def overhead(pid: int):
         return buf[19], 0, 0, 0, 0
     return (buf[19], info.threadnum, (info.messages_sent + info.messages_received) & 0xFFFFFFFF,
             (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
+
+
+# rusage_info_v6 words 20-26 (sys/resource.h, since v3): CPU time per effective QoS class, in mach ticks.
+QOS_CLASSES = ("default", "maintenance", "background", "utility", "legacy", "user_initiated", "user_interactive")
+
+
+def qos_cpu_ns(pid: int) -> dict[str, int] | None:
+    """CPU ns `pid` ran at each QoS class since it started, or None once it is gone (or off macOS).
+
+    Diff two reads for a window: the split says which QoS the process really ran at."""
+    if _libproc is None:
+        return None
+    buf = (ctypes.c_uint64 * 64)()
+    if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(6), ctypes.byref(buf)) != 0:
+        return None
+    return {name: buf[20 + index] * _timebase.numer // _timebase.denom for index, name in enumerate(QOS_CLASSES)}
+
+
+class _ThreadInfo(ctypes.Structure):
+    """`struct proc_threadinfo` (sys/proc_info.h), read with PROC_PIDTHREADINFO: same user, no root."""
+    _fields_ = [("pth_user_time", ctypes.c_uint64), ("pth_system_time", ctypes.c_uint64),
+                ("pth_cpu_usage", ctypes.c_int32), ("pth_policy", ctypes.c_int32), ("pth_run_state", ctypes.c_int32),
+                ("pth_flags", ctypes.c_int32), ("pth_sleep_time", ctypes.c_int32), ("pth_curpri", ctypes.c_int32),
+                ("pth_priority", ctypes.c_int32), ("pth_maxpriority", ctypes.c_int32), ("pth_name", ctypes.c_char * 64)]
+
+
+_PROC_PIDTHREADINFO = 5
+_PROC_PIDLISTTHREADS = 6
+_MAX_THREADS = 2048
+# osfmk/kern/sched.h. task_policy_update_internal_locked caps every thread of a task with low-priority CPU or
+# darwin background at MAXPRI_THROTTLE and a suppressed one at MAXPRI_SUPPRESSED; the task role sets the base
+# priority (TASK_FOREGROUND_APPLICATION 47, TASK_BACKGROUND_APPLICATION 46).
+MAXPRI_THROTTLE = 4
+MAXPRI_SUPPRESSED = 28
+BASEPRI_BACKGROUND = 46
+BASEPRI_FOREGROUND = 47
+
+
+def thread_priorities(pid: int) -> list[tuple[int, int]] | None:
+    """(base priority, priority ceiling) of each thread of `pid`, main thread first; None when unreadable.
+
+    proc_pidinfo only: it needs no task port and does not wake the process."""
+    if _libproc is None:
+        return None
+    handles = (ctypes.c_uint64 * _MAX_THREADS)()
+    got = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDLISTTHREADS), ctypes.c_uint64(0),
+                                ctypes.byref(handles), ctypes.c_int(ctypes.sizeof(handles)))
+    if got <= 0:
+        return None
+    info = _ThreadInfo()
+    size = ctypes.sizeof(info)
+    found = []
+    for handle in handles[:got // 8]:
+        if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTHREADINFO), ctypes.c_uint64(handle),
+                                 ctypes.byref(info), ctypes.c_int(size)) == size:
+            found.append((info.pth_priority, info.pth_maxpriority))
+    return found or None
+
+
+BACKGROUNDED_ROLES = frozenset({"throttled", "suppressed"})
+
+
+def role_of(threads: list[tuple[int, int]] | None) -> str:
+    """The scheduling role a `thread_priorities` list shows.
+
+    `throttled`: every thread capped at MAXPRI_THROTTLE (low-priority CPU or darwin background; Chrome's kBestEffort,
+    base/process/process_mac.cc SetTaskSuppressionPolicy with lowpri_cpu). `suppressed`: capped at MAXPRI_SUPPRESSED
+    (App Nap). Otherwise the main thread's base priority: `foreground` (47 and up: TASK_FOREGROUND_APPLICATION,
+    Chrome's kUserBlocking, or a user-interactive main thread), `background-role` (46: TASK_BACKGROUND_APPLICATION
+    without suppression, Chrome's kUserVisible) or `default`. `unknown` when unreadable. Only the first two are
+    backgrounded (BACKGROUNDED_ROLES)."""
+    if not threads:
+        return "unknown"
+    ceiling = max(cap for _base, cap in threads)
+    if ceiling <= MAXPRI_THROTTLE:
+        return "throttled"
+    if ceiling <= MAXPRI_SUPPRESSED:
+        return "suppressed"
+    main = threads[0][0]
+    if main >= BASEPRI_FOREGROUND:
+        return "foreground"
+    if main == BASEPRI_BACKGROUND:
+        return "background-role"
+    return "default"
 
 
 def _delta32(last: int, first: int) -> int:
