@@ -1,8 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 /// The `invariants` facet (schemas/oracle/snapshot-v1.schema.json): the ids the input invariant check
-/// finds broken now, the window invariants' problems, and how many checks ran. The host reads them with
-/// the checks `debug.desync` runs (`InputInvariantMonitor.check()`, `WindowInvariants.problems`), in the
-/// snapshot's main-actor turn; this type only gives them the schema's shape.
+/// finds broken now, the window invariants' problems, and how many checks ran. The host reads them in the
+/// snapshot's main-actor turn: the input check `debug.desync` runs (`InputInvariantMonitor.check()`) and the
+/// window problems `debug.focus` and `debug.windows` report (`WindowInvariants`); this type only gives them
+/// the schema's shape.
 public struct OracleInvariantsFacet: OracleFacetProvider {
     /// One check's result.
     public struct Reading: Sendable, Hashable {

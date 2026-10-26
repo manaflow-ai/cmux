@@ -5,8 +5,10 @@ import CmuxNextSettings
 import Testing
 
 /// The oracle's topology facet (p15-oracle-033) is the `snapshot.get` result as is: on 20 published states the
-/// facet equals `snapshot.get`; a stale snapshot is built first, as `snapshot.get` builds it; a server that
-/// registers the oracle with its snapshot store provides the facet. Run: `swift test --filter OracleTopologyFacetTests`.
+/// facet equals `snapshot.get`; the facet itself builds a stale snapshot first, as `snapshot.get` builds it; it
+/// reads in the snapshot's main-actor turn, so a change before the background facets finish is not in it; a
+/// server that registers the oracle with its snapshot store provides the facet.
+/// Run: `swift test --filter OracleTopologyFacetTests`.
 @MainActor @Suite(.serialized) struct OracleTopologyFacetTests {
     @MainActor final class Host: OracleHost {
         func makeOracleFacets() -> OracleFacets { OracleFacets([]) }
@@ -62,18 +64,48 @@ import Testing
         }
     }
 
-    @Test func aStaleSnapshotIsBuiltBeforeTheFacetReadsIt() async throws {
-        let router = router()
-        let before = Self.state(1)
-        router.snapshots.publish(rebuilt: true) { $0.topology = before }
-        let store = router.snapshots
-        let rebuilt = Self.state(5)
-        store.setRefresher { store.publish(rebuilt: true) { $0.topology = rebuilt } }
+    /// The model the refresher builds from: what the App's publisher reads on the main actor.
+    @MainActor final class Model {
+        var state: Int
+
+        init(_ state: Int) { self.state = state }
+    }
+
+    /// A store at state `before` whose refresher publishes `model`'s state.
+    private static func store(before: Int, model: Model) -> ControlSnapshotStore {
+        let store = ControlSnapshotStore()
+        let initial = Self.state(before)
+        store.publish(rebuilt: true) { $0.topology = initial }
+        store.setRefresher { [model] in
+            let topology = Self.state(model.state)
+            store.publish(rebuilt: true) { $0.topology = topology }
+        }
+        return store
+    }
+
+    /// Captured directly, not through the router: the router's `fresh()` before dispatch would build the
+    /// snapshot for the facet.
+    @Test func theFacetBuildsAStaleSnapshotBeforeItReads() throws {
+        let store = Self.store(before: 1, model: Model(5))
         store.markStale()
-        let facet = try #require(try await topologyFacet(router))
-        #expect(facet["sequence"] == JSONValue(15), "the facet answered the topology from before the change")
-        let get = try await snapshotGet(router)
-        #expect(facet == get)
+        let snapshot = try #require(try OracleFacets([OracleTopologyFacet(snapshots: store)]).beginCapture([.topology]).completed)
+        #expect(snapshot["topology"]?["sequence"] == 15, "the facet answered the topology from before the change")
+        #expect(!store.isStale)
+    }
+
+    /// A change after the main-actor turn (a work-queue frame, a daemon event) while a background facet of the
+    /// same snapshot reads is not in the topology: it describes the state the main-actor facets saw.
+    @Test func aChangeAfterTheMainActorTurnIsNotInTheTopology() async throws {
+        let model = Model(5)
+        let store = Self.store(before: 1, model: model)
+        store.markStale()
+        let background = OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in "read" })
+        let capture = try OracleFacets([OracleTopologyFacet(snapshots: store), background]).beginCapture([.topology, .terminals])
+        model.state = 9
+        store.markStale()
+        let snapshot = try await capture.finish()
+        #expect(snapshot["topology"]?["sequence"] == 15, "the topology came from a later turn than the main-actor facets")
+        #expect(snapshot["terminals"] == "read")
     }
 
     @Test func theServerProvidesTheTopologyFacet() async throws {

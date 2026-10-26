@@ -8,7 +8,7 @@ import CmuxNextOracle
 extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets {
         OracleFacets([
-            // The checks `debug.desync` runs, now.
+            // The input check `debug.desync` runs and the window problems `debug.focus` reports, now.
             OracleInvariantsFacet { [weak self] in
                 guard let self, let monitor = input.monitor, let result = monitor.check() else { return nil }
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
