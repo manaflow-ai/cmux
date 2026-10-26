@@ -46,6 +46,18 @@ import Testing
         #expect(creation.planRefusal?.plan == "max")
     }
 
+    @Test func theFreePlanGateNamesProForTheCaller() async {
+        let (creation, offers) = await run(failingWith: CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan))
+        let refusal = CloudMachineCreation.ProRefusal(plan: "pro", offered: true)
+        #expect(creation.planRefusal == refusal)
+        #expect(offers == [refusal], "the flow hands the refusal on; the offer skips it because the gate's card showed")
+    }
+
+    @Test func aFullPlanNamesNoPlan() async {
+        let (creation, _) = await run(failingWith: CloudMachineCreateFlow.Failure.upgradeRequired(.atLimit(5)))
+        #expect(creation.planRefusal == nil)
+    }
+
     @Test func anOrdinaryRefusalOffersNothing() async {
         let (creation, offers) = await run(failingWith: CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "This plan allows 3 active Cloud VMs at a time."))
         #expect(offers.isEmpty)

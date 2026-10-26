@@ -66,7 +66,7 @@ extension CloudHandlers {
             planRequired: { refusal in
                 // The dialog sells Pro only; a refusal that needs Max shows as the creation's failure,
                 // and a CLI or Chief caller gets its plan (`cloud.plan.required`) to offer a checkout.
-                guard refusal.plan == "pro" else { return }
+                guard refusal.plan == "pro", !refusal.offered else { return }
                 // One offer at a time: a repeated create (Retry, the CLI, Chief) adds no second one.
                 guard !cloud.proOfferOpen else { return }
                 let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in

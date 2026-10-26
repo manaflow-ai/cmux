@@ -70,12 +70,17 @@ final class CloudMachineCreation: Identifiable {
         var message: String?
         var upgradeURL: URL?
         var plan = "pro"
+        /// The app already showed its own upgrade card (the plan gate): no second offer.
+        var offered = false
     }
 
     /// A create a paid plan would allow: the legacy `/api/vm` refusal that names one
-    /// (``CloudAPIError/planRequired(message:upgradeURL:plan:)``), or the app server's `plan_required`.
+    /// (``CloudAPIError/planRequired(message:upgradeURL:plan:)``), the app's own free-plan gate,
+    /// or the app server's `plan_required`.
     nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
         if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
+        // The plan gate refused a free plan before any request: its card already offered an upgrade.
+        if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
         guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
         // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
         let plan = failure.details?["plan"]?.stringValue == "max" ? "max" : "pro"

@@ -65,8 +65,8 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
-        /// The plan cannot create a machine; the upgrade card was shown and nothing was created.
-        case upgradeRequired
+        /// The plan cannot create a machine; the upgrade card (for `reason`) was shown and nothing was created.
+        case upgradeRequired(CloudUpgradeReason)
     }
 
     var run: CloudAppOp
@@ -93,7 +93,7 @@ struct CloudMachineCreateFlow {
     func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             _ = await confirm(.upgrade(need))
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(need.reason)
         }
         let machine = Self.named(name, askedBy: askedBy)
         var confirmed = !startedByPerson
@@ -139,14 +139,14 @@ struct CloudMachineCreateFlow {
                           confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
         if case .upgrade(let need) = gate() {
             _ = await confirm(.upgrade(need))
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(need.reason)
         }
         if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         do {
             return try await create()
         } catch CloudAPIError.http(let status, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(.server)
         }
     }
 
