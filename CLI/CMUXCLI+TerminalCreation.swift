@@ -205,7 +205,7 @@ extension CMUXCLI {
                 throw invalidArguments()
             }
             let value = args[valueIndex]
-            guard value != "--", !value.hasPrefix("--"),
+            guard !value.isEmpty, value != "--", !value.hasPrefix("--"),
                   !targetOptions.contains(option)
                     || !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw invalidArguments()

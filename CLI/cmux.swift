@@ -6899,6 +6899,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "new-surface" {
+            try validateNewSurfaceArguments(commandArgs)
+        }
         if command == "vpn" {
             _ = try Self.validatedVPNSubcommand(commandArgs)
         }
@@ -8830,7 +8833,6 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
         case "new-surface":
-            try validateNewSurfaceArguments(commandArgs)
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
