@@ -23,8 +23,14 @@ import CmuxNextSignposts
 ///   (`BrowserWindowOcclusionProviding`): the fork masks the page there and
 ///   routes the mouse to the parent.
 /// - Divider hit areas draw nothing over panes, so they do not mask pages:
+///   while a page window takes the mouse (``pageWindowsTakeMouse``),
 ///   `DividerMouseCatchers` covers them with click-catching panels above
-///   the pages that forward the mouse to the parent.
+///   the pages that forward the mouse to the parent. A page attached as a
+///   view of its pane (p03-rendering-045) has no window of its own: the
+///   divider views take the mouse in this window, as over a terminal, and
+///   no catcher or panel is made. A visible content panel (a remote page's
+///   popup) cuts a hole in every catcher it overlaps: the popup is below
+///   the catchers and keeps its clicks there.
 ///
 /// App panels that are child windows (palette, hover cards, group editor)
 /// stay above the overlay panel. Child window z-order is the order of
@@ -54,7 +60,14 @@ final class WindowOverlayLayer {
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
     static let sidebarResizeAreaID = "sidebar.resize"
-    let catchers: DividerMouseCatchers
+    /// Made the first time a page window takes the mouse (``pageWindowsTakeMouse``); nil while every page
+    /// draws and takes input in this window.
+    private(set) var catchers: DividerMouseCatchers?
+    /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
+    /// need catcher panels above it.
+    private(set) var pageWindowsTakeMouse = false
+    /// The visible content panels' frames (window coordinates) the catchers were last cut around.
+    private(set) var catcherHoles: [CGRect] = []
     /// Takes a `cef.geometry` slice per parent geometry change and catcher sync (tests pass their own).
     private let signposter: Signposter
     /// A `cef.geometry` slice is open: work inside it takes no slice of its own (``inGeometrySlice(_:_:)``).
@@ -81,7 +94,6 @@ final class WindowOverlayLayer {
     init(window: NSWindow, signposter: Signposter = Signposter.cef) {
         self.window = window
         self.signposter = signposter
-        catchers = DividerMouseCatchers(window: window)
         let center = NotificationCenter.default
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
         // The sidebar reports from WindowRootView.layout(): inside the
@@ -134,7 +146,7 @@ final class WindowOverlayLayer {
     func teardown() {
         isTornDown = true
         sidebarResizeArea = nil
-        catchers.teardown()
+        catchers?.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
@@ -294,6 +306,17 @@ final class WindowOverlayLayer {
 
     static func isContent(_ child: NSWindow) -> Bool { WindowOverlayHost.isPageWindow(child) }
 
+    /// A visible content child window takes the mouse over the layout: a Chromium page window (a page
+    /// drawn in its own window, or a layer-hosted page's input window). A content panel
+    /// (`ContentChildPanel`: a remote page's popup reaching past the page's edge) does not: it takes
+    /// its own clicks, and the catchers are cut around it (``catcherHoles``).
+    nonisolated static func takesMouse(_ child: NSWindow) -> Bool { !(child is ContentChildPanel) }
+
+    /// Where catchers must leave the mouse to a visible content panel: its frame in window coordinates.
+    private func contentPanelRects(in content: [NSWindow]) -> [CGRect] {
+        content.compactMap { $0 is ContentChildPanel ? window.convertFromScreen($0.frame) : nil }
+    }
+
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
     func evaluate() {
@@ -307,7 +330,13 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        let content = window.isVisible ? Self.contentChildWindows(of: window) : []
+        let wanted: Placement = content.isEmpty ? .inWindow : .overlayWindow
+        let takeMouse = content.contains(where: Self.takesMouse)
+        // A popup that appears, moves or hides over a divider re-cuts the catchers.
+        let holesChange = takeMouse && contentPanelRects(in: content) != catcherHoles
+        let catchersChange = wanted != placement || takeMouse != pageWindowsTakeMouse || holesChange
+        pageWindowsTakeMouse = takeMouse
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -315,8 +344,8 @@ final class WindowOverlayLayer {
             case .inWindow: hidePanel()
             }
             planes.forEach(place)
-            syncCatchers()
         }
+        if catchersChange { syncCatchers() }
         if placement == .overlayWindow { enforceOrder() }
     }
 
@@ -359,11 +388,12 @@ final class WindowOverlayLayer {
     private func inGeometrySlice(_ source: Signposter.CEFGeometrySource, _ body: () -> Void) {
         guard !geometrySliceOpen else { return body() }
         let interval = signposter.beginCEFGeometry(source)
-        let movesBefore = catchers.panelUpdates
+        let movesBefore = catchers?.panelUpdates ?? 0
         geometrySliceOpen = true
         defer {
             geometrySliceOpen = false
-            signposter.endCEFGeometry(interval, catchers: catchers.shownCount, panelMoves: catchers.panelUpdates - movesBefore)
+            signposter.endCEFGeometry(interval, catchers: catchers?.shownCount ?? 0,
+                                      panelMoves: (catchers?.panelUpdates ?? 0) - movesBefore)
         }
         body()
     }
@@ -380,24 +410,23 @@ final class WindowOverlayLayer {
         requestPageUpdate(force: true)
     }
 
-    /// Click-catching panels over divider hit areas while pages show, in one `cef.geometry` slice.
+    /// Click-catching panels over divider hit areas while a page window takes the mouse, in one
+    /// `cef.geometry` slice. With none, and no catcher panel left to hide, the sync costs no slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
+        guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 else { return }
         inGeometrySlice(.catcherSync) { applyCatchers() }
     }
 
     private func applyCatchers() {
-        if catchers.onHover == nil {
-            catchers.onHover = { [weak self] id, hovered in
-                if id == Self.sidebarResizeAreaID {
-                    (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
-                    return
-                }
-                for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
-            }
-        }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        let active = pageWindowsTakeMouse && !blocked
+        catcherHoles = pageWindowsTakeMouse && window.isVisible ? contentPanelRects(in: Self.contentChildWindows(of: window)) : []
+        guard let catchers = active ? self.catchers ?? makeCatchers() : self.catchers else { return }
+        let shownBefore = catchers.shownCount
+        catchers.update(catcherAreas, active: active, excluding: catcherHoles)
+        // No panel showed or shows: what lies under the pointer did not change.
+        guard shownBefore > 0 || catchers.shownCount > 0 else { return }
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -406,6 +435,19 @@ final class WindowOverlayLayer {
             root.refreshDividerHover()
         }
         (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
+    }
+
+    private func makeCatchers() -> DividerMouseCatchers {
+        let made = DividerMouseCatchers(window: window)
+        made.onHover = { [weak self] id, hovered in
+            if id == Self.sidebarResizeAreaID {
+                (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
+                return
+            }
+            for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
+        }
+        catchers = made
+        return made
     }
 
     /// Every Chromium page of this window whose geometry, clip or occlusion
