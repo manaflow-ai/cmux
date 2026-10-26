@@ -200,6 +200,24 @@ class PerFileRunner(unittest.TestCase):
             "test/retry-hang.test.ts > first attempt assertion": False,
         }, "an incomplete retry must preserve the named first failure")
 
+    def test_retry_budget_expiring_during_limit_lookup_starts_no_retry(self):
+        system_head = shutil.which("head")
+        def delay_limit_lookup(web):
+            head = web.parent / "bin/head"
+            head.write_text("#!/usr/bin/env bash\n"
+                            'if [ -f "$BUN_CALLS.retry" ] && [ ! -f "$BUN_CALLS.delayed" ]; then\n'
+                            '  touch "$BUN_CALLS.delayed"; sleep 2\nfi\n'
+                            f'exec "{system_head}" "$@"\n')
+            head.chmod(0o755)
+        self.web_hook = delay_limit_lookup
+        result, _, calls = self.run_runner(
+            ["test/retry-hang.test.ts"],
+            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/retry-hang.test.ts"], result.stdout + result.stderr)
+
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
