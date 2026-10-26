@@ -351,6 +351,51 @@ struct PagePreloadSlotTests {
         #expect(slot.lastClaim?.covered == false)
     }
 
+    /// An opener that does not know the size the page will show at (Cmd-N's new workspace) takes
+    /// it without a cover, even at the parked size: that cover could show stretched in the pane.
+    @Test func aClaimWithoutCoverShowsNoneAtTheParkedSize() throws {
+        let slot = makeSlot()
+        let page = FakePage("a")
+        park(page, in: slot, parking: FakeParking())
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        let claim = try #require(slot.claim(Self.newTab, into: container, frame: container.bounds, cover: false))
+        page.claimed = true
+        #expect(!claim.covered)
+        #expect(!claim.refit)
+        #expect(!page.preloadView.subviews.contains { $0 is PagePreloadCoverView })
+        #expect(page.moves == ["thaw", "visible"], "thaw before visible")
+        #expect(rig.queue.count == 0, "a cover limit with no cover")
+    }
+
+    /// The default preload hears when another page leaves the slot, by a claim or a drop.
+    @Test func aClaimOrADropReportsTheEmptiedSlot() throws {
+        @MainActor final class Tally {
+            var count = 0
+            var keys: [PagePreloadSlot.Key] = []
+        }
+        let slot = makeSlot()
+        let emptied = Tally()
+        slot.onEmptied = { key in
+            emptied.count += 1
+            emptied.keys.append(key)
+        }
+        let page = FakePage("a")
+        park(page, in: slot, parking: FakeParking())
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        _ = try #require(slot.claim(Self.newTab, into: container, frame: container.bounds))
+        page.claimed = true
+        #expect(emptied.count == 1)
+        let other = FakePage("b")
+        park(other, in: slot, key: Self.settings, parking: FakeParking())
+        #expect(emptied.count == 1, "the slot was empty already when the preload began")
+        slot.drop()
+        #expect(emptied.count == 2)
+        #expect(other.closed)
+        slot.drop()
+        #expect(emptied.count == 2, "a drop of an empty slot reported it emptied")
+        #expect(emptied.keys == [Self.newTab, Self.settings])
+    }
+
     @Test func aClaimBeforeTheQuietRefitUsesTheLaidOutSize() throws {
         let slot = makeSlot()
         let page = FakePage("a")

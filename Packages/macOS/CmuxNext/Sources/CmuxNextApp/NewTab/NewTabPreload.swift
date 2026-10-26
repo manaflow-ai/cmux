@@ -11,8 +11,9 @@ import CmuxNextWakeups
 /// (``PagePreloadSlot``, plans/cmux-next/chrome-parity/p13-webui.md 3.D): the New Tab page is the
 /// slot's default preload, as Chrome preloads its top-chrome WebUI
 /// (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h). This adapter decides only
-/// where and when; the slot loads the page visible, keeps its first frame as the cover, parks it
-/// hidden (frozen with ``PagePreloadSlot/ParkState/frozenHidden``) and hands it over in the key's turn.
+/// where and when; the slot loads the page visible, parks it and hands it over in the key's turn.
+/// With feature `newTabParksHidden` the page parks hidden and the slot's cover shows in the key's
+/// frame; without it the page parks rendering, as the New Tab spare always did.
 ///
 /// - Where: the parking sits in the key main window (or the last key one) at the size of the pane
 ///   content Cmd-T fills there, so the adoption changes no size (hqacp-v2: a page parked at the
@@ -65,6 +66,11 @@ final class NewTabPreload {
     /// Warning or critical drops the page, and none is made or recycled until normal.
     private var spareMemory: SpareMemoryConsumer?
     private var usedThisSession = false
+    /// No page before a New Tab page first showed this session (feature `pageRendererAtFirstShow`,
+    /// Chrome's `PreloadMode::kPreloadOnMakeVisible`): Home idle then runs no renderer for a page nobody opened.
+    private let preloadOnMakeVisible: Bool
+    /// The page waits hidden in the slot and Cmd-T shows the slot's cover (feature `newTabParksHidden`).
+    private let parksHidden: Bool
     /// Set by `start(holdingWarm: true)` until ``startWarming()``: no page is made meanwhile.
     private var warmHeld = false
     private var keyWatch: EventSubscription?, closeWatch: EventSubscription?
@@ -85,30 +91,27 @@ final class NewTabPreload {
     /// WebKit's setup on this host; a slow one gets no preload this run.
     let webKit = WebKitSetupGate()
 
-    /// The adapter on `services`' collaborators (held, not `services`); `slot` nil: `webUI.preload`.
-    convenience init(services: AppServices, slot: PagePreloadSlot? = nil, memory: any MemoryConsumerRegistry,
-                     input: any InputObserving, clock: any Clock<Duration> = ContinuousClock()) {
-        self.init(slot: slot ?? services.webUI.preload, agentTabs: services.agentTabs, windows: services.windows,
-                  appEvents: services.appEvents, sparePage: { [weak services] in services.map { NewTabPage.sparePage($0) } },
-                  memory: memory, input: input, clock: clock)
-    }
-
     /// - Parameters:
     ///   - slot: The app's one preload slot; tests pass their own.
     ///   - agentTabs, windows, appEvents: The app's agent tabs, main windows and app notices.
     ///   - sparePage: What a preloaded page loads with.
     ///   - memory, input, clock: The app's memory coordinator (registered with at once), its input
     ///     tap, and the warm and fit deadlines' clock (tests: a manual one).
+    ///   - preloadOnMakeVisible: The first page waits for the first New Tab page of the session.
+    ///   - parksHidden: The page waits hidden and Cmd-T shows the slot's cover.
     init(slot: PagePreloadSlot, agentTabs: AgentTabStore, windows: WindowManager, appEvents: AppEvents,
          sparePage: @escaping @MainActor () -> AgentPaneNewTab?, memory: any MemoryConsumerRegistry,
-         input: any InputObserving, clock: any Clock<Duration>) {
+         input: any InputObserving, clock: any Clock<Duration>, preloadOnMakeVisible: Bool, parksHidden: Bool) {
         (self.slot, self.agentTabs, self.windows, self.appEvents, self.sparePage) = (slot, agentTabs, windows, appEvents, sparePage)
-        self.input = input
-        warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
-        fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
+        (self.input, self.preloadOnMakeVisible, self.parksHidden) = (input, preloadOnMakeVisible, parksHidden)
+        warmTimer = DemandTimer(owner: "NewTabPreload.warm", clock: clock)
+        fitTimer = DemandTimer(owner: "NewTabPreload.fit", clock: clock)
         spareMemory = SpareMemoryConsumer(
             name: "new-tab-spare", registry: memory, spares: { [weak self] in self?.spareView == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
+        // New Tab is the slot's default preload: when another page leaves the slot, it arms its own
+        // (its own take arms the next one; its own drop arms none, so `drop_spare` leaves it cold).
+        slot.onEmptied = { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
     }
 
     // MARK: Reading
@@ -117,7 +120,7 @@ final class NewTabPreload {
     var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
     /// The New Tab page the slot holds, if it holds one.
-    private var held: AgentPaneView? { slot.key == Self.key ? slot.page as? AgentPaneView : nil }
+    private var held: AgentPaneView? { slot.key == Self.key ? (slot.page as? AgentPanePreloadPage)?.pane : nil }
 
     /// The waiting page, held or recycled (`debug.memory` spares).
     var spareView: AgentPaneView? { held ?? recycled }
@@ -221,14 +224,6 @@ final class NewTabPreload {
         return size.width > 0 && size.height > 0 ? size : nil
     }
 
-    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
-    /// header band holds the bar now (the band goes with the browser).
-    static func newTabContentSize(in pane: PaneController) -> NSSize {
-        let scale = pane.view.window?.backingScaleFactor ?? 2
-        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
-        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
-    }
-
     /// The size the page parks at now: the target pane's, else the window content's.
     private var parkSize: NSSize? {
         guard let content = parking.superview else { return nil }
@@ -258,7 +253,7 @@ final class NewTabPreload {
     // MARK: Taking
 
     /// The preloaded New Tab page for `window`, or nil (the page loads cold). The slot hands it
-    /// over in this turn: its cover on top, thawed and visible, still in the parking at `size`, so
+    /// over in this turn: visible, with the slot's cover on top when it parked hidden at `size`, still in the parking, so
     /// the pane's install in the same turn moves it into the pane at the size it waited at. A page
     /// parked in another window is taken all the same (a reparent). The next preload follows when
     /// input is quiet. `refit` is true when the page waited at another size than `size` (nil: not
@@ -274,7 +269,7 @@ final class NewTabPreload {
         // after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
         if !warmedOnce {
             warmedOnce = true
-            view.model.whenPainted { Task { @MainActor [weak self] in self?.warmNow() } }
+            view.model.whenPainted { [weak self] in self?.warmNow() }
         }
         opening = (ObjectIdentifier(view), size, claimed.covered)
         return (view, window !== target, claimed.refit, claimed.covered)
@@ -287,8 +282,10 @@ final class NewTabPreload {
             return (view, size.map { view.frame.size != $0 } ?? false, false)
         }
         guard let view = held else { return nil }
+        // An unknown size (Cmd-N: the new workspace's pane is not laid out yet) takes no cover: one of
+        // the parked size would show stretched in that pane. `coverMove` covers the move at the pane's size.
         let frame = NSRect(origin: .zero, size: size ?? view.frame.size)
-        guard let claim = slot.claim(Self.key, into: parking, frame: frame) else { return nil }
+        guard let claim = slot.claim(Self.key, into: parking, frame: frame, cover: size != nil) else { return nil }
         return (view, claim.refit, claim.covered)
     }
 
@@ -346,16 +343,12 @@ final class NewTabPreload {
         if held != nil { slot.drop() }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
-
     // MARK: When
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard !warmHeld, allowsSpare, agentTabs.canHostChat, slot.count == 0 || recycled != nil, target != nil else { return }
+        guard !warmHeld, allowsSpare, agentTabs.canHostChat, slot.count == 0 || recycled != nil, target != nil,
+              usedThisSession || !preloadOnMakeVisible || recycled != nil else { return }
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }
         }
@@ -374,6 +367,9 @@ final class NewTabPreload {
         warmTimer.schedule(after: launch ? Self.launchDelay : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
+    /// `view` as the slot holds it: hidden while parked with `newTabParksHidden`, else rendering.
+    private func preloadPage(_ view: AgentPaneView) -> any PreloadablePage { AgentPanePreloadPage(pane: view, parksHidden: parksHidden) }
+
     /// Hands the slot the recycled page, else a new one.
     private func warmNow() {
         inputSubscription = nil
@@ -382,7 +378,7 @@ final class NewTabPreload {
             recycled = nil
             park(in: content)
             guard slot.count == 0, let size = parkSize else { return view.close() }
-            let parked = BenchSpans.measure("pool.park") { slot.preload(Self.key, size: size, in: parking) { _ in view } }
+            let parked = BenchSpans.measure("pool.park") { slot.preload(Self.key, size: size, in: parking) { _ in preloadPage(view) } }
             if !parked { view.close() }
             return
         }
@@ -393,7 +389,10 @@ final class NewTabPreload {
         guard let page = sparePage() else { return }
         let start = ContinuousClock.now
         BenchSpans.measure("pool.makeSpare") {
-            _ = slot.preload(Self.key, size: size, in: parking) { _ in makeSpare?(page) ?? agentTabs.makeSpare(page) }
+            _ = slot.preload(Self.key, size: size, in: parking) { _ in
+                guard let view = makeSpare?(page) ?? agentTabs.makeSpare(page) else { return nil }
+                return preloadPage(view)
+            }
         }
         if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread
     }

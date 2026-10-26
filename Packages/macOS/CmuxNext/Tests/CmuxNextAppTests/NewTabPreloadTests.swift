@@ -25,13 +25,18 @@ struct NewTabPreloadTests {
         func preloadWhenPainted(_ body: @escaping @MainActor () -> Void) {}
         func preloadCaptureCover(_ body: @escaping @MainActor (CGImage?) -> Void) {}
         func preloadSetVisible(_ visible: Bool) {}
-        func preloadFreeze() {}
+        func preloadFreeze() -> Bool { false }
         func preloadThaw() {}
         func close() { closed = true }
     }
 
     @MainActor private final class Parking: PreloadParking {
         func hold(_ view: NSView, at size: NSSize) { view.setFrameSize(size) }
+    }
+
+    /// A slot on the app's deadline scheduler, rendered-parked as the app's.
+    private static func slot(_ services: AppServices) -> PagePreloadSlot {
+        PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
     }
 
     private static func window() -> NSWindow {
@@ -52,7 +57,7 @@ struct NewTabPreloadTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
             let clock = ManualClock()
-            let pool = NewTabPreload(services: services, slot: PagePreloadSlot(parkState: .renderedParked),
+            let pool = NewTabPreload(services: services, slot: Self.slot(services),
                                      memory: services.memoryCoordinator, input: tap, clock: clock)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it runs
             let window = Self.window()
@@ -80,7 +85,7 @@ struct NewTabPreloadTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-hooks")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let pool = NewTabPreload(services: services, slot: PagePreloadSlot(parkState: .renderedParked),
+            let pool = NewTabPreload(services: services, slot: Self.slot(services),
                                      memory: services.memoryCoordinator, input: tap, clock: ManualClock())
             pool.webKit.markSlow()
             let window = Self.window()
@@ -105,7 +110,7 @@ struct NewTabPreloadTests {
             let pressure = MemoryPressureEvents(source: kernel)
             let memory = MemoryCoordinator(pressure: pressure, mode: .medium, slicer: BrowserHibernationPressureTests.HeldSlices())
             let tap = FakeInputTap()
-            let pool = NewTabPreload(services: services, slot: PagePreloadSlot(parkState: .renderedParked),
+            let pool = NewTabPreload(services: services, slot: Self.slot(services),
                                      memory: memory, input: tap, clock: ManualClock())
             pool.webKit.markSlow()
             let window = Self.window()
@@ -121,6 +126,9 @@ struct NewTabPreloadTests {
             _ = pool.take(for: window, size: nil)
             #expect(tap.liveSubscriptions == 0, "a take at warning armed a refill")
 
+            kernel.send(.critical)
+            #expect(tap.liveSubscriptions == 0, "a warm was armed at critical")
+
             kernel.send(.normal)
             #expect(pool.allowsSpare)
             #expect(tap.liveSubscriptions == 1, "back at normal the warm is armed again")
@@ -134,7 +142,7 @@ struct NewTabPreloadTests {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-other")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
-            let slot = PagePreloadSlot(parkState: .renderedParked)
+            let slot = Self.slot(services)
             let other = OtherPage()
             let parking = Parking()
             let held = slot.preload(PagePreloadSlot.Key("settings"), size: NSSize(width: 400, height: 300), in: parking) { _ in other }
@@ -161,7 +169,7 @@ struct NewTabPreloadTests {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-take")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
-            let slot = PagePreloadSlot(parkState: .renderedParked)
+            let slot = Self.slot(services)
             let tap = FakeInputTap()
             let clock = ManualClock()
             let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: clock)
@@ -191,9 +199,116 @@ struct NewTabPreloadTests {
             try await clock.waitForSleeper()
             clock.advance(by: NewTabPreload.idleInput)
             await Self.turns { slot.count == 1 }
-            #expect(slot.page === held, "the recycled page did not go back to the slot")
+            #expect((slot.page as? AgentPanePreloadPage)?.pane === held, "the recycled page did not go back to the slot")
             pool.dropAll()
             #expect(slot.count == 0)
+        }
+    }
+
+    /// New Tab is the slot's default preload: when another page leaves the slot (claimed or
+    /// dropped), New Tab arms its own warm, so the next Cmd-T does not load cold.
+    @Test func anotherPageLeavingTheSlotArmsTheNewTabWarm() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-emptied")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let slot = Self.slot(services)
+            let settings = PagePreloadSlot.Key("settings")
+            let other = OtherPage()
+            #expect(slot.preload(settings, size: NSSize(width: 400, height: 300), in: Parking()) { _ in other })
+            let tap = FakeInputTap()
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: ManualClock())
+            pool.webKit.markSlow()
+            let window = Self.window()
+            defer { window.close() }
+            pool.retarget(window)
+            #expect(tap.liveSubscriptions == 0, "a warm was armed while the slot holds another page")
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+            #expect(slot.claim(settings, into: container, frame: container.bounds) != nil)
+            #expect(slot.count == 0)
+            #expect(tap.liveSubscriptions == 1, "the slot emptied and New Tab armed no warm")
+        }
+    }
+
+    /// The held page follows the key main window: the same view moves into the new window's parking
+    /// (a reparent, no reload) and stays in the slot.
+    @Test func theHeldPageFollowsTheKeyWindowWithoutAReload() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-retarget")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let slot = Self.slot(services)
+            let tap = FakeInputTap()
+            let clock = ManualClock()
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap, clock: clock)
+            pool.webKit.request = {}
+            pool.webKit.probe {}
+            await Self.turns { pool.webKit.state == .ready }
+            try #require(pool.webKit.state == .ready)
+            let first = Self.window(), second = Self.window()
+            defer {
+                first.close()
+                second.close()
+            }
+            pool.retarget(first)
+            try await clock.waitForSleeper()
+            clock.advance(by: NewTabPreload.launchDelay)
+            await Self.turns { slot.count == 1 }
+            let held = try #require(pool.spareView)
+            #expect(held.window === first)
+
+            pool.retarget(second)
+            #expect(pool.target === second)
+            #expect((slot.page as? AgentPanePreloadPage)?.pane === held, "the move made another page")
+            #expect(held.window === second, "the page stayed in the old window")
+            #expect(held.superview is PagePreloadParkingView)
+            #expect(pool.lastRetargetMilliseconds != nil)
+            pool.dropAll()
+        }
+    }
+
+    /// The New Tab pane as a preloadable page: by default it parks rendering (no hide, no slot
+    /// cover); with `newTabParksHidden` its page view hides and shows again. No engine freezes it yet.
+    @Test func theNewTabPageParksRenderingUnlessItParksHidden() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-page")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let view = try #require(services.agentTabs.makeSpare(NewTabPage.sparePage(services)))
+            defer { view.close() }
+            // The page view (`PageWebView`) that holds the web view: what the engines read visibility from.
+            let pageView = try #require(view.webView.superview)
+
+            let rendering = AgentPanePreloadPage(pane: view, parksHidden: false)
+            #expect(rendering.preloadView === view)
+            #expect(!rendering.preloadFreeze(), "a freeze no engine performs")
+            rendering.preloadSetVisible(false)
+            #expect(!pageView.isHidden, "a page that parks rendering was hidden")
+            var answered = false, cover: CGImage?
+            rendering.preloadCaptureCover { image in
+                answered = true
+                cover = image
+            }
+            #expect(answered && cover == nil, "a page that parks rendering gave the slot a cover")
+
+            let hidden = AgentPanePreloadPage(pane: view, parksHidden: true)
+            #expect(!hidden.preloadFreeze(), "a freeze no engine performs")
+            hidden.preloadSetVisible(false)
+            #expect(pageView.isHidden, "the page did not hide")
+            #expect(!view.isHidden, "the pane itself hid: the slot's cover on it would not show")
+            hidden.preloadSetVisible(true)
+            #expect(!pageView.isHidden, "the page did not show again")
+        }
+    }
+
+    /// `debug.new_tab` keeps every field of the spare pool's report and adds the opening's `covered`.
+    @Test func debugNewTabKeepsItsFields() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.newTabSpares.record(.init(spare: true, crossWindow: false, milliseconds: 1, covered: true))
+            let state = try #require(await DebugNewTab.handle(["action": .string("state")], services).objectValue)
+            for key in ["spares", "openings", "target_window", "last_retarget_ms", "last_recycle_refusal", "omnibar_tabs", "omnibar_workspaces"] {
+                #expect(state[key] != nil, "debug.new_tab lost \(key)")
+            }
+            let opening = try #require(state["openings"]?.arrayValue?.last?.objectValue)
+            #expect(Set(opening.keys) == ["spare", "cross_window", "refit", "covered", "ms"])
+            #expect(opening["covered"] == .bool(true))
         }
     }
 }

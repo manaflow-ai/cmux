@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
+import CmuxNextPages
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// No New Tab page renderer before a New Tab page first shows (p07-memory-048, feature
 /// `pageRendererAtFirstShow`): the launch arms no spare warm; the first New Tab page of the session
-/// (``NewTabSparePool/take(for:size:)``, which Cmd-T, Cmd-N and a restored page all call) arms it.
+/// (``NewTabPreload/take(for:size:)``, which Cmd-T, Cmd-N and a restored page all call) arms it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabSparePageLazinessTests {
     @Test func theLaunchMakesNoSpareUntilANewTabPageShows() async throws {
@@ -17,8 +18,9 @@ struct NewTabSparePageLazinessTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-lazy")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap,
-                                       clock: ManualClock(), preloadOnMakeVisible: true)
+            let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
+            let pool = NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: tap,
+                                     clock: ManualClock(), preloadOnMakeVisible: true)
             pool.webKit.markSlow() // the warm makes no web view: this test is about whether it is armed
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)

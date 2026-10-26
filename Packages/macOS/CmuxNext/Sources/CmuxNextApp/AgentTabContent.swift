@@ -78,7 +78,8 @@ struct AgentTabContent {
         view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
-    /// A preloaded page taken into this pane with no cover (taken before it parked) draws nothing until WebKit renders it in its new place
+    /// A preloaded page taken into this pane with no slot cover (parked rendering, taken before it parked, at another size,
+    /// or by Cmd-N before its pane's size was known) draws nothing until WebKit renders it in its new place
     /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
     /// the page stays clear, until its next frame there. Its own parked frame first, at the size it shows at.
     private func coverMove(of view: AgentPaneView) {
