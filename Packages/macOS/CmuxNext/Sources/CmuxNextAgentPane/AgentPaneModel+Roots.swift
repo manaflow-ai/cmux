@@ -40,7 +40,7 @@ extension AgentPaneModel {
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
         return AgentPanePrimaryRoot(answered: false, candidates: candidates.compactMap { $0 }, home: transport.homeFolder,
-                                    agentHome: workspaceAgentHome?()?.home ?? AgentHome.standard)
+                                    agentHome: workspaceAgentHome?()?.home)
     }
 
     /// Whether `path` is in an agent-home folder: this workspace's base, else the standard one.
@@ -128,11 +128,13 @@ nonisolated struct AgentPanePrimaryRoot: Equatable, Sendable {
     var answered: Bool
     var candidates: [String]
     var home: String? = NSHomeDirectory()
+    /// The workspace's agent home; nil: the standard one, looked up when it is chosen.
     var agentHome: AgentHome?
 
-    /// The root. May read the disk (`standardizingPath`).
+    /// The root. May read the disk (`standardizingPath`, the standard agent home's lookup).
     func resolve() -> String? {
         if answered { return candidates.first }
+        let agentHome = agentHome ?? AgentHome.standard
         return candidates.first { !AgentHome.isHomeOrAbove($0, home: home) && agentHome?.contains($0) != true }
     }
 }
