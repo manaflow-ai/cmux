@@ -90,13 +90,30 @@ assert_measurement_checkout() {
   local checkout="$1" source="$2"
   [ "$(git -C "$checkout" rev-parse HEAD)" = "$source" ] || die "capture checkout HEAD changed"
   git -C "$checkout" diff --cached --quiet || die "capture checkout index changed"
-  git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH" || die "capture changed product or unrelated tracked files"
+  if ! git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH"; then
+    echo "NATIVE_FADE_TRACKED_MUTATION checkout=$checkout source=$source" >&2
+    git -C "$checkout" diff --name-status -- . ":(exclude)$REGRESSION_PATH" >&2
+    die "capture changed product or unrelated tracked files"
+  fi
   [ "$(git -C "$checkout" hash-object "$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "capture regression test blob changed"
 }
 WORK="$(mktemp -d /tmp/nx-ellipsis-fade.XXXXXX)"
 OUT="$WORK/out"
 mkdir -p "$OUT"
 printf '%s\n' "$IDENTITY_RECEIPT" > "$OUT/source-identities.txt"
+# Rejected measurements stay rejected, with their partial frames and source
+# diagnostics retained so a failed source fence can be diagnosed remotely.
+keep_failed_attempt() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    printf 'NATIVE_FADE_FAILED exit=%s\n' "$status" > "$OUT/failure.txt"
+    mkdir -p "$ROOT/artifacts"
+    tar -czf "$ROOT/artifacts/pane-overflow-fade.tar.gz" -C "$OUT" . || true
+  fi
+  exit "$status"
+}
+trap keep_failed_attempt EXIT
 cat > "$WORK/PaneMoreFadeFrameProbe.swift" <<'NX_FADE_PROBE'
 import AppKit
 @testable import CmuxNextApp
