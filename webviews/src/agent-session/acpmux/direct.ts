@@ -5574,9 +5574,11 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const read =
       wait > 0
-        ? this.olderDelay.wait(wait).then((ready) =>
-            ready && !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
-          )
+        ? this.olderDelay
+            .wait(wait)
+            .then((ready) =>
+              ready && !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
+            )
         : this.fetchOlder();
     const loading = read
       .catch((error: unknown) => {
