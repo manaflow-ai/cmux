@@ -1,0 +1,121 @@
+import AppKit
+@testable import CmuxNextFloating
+import Foundation
+import Testing
+
+/// The floating pet's animated characters (`cmux-avatar/1`): the row each Chief state draws, the
+/// facing, and when the frames move. A still character (the nine) never gets a sprite.
+@MainActor @Suite(.serialized) struct ChiefPetSpriteTests {
+    static func defaults() -> UserDefaults {
+        let name = "ChiefPetSpriteTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    static func sheet(columns: Int, rows: Int) -> CGImage {
+        let context = CGContext(data: nil, width: columns * 8, height: rows * 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return context.makeImage()!
+    }
+
+    static func sprite(_ states: String, faces: String = "right", rows: Int = 8) -> ChiefPetSprite? {
+        let json = #"{"format":"cmux-avatar/1","frame":{"width":8,"height":8},"fps":8,"faces":"\#(faces)","states":{\#(states)}}"#
+        return ChiefPetSprite(sheet: sheet(columns: 8, rows: rows), json: Data(json.utf8))
+    }
+
+    @Test func onlyMochiIsAnimatedAndItHasEveryState() throws {
+        for mascot in ChiefPetMascot.allCases where mascot != .mochi {
+            #expect(mascot.sprite == nil, "\(mascot.rawValue) stays a still character")
+        }
+        let mochi = try #require(ChiefPetMascot.mochi.sprite)
+        let rows = ChiefPetState.allCases.map { mochi.track($0, facingRight: true).row }
+        #expect(rows == [0, 1, 2, 3, 4, 5])
+        #expect(mochi.track(.done, facingRight: true).loop == false)
+        #expect(mochi.track(.error, facingRight: true).loop == false)
+        #expect(mochi.track(.working, facingRight: true).frames == 8)
+        #expect(mochi.frame(row: 1, 7)?.width == 32)
+    }
+
+    @Test func missingStatesFallBackAndTheOtherFacingMirrors() throws {
+        let sprite = try #require(Self.sprite(#""idle":{"row":0,"frames":2},"working":{"row":3,"frames":6,"rowLeft":6}"#))
+        #expect(sprite.track(.thinking, facingRight: true).row == 3, "thinking borrows working's row")
+        #expect(sprite.track(.waiting, facingRight: true).row == 0, "waiting borrows idle's row")
+        #expect(sprite.track(.idle, facingRight: false).mirrored)
+        #expect(!sprite.track(.idle, facingRight: true).mirrored)
+        #expect(sprite.track(.working, facingRight: false) == .init(row: 6, frames: 6, fps: 8, loop: true, mirrored: false))
+        let left = try #require(Self.sprite(#""idle":{"row":0,"frames":2}"#, faces: "left"))
+        #expect(left.track(.idle, facingRight: true).mirrored)
+        #expect(Self.sprite(#""working":{"row":0,"frames":2}"#) == nil, "no idle row: not a sprite")
+        // A row or frame count past the sheet is clamped to it.
+        let small = try #require(Self.sprite(#""idle":{"row":12,"frames":20}"#, rows: 2))
+        #expect(small.track(.idle, facingRight: true) == .init(row: 1, frames: 8, fps: 8, loop: true, mirrored: false))
+    }
+
+    @Test func framesMoveOnlyWhileShownActiveAndMotionAllowed() throws {
+        let defaults = Self.defaults()
+        var active = true
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }),
+                                            appIsActive: { active })
+        defer { controller.sync(false) }
+        var reduce = false
+        controller.reduceMotion = { reduce }
+        controller.setMascot(.mochi)
+        controller.sync(true)
+        controller.setState(.working)
+        let panel = try #require(controller.panel)
+        let layer = panel.pet.sprite
+        #expect(!layer.layer.isHidden)
+        #expect(layer.shown?.state == .working)
+        #expect(layer.isMoving == controller.characterMoves)
+        // cmux in the background: one frame, nothing runs.
+        active = false
+        controller.render(animated: false)
+        #expect(!controller.characterMoves)
+        #expect(!layer.isMoving)
+        // Reduce Motion: still too.
+        active = true
+        reduce = true
+        controller.drawCharacter()
+        #expect(!layer.isMoving)
+        // Turned off: hidden, nothing runs.
+        reduce = false
+        controller.sync(false)
+        #expect(!controller.characterMoves)
+        #expect(!layer.isMoving)
+    }
+
+    @Test func aFinishedTurnPlaysDoneThenAStillCharacterHasNoSprite() throws {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.sync(false) }
+        controller.setMascot(.mochi)
+        controller.sync(true)
+        controller.setState(.working)
+        controller.setState(.idle)
+        #expect(controller.drawnState == .done, "a turn that ends plays done once")
+        controller.setState(.waiting)
+        #expect(controller.drawnState == .waiting, "a new state replaces done at once")
+        controller.setState(.error)
+        #expect(controller.panel?.pet.sprite.shown?.state == .error)
+        // The nine still characters keep their picture and no sprite layer shows.
+        controller.setMascot(.fox)
+        #expect(controller.sprite == nil)
+        #expect(controller.panel?.pet.sprite.layer.isHidden == true)
+        controller.setState(.working)
+        controller.setState(.idle)
+        #expect(controller.drawnState == .idle, "a still character has no done row to play")
+    }
+
+    /// The pet faces the side of its screen it sits on.
+    @Test func facesTheSideItIsDockedToward() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        panel.visibleFrame = { CGRect(x: 0, y: 0, width: 1000, height: 800) }
+        panel.setFrameOrigin(CGPoint(x: 800, y: 20))
+        #expect(panel.facesRight)
+        panel.setFrameOrigin(CGPoint(x: 40, y: 20))
+        #expect(!panel.facesRight)
+    }
+}
