@@ -11,10 +11,13 @@ runs this every sweep:
 
 1. One `rate_limit` read of the workflow token's budget (free). Under the floor, stop:
    a re-run now would fail the same way.
-2. The newest failed pull_request_target runs of both workflows (one read each).
-3. A CLA Assistant run is re-run when its failed job's log says the API rate limit was
-   exceeded. A CLA policy guard run hides its reason by design, so it is re-run when its
-   head's CLA Assistant run was rate limited, or once on a first attempt.
+2. The newest pull_request_target runs of both workflows (one read each).
+3. Only each pull request head's newest run counts, and only when it failed at the head
+   the pull request still has. A CLA Assistant run is re-run when its failed job's log
+   says the API rate limit was exceeded. A CLA policy guard run reports every error,
+   a spent budget included, as "rejected the proposed policy" (validate-cla-policy.rb
+   rescues PolicyError), so its failure is re-run while its attempt is under 8: a
+   genuine rejection is deterministic and stops there.
 
 Only a run whose head is still its pull request's head is touched. Reads and re-runs use
 GH_TOKEN (the janitor's App token, its own budget); RATE_TOKEN is the workflow token
@@ -40,6 +43,7 @@ FLOOR_SHARE = 0.2
 FLOOR_MIN = 500
 MAX_AGE = dt.timedelta(hours=24)
 MAX_ATTEMPT = 20
+MAX_GUARD_ATTEMPT = 8
 MAX_LOG_READS = 12
 MAX_RERUNS = 8
 
@@ -84,11 +88,20 @@ def recent(run: dict[str, Any], now: dt.datetime) -> bool:
     return now - when <= MAX_AGE
 
 
-def failed_runs(gh: GitHub, workflow: str, now: dt.datetime) -> list[dict[str, Any]]:
-    query = "event=pull_request_target&status=failure&per_page=30"
+def latest_failures(gh: GitHub, workflow: str, now: dt.datetime) -> list[dict[str, Any]]:
+    """Each pull request head's newest run of `workflow`, when that run failed at the head the
+    pull request still has. An older failure whose head was re-run since (passed, running or
+    failed again) is never replayed: its event's base can be stale."""
+    query = "event=pull_request_target&per_page=100"
     runs = gh.request("GET", f"/repos/{gh.repo}/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
-    return [run for run in runs if recent(run, now) and current_head(run)
-            and int(run.get("run_attempt") or 1) < MAX_ATTEMPT]
+    newest: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        head = run.get("head_sha") or ""
+        if head and int(run.get("id") or 0) > int(newest.get(head, {}).get("id") or 0):
+            newest[head] = run
+    return [run for run in newest.values()
+            if run.get("status") == "completed" and run.get("conclusion") == "failure"
+            and recent(run, now) and current_head(run) and int(run.get("run_attempt") or 1) < MAX_ATTEMPT]
 
 
 def rate_limited_log(gh: GitHub, run: dict[str, Any]) -> bool:
@@ -99,32 +112,32 @@ def rate_limited_log(gh: GitHub, run: dict[str, Any]) -> bool:
     return False
 
 
+def rotated(runs: list[dict[str, Any]], now: dt.datetime) -> list[dict[str, Any]]:
+    """Oldest first, starting at a slot that moves every sweep, so a bounded scan reaches every
+    candidate in turn and genuine failures cannot hold the read budget."""
+    runs = sorted(runs, key=lambda run: int(run["id"]))
+    if not runs:
+        return runs
+    start = (int(now.timestamp()) // 600) % len(runs)
+    return runs[start:] + runs[:start]
+
+
 def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None]) -> list[dict[str, Any]]:
-    """The runs to re-run, newest first per workflow, within the read and re-run caps."""
-    assistant = failed_runs(gh, "cla.yml", now)
-    guard = failed_runs(gh, "cla-policy-guard.yml", now)
-    limited_heads: set[str] = set()
-    chosen: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    """The runs to re-run: CLA Assistant failures whose log shows the rate limit, and every CLA
+    policy guard failure (its reason is hidden by design; a genuine rejection is deterministic
+    and stops at MAX_GUARD_ATTEMPT). Guards come first: they need no log read."""
+    chosen = [run for run in rotated(latest_failures(gh, "cla-policy-guard.yml", now), now)
+              if int(run.get("run_attempt") or 1) < MAX_GUARD_ATTEMPT][:MAX_RERUNS // 2]
     reads = 0
-    for run in assistant:
-        if run["head_sha"] in seen or reads >= MAX_LOG_READS:
-            continue
-        seen.add(run["head_sha"])
+    for run in rotated(latest_failures(gh, "cla.yml", now), now):
+        if reads >= MAX_LOG_READS or len(chosen) >= MAX_RERUNS:
+            break
         reads += 1
         if rate_limited_log(gh, run):
-            limited_heads.add(run["head_sha"])
             chosen.append(run)
         else:
             log(f"CLA Assistant run {run['id']} failed for another reason; left alone")
-    seen.clear()
-    for run in guard:
-        if run["head_sha"] in seen:
-            continue
-        seen.add(run["head_sha"])
-        if run["head_sha"] in limited_heads or int(run.get("run_attempt") or 1) == 1:
-            chosen.append(run)
-    return chosen[:MAX_RERUNS]
+    return chosen
 
 
 def main(argv: list[str] | None = None, now: dt.datetime | None = None) -> int:
