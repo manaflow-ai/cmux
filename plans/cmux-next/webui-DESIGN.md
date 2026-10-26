@@ -91,6 +91,38 @@ in a content hook (below), with the rules of Chrome's process-per-site threshold
 The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
 delivered the message, never from the payload.
 
+Fork implementation, proposed and not settled (task 077, manaflow-ai/cef `cp/p13-webui-077` at `d110ee57`, on the
+cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not done. Snapshots stop using DevTools
+(`Page.captureScreenshot`), because one DevTools agent ends main-frame renderer reuse for the whole browser
+(`RenderFrameDevToolsAgentHost::WasEverAttachedToAnyFrame` in `render_frame_host_manager.cc`).
+
+- One capture export. `cmux_browser_capture(browser_id, max_width, max_height, format, jpeg_quality, done, context)`
+  is the export that PL-cef-layer planned for agent screenshots in the helper app
+  ([cef-helper-app-DESIGN.md](cef-helper-app-DESIGN.md), "Page screenshots for agents"), built once here for both
+  users; the train carries no second copy export. It copies the page as Chrome copies a tab thumbnail
+  (`thumbnail_tab_helper.cc`, `RenderWidgetHostView::CopyFromSurface`), scales it down to fit (never up; the
+  limiting side exactly at its limit, integer math) and encodes it on Chromium's thread pool as a fast PNG with alpha
+  or as a JPEG. `done` runs exactly once on a thread pool worker, never on the main thread; a 2 s Viz deadline answers
+  a page that never draws. `cmux_tab_devtools_state(browser_id)` reports a session on the page (the app's own
+  protocol client included) and the process-wide ever-attached flag, which Chromium never clears.
+- No new mouse export. Debug clicks use the API 29 native click that already exists: `cmux_shim_tab_send_click`
+  (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). It is a
+  click only. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
+- Binding. The number comes from the fork train (086), on a line that has API 29. The shim wraps the export as
+  `cmux_shim_tab_copy_surface(browser_id, token, max_width, max_height, format, jpeg_quality)`, an `async` entry in
+  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` set to 086's number. Its
+  answer is a `CMUX_SHIM_SURFACE_COPY_RESULT` event carrying the token, as `cmux_shim_tab_evaluate` does with
+  `EVALUATE_RESULT`, so the generated host wire carries it to PL-cef-helper's host. 078 adds the shim wrapper and
+  its ops entry. It gates on `CEFForkFeatures` (the fork API at least that number, plus the shim export), never on
+  a raw dlsym of the fork. DevTools stays only in the older-fork fallback.
+- Gate. A fork build must pass `ceftests --gtest_filter=CmuxTabSurfaceTest.*` in its own process, in order. Every
+  page test fails at once if the ever-attached flag is already set when its page draws. The capture test then checks
+  the exact fitted size (including a width limit that floating-point math missed by one pixel), an answer off the
+  UI thread, no session, and the flag still clear. The positive control (a protocol message shows as attached) runs
+  last. The test does not open a second same-site page to watch it share a renderer. On this line no main-frame
+  reuse policy is on by default (`kNoReuseFeatureEnabled`), so two same-site pages get two renderers with or
+  without DevTools. Sharing is measured by 011's `CmuxPageProcessTest` and 012's pages10 renderer count.
+
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
 `_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
 
