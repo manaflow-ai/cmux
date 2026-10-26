@@ -84,8 +84,9 @@ final class WindowKeyFamily {
         }
     }
 
-    /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash.
+    /// Reads where the keyboard is once the notices of this key change have posted (a resign
+    /// posts before the next window becomes key, so the key window in between, nil, would flash
+    /// the wash), and before Core Animation commits the pass that redraws the window for it.
     private func keyDidMove() { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
         guard !checkPending else { return }
         checkPending = true
@@ -107,7 +108,9 @@ final class WindowKeyFamily {
             if active, holds { self.familyHeldKey = true }
             guard inactive != self.isInactive else { return }
             self.isInactive = inactive
-            self.forEachView { $0.updateInactiveTint() }
+            // No fade: the wash switches with the glass and the window chrome, in this pass's
+            // transaction (``WindowMaterialView/updateInactiveTint(fades:)``).
+            self.forEachView { $0.updateInactiveTint(fades: false) }
         }
     }
 
