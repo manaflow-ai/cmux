@@ -69,11 +69,9 @@ fn archive_marked(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
 fn roll_up(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     let mut parents: Vec<ItemId> =
         ids.iter().filter_map(|id| tx.doc.item(id)?.parent.clone()).collect();
-    let mut seen: HashSet<ItemId> = HashSet::new();
+    // A group is looked at again when one of its child groups archives: an
+    // outer group checked before its inner one emptied must not be skipped.
     while let Some(group_id) = parents.pop() {
-        if !seen.insert(group_id.clone()) {
-            continue;
-        }
         let Some(group) = tx.doc.item(&group_id) else { continue };
         if !group.body.is_group() || group.archived() {
             continue;
