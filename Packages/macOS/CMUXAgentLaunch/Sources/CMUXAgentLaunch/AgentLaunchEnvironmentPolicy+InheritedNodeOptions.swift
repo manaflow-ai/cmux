@@ -23,13 +23,6 @@ extension AgentLaunchEnvironmentPolicy {
         return updates
     }
 
-    /// Whether `kind` (a hook kind or a launcher such as `omo`) is an OpenCode
-    /// launch, by the same launcher mapping that decides capture trust.
-    private static func isOpenCodeLaunch(_ normalizedKind: String?) -> Bool {
-        guard let normalizedKind, !normalizedKind.isEmpty else { return false }
-        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedKind, kind: "opencode")
-    }
-
     private func selectedNodeOptions(from env: [String: String]) -> String? {
         let marker = env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         switch marker?.isEmpty == false ? marker : nil {
@@ -143,14 +136,6 @@ extension AgentLaunchEnvironmentPolicy {
             return isRequireOption(token) && index + 1 < tokens.count
                 && isCmuxNodeOptionsRestoreModulePath(tokens[index + 1])
         }
-    }
-
-    private func normalizedValue(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
     }
 
     private func isRequireOption(_ token: String) -> Bool {
