@@ -21,6 +21,14 @@ impl Surface {
         }
     }
 
+    /// Mark a test runtime's process gone, as its reader does at the end.
+    #[cfg(test)]
+    pub(crate) fn mark_dead_for_test(&self) {
+        if let Some(pty) = self.as_pty() {
+            pty.dead.store(true, Ordering::Release);
+        }
+    }
+
     /// Whether [`Self::begin_host_termination`] would signal a terminal host
     /// (`Some`) rather than report a local runtime (`None`). It only reads
     /// the runtime kind; it never waits for the host.
