@@ -5,44 +5,74 @@ public import CmuxNextWakeups
 /// (on battery). The composition root conforms with one-line forwards (`AppServices+EnergyHost.swift`).
 @MainActor
 public protocol EnergyHost: AnyObject {
-    /// The policy changed (any field: saver, reason, suspend, screen sleep, power source).
-    func energyPolicyDidChange(_ policy: EnergyPolicy)
+    /// The saver turned on or off, or its reason changed. Other fields (screen sleep, suspend,
+    /// power source) do not call this, so a screen-sleep edge costs the daemon no round trip.
+    func energySaverDidChange(_ policy: EnergyPolicy)
     /// The Mac moved between battery and adapter power.
     func onBatteryDidChange(_ onBattery: Bool)
 }
 
-/// Tells an ``EnergyHost`` the policy now and after each change; the battery edge only when it moves.
-/// The source's observers run on its writer's thread (the main actor's `EnergyMonitor`), so delivery is
-/// inline; a write from another thread reaches the host on the main queue's next turn, in order.
+/// Tells an ``EnergyHost`` the policy now, then each saver edge and each battery edge.
+///
+/// Any thread may write the source. Each change only asks for a delivery on the main actor, and a
+/// delivery reads the source's value at that moment. So a write from another thread that reaches the
+/// main queue after a later main-thread write delivers nothing stale: the host always ends on the
+/// source's latest value.
 @MainActor
 public final class EnergyHostLink {
-    private weak var host: (any EnergyHost)?
-    private var onBattery: Bool
-    private var observation: EnergyPolicyObservation?
+    private let delivery: Delivery
+    private let observation: EnergyPolicyObservation
 
     /// Starts forwarding `source` to `host` (held weakly) and tells it the current policy at once.
-    public init(source: EnergyPolicySource, host: any EnergyHost) {
-        let policy = source.policy
-        self.host = host
-        onBattery = policy.onBattery
-        host.energyPolicyDidChange(policy)
-        host.onBatteryDidChange(policy.onBattery)
-        observation = source.observe { [weak self] policy in
-            MainDelivery().run { [weak self] in self?.deliver(policy) }
+    ///
+    /// - Parameter schedule: Runs a delivery on the main actor: inline on the main thread, on the main
+    ///   queue's next turn from another thread (``MainDelivery``). Tests pass their own.
+    public init(
+        source: EnergyPolicySource,
+        host: any EnergyHost,
+        schedule: @escaping @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { MainDelivery().run($0) }
+    ) {
+        let delivery = Delivery(source: source, host: host)
+        self.delivery = delivery
+        observation = source.observe { [weak delivery] _ in
+            schedule { [weak delivery] in delivery?.deliverLatest() }
         }
+        delivery.deliverLatest()
+    }
+
+    deinit {
+        observation.cancel()
     }
 
     /// Stops forwarding; later changes reach nobody.
     public func cancel() {
-        observation?.cancel()
-        observation = nil
+        observation.cancel()
+        delivery.isCancelled = true
+    }
+}
+
+@MainActor
+private final class Delivery {
+    let source: EnergyPolicySource
+    weak var host: (any EnergyHost)?
+    var isCancelled = false
+    private var delivered: EnergyPolicy?
+
+    init(source: EnergyPolicySource, host: any EnergyHost) {
+        self.source = source
+        self.host = host
     }
 
-    private func deliver(_ policy: EnergyPolicy) {
-        guard observation != nil, let host else { return }
-        host.energyPolicyDidChange(policy)
-        guard policy.onBattery != onBattery else { return }
-        onBattery = policy.onBattery
-        host.onBatteryDidChange(policy.onBattery)
+    func deliverLatest() {
+        guard !isCancelled, let host else { return }
+        let policy = source.policy
+        let last = delivered
+        delivered = policy  // before the host runs: a write it makes delivers against this value
+        if last == nil || last?.isSaver != policy.isSaver || last?.reason != policy.reason {
+            host.energySaverDidChange(policy)
+        }
+        if last?.onBattery != policy.onBattery {
+            host.onBatteryDidChange(policy.onBattery)
+        }
     }
 }

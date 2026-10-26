@@ -75,6 +75,8 @@ final class AppServices {
     let wakeUps: MainWakeUpQueue
     /// Pushes the policy to the consumers that take a value: the local daemon and KeepAwake (``EnergyHost``).
     private var energyLink: EnergyHostLink?
+    /// KeepAwake's power-source input (``startEnergy(settings:onBattery:)``).
+    var keepAwakeOnBattery: (@MainActor (Bool) -> Void)?
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -130,7 +132,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); energyMonitor.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -440,9 +442,7 @@ final class AppServices {
         self.energy = energy
         energyMonitor = EnergyMonitor(policy: energy)
         wakeUps = MainWakeUpQueue(energy: energy)
-        // Process defaults, read at each schedule (Chrome's MessagePump::OverrideAlignWakeUpsState is process-wide too).
-        DemandTimer.setProcessDefaults(wakeUps: wakeUps, energy: energy)
-        FrameScheduler.setProcessEnergy(energy)
+        mainWork.frames.follow(energy)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -622,8 +622,14 @@ final class AppServices {
             self?.keyRouter.cancelChord()
         }
         cache.webKit.follow(energy)
-        BackdropVideoPlayers.shared.follow(energy)
-        energyMonitor.start()  // real inputs first, so the link's first push carries them
+    }
+    /// Starts Energy Saver's inputs once the settings are followed, so the first policy pushed already
+    /// reflects `energy.saver`. `AppDelegate` calls it at launch; tests never start real power inputs.
+    func startEnergy(settings: SettingsController, onBattery: @escaping @MainActor (Bool) -> Void) {
+        guard energyLink == nil else { return }
+        keepAwakeOnBattery = onBattery
+        energyMonitor.follow(settings)
+        energyMonitor.start()
         energyLink = EnergyHostLink(source: energy, host: self)
     }
     // MARK: Lookup

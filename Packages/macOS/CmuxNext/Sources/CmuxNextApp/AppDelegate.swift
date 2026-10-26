@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store); services.startEnergy(settings: settings, onBattery: { KeepAwakeService.shared.setOnBattery($0) })  // energy after KeepAwake: its battery value wins
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
