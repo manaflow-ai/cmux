@@ -1,0 +1,22 @@
+# The perf corpus's ACP replay agent (p12-perf-process.md 3.8, task 114): a harness profile in the
+# .cmux/harnesses format (schema 1, acpmux config/profiles.rs) that starts corpus/agent_replay.py.
+# It streams a recorded transcript (the prompt `replay <sha256>`) with its recorded timing.
+#
+# Never loaded from here: `agent_replay.py install` fills the quoted @...@ values and writes the
+# profile into the bench's scratch XDG_CONFIG_HOME (<config home>/cmux/harnesses/replay.toml),
+# which only that bench app's acpmux reads (its home under CMUX_NEXT_ACPMUX_ROOT), never the
+# person's harness folder.
+schema = 1
+id = "replay"
+name = "Perf corpus replay"
+protocol = "acp"
+command = "@PYTHON@"
+args = ["-I", "@AGENT_REPLAY@", "serve"]
+
+[env]
+CMUX_PERF_REPLAY_TRANSCRIPTS = "@TRANSCRIPTS@"
+CMUX_PERF_REPLAY_LOG = "@LOG@"
+CMUX_PERF_REPLAY_SPEED = "@SPEED@"
+
+[capabilities]
+resume = false
