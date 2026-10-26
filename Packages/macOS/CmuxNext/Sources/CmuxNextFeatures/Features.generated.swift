@@ -104,6 +104,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.
+    public static let memoryDiscardConversations = Feature(
+        index: 5,
+        name: "memoryDiscardConversations",
+        owner: "PL-memory",
+        description: "A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.
     public static let memoryDiscardInternalPages = Feature(
         index: 6,
@@ -421,6 +438,7 @@ nonisolated extension Feature {
         .frameRateClasses,
         .frozenGrowthDiscard,
         .memoryDiscardAgentPagesOverBudget,
+        .memoryDiscardConversations,
         .memoryDiscardInternalPages,
         .memoryDiscardPageTabs,
         .memoryDiscardParkedIdleTimeout,
@@ -449,6 +467,7 @@ nonisolated extension Feature {
         .frameRateClasses,
         .frozenGrowthDiscard,
         .memoryDiscardAgentPagesOverBudget,
+        .memoryDiscardConversations,
         .memoryDiscardInternalPages,
         .memoryDiscardPageTabs,
         .memoryDiscardParkedIdleTimeout,

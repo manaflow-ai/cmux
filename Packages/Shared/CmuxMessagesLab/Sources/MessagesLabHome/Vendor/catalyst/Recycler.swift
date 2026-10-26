@@ -171,6 +171,20 @@ final class RowRecycler: UIScrollView, TranscriptList {
         return need > batch
     }
 
+    /// cmux: the cells held, shown and pooled (MessagesWindowView.rowCacheCount).
+    var cellCount: Int { visible.count + pool.count }
+
+    /// cmux: every cell goes, shown or pooled, with the bitmaps and hosted rows it holds (a hidden transcript
+    /// released its rows: MessagesWindowView.releaseRows). The next pass makes cells again.
+    func releaseCells() {
+        for c in visible.values { c.prepareForReuse() }
+        for c in Array(visible.values) + pool { c.removeFromSuperview() }
+        visible = [:]
+        index = [:]
+        pool = []
+        dirty = true
+    }
+
     private func take() -> RowCell {
         let c: RowCell
         if let p = pool.popLast() {
