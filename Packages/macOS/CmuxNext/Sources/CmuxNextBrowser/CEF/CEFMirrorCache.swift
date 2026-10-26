@@ -27,22 +27,48 @@ final class CEFMirrorCache {
         self.source = source
     }
 
+    /// Why ``shim(helloNow:)`` could not serve this cache.
+    enum ServeError: Error, CustomStringConvertible {
+        /// Another cache is served and a shim over it is alive: the C exports have one cache.
+        case anotherCacheServed
+        case shim(CEFShimLibrary.LoadError)
+
+        var description: String {
+            switch self {
+            case .anotherCacheServed: "another runtime's mirror cache is served"
+            case .shim(let error): "shim: \(error)"
+            }
+        }
+    }
+
     /// A shim whose mirror exports read this cache (``CEFMirrorExports``) and whose other exports
     /// are `source`'s. The fork's capabilities are read now, as the remote shim takes them from the
-    /// host's hello (`attach`); the counts wait for their events (no browser exists before
-    /// `CefInitialize`, and the fork's window list is not asked before it).
-    func shim() throws(CEFShimLibrary.LoadError) -> CEFShimLibrary {
-        apply(CEFMirrorField.allCases.filter(\.isCapability).map { refreshed(CEFMirrorKey($0)) })
+    /// host's hello (`attach`). With `helloNow` (Chromium is up already) the counts are too; without
+    /// it they wait for CONTEXT_INITIALIZED's batch, as no browser or window list exists before
+    /// `CefInitialize`.
+    func shim(helloNow: Bool) throws(ServeError) -> CEFShimLibrary {
+        if let served = CEFMirrorExports.served, served !== self { throw .anotherCacheServed }
+        let overriding: CEFShimLibrary
+        do throws(CEFShimLibrary.LoadError) {
+            // The shim holds this cache: `served` stays it while any copy of the shim is alive.
+            overriding = try source.overriding { [self] name in
+                withExtendedLifetime(self) { CEFMirrorExports.function(named: name) }
+            }
+        } catch {
+            throw .shim(error)
+        }
+        let hello = CEFMirrorField.allCases.filter { helloNow ? $0.isHostWide : $0.isCapability }
+        apply(hello.map { refreshed(CEFMirrorKey($0)) })
         CEFMirrorExports.served = self
-        return try source.overriding(CEFMirrorExports.function(named:))
+        return overriding
     }
 
     /// The values `event` refreshes, read from `source` now: the host pushes them before the event,
-    /// in the same batch.
+    /// in the same batch. Each key is scoped as its export reads it (``CEFMirrorField/keyID(browser:window:)``).
     func updates(for event: CEFShimEvent) -> [Update] {
         guard let hit = event.mirrorTrigger else { return [] }
         return CEFMirrorField.refreshed(by: hit.trigger).map { field in
-            refreshed(CEFMirrorKey(field, id: field == .popupWindowBounds ? hit.window : hit.browser,
+            refreshed(CEFMirrorKey(field, id: field.keyID(browser: hit.browser, window: hit.window),
                                    iconPixels: field == .extActions ? CEFExtensionAction.iconPixels : 0))
         }
     }
@@ -63,7 +89,7 @@ final class CEFMirrorCache {
     }
 
     /// `cmux_shim_free`: a copy ``handOutString(_:)`` made is freed here; any other string is the
-    /// source shim's.
+    /// source shim's (the one served cache's shim made it, so it came from this `source`).
     func free(_ pointer: UnsafeMutablePointer<CChar>) {
         if handedOut.remove(UInt(bitPattern: pointer)) != nil {
             Darwin.free(pointer)

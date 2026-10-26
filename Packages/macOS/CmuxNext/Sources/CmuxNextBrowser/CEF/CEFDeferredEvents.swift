@@ -13,17 +13,25 @@ import os
 final class CEFDeferredEvents {
     nonisolated static let environmentKey = "CMUX_CEF_DEFER_EVENTS"
 
-    /// The mode when `environment` asks for it, else nil.
-    static func requested(by environment: [String: String]) -> CEFDeferredEvents? {
-        environment[environmentKey] == "1" ? CEFDeferredEvents() : nil
+    /// The mode when `environment` asks for it and Chromium runs in this process, else nil: in host
+    /// mode the events and the mirror reads already come from the host's wire.
+    static func requested(by environment: [String: String], inHostMode: Bool = false) -> CEFDeferredEvents? {
+        !inHostMode && environment[environmentKey] == "1" ? CEFDeferredEvents() : nil
     }
 
-    /// The mirror reads, once the runtime's shim reads them (``serveMirror(from:)``).
+    /// The mirror reads, once the runtime's shim reads them (``serveMirror(from:helloNow:)``).
     private(set) var mirror: CEFMirrorCache?
-    private var pending: [(event: CEFShimEvent, updates: [CEFMirrorCache.Update])] = []
+    private var pending: [Pending] = []
     private var drainScheduled = false
     private let nextTurn: CEFLayerHosting.Scheduler
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+
+    /// A received event, the mirror values its batch pushes, and where it goes.
+    private struct Pending {
+        let event: CEFShimEvent
+        let updates: [CEFMirrorCache.Update]
+        let deliver: (CEFShimEvent) -> Void
+    }
 
     /// - Parameter nextTurn: runs a block on a later main turn; tests run it when they choose.
     init(nextTurn: @escaping CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) }) {
@@ -33,12 +41,13 @@ final class CEFDeferredEvents {
     /// Events received and not delivered yet.
     var queued: Int { pending.count }
 
-    /// `shim` with its mirror exports served from a cache over it. `shim` itself, with a fault, when
-    /// the overriding shim cannot be made (only a resolver that lost an export it gave before).
-    func serveMirror(from shim: CEFShimLibrary) -> CEFShimLibrary {
+    /// `shim` with its mirror exports served from a cache over it (``CEFMirrorCache/shim(helloNow:)``).
+    /// `shim` itself, with a fault, when the cache cannot be served: another runtime's is, or a
+    /// resolver lost an export it gave before. Its events are still deferred.
+    func serveMirror(from shim: CEFShimLibrary, helloNow: Bool) -> CEFShimLibrary {
         let mirror = CEFMirrorCache(source: shim)
         do {
-            let served = try mirror.shim()
+            let served = try mirror.shim(helloNow: helloNow)
             self.mirror = mirror
             return served
         } catch {
@@ -48,33 +57,24 @@ final class CEFDeferredEvents {
     }
 
     /// The shim's `event_fn`: the event's mirror values are read now, while Chromium's state is the
-    /// event's, and both wait for a later turn, where `runtime` dispatches them in order.
-    func receive(_ event: CEFShimEvent, in runtime: CEFRuntime) {
-        pending.append((event, mirror?.updates(for: event) ?? []))
+    /// event's, and both wait for a later turn, where `deliver` runs the event after every event
+    /// received before it.
+    func receive(_ event: CEFShimEvent, deliver: @escaping (CEFShimEvent) -> Void) {
+        pending.append(Pending(event: event, updates: mirror?.updates(for: event) ?? [], deliver: deliver))
         guard !drainScheduled else { return }
         drainScheduled = true
-        nextTurn { [weak self, weak runtime] in
-            guard let runtime else { return }
-            self?.drain(into: runtime)
-        }
+        nextTurn { [weak self] in self?.drain() }
     }
 
-    /// An event `runtime` dispatches now, from outside the shim (a test standing in for the host's
-    /// batch): its mirror values are pushed first, as the host pushes them before the event.
-    func deliverNow(_ event: CEFShimEvent, in runtime: CEFRuntime) {
-        if let mirror { mirror.apply(mirror.updates(for: event)) }
-        runtime.dispatch(event)
-    }
-
-    /// Dispatches what was queued before this turn, in order. Events that one's handling causes wait
+    /// Delivers what was queued before this turn, in order. Events that one's handling causes wait
     /// for the next turn, as a host batch never holds the answers to its own handling.
-    private func drain(into runtime: CEFRuntime) {
+    private func drain() {
         drainScheduled = false
         let batch = pending
         pending = []
-        for (event, updates) in batch {
-            mirror?.apply(updates)
-            runtime.dispatch(event)
+        for item in batch {
+            mirror?.apply(item.updates)
+            item.deliver(item.event)
         }
     }
 }
@@ -82,11 +82,13 @@ final class CEFDeferredEvents {
 extension CEFRuntime {
     /// The shim's `event_fn`: runs the event now, or on a later turn in deferred mode.
     func receive(_ event: CEFShimEvent) {
-        if let deferredEvents { deferredEvents.receive(event, in: self) } else { dispatch(event) }
+        guard let deferredEvents else { return dispatch(event) }
+        deferredEvents.receive(event) { [weak self] in self?.dispatch($0) }
     }
 
-    /// Runs an event now (tests standing in for the shim); in deferred mode its mirror values first.
+    /// Tests standing in for the shim take the shim's path: in deferred mode the event waits for a
+    /// later turn like every other.
     func handle(_ event: CEFShimEvent) {
-        if let deferredEvents { deferredEvents.deliverNow(event, in: self) } else { dispatch(event) }
+        receive(event)
     }
 }

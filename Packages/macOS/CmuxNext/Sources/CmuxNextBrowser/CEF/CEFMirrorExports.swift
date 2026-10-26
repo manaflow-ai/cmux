@@ -15,7 +15,9 @@ nonisolated enum CEFMirrorExports {
     typealias Free = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
 
     /// The cache the functions read. A C function of the shim's ABI carries no context, so the
-    /// process has one, as the remote shim's cache is its dylib's (the last `CEFMirrorCache.shim()`).
+    /// process has one, as the remote shim's cache is its dylib's. Every shim over it holds it, and
+    /// `CEFMirrorCache.shim(helloNow:)` refuses another while it lives, so each served shim's reads
+    /// and frees reach its own cache and source.
     @MainActor static weak var served: CEFMirrorCache?
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")

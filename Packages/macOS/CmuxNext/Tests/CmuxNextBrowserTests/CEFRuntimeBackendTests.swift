@@ -188,7 +188,7 @@ import Testing
 
     /// Chromium starts once per process: a runtime that already started keeps its backend.
     @Test func aStartedRuntimeIgnoresALaterSupervisor() throws {
-        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
+        let runtime = CEFRuntime.spy(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
         runtime.adopt(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), hostSupervisor: FakeSupervisor(controlFD: -1))
         #expect(runtime.hostStart == nil)
     }

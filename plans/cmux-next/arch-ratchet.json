@@ -614,7 +614,7 @@
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); the runtime owns the cache through its CEFDeferredEvents, the static holds it weakly, and it is main-thread only (an off-main read gets the C zero value and a fault)."
+      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault)."
     }
   ],
   "observer_wrappers": [

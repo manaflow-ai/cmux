@@ -80,9 +80,16 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
         }
     }
 
-    /// The keys a batch with `trigger` refreshes.
+    /// The keys a batch with `trigger` refreshes: the hello carries every host-wide key.
     static func refreshed(by trigger: CEFMirrorTrigger) -> [CEFMirrorField] {
-        allCases.filter { $0.refreshEvents.contains(trigger) }
+        allCases.filter { trigger == .hello ? $0.isHostWide : $0.refreshEvents.contains(trigger) }
+    }
+
+    /// The key's id in a batch about `browser` in `window`: 0 for a host-wide key, the window for
+    /// `popup_window.bounds`, the browser for every other key.
+    func keyID(browser: Int32, window: Int32) -> Int32 {
+        if isHostWide { return 0 }
+        return self == .popupWindowBounds ? window : browser
     }
 }
 
@@ -96,6 +103,9 @@ nonisolated struct CEFMirrorTrigger: Hashable, Sendable {
         self.tabEvent = tabEvent
     }
 
+    /// CONTEXT_INITIALIZED: in process, the stand-in for the host's hello (`attach`), the first
+    /// point where Chromium can answer the counts.
+    static let hello = CEFMirrorTrigger(kind: 1)
     static let afterCreated = CEFMirrorTrigger(kind: 2)
     static let beforeClose = CEFMirrorTrigger(kind: 3)
     static let address = CEFMirrorTrigger(kind: 4)
@@ -112,6 +122,7 @@ extension CEFShimEvent {
     /// The trigger of an event that refreshes mirror keys, with its browser and window ids.
     nonisolated var mirrorTrigger: (trigger: CEFMirrorTrigger, browser: Int32, window: Int32)? {
         switch self {
+        case .contextInitialized: (CEFMirrorTrigger.hello, 0, 0)
         case .afterCreated(let browser, _, let window, _): (CEFMirrorTrigger.afterCreated, browser, window)
         case .beforeClose(let browser): (CEFMirrorTrigger.beforeClose, browser, 0)
         case .address(let browser, _): (CEFMirrorTrigger.address, browser, 0)
