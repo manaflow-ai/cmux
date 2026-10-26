@@ -88,8 +88,14 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
 
 }  // namespace
 
-HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve)
-    : send_(std::move(send)), delegate_(delegate), views_(views) {
+HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve,
+                         TextInputPushes::Schedule schedule)
+    : send_(std::move(send)),
+      delegate_(delegate),
+      views_(views),
+      text_input_(std::move(schedule), [this](int browser, const TextInputState& state) {
+        Post(MessageOf(kOpTextInputState, false, 0, EncodeTextInputState(ClientOf(browser), state)));
+      }) {
   for (const auto& entry : kOptionalExports) {
     if (void* fn = resolve ? resolve(entry.name) : nullptr) optional_exports_.emplace_back(entry.op, fn);
   }
@@ -167,6 +173,10 @@ void HostContext::Handle(control::Message& message) {
       return;
     case State::kRunning:
       if (message.op == kOpInitialize) return Bad("a second initialize");
+      if (message.op == kOpTextInputWatch) {
+        if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       Dispatch(message);
       return;
@@ -203,6 +213,39 @@ bool HostContext::HandleInitialize(const control::Message& message) {
   state_ = State::kInitializing;
   delegate_.Initialize(std::move(request));
   return true;
+}
+
+bool HostContext::HandleTextInputWatch(const control::Message& message) {
+  TlvReader r(message.fields);
+  const int32_t client = r.I32();
+  const int32_t watch = r.I32();
+  if (!r.ok() || !r.AtEnd() || (watch != 0 && watch != 1)) return false;
+  const int browser = Browser(client);
+  if (watch) {
+    // The fork calls OnTextInput at once with the current state: watch first.
+    if (!text_input_.Watch(browser)) {
+      Bad("too many text input watches");
+      return true;
+    }
+    if (!cmux_shim_browser_text_input_watch(browser, &HostContext::OnTextInput, this)) {
+      text_input_.Forget(browser);  // an unknown browser, or a fork without the watch
+    }
+  } else {
+    text_input_.Forget(browser);
+    cmux_shim_browser_text_input_watch(browser, nullptr, nullptr);
+  }
+  Ack(message.token);
+  return true;
+}
+
+void HostContext::OnTextInput(void* ctx, int browser_id, const void* state) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  TextInputState read;
+  // A state the host cannot read is no editable focus: cmux's client then has no marked text.
+  if (!ReadForkTextInputState(state, &read)) read = TextInputState{};
+  TrimToSelectionContext(&read);
+  host->text_input_.Changed(browser_id, std::move(read));
 }
 
 void HostContext::Dispatch(const control::Message& message) {
@@ -362,6 +405,7 @@ void HostContext::Bind(int32_t client_id, int chromium_id) {
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   client_of_.erase(chromium_id);
+  text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();
     std::erase_if(keys, [&](const std::vector<control::Field>& key) { return HostMirrors::NamesTab(op, key, client_id); });

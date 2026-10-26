@@ -40,6 +40,7 @@
 
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
+#include "include/cef_task.h"
 
 #include "chromium_host_control.h"
 #include "chromium_host_wire.h"
@@ -136,6 +137,23 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
     if (arg.rfind(prefix, 0) == 0) return arg.substr(prefix.size());
   }
   return std::string();
+}
+
+// Runs a task on Chromium's UI thread after the tasks already queued there
+// (TextInputPushes::Schedule): the renderer's messages for one keystroke are
+// queued before the flush, so they go out as one push.
+class UITask : public CefTask {
+ public:
+  explicit UITask(std::function<void()> task) : task_(std::move(task)) {}
+  void Execute() override { task_(); }
+
+ private:
+  std::function<void()> task_;
+  IMPLEMENT_REFCOUNTING(UITask);
+};
+
+void PostToUIThread(std::function<void()> task) {
+  CefPostTask(TID_UI, new UITask(std::move(task)));
 }
 
 // A symbol of the shim linked into this executable (an optional export), or nullptr.
@@ -256,7 +274,7 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<cmux_host::control::Channel> channel;
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
-      host_main, page_views, &ResolveShimSymbol);
+      host_main, page_views, &ResolveShimSymbol, &PostToUIThread);
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
