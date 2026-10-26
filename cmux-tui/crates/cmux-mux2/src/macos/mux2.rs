@@ -255,8 +255,8 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     send(&writer, proto::ATTACH, &idp(t));
     let raw = RawMode::enter();
     let winch_writer = writer.clone();
-    // Resize and output are the person's terminal: the key echo path.
-    cmux_threads::spawn("mux2-winch", cmux_threads::ThreadQos::UserInteractive, move || {
+    // A resize is a person's action but not the echo path.
+    cmux_threads::spawn("mux2-winch", cmux_threads::ThreadQos::UserInitiated, move || {
         loop {
             let mut sig = 0;
             // SAFETY: waiting on the blocked SIGWINCH set.
@@ -276,10 +276,10 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     })
     .unwrap_or_else(|e| die(e));
     let mut reader = s;
-    let out = cmux_threads::spawn(
-        "mux2-out",
-        cmux_threads::ThreadQos::UserInteractive,
-        move || -> i32 {
+    // Output the person waits for: UserInitiated (only ECHO_PATH_QOS
+    // threads are user-interactive, threading-model.md).
+    let out =
+        cmux_threads::spawn("mux2-out", cmux_threads::ThreadQos::UserInitiated, move || -> i32 {
             let mut stdout = io::stdout().lock();
             let mut strip = proto::QueryStripper::default();
             let mut clean = Vec::new();
@@ -309,9 +309,8 @@ fn attach(s: UnixStream, t: u32) -> i32 {
                 let _ = stdout.write_all(&clean);
                 let _ = stdout.flush();
             }
-        },
-    )
-    .unwrap_or_else(|e| die(e));
+        })
+        .unwrap_or_else(|e| die(e));
     let mut buf = [0u8; 4096];
     let mut stdin = io::stdin().lock();
     loop {

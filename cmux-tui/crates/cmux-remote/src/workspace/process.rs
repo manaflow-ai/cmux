@@ -1479,10 +1479,11 @@ impl ProcessManager {
         #[cfg(not(unix))]
         {
             let reader_events = events.clone();
-            // The terminal's output: the key echo path.
+            // Terminal output the person waits for: UserInitiated, not the
+            // closed user-interactive list (threading-model.md).
             let reader_thread = cmux_threads::spawn(
                 format!("cmux-remote-pty-{id}"),
-                cmux_threads::ThreadQos::UserInteractive,
+                cmux_threads::ThreadQos::UserInitiated,
                 move || {
                     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
                     loop {

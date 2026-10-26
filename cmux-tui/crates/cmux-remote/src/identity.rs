@@ -547,6 +547,9 @@ struct PersistenceCoordinatorState {
     closing: bool,
 }
 
+const PERSISTENCE_THREAD_NAME: &str = "cmux-auth-persistence";
+const PERSISTENCE_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
 impl PersistenceCoordinator {
     fn new(
         path: PathBuf,
@@ -568,11 +571,10 @@ impl PersistenceCoordinator {
             changed: Condvar::new(),
         });
         let worker_shared = Arc::clone(&shared);
-        // Remote enrollment state on disk: remote daemon work, Utility.
-        let worker = cmux_threads::spawn(
-            "cmux-auth-persistence",
-            cmux_threads::ThreadQos::Utility,
-            move || {
+        // The durable writer that device connect, approve and revoke await:
+        // the table's journal-writer-a-request-waits-on row, UserInitiated.
+        let worker =
+            cmux_threads::spawn(PERSISTENCE_THREAD_NAME, PERSISTENCE_THREAD_QOS, move || {
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     worker_shared.drain();
                 }))
@@ -583,9 +585,8 @@ impl PersistenceCoordinator {
                     ));
                 }
                 state_lease
-            },
-        )
-        .map_err(IdentityError::Io)?;
+            })
+            .map_err(IdentityError::Io)?;
         Ok(Self { shared, worker: StdMutex::new(Some(worker)) })
     }
 
@@ -2247,5 +2248,31 @@ mod tests {
         assert_eq!(routing["direct"], "127.0.0.1:7777");
         assert_eq!(routing["relay"], "https://relay.test/");
         assert!(!routing.contains_key("ticket"));
+    }
+
+    #[test]
+    fn persistence_worker_runs_at_user_initiated_because_requests_await_it() {
+        let state_dir = tempfile::tempdir().unwrap();
+        let database =
+            AuthDatabase::load_or_create(state_dir.path().join("auth"), "daemon:test", false)
+                .unwrap();
+        // Test harness wait for the worker's own registration.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == PERSISTENCE_THREAD_NAME)
+                .collect();
+            if !rows.is_empty() || std::time::Instant::now() > deadline {
+                break rows;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        assert!(!rows.is_empty(), "the persistence worker has a server.threads row");
+        assert!(
+            rows.iter().all(|row| row.declared == cmux_threads::ThreadQos::UserInitiated),
+            "device connect, approve and revoke await this writer: {rows:?}"
+        );
+        drop(database);
     }
 }

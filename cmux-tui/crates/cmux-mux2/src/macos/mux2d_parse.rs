@@ -58,10 +58,11 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
     (0..n)
         .map(|i| {
             let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
-            // Terminal output parsing: the key echo path.
+            // Output parsing the person waits for: UserInitiated, not the
+            // closed user-interactive list (threading-model.md).
             cmux_threads::spawn(
                 format!("mux2-parse-{i}"),
-                cmux_threads::ThreadQos::UserInteractive,
+                cmux_threads::ThreadQos::UserInitiated,
                 move || {
                     for job in rx {
                         // A parse that panics must not leave the loop
