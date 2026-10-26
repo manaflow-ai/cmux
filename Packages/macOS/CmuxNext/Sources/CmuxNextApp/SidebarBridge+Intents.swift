@@ -189,8 +189,10 @@ extension SidebarBridge {
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
                          _ body: @escaping DaemonCommandBody) {
+        // The intent goes in the store in this turn, with the row's own update, so no recompute between shows the old value.
+        let send = intent.map { daemon.intendNow(label, $0, transaction: .generate(), body) }
         Task { [weak self, services] in
-            let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
+            let ok = if let send { await send() != nil } else { await daemon.request(label, body) != nil }
             if !ok { withExtendedLifetime(services) { self?.resync() } }
         }
     }
