@@ -8,6 +8,7 @@
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -56,9 +57,17 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerBrowserCaches()  // CmuxNextBrowser
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryBrowserCaches` (default off): the favicon loader's per-profile caches are one lossless
+    /// consumer whose limit scales how many icons each profile keeps (p07-memory-055).
+    private func registerBrowserCaches() {
+        guard services.features.isEnabled(.memoryBrowserCaches) else { return }
+        BrowserFaviconLoader.shared.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
