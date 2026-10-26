@@ -30,6 +30,7 @@ struct SignpostTraceCatalogTests {
             (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72), (.stallMainTurn, 73),
             (.stallRenderStarved, 74), (.launchStartupTask, 75), (.launchStartupComplete, 76), (.daemonStep, 77),
             (.webuiAgentPaneStep, 78), (.stallGhosttyRuntimePhase, 79), (.launchReadDone, 80), (.burstEvent, 81),
+            (.inputLatency, 82),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)
@@ -61,7 +62,7 @@ struct SignpostTraceCatalogTests {
                          "launch.process_to_main", "launch.first_window", "launch.first_frame", "launch.daemon_ready",
                          "launch.first_terminal_output", "stall.create_surface", "stall.palette_open",
                          "stall.icon_picker_open", "cef.geometry", "cef.host_input", "motion.drag_frame",
-                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame",
+                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame", "input.latency",
                          "resize.frame", "remote.input", "remote.frame_decoded", "remote.present", "webview.inp",
                          "webview.loaf", "webui.lifecycle", "webui.open", "webui.preload", "webui.scheme"] {
             #expect(names.contains(required), "\(required)")

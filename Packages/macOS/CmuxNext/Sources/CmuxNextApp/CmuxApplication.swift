@@ -53,6 +53,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// before AppKit dispatches the event, and its after-dispatch observers see a click once focus
     /// has moved to the clicked pane.
     var inputTap: InputEventTap?
+    /// Set once by `AppServices`: opens an input latency slot for each tracked event and finishes it after its
+    /// dispatch (`InputLatencyDispatch`, Chrome's EventLatency).
+    var inputLatency: InputLatencyDispatch?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
     /// another, the key window (`CrossWindowInputGuard`): the key is dropped.
     var crossWindowKeyGuard: ((NSEvent, NSWindow?) -> Bool)?
@@ -84,10 +87,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
     /// flushes it before every discrete event; owners that post get it by injection.
     private(set) lazy var frameInput = FrameInputCoalescers()
-
-    /// The `key.frame` signposts of every key-down, ended by one main run-loop observer it installs once
-    /// (made at the first key-down).
-    private lazy var keyFrames = KeyFrameSignpost()
 
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
@@ -129,10 +128,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
-        if event.type == .keyDown {
-            let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
-        }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -148,6 +143,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
+        // key.frame or key.scroll_frame interval (InputLatencyDispatch).
+        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
+        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
         guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
         dispatchScope(event) { dispatch(event) }
     }

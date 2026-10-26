@@ -68,8 +68,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: key (PL-typing)
 
-    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
-    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (begun with the
+    /// key's input latency slot in `CmuxApplication.sendEvent`, CmuxNextInput's `InputFrameSignposts`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
@@ -81,10 +81,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
     case keyFlow = 7
-    /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
-    /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
-    /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
-    /// ended|momentum|wheel> age_ms=<age>`, the event's wait in the queue. End message: `target=<layout|content>`,
+    /// A scroll event that opens an input latency slot (a trackpad gesture's began or change, its moving momentum,
+    /// or a mouse-wheel notch) from its dispatch to the end of the Core Animation commit that ends that turn (begun
+    /// with the slot, as ``keyToFrame``; ``ScrollFrameSignpost`` writes the same messages). Begin message:
+    /// `phase=<began|changed|momentum|wheel> age_ms=<age>` (older builds also wrote `touch` and `ended`), the
+    /// event's wait in the queue. End message: `target=<layout|content>`,
     /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
@@ -291,6 +292,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
     /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
     case inputFrame = 55
+    /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
+    /// into the app's input dispatch by p04-input-005): a point event when its slot closes at the presented frame,
+    /// so it never runs as an interval across turns. Message (``InputLatencySignpostMessage``, numbers only):
+    /// `kind target entry source coalesced frame gen_ns`, then each stage in microseconds after `gen_ns`, -1 when
+    /// skipped: `last_gen_us arrived_us dispatch_start_us ti_start_us ti_end_us dispatch_end_us commit_us
+    /// content_us daemon_us pty_us echo_read_us echo_sent_us presented_us`. Ring: instant, "estimated" when the
+    /// presented time is a vsync estimate; arg0 packs kind | target << 8 | entrypoint << 16 | source << 24 |
+    /// caused frame update << 32, arg1 the generated-to-presented time in us (0 when the commit was missed).
+    case inputLatency = 82
 
     // MARK: webview (reserved: task 114, PL-telemetry)
     /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
@@ -479,6 +489,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .hangInProgress: "hang.in_progress"
         case .hangInvalidated: "hang.invalidated"
         case .inputFrame: "input.frame"
+        case .inputLatency: "input.latency"
         case .webviewINP: "webview.inp"
         case .webviewLoAF: "webview.loaf"
         case .remoteInput: "remote.input"
