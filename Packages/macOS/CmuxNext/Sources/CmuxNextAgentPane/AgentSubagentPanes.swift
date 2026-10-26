@@ -179,13 +179,21 @@ public final class AgentSubagentPanes {
     /// or when another window takes the keyboard or the app resigns active, and returns what stops
     /// watching. It holds one press subscription on the app's input tap only while a focus is owed.
     ///
+    /// The subscription is an intercept at ``InputEventTap/InterceptOrder/standard`` that always
+    /// passes, where the AppKit local monitor it replaces ran: a press the key router (an app
+    /// shortcut) or an earlier intercept (a modal, a popup) consumed is not the person's next action
+    /// and leaves the focus owed, as before.
+    ///
     /// - Parameters:
     ///   - input: The app's input tap (`AppServices.inputTap`).
     ///   - center: Where window and app activation are announced (tests post their own).
     public static func watchUser(on input: InputEventTap, center: NotificationCenter = .default)
         -> (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
         { acted in
-            let presses = input.subscribePresses([.keyDown, .mouseDown]) { _ in acted() }
+            let presses = input.subscribe(class: [.key, .button], phase: .intercept(order: .standard)) { event in
+                if Self.presses.matches(event.type) { acted() }
+                return .pass
+            }
             let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
                 MainActorObservation(name, center: center) {
                     acted()
@@ -197,6 +205,8 @@ public final class AgentSubagentPanes {
             }
         }
     }
+
+    private static let presses: InputEventTap.Presses = [.keyDown, .mouseDown]
 
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
     /// `SUBAGENT_REVEAL`).

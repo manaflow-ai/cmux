@@ -43,8 +43,9 @@ struct AgentSubagentPanesTests {
         let tap = InputEventTap()
         let counter = Counter()
         let stop = AgentSubagentPanes.watchUser(on: tap, center: NotificationCenter())({ counter.acted += 1 })
-        #expect(tap.subscriberCount(.key, stage: .observe) == 1)
-        #expect(tap.subscriberCount(.button, stage: .observe) == 1)
+        #expect(tap.subscriberCount(.key, stage: .intercept) == 1)
+        #expect(tap.subscriberCount(.button, stage: .intercept) == 1)
+        #expect(tap.subscriberCount(.key, stage: .observe) == 0, "the watch hears presses after the key router, not before it")
 
         Self.dispatch(try Self.key(.keyUp), through: tap)
         Self.dispatch(try Self.mouse(.leftMouseUp), through: tap)
@@ -57,6 +58,24 @@ struct AgentSubagentPanesTests {
         #expect(Self.liveSubscriptions(tap) == 0, "a stopped watch left a subscription on the tap")
         Self.dispatch(try Self.key(.keyDown), through: tap)
         #expect(counter.acted == 2, "a stopped watch still heard a key")
+    }
+
+    /// The watch runs where the AppKit local monitor it replaced ran, after the key router: a press
+    /// that an app shortcut or an earlier intercept (a modal, a popup) consumed is not the person's
+    /// next action, so the focus stays owed; a press that reaches the watch is.
+    @Test func aPressAnEarlierInterceptConsumedLeavesTheFocusOwed() throws {
+        let tap = InputEventTap()
+        let counter = Counter()
+        let stop = AgentSubagentPanes.watchUser(on: tap, center: NotificationCenter())({ counter.acted += 1 })
+        defer { stop() }
+        let modal = tap.subscribe(class: [.key, .button], phase: .intercept(order: .modal)) { _ in .consume }
+        Self.dispatch(try Self.key(.keyDown), through: tap)
+        Self.dispatch(try Self.mouse(.leftMouseDown), through: tap)
+        #expect(counter.acted == 0, "a press a modal consumed counted as the person's next action")
+
+        modal.cancel()
+        Self.dispatch(try Self.key(.keyDown), through: tap)
+        #expect(counter.acted == 1, "a press that reached the watch did not count")
     }
 
     @Test func aWindowTakingTheKeyboardIsAnActionToo() {
@@ -93,7 +112,7 @@ struct AgentSubagentPanesTests {
         #expect(panes.open("explore", focus: false, chat: "chat", hooks: hooks))
         #expect(Self.liveSubscriptions(tap) == 0, "nothing is owed yet, so nothing watches")
         #expect(panes.open("explore", focus: true, chat: "chat", hooks: hooks))
-        #expect(tap.subscriberCount(.button, stage: .observe) == 1, "an owed focus watches for the person's next press")
+        #expect(tap.subscriberCount(.button, stage: .intercept) == 1, "an owed focus watches for the person's next press")
 
         Self.dispatch(try Self.mouse(.leftMouseDown), through: tap)
         #expect(Self.liveSubscriptions(tap) == 0, "the person acted: the watch left the tap")

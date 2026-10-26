@@ -7,9 +7,10 @@ import CmuxNextPages
 @MainActor protocol AgentPaneGestureTarget: NSView {
     /// Judges `event` as this pane's gesture; the pane checks again that it is the person's and its own.
     func judge(_ event: NSEvent, eventWindow: NSWindow?)
-    /// Whether `point` (screen coordinates) in `eventWindow`, a child window of the pane's window,
-    /// is on this pane's page (a Chromium page draws in such a window, over its pane).
-    func ownsChildWindowPoint(_ point: CGPoint, eventWindow: NSWindow) -> Bool
+    /// Whether `eventWindow`, a child window of the pane's window, is the window this pane's page
+    /// draws in now (a Chromium page draws in such a window, over its pane). A hidden pane owns none:
+    /// tabs of one pane keep their pages in the window, hidden, at the same frame.
+    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool
 }
 
 /// Hands the person's key-downs and mouse-downs to the one agent pane they go to, for its gesture
@@ -18,8 +19,8 @@ import CmuxNextPages
 ///
 /// The pane is the one the event goes to: for a key, the pane holding the window's first responder;
 /// for a click, the pane under the pointer (the window's hit test, so a hidden pane or a view over the
-/// page takes nothing); for an event in a child window (a Chromium page's), the pane whose page is
-/// there. Chrome grants user activation the same way, to the frame the event is routed to and to no
+/// page takes nothing); for an event in a child window (a Chromium page's), the shown pane whose page
+/// window it is, by identity, not by position. Chrome grants user activation the same way, to the frame the event is routed to and to no
 /// other (`content/browser/renderer_host/render_widget_host_input_event_router.cc` picks the target
 /// widget; `third_party/blink/renderer/core/frame/web_frame_widget_impl.cc` notifies activation for
 /// that frame's input only).
@@ -99,10 +100,8 @@ import CmuxNextPages
     private func target(of event: NSEvent, eventWindow: NSWindow, in entry: WindowEntry,
                         window: NSWindow) -> (any AgentPaneGestureTarget)? {
         guard eventWindow === window else {
-            let point = event.type == .keyDown ? CGPoint(x: eventWindow.frame.midX, y: eventWindow.frame.midY)
-                : eventWindow.convertPoint(toScreen: event.locationInWindow)
             for slot in entry.targets {
-                if let target = slot.target, target.ownsChildWindowPoint(point, eventWindow: eventWindow) { return target }
+                if let target = slot.target, target.ownsChildWindow(eventWindow) { return target }
             }
             return nil
         }
@@ -123,7 +122,7 @@ import CmuxNextPages
 }
 
 extension AgentPaneView: AgentPaneGestureTarget {
-    func ownsChildWindowPoint(_ point: CGPoint, eventWindow: NSWindow) -> Bool {
-        page?.showsChromium == true && chromiumPageContains(point, eventWindow: eventWindow)
+    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one press's hit test; hitTest skips a hidden view too
+        page?.showsChromium == true && !isHiddenOrHasHiddenAncestor && chromiumPage?.isPageWindow(eventWindow) == true
     }
 }

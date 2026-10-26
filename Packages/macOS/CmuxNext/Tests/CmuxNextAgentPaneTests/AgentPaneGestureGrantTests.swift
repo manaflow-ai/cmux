@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -7,12 +8,13 @@ import Testing
 /// The agent panes' gesture grant through the app's one input tap (p04-input-017): one subscription
 /// per window that holds a pane, not one app-wide monitor per pane. A key-down goes to the pane that
 /// holds the first responder, a click to the pane under the pointer, an event in a Chromium page's
-/// child window to the pane whose page is there, and to no other pane: with 50 panes in a window a
-/// press costs one pane's check.
+/// child window to the shown pane whose page window it is, and to no other pane: with 50 panes in a
+/// window a press costs one pane's check.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneGestureGrantTests {
-    /// A pane that counts the presses routed to it. `field` takes the keyboard.
+    /// A pane that counts the presses routed to it. `field` takes the keyboard; `pageWindow` is the
+    /// child window its page draws in, if any.
     final class Pane: NSView, AgentPaneGestureTarget {
         final class Field: NSView {
             override var acceptsFirstResponder: Bool { true }
@@ -20,6 +22,7 @@ struct AgentPaneGestureGrantTests {
 
         let field = Field()
         var judged: [NSEvent.EventType] = []
+        var pageWindow: NSWindow?
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -32,9 +35,8 @@ struct AgentPaneGestureGrantTests {
 
         func judge(_ event: NSEvent, eventWindow: NSWindow?) { judged.append(event.type) }
 
-        func ownsChildWindowPoint(_ point: CGPoint, eventWindow: NSWindow) -> Bool {
-            guard let window, eventWindow.parent === window else { return false }
-            return window.convertToScreen(convert(bounds, to: nil)).contains(point)
+        func ownsChildWindow(_ eventWindow: NSWindow) -> Bool {
+            !isHiddenOrHasHiddenAncestor && eventWindow === pageWindow
         }
     }
 
@@ -47,6 +49,9 @@ struct AgentPaneGestureGrantTests {
         var panes: [Pane] = []
 
         init(count: Int = 50) {
+            // A synthesized event finds its window (`NSEvent.window`, which the tap's window scope
+            // reads for a child window) through NSApp.
+            _ = NSApplication.shared
             router = AgentPaneGestureRouter(input: tap)
             window.isReleasedWhenClosed = false
             let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 500))
@@ -58,6 +63,15 @@ struct AgentPaneGestureGrantTests {
                 panes.append(pane)
             }
             window.orderFrontRegardless()
+        }
+
+        /// A borderless child window over `frame` (window coordinates), as a Chromium page's.
+        func childWindow(over frame: NSRect) -> NSWindow {
+            let child = NSWindow(contentRect: window.convertToScreen(frame), styleMask: [.borderless], backing: .buffered, defer: false)
+            child.isReleasedWhenClosed = false
+            window.addChildWindow(child, ordered: .above)
+            child.orderFrontRegardless()
+            return child
         }
 
         func close() {
@@ -137,15 +151,39 @@ struct AgentPaneGestureGrantTests {
     @Test func aPressInAChildWindowGoesToThePaneWhosePageIsThere() throws {
         let harness = Harness()
         defer { harness.close() }
-        let screenFrame = harness.window.convertToScreen(harness.panes[5].frame)
-        let child = NSWindow(contentRect: screenFrame, styleMask: [.borderless], backing: .buffered, defer: false)
-        child.isReleasedWhenClosed = false
-        harness.window.addChildWindow(child, ordered: .above)
-        child.orderFrontRegardless()
+        let child = harness.childWindow(over: harness.panes[5].frame)
+        harness.panes[5].pageWindow = child
         harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 50, y: 50), in: child))
         harness.dispatch(try harness.key(.keyDown, in: child))
         #expect(harness.panes[5].judged == [.leftMouseDown, .keyDown])
         #expect(harness.judgedTotal == 2, "a Chromium page's press reached another pane")
+    }
+
+    /// Tabs of one pane keep their pages in the window, hidden, at the same frame. A press in the
+    /// shown tab's page window goes to that tab, never to a hidden tab attached before it at the
+    /// same place; a press in a hidden tab's page window goes to no pane.
+    @Test func aPressInAPageWindowGoesToTheShownTabNotAHiddenOneAtTheSamePlace() throws {
+        let harness = Harness(count: 0)
+        defer { harness.close() }
+        let frame = NSRect(x: 100, y: 100, width: 300, height: 200)
+        let hidden = Pane(frame: frame)
+        let shown = Pane(frame: frame)
+        for pane in [hidden, shown] {
+            harness.window.contentView?.addSubview(pane)
+            harness.router.attach(pane, to: harness.window)
+            pane.pageWindow = harness.childWindow(over: frame)
+        }
+        hidden.isHidden = true
+        let shownPage = try #require(shown.pageWindow)
+        let hiddenPage = try #require(hidden.pageWindow)
+
+        harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: shownPage))
+        harness.dispatch(try harness.key(.keyDown, in: shownPage))
+        #expect(shown.judged == [.leftMouseDown, .keyDown], "the shown tab's page lost its press")
+        #expect(hidden.judged.isEmpty, "a hidden tab at the same place took the shown tab's press")
+
+        harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: hiddenPage))
+        #expect(hidden.judged.isEmpty && shown.judged.count == 2, "a hidden tab's page window granted a press")
     }
 
     @Test func anotherWindowsPressesAreNotHeard() throws {
@@ -189,6 +227,51 @@ struct AgentPaneGestureGrantTests {
     }
 
     // MARK: The agent pane itself
+
+    /// An agent pane owns a child window only when it is its own Chromium page's window and the pane
+    /// shows: another pane's page window at the same place, or its own while it is hidden, is not its.
+    @Test func anAgentPaneOwnsOnlyItsOwnPageWindowAndOnlyWhileShown() async throws {
+        _ = NSApplication.shared
+        let file = try #require(AgentPageTestRoot.page)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = root
+        var views: [AgentPaneView] = []
+        var pageWindows: [NSWindow] = []
+        defer {
+            views.forEach { $0.close() }
+            pageWindows.forEach { $0.close() }
+            window.close()
+        }
+        for _ in 0..<2 {
+            let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+                                                  pageHost: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
+            view.frame = root.bounds
+            root.addSubview(view)
+            view.layoutSubtreeIfNeeded()
+            views.append(view)
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while !views.allSatisfy({ $0.debugShowsChromium }), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(views.allSatisfy({ $0.debugShowsChromium }))
+        for view in views {
+            let page = try #require(view.chromiumPage as? FakeChromiumPage)
+            let child = NSWindow(contentRect: window.convertToScreen(root.bounds), styleMask: [.borderless], backing: .buffered, defer: false)
+            child.isReleasedWhenClosed = false
+            window.addChildWindow(child, ordered: .above)
+            page.pageWindow = child
+            pageWindows.append(child)
+        }
+        let hidden = views[0], shown = views[1]
+        hidden.isHidden = true
+
+        #expect(shown.ownsChildWindow(pageWindows[1]))
+        #expect(!shown.ownsChildWindow(pageWindows[0]), "a pane owned another tab's page window at the same place")
+        #expect(!hidden.ownsChildWindow(pageWindows[1]), "a hidden pane owned the shown tab's page window")
+        #expect(!hidden.ownsChildWindow(pageWindows[0]), "a hidden pane owned its own page window")
+    }
 
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
