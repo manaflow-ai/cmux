@@ -7,10 +7,15 @@ import CmuxNextDesign
 /// next to it. A Chromium page is a child window above the parent, so it
 /// would get the mouse there. Masking the page there (an occlusion hole)
 /// took a band of the page away on each side of every divider. Instead,
-/// while pages are visible, each hit area gets a small transparent panel
-/// above the pages that takes the mouse and forwards it to the parent
-/// window, where the divider view handles it as before. The page draws
-/// edge to edge under it.
+/// while a page window takes the mouse (a page drawn in its own window, or
+/// a layer-hosted page's input window), each hit area gets a small
+/// transparent panel above the pages that takes the mouse and forwards it
+/// to the parent window, where the divider view handles it as before. The
+/// page draws edge to edge under it. A page attached as a view of its pane
+/// (Chrome's model: `RenderWidgetHostViewCocoa` is a subview,
+/// `content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`) needs
+/// none: the divider views are above it in the same window, and
+/// `WindowOverlayLayer` makes no catchers at all.
 ///
 /// Panels are `NSPanel`s at the overlay's level, so `WindowOverlayLayer`
 /// keeps them above page windows with its other app panels. Lives here, not
@@ -45,7 +50,7 @@ public final class DividerMouseCatchers {
     }
 
     /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window is visible).
+    /// is false (no page window takes the mouse).
     public func update(_ areas: [LayoutMouseArea], active: Bool) {
         let wanted = active && window.isVisible ? areas : []
         let ids = Set(wanted.map(\.id))
