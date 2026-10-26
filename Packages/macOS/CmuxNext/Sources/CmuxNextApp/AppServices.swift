@@ -737,6 +737,9 @@ final class AppServices {
         _ = keyRouter  // built here, as before
         keyRouter.services = self
         keyRouter.whichKey = WhichKeyController()
+        // The hint sessions turn the router's modes on and off: in normal mode a typing key skips them.
+        linkHints.keyModes = keyRouter.modes
+        windowHints.keyModes = keyRouter.modes
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }

@@ -33,6 +33,9 @@ import CmuxNextWakeups
 /// 6. main-menu key equivalents are display only for a key decided here:
 ///    the menu gate refuses them (``allowsMenuKeyEquivalent(_:)``).
 ///
+/// In normal mode (no `KeyRouterMode` on: no key hold, recorder, hints, armed focus-mode exit or chord) a typing key
+/// (not a chord, not Escape) skips step 0 and goes to the focused view at once (``typesIntoFocusedView(_:in:)``).
+///
 /// A key the dispatcher never saw (a synthetic event) runs content actions
 /// in the window hook (`ShellWindow.performKeyEquivalent`), and the whole
 /// dispatcher in Chromium's pre-key hook (`CEFTab.keyRouter`); a decided key
@@ -60,9 +63,14 @@ final class KeyRouter: BrowserKeyRouting {
     var whichKey: WhichKeyController?
     /// Leaving the app ends a waiting chord (the overlay hides with it), through the app's one observer.
     private var resignSubscription: EventSubscription?
-    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
+    /// The owners that take typing keys before the focused view and are on now; each sets its own mode as it enters
+    /// and leaves it (the hint controllers get this instance from `AppServices`). With none on, a typing key takes
+    /// ``typesIntoFocusedView(_:in:)`` at once.
+    let modes: KeyRouterModes
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(), modes: KeyRouterModes = KeyRouterModes()) {
         self.registry = registry
         self.inputDispatch = inputDispatch
+        self.modes = modes
     }
     // MARK: Tiers
     /// Whether an action of `tier` may take a key from the current focus.
@@ -96,6 +104,12 @@ final class KeyRouter: BrowserKeyRouting {
     /// typing, Option characters and IME input are never intercepted.
     nonisolated static func isChord(_ flags: NSEvent.ModifierFlags) -> Bool {
         !flags.isDisjoint(with: [.command, .control])
+    }
+
+    /// A key no early owner takes outside its mode: not a chord, and not Escape (a missed sheet's or dialog's
+    /// Escape and browser focus mode's first Escape are not modes).
+    static func isTypingKey(_ event: NSEvent) -> Bool {
+        !isChord(event.modifierFlags) && event.keyCode != ChordTracker.escapeKeyCode
     }
 
     // MARK: Decision
@@ -188,6 +202,13 @@ final class KeyRouter: BrowserKeyRouting {
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
+        // Normal mode (no owner takes typing keys now): a typing key skips every owner below, which would each
+        // pass it on (KeyRouterMode).
+        if modes.isNormal, Self.isTypingKey(event) {
+            lastInterception = nil
+            trace?("normal mode: a typing key goes to the focused view")
+            return typesIntoFocusedView(event, in: window)
+        }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
@@ -226,12 +247,7 @@ final class KeyRouter: BrowserKeyRouting {
         if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
-        guard chords.isPending || isChord else {
-            if routesBareKey(event, in: window) { return true }
-            if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
-            onTyping?(window)
-            return false
-        }
+        guard chords.isPending || isChord else { return typesIntoFocusedView(event, in: window) }
         let (controller, kind) = focus(for: window)
         guard let controller, let window, kind == .content else {
             cancelChord()
@@ -350,11 +366,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
-    var focusModeEscape = BrowserFocusModeEscapeExit()
+    var focusModeEscape = BrowserFocusModeEscapeExit() { didSet { modes.set(.focusModeEscape, focusModeEscape.armedTab != nil) } }
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
-    var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    var keyRecorder: ((NSEvent, NSWindow?) -> Bool)? { didSet { modes.set(.recorder, keyRecorder != nil) } }
     /// Ends the topmost sheet on a window as cancelled; returns whether one
     /// ended. A seam: tests without a window session (no sheets) replace it.
     var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
@@ -371,7 +387,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     // MARK: Chords
 
-    var chords = ChordTracker()
+    var chords = ChordTracker() { didSet { modes.set(.chord, chords.isPending) } }
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer()
