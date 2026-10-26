@@ -334,10 +334,13 @@ struct CloudStartSession {
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
         let daemon = session.daemon
-        guard await CloudMove.holds(within: Self.connectWait, until: {
+        let up = await CloudMove.holds(within: Self.connectWait, until: {
             session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
-        }) else { throw failure() }
-        if session.resumeFailure != nil { throw failure() }
+        })
+        // A sign-out, team switch or cancellation during the wait is that, not a machine that
+        // didn't connect.
+        try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
+        guard up, session.resumeFailure == nil else { throw failure() }
     }
 
     /// How long a machine has to come up (Move to Cloud's own wait).
