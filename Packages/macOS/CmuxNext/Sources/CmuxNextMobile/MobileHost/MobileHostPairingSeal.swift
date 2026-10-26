@@ -20,7 +20,8 @@ public protocol MobileHostPairingSealStore: Sendable {
     func clearDigest() -> Bool
 }
 
-/// A save the Keychain refused: the list on disk is unchanged.
+/// A save the Keychain refused: the new list is on disk, but no list is trusted at the next launch
+/// (``MobileHostPairedDevicesFile/save(_:)``).
 public enum MobileHostPairingSealError: Error {
     case keychainRefused
 }

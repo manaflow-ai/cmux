@@ -200,9 +200,24 @@ public struct MobileHostPairedDevicesFile: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    /// Red stub: as `saveInBackground`.
+    /// A save that takes trust away (a phone revoked or unpaired, a sign-out): the old digest goes
+    /// before this returns, after every save queued before it, so from then on no older list counts,
+    /// a crash or quit included; the new list is then written and recorded on the queue. The
+    /// Keychain call never shows UI. A Keychain that keeps the digest is handled by `save`.
     public func saveRemovingTrust(_ devices: MobileHostPairedDevices) {
+        if !Self.queue.sync(execute: { seal.clearDigest() }) {
+            Self.logger.error("iPhone pairing: the old digest could not be cleared before a removal")
+        }
         saveInBackground(devices)
+    }
+
+    /// App quit: waits, up to `limit`, for the saves already queued.
+    public static func flush(within limit: TimeInterval = 2) {
+        let done = DispatchSemaphore(value: 0)
+        queue.async { done.signal() }
+        if done.wait(timeout: .now() + limit) == .timedOut {
+            logger.error("iPhone pairing: queued saves did not finish before quit")
+        }
     }
 
     /// The stored list when it is the one this app saved last (its digest matches the seal's) and
@@ -227,26 +242,51 @@ public struct MobileHostPairedDevicesFile: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         let data = try encoder.encode(devices)
-        // The old digest goes first, and nothing is written while the Keychain keeps it: until the
-        // new one is recorded no copy of any list counts, so a crash, or a Keychain that refuses
-        // the new digest (logged there), trusts nothing, never an older list put back.
-        guard seal.clearDigest() else { throw MobileHostPairingSealError.keychainRefused }
+        // The old digest goes first: until the new one is recorded no copy of any list counts, so a
+        // crash, or a Keychain that refuses the new digest (logged there), trusts nothing, never an
+        // older list put back. The new list is written even when the Keychain keeps the old digest:
+        // it does not match it, so the list before it (perhaps with a phone just removed) stops
+        // counting too; only that list's exact bytes put back would match again.
+        if !seal.clearDigest() { Self.logger.error("iPhone pairing: the old digest could not be cleared") }
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        _ = seal.setDigest(MobileHostPairingSeal.digest(data))
+        guard seal.setDigest(MobileHostPairingSeal.digest(data)) else { throw MobileHostPairingSealError.keychainRefused }
     }
 }
 
-/// Red stub: as `loadPaired` decides today (the account matches, nothing forgotten meanwhile).
+/// The paired list's read while it is in flight (the iPhone host reads it off the main actor):
+/// only the newest read counts (a sign-out and sign-in of the same user meanwhile start a new one),
+/// and a phone forgotten while it runs (signed out on the phone, removed in Settings) is removed
+/// from the list once it is in.
 public struct MobileHostPairedLoad: Sendable {
+    private var generation = 0
+    /// The user whose list is being read; nil when none is.
     public private(set) var userID: String?
+    private var forgotten: Set<String> = []
+
     public init() {}
+
+    /// A new read for `userID` (nil: no account, no read): every earlier read no longer counts.
     public mutating func begin(userID: String?) -> Int {
+        generation += 1
         self.userID = userID
-        return 0
+        forgotten = []
+        return generation
     }
-    public mutating func forget(_ id: String) {}
+
+    /// Phone `id` was forgotten while the list is read.
+    public mutating func forget(_ id: String) {
+        if userID != nil { forgotten.insert(id) }
+    }
+
+    /// Read `generation` of `userID`'s list answered `list`: nil when a newer read began since,
+    /// else the list without the phones forgotten meanwhile, and whether that removed any.
     public mutating func finish(_ generation: Int, userID: String, list: MobileHostPairedDevices) -> (list: MobileHostPairedDevices, forgot: Bool)? {
-        self.userID == userID ? (list, false) : nil
+        guard generation == self.generation, self.userID == userID else { return nil }
+        self.userID = nil
+        var trimmed = list
+        for id in forgotten { trimmed.remove(id) }
+        forgotten = []
+        return (trimmed, trimmed != list)
     }
 }

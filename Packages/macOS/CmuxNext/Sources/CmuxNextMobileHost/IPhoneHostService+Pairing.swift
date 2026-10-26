@@ -37,22 +37,29 @@ extension IPhoneHostService {
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
     func loadPaired(signedOut: Bool) {
         guard let file = pairedFile else { return }
-        if signedOut, let previous = paired {
-            file.saveInBackground(MobileHostPairedDevices(userID: previous.userID))
+        // A sign-out forgets the phones before anything else, even while the list is still read.
+        if signedOut, let previous = paired?.userID ?? pairedLoad.userID {
+            file.saveRemovingTrust(MobileHostPairedDevices(userID: previous))
         }
         if paired?.userID != account?.userID { resetPrompts() }
         paired = nil
+        let read = pairedLoad.begin(userID: account?.userID)
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }
         pushPaired()
         guard let userID = account?.userID else { return }
-        // task-owner: one read per account change; its answer is dropped once the account changed
+        // task-owner: one read per account change; its answer is dropped once a newer read began
         Task { [weak self] in
             let list = await file.loadInBackground(userID: userID)
-            guard let self, self.account?.userID == userID, self.paired == nil else { return }
-            self.paired = list
-            self.pushPaired()
+            guard let self, let done = self.pairedLoad.finish(read, userID: userID, list: list) else { return }
+            if done.forgot {
+                // A phone signed out or was removed while the list was read.
+                self.savePaired(done.list, removingTrust: true)
+            } else {
+                self.paired = done.list
+                self.pushPaired()
+            }
         }
     }
 
@@ -62,12 +69,16 @@ extension IPhoneHostService {
         prompts.forget(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
-        guard var list = paired else { return }
-        list.remove(id)
-        savePaired(list)
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
+        guard var list = paired else {
+            // The list is still being read: the phone is removed from it once it is in.
+            pairedLoad.forget(id)
+            return
+        }
+        list.remove(id)
+        savePaired(list, removingTrust: true)
     }
 
     func pairingEvent(_ event: MobileHostEvent) {
@@ -214,10 +225,16 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    private func savePaired(_ list: MobileHostPairedDevices) {
+    /// `removingTrust`: the save takes a phone away, so the old digest goes before it returns
+    /// (``MobileHostPairedDevicesFile/saveRemovingTrust(_:)``).
+    private func savePaired(_ list: MobileHostPairedDevices, removingTrust: Bool = false) {
         paired = list
         // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
-        pairedFile?.saveInBackground(list)
+        if removingTrust {
+            pairedFile?.saveRemovingTrust(list)
+        } else {
+            pairedFile?.saveInBackground(list)
+        }
         pushPaired()
     }
 
