@@ -1,3 +1,5 @@
+import CmuxSafeConcurrency
+
 /// Serializes relay-credential rotation ownership across autopilot lifecycles.
 /// An old broker request may finish after its task is cancelled, so the
 /// endpoint checks this actor before every live endpoint mutation.
@@ -9,7 +11,7 @@ enum IrxRelayCredentialMutationResult: Sendable {
 actor IrxRelayCredentialRotationGate {
     private var generation: UInt64 = 0
     private var mutationInFlight = false
-    private var mutationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var mutationWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     func begin() -> UInt64 {
         generation &+= 1
@@ -18,7 +20,7 @@ actor IrxRelayCredentialRotationGate {
 
     func invalidate() async {
         if mutationInFlight {
-            await withCheckedContinuation { continuation in
+            try? await withOnceContinuation { continuation in
                 mutationWaiters.append(continuation)
             }
         }
@@ -43,7 +45,7 @@ actor IrxRelayCredentialRotationGate {
         let waiters = mutationWaiters
         mutationWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
         return value
     }

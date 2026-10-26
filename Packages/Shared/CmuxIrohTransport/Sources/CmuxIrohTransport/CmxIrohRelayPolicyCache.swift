@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Securely caches the latest root-verified relay policy with rollback protection.
@@ -32,7 +33,7 @@ public actor CmxIrohRelayPolicyCache {
     private let secureStore: any CmxIrohSecureCredentialStoring
     private let verifier: CmxIrohRelayPolicyVerifier
     private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     /// Creates an isolated relay-policy cache.
     ///
@@ -126,7 +127,7 @@ public actor CmxIrohRelayPolicyCache {
             busy = true
             return
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             waiters.append(continuation)
         }
     }
@@ -136,7 +137,7 @@ public actor CmxIrohRelayPolicyCache {
             busy = false
             return
         }
-        waiters.removeFirst().resume()
+        waiters.removeFirst().resume(returning: ())
     }
 
     private func storedRecord() async throws -> Record? {

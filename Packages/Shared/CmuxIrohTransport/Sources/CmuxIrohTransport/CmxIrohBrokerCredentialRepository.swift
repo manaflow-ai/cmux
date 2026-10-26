@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 public import Foundation
 
@@ -11,7 +12,7 @@ public actor CmxIrohBrokerCredentialRepository {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivationCount = 0
     private var activeStorageMutationCount = 0
-    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var storageMutationDrainWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     /// Creates a broker credential repository with injectable persistence.
     ///
@@ -337,12 +338,12 @@ public actor CmxIrohBrokerCredentialRepository {
         guard activeStorageMutationCount == 0 else { return }
         let waiters = storageMutationDrainWaiters
         storageMutationDrainWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     private func waitForStorageMutations() async {
         guard activeStorageMutationCount > 0 else { return }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
     }

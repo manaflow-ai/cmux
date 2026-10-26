@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import CryptoKit
 public import Foundation
 
@@ -79,7 +80,7 @@ public actor CmxIrohBrokerBackpressureGate {
     private struct Waiter {
         let id: UUID
         let ownerID: UUID
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     static let persistenceKey = "cmux.iroh.broker-backpressure.v1"
@@ -225,14 +226,14 @@ public actor CmxIrohBrokerBackpressureGate {
 
         let waiterID = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            _ = try? await withOnceContinuation { continuation in
                 guard !Task.isCancelled else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                     return
                 }
                 if owners[key] == nil {
                     owners[key] = ownerID
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     waiters[key, default: []].append(Waiter(
                         id: waiterID,
@@ -265,7 +266,7 @@ public actor CmxIrohBrokerBackpressureGate {
         }
         let waiter = pending.remove(at: index)
         waiters[key] = pending.isEmpty ? nil : pending
-        waiter.continuation.resume()
+        waiter.continuation.resume(returning: ())
     }
 
     private func release(_ key: Key, ownerID: UUID) {
@@ -278,7 +279,7 @@ public actor CmxIrohBrokerBackpressureGate {
         let next = pending.removeFirst()
         waiters[key] = pending.isEmpty ? nil : pending
         owners[key] = next.ownerID
-        next.continuation.resume()
+        next.continuation.resume(returning: ())
     }
 
     private func requireAvailable(_ key: Key) throws {
