@@ -200,6 +200,65 @@ import Testing
         #expect(displays.liveLinks == 0)
     }
 
+    /// p03-rendering-011: a window dragged mid-animation from a 60 Hz display to a 120 Hz one. Its
+    /// WindowScreenFamily moves its scheduler on `didChangeScreen` (before it, the window ticked on
+    /// the old display until a stall deadline): from then on it ticks only on the new display's link,
+    /// no gap between ticks is longer than the old interval, and the new display's frame that is shown
+    /// on the same refresh as its last old frame does not tick it a second time. The 120 Hz display
+    /// already runs for another window, or gets its link with the move.
+    @Test(arguments: [true, false]) func aWindowMovedMidAnimationTicksOnlyOnTheNewDisplay(fastDisplayRuns: Bool) {
+        let links = FakeLinks()
+        let media = TestMediaTime()
+        let window = NSWindow.fixture(), other = NSWindow.fixture()
+        var screen: CGDirectDisplayID = 1
+        let displays = DisplayClock(makeLink: links.make, displayOf: { $0 === window ? screen : 2 },
+                                    clock: ManualClock(), mediaTime: media.read)
+        let center = NotificationCenter()
+        let moving = FrameScheduler(name: "moving", host: .window(window), displays: displays, budget: nil)
+        let family = WindowScreenFamily(window: window, scheduler: moving, center: center)
+        var ticks: [FrameTick] = []
+        let spring = FrameClient(owner: "spring", on: moving) { tick in ticks.append(tick); return true }
+        spring.activate()
+        let onFast = FrameScheduler(name: "fast", host: .window(other), displays: displays, budget: nil)
+        let fastWindow = FrameClient(owner: "fast", on: onFast) { _ in true }
+        if fastDisplayRuns { fastWindow.activate() }
+
+        let slow = 1.0 / 60, fast = 1.0 / 120, start = 1.0, moveAt = start + 2.4 * slow
+        // Both displays refresh on their own grids; the window moves between two 60 Hz frames.
+        var events: [(time: Double, display: CGDirectDisplayID?)] = [(moveAt, nil)]
+        for frame in 0..<8 { events.append((start + Double(frame) * slow, 1)) }
+        for frame in 0..<16 { events.append((start + Double(frame) * fast, 2)) }
+        for event in events.sorted(by: { $0.time < $1.time }) {
+            media.now = event.time
+            guard let id = event.display else {
+                screen = 2
+                center.post(name: NSWindow.didChangeScreenNotification, object: window)
+                continue
+            }
+            let interval = id == 1 ? slow : fast
+            displays.displayDidFire(id, timestamp: event.time, refreshInterval: interval, targetTimestamp: event.time + interval)
+        }
+
+        #expect(displays.subscribers(on: 1).isEmpty, "the moved window left the 60 Hz display")
+        #expect(displays.subscribers(on: 2).contains("moving"))
+        #expect(!displays.hasLink(1), "nobody is left on the 60 Hz display: its link is gone")
+        let before = ticks.filter { $0.timestamp < moveAt }, after = ticks.filter { $0.timestamp > moveAt }
+        #expect(before.count == 3 && before.allSatisfy { $0.refreshInterval == slow })
+        #expect(!after.isEmpty && after.allSatisfy { $0.refreshInterval == fast }, "a tick after the move came from the 60 Hz link")
+        for (earlier, later) in zip(ticks, ticks.dropFirst()) {
+            #expect(later.timestamp - earlier.timestamp <= slow + 1e-9,
+                    "\(later.timestamp - earlier.timestamp) s between ticks at \(earlier.timestamp) and \(later.timestamp)")
+            #expect(later.targetTimestamp - earlier.targetTimestamp >= fast / 2,
+                    "two ticks shown on one refresh at \(later.targetTimestamp)")
+        }
+        #expect(after.first.map { abs($0.timestamp - (start + 3 * slow)) < 1e-9 } == true,
+                "the 120 Hz frame shown with the last 60 Hz one ticked it again")
+        spring.deactivate()
+        fastWindow.deactivate()
+        #expect(displays.liveLinks == 0)
+        withExtendedLifetime((family, onFast)) {}
+    }
+
     /// The link goes away while the budget holder stays subscribed (a stall rebuild that cannot
     /// make one): its ticks no longer own the budget's window, so off-tick work can roll it; a
     /// later retry that makes a link gives it back.

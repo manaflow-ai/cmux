@@ -64,6 +64,8 @@ public final class FrameScheduler: NSObject {
         scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
             scheduler?.invalidate()
         }
+        // It ticks on the display the window is on: the window going to another screen moves it there.
+        scheduler.screenFamily = WindowScreenFamily(window: window, scheduler: scheduler)
         return scheduler
     }
 
@@ -114,6 +116,15 @@ public final class FrameScheduler: NSObject {
     /// The link's last refresh period: a stalled frame is shown this long after it starts.
     private var lastRefreshInterval = FrameTick.defaultRefreshInterval
     private var closeObserver: MainActorObservation?
+    /// Moves it to its window's new display when the window changes screen (window schedulers only).
+    private var screenFamily: WindowScreenFamily?
+    /// When the frame of its last tick is shown (nil before the first tick after subscribing).
+    private var lastTargetTimestamp: CFTimeInterval?
+    /// Set when it moves to another display: the target of its last tick there. Until a link tick of
+    /// the new display is shown after it, that display's ticks pass it by, so it never builds two
+    /// frames for one refresh (Chrome's `BeginFrameObserverBase` takes only a BeginFrame newer than
+    /// the last one it used, components/viz/common/frame_sinks/begin_frame_source.cc).
+    private var handoffTarget: CFTimeInterval?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links this scheduler's subscribing made since creation (debug: a scheduler that stays
@@ -222,14 +233,32 @@ public final class FrameScheduler: NSObject {
         ticksOnLink = exists
     }
 
-    /// The clock moved it to `id` (its screen changed or went away).
+    /// The clock moved it to `id` (its screen changed or went away): it ticks on `id`'s link from its
+    /// next frame shown after its last one.
     func displayDidChange(to id: CGDirectDisplayID, hasLink: Bool) {
         displayID = id
         ticksOnLink = hasLink
+        handoffTarget = lastTargetTimestamp
     }
 
-    /// Its window moved to another screen: tick on that screen's link now (the display's stall
-    /// deadline also moves it, within a ``stallTimeout``).
+    /// Whether a tick of its display goes to it. After a display change only a link tick whose frame
+    /// is shown after its last frame does, and the first one ends the handoff: the gap stays within
+    /// the old display's interval and no refresh gets two frames. A stall tick (no timestamp) always does.
+    func takesTick(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
+        guard let handoff = handoffTarget else { return true }
+        if let timestamp {
+            let target = targetTimestamp ?? timestamp + (refreshInterval ?? lastRefreshInterval)
+            guard target > handoff + Self.handoffSlack else { return false }
+        }
+        handoffTarget = nil
+        return true
+    }
+
+    /// Two targets closer than this are one refresh (float rounding of link times).
+    private static let handoffSlack: CFTimeInterval = 0.0005
+
+    /// Its window moved to another screen (its ``WindowScreenFamily``): tick on that screen's link
+    /// now (the display's stall deadline also moves it, within a ``stallTimeout``, as a backstop).
     func screenDidChange() {
         guard let subscribed else { return }
         displayClock.resubscribe(self, from: subscribed)
@@ -249,6 +278,8 @@ public final class FrameScheduler: NSObject {
     /// the link once nobody else ticks on it); the next client subscribes again.
     private func pause() {
         lastTimestamp = nil
+        lastTargetTimestamp = nil
+        handoffTarget = nil
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
@@ -299,9 +330,11 @@ public final class FrameScheduler: NSObject {
         budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
         // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
         // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
+        let target = targetTimestamp ?? now + lastRefreshInterval
+        lastTargetTimestamp = target
         return FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                          rawElapsed: elapsed, refreshInterval: refreshInterval,
-                         targetTimestamp: targetTimestamp ?? now + lastRefreshInterval, sequence: frames)
+                         targetTimestamp: target, sequence: frames)
     }
 
     /// The frame-locked clients, every frame: the input stage first (the window's

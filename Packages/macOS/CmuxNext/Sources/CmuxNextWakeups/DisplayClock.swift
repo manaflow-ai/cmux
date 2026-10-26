@@ -23,8 +23,9 @@ public import QuartzCore
 /// runs for it: when no frame came in time its subscribers tick anyway, and after repeated stalls the
 /// link is rebuilt. Frames do not touch the deadline (a new timer task per frame cost two
 /// cooperative-pool wakes a frame): when it fires after a frame came, it is armed again for the rest
-/// of the timeout from that frame. Each time the deadline fires, every subscriber of the display
-/// resolves its display again and moves there when it changed: a window dragged to another screen,
+/// of the timeout from that frame. A window dragged to another screen moves at once (its
+/// ``WindowScreenFamily``). Each time the deadline fires, every subscriber of the display also
+/// resolves its display again and moves there when it changed: a window whose move was missed,
 /// a screen unplugged, the main display changed (Chrome's `DisplayLinkMac` consumers register on the
 /// link of the display they are on now, `ui/display/mac/display_link_mac.h`). So a display whose
 /// screen went away never keeps its subscribers on the deadline's 10 Hz.
@@ -201,7 +202,9 @@ public final class DisplayClock {
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
-        let ticking = display.subscribers.filter { mayTick($0, hiddenUntil: hiddenUntil) }
+        let ticking = display.subscribers
+            .filter { mayTick($0, hiddenUntil: hiddenUntil, timestamp: timestamp, refreshInterval: refreshInterval,
+                              targetTimestamp: targetTimestamp) }
             .map { ($0, $0.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)) }
         func subscribed(_ scheduler: FrameScheduler) -> Bool { display.subscribers.contains { $0 === scheduler } }
         for (scheduler, tick) in ticking where scheduler.holdsBudget && subscribed(scheduler) {
@@ -219,10 +222,15 @@ public final class DisplayClock {
     }
 
     /// A window nobody can see ticks at the stall rate, not the display's (R6: hidden and occluded
-    /// cost nothing); the app and budgeted schedulers always tick.
-    private func mayTick(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Bool {
-        guard let hiddenUntil, let window = scheduler.hostWindow, !isVisible(window) else { return true }
-        return scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
+    /// cost nothing), and a scheduler that just came from another display skips a frame shown no later
+    /// than its last one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
+    private func mayTick(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?, timestamp: CFTimeInterval?,
+                         refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
+        if let hiddenUntil, let window = scheduler.hostWindow, !isVisible(window),
+           let last = scheduler.lastTickTimestamp, last > hiddenUntil + Self.stallSlack {
+            return false
+        }
+        return scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
     }
 
     /// Every subscriber of `display` is a window nobody can see.
