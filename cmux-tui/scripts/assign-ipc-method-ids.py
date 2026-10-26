@@ -2,27 +2,31 @@
 """Assign the framed-IPC attributes of cmux-tui/spec/sdk-schema.json.
 
 spec/transports.md, "Framed IPC method attributes", defines the attributes and
-"Assigning method ids" the rules this script applies. It only adds what is
-missing: an id, family or attribute already in the schema is never changed,
-so a second run gives no diff and ids stay append-only (Mojo ordinals,
-mojo/public/tools/bindings/README.md). A command or event added later gets
-the next ordinal of its family when the script runs again.
+"Assigning method ids" the rules this script applies. It adds what is
+missing and never changes an id, a family, a priority, an ordering or a
+durability already in the schema, so a second run gives no diff and ids stay
+append-only (Mojo ordinals, mojo/public/tools/bindings/README.md). A command
+or event added later gets its family's `next_ordinal`, which only grows, so
+the id of a removed command is never given again. `clients` and
+`spawns_terminal` follow their sources on every run.
 
   assign-ipc-method-ids.py           write the missing attributes
   assign-ipc-method-ids.py --check   exit 1 if a run would change the schema
 
 Rules, each a table below:
   family       FAMILIES / EVENT_FAMILIES: exactly one family per name
-  ordinal      file order inside the family, after the highest existing one
+  ordinal      file order inside the family, from the family's next_ordinal
   priority     the p05-ipc-011 table; anything unlisted is control
   ordering     independent only for INDEPENDENT (reviewed read-only reads)
   durability   read_only / memory / reply_after_journal lists, else
                reply_before_journal
   stream       a command that names a surface, terminal or view is
                stream_scoped unless CROSSES_STREAM_OK gives the reason
-  spawns       the Swift `TerminalSpawningRequest` request types
+  spawns       SPAWNS_TERMINAL (the daemon commands that may start a
+               terminal host); it must hold every Swift
+               `TerminalSpawningRequest` command
   clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names
+               cli for the Q14 names; ios is kept when set by hand
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -160,20 +164,24 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 
 # Priority (p05-ipc design 3.4) -----------------------------------------------
 # Commands: the p05-ipc-011 table. input: the person's keys, pointer and
-# scroll; bulk: large transfers (journal and history reads, file and
-# attachment bytes, icon assets); background: stats; else control.
+# scroll; every command that writes a surface's PTY input (send, send-key,
+# paste-image) shares it, because the client keeps call order only inside one
+# priority (Chrome sends all of a widget's input through one
+# WidgetInputHandler, content/common/input/widget_input_handler.mojom).
+# bulk: large reads (journal and history reads, attachment bytes, icon
+# assets); a write stays control, so a later control command that names what
+# it wrote cannot pass it. background: stats; else control.
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
-        "send", "browser-key", "browser-key-press", "browser-mouse", "browser-mouse-guarded",
-        "browser-wheel", "browser-wheel-guarded", "browser-insert-text", "resize-attached-view",
-        "scroll-surface",
+        "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
+        "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
+        "resize-attached-view", "scroll-surface",
     ),
     "bulk": (
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "conversation-attachment-upload", "cloud-attachment-upload", "paste-image", "put-blob",
         "get-blob",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
@@ -191,8 +199,9 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # Ordering --------------------------------------------------------------------
 # Reads that observe nothing this connection's own earlier requests change, so
 # they may pass the connection's control sequence. Each one is read_only and
-# names no stream target (validate.py rejects anything else).
-INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp", "cloud-selfhost-info")
+# names no stream target (validate.py rejects anything else). A cloud command
+# is never here: it needs the lease this connection set with cloud-session-set.
+INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -203,15 +212,14 @@ READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
     "terminal-history", "terminal-read-range", "terminal-events", "server-stats", "machine-*",
-    "wait-for", "pane-neighbor", "remote-terminal-snapshot", "snapshot-request",
+    "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",
     "conversation-attachment-read", "history-search", "home-inbox", "chief-inspect",
     "cloud-session-status", "cloud-host-replica-status", "cloud-inbox-list", "cloud-requests-list",
-    "cloud-selfhost-info", "cloud-conversation-snapshot", "cloud-conversation-history",
+    "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list",
-    "browser-host-provider",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -225,6 +233,12 @@ MEMORY = (
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
     "subscribe-activity",
+    # Writes the lease's account, bumps its generation and reconnects sockets.
+    "cloud-selfhost-info",
+    # Binds the browser host's sockets and starts the host process.
+    "browser-host-provider",
+    # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
+    "snapshot-request",
 )
 REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
 
@@ -253,6 +267,19 @@ CROSSES_STREAM_OK: dict[str, str] = {
     "list-agents": "surface only filters the agent list, which queued stream items do not change.",
     "feed-local-list": "terminal_id only filters the feed, which queued stream items do not change.",
 }
+
+# Spawning --------------------------------------------------------------------------
+# Daemon commands that may start a terminal host (transports.md
+# `spawns_terminal`): their reply can carry `starting:true` and the client gives
+# them the spawn timeout. move-tab-to-split and move-tab-to-column start one
+# only with `respawn`, but an attribute cannot depend on a field, so both are
+# listed. Every Swift TerminalSpawningRequest command must be here.
+SPAWNS_TERMINAL = (
+    "new-tab", "create-terminal", "new-screen", "new-pane", "new-pane-right", "split", "new-row",
+    "new-workspace", "run", "restart-tab", "create-surface-with-receipt", "apply-layout",
+    "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
+    "move-tab-to-column",
+)
 
 COMMAND_KEY_ORDER = (
     "method_id", "priority", "ordering", "durability", "stream_scoped", "crosses_stream_ok",
@@ -322,7 +349,7 @@ _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
 _COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
 
 
-def terminal_spawning_commands() -> set[str]:
+def swift_spawning_commands() -> set[str]:
     """Wire names of the Swift request types that conform to TerminalSpawningRequest."""
 
     listed = subprocess.run(
@@ -354,7 +381,7 @@ class Sources:
 
     macos: Callable[[], set[str]] = lambda: census_names("Q1")
     cli: Callable[[], set[str]] = lambda: census_names("Q14")
-    spawning: Callable[[], set[str]] = terminal_spawning_commands
+    swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
 
 class Assigner:
@@ -363,18 +390,26 @@ class Assigner:
         self.changes: list[str] = []
         self.sources = sources or Sources()
         self._clients: tuple[set[str], set[str]] | None = None
-        self._spawning: set[str] | None = None
 
-    def clients_of(self, name: str) -> list[str]:
+    def clients_of(self, name: str, current: Any) -> list[str]:
+        """The census clients of a command, plus `ios` when the schema already lists it."""
+
         if self._clients is None:
             self._clients = (self.sources.macos(), self.sources.cli())
         macos, cli = self._clients
-        return [client for client, member in (("macos", name in macos), ("cli", name in cli), ("sdk", True)) if member]
+        ios = isinstance(current, list) and "ios" in current
+        members = (("macos", name in macos), ("ios", ios), ("cli", name in cli), ("sdk", True))
+        return [client for client, member in members if member]
 
-    def spawns(self, name: str) -> bool:
-        if self._spawning is None:
-            self._spawning = self.sources.spawning()
-        return name in self._spawning
+    def check_spawning(self) -> None:
+        """SPAWNS_TERMINAL holds every command the Swift client gives the spawn timeout."""
+
+        missing = sorted(self.sources.swift_spawning() - set(SPAWNS_TERMINAL))
+        if missing:
+            raise AssignError(
+                f"SPAWNS_TERMINAL lacks {', '.join(missing)}, whose Swift request conforms to "
+                "TerminalSpawningRequest; add it once its daemon handler is seen to start a terminal host"
+            )
 
     def families(self) -> dict[str, Any]:
         """Declare every scripted family, checking the ones already declared."""
@@ -390,7 +425,7 @@ class Assigner:
         ids = [family_id for family_id, _, _ in wanted.values()]
         if len(set(ids)) != len(ids):
             raise AssignError("two scripted families share an id")
-        table = dict(declared)
+        table = {name: dict(entry) for name, entry in declared.items()}
         for name, (family_id, description, _) in sorted(wanted.items(), key=lambda item: item[1][0]):
             if name not in table:
                 table[name] = {"id": family_id, "description": description}
@@ -403,22 +438,38 @@ class Assigner:
 
     def wire_ids(self, section: str, key: str, families_table: Mapping[str, Any],
                  scripted: Mapping[str, tuple[int, str, tuple[str, ...]]]) -> None:
+        """Give each entry without an id its family's next ordinal, then advance next_ordinal.
+
+        next_ordinal never decreases and stays above every id in the schema, so
+        an ordinal is given once: removing a family's last command does not
+        free its id for the next one.
+        """
+
         entries = self.document[section]
-        highest: dict[int, int] = {}
+        kind = "command" if section == "commands" else "event"
+        by_id = {entry["id"]: name for name, entry in families_table.items()
+                 if family_kind(entry["id"]) == kind}
+        next_ordinal = {family_id: families_table[name].get("next_ordinal", 0)
+                        for family_id, name in by_id.items()}
         for entry in entries.values():
             if isinstance(entry.get(key), int):
                 family, ordinal = entry[key] >> 8, entry[key] & 0xFF
-                highest[family] = max(highest.get(family, -1), ordinal)
+                next_ordinal[family] = max(next_ordinal.get(family, 0), ordinal + 1)
         for name, entry in entries.items():  # file order
             if key in entry:
                 continue
             family = families_table[family_of(name, scripted)]["id"]
-            ordinal = highest.get(family, -1) + 1
+            ordinal = next_ordinal.get(family, 0)
             if ordinal > 0xFF:
                 raise AssignError(f"family 0x{family:02X} is full; add a new family for {name!r}")
-            highest[family] = ordinal
+            next_ordinal[family] = ordinal + 1
             entry[key] = family << 8 | ordinal
             self.changes.append(f"{section}.{name}.{key}: 0x{entry[key]:04X}")
+        for family_id, name in by_id.items():
+            family = families_table[name]
+            if family.get("next_ordinal") != next_ordinal[family_id]:
+                family["next_ordinal"] = next_ordinal[family_id]
+                self.changes.append(f"families.{name}.next_ordinal: {next_ordinal[family_id]}")
 
     def set_missing(self, section: str, name: str, entry: dict[str, Any], key: str, value: Any) -> None:
         if key not in entry:
@@ -435,13 +486,24 @@ class Assigner:
                 self.set_missing("commands", name, entry, "crosses_stream_ok", CROSSES_STREAM_OK[name])
             else:
                 self.set_missing("commands", name, entry, "stream_scoped", True)
-        if self.spawns(name):
-            self.set_missing("commands", name, entry, "spawns_terminal", True)
-        if "clients" not in entry:
-            self.set_missing("commands", name, entry, "clients", self.clients_of(name))
+        self.follow("commands", name, entry, "spawns_terminal", True if name in SPAWNS_TERMINAL else None)
+        self.follow("commands", name, entry, "clients", self.clients_of(name, entry.get("clients")))
+
+    def follow(self, section: str, name: str, entry: dict[str, Any], key: str, value: Any) -> None:
+        """Set an attribute that follows a source outside the schema; None removes it."""
+
+        if entry.get(key) == value:
+            return
+        if value is None:
+            del entry[key]
+            self.changes.append(f"{section}.{name}.{key}: removed")
+        else:
+            entry[key] = value
+            self.changes.append(f"{section}.{name}.{key}: {json.dumps(value)}")
 
     def run(self) -> dict[str, Any]:
         self.check_tables()
+        self.check_spawning()
         table = self.families()
         self.wire_ids("commands", "method_id", table, FAMILIES)
         self.wire_ids("events", "event_id", table, EVENT_FAMILIES)
@@ -467,6 +529,7 @@ class Assigner:
             ("MEMORY", MEMORY, commands),
             ("REPLY_AFTER_JOURNAL", REPLY_AFTER_JOURNAL, commands),
             ("CROSSES_STREAM_OK", list(CROSSES_STREAM_OK), commands),
+            ("SPAWNS_TERMINAL", SPAWNS_TERMINAL, commands),
         ]
         for family, (family_id, _, patterns) in FAMILIES.items():
             named.append((f"FAMILIES[{family}]", patterns, commands))
@@ -483,6 +546,12 @@ class Assigner:
         for name in INDEPENDENT:
             if durability_of(name) != "read_only":
                 raise AssignError(f"INDEPENDENT: {name!r} is not read_only")
+        for name in SPAWNS_TERMINAL:
+            if durability_of(name) == "read_only":
+                raise AssignError(f"SPAWNS_TERMINAL: {name!r} is read_only")
+        for name in COMMAND_PRIORITY["bulk"]:
+            if durability_of(name) != "read_only":
+                raise AssignError(f"COMMAND_PRIORITY bulk: {name!r} is a write; writes stay control")
 
 
 def ordered(entry: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

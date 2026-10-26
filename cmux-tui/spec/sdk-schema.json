@@ -36,99 +36,123 @@
  "families": {
   "daemon": {
    "id": 1,
-   "description": "Daemon identity, liveness, configuration and machine state."
+   "description": "Daemon identity, liveness, configuration and machine state.",
+   "next_ordinal": 14
   },
   "clients": {
    "id": 2,
-   "description": "Connected clients and their focus."
+   "description": "Connected clients and their focus.",
+   "next_ordinal": 5
   },
   "terminal-io": {
    "id": 3,
-   "description": "Terminal input, output streams, screen reads and terminal requests to the frontend."
+   "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
+   "next_ordinal": 26
   },
   "terminals": {
    "id": 4,
-   "description": "Terminal hosts: lifetime, processes and command history."
+   "description": "Terminal hosts: lifetime, processes and command history.",
+   "next_ordinal": 16
   },
   "sizing": {
    "id": 5,
-   "description": "Surface sizes, attached views and sizing policy."
+   "description": "Surface sizes, attached views and sizing policy.",
+   "next_ordinal": 13
   },
   "layout": {
    "id": 6,
-   "description": "Panes, splits, columns, rows and layout export."
+   "description": "Panes, splits, columns, rows and layout export.",
+   "next_ordinal": 21
   },
   "tabs": {
    "id": 7,
-   "description": "Tabs (surfaces) in panes: create, move, close, select and tab metadata."
+   "description": "Tabs (surfaces) in panes: create, move, close, select and tab metadata.",
+   "next_ordinal": 27
   },
   "tab-groups": {
    "id": 8,
-   "description": "Tab groups and saved tab groups."
+   "description": "Tab groups and saved tab groups.",
+   "next_ordinal": 16
   },
   "screens": {
    "id": 9,
-   "description": "Screens, screen groups and saved screen groups."
+   "description": "Screens, screen groups and saved screen groups.",
+   "next_ordinal": 19
   },
   "workspaces": {
    "id": 10,
-   "description": "Workspaces, workspace groups and frontend projections."
+   "description": "Workspaces, workspace groups and frontend projections.",
+   "next_ordinal": 20
   },
   "browser": {
    "id": 11,
-   "description": "Browser input, navigation, browser providers and browser profiles."
+   "description": "Browser input, navigation, browser providers and browser profiles.",
+   "next_ordinal": 21
   },
   "bookmarks": {
    "id": 12,
-   "description": "Browser bookmarks."
+   "description": "Browser bookmarks.",
+   "next_ordinal": 6
   },
   "personal": {
    "id": 13,
-   "description": "Personal profiles, sessions, personal groups and pins."
+   "description": "Personal profiles, sessions, personal groups and pins.",
+   "next_ordinal": 18
   },
   "agents": {
    "id": 14,
-   "description": "Agents in terminals and the local feed."
+   "description": "Agents in terminals and the local feed.",
+   "next_ordinal": 7
   },
   "conversations": {
    "id": 15,
-   "description": "Local conversations, runs, attachments, inbox and search."
+   "description": "Local conversations, runs, attachments, inbox and search.",
+   "next_ordinal": 25
   },
   "cloud": {
    "id": 16,
-   "description": "cmux Cloud session, host replica, conversations and inbox."
+   "description": "cmux Cloud session, host replica, conversations and inbox.",
+   "next_ordinal": 29
   },
   "assets": {
    "id": 17,
-   "description": "Content-addressed icon assets."
+   "description": "Content-addressed icon assets.",
+   "next_ordinal": 2
   },
   "terminal-stream-events": {
    "id": 192,
-   "description": "Content of an attach stream: output, render state, frames and sizes."
+   "description": "Content of an attach stream: output, render state, frames and sizes.",
+   "next_ordinal": 12
   },
   "mux-events": {
    "id": 193,
-   "description": "The mux tree: workspaces, screens, panes, tabs, surfaces and their state."
+   "description": "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.",
+   "next_ordinal": 36
   },
   "daemon-events": {
    "id": 194,
-   "description": "Clients, daemon lifetime, settings, pairing and machine state."
+   "description": "Clients, daemon lifetime, settings, pairing and machine state.",
+   "next_ordinal": 12
   },
   "agent-events": {
    "id": 195,
-   "description": "Agents and the agent inventory."
+   "description": "Agents and the agent inventory.",
+   "next_ordinal": 4
   },
   "personal-events": {
    "id": 196,
-   "description": "Personal profiles, bookmarks and history."
+   "description": "Personal profiles, bookmarks and history.",
+   "next_ordinal": 3
   },
   "conversation-events": {
    "id": 197,
-   "description": "Local conversations, runs, drafts and Chief."
+   "description": "Local conversations, runs, drafts and Chief.",
+   "next_ordinal": 8
   },
   "cloud-events": {
    "id": 198,
-   "description": "cmux Cloud session, conversations and inbox."
+   "description": "cmux Cloud session, conversations and inbox.",
+   "next_ordinal": 12
   }
  },
  "types": {
@@ -10421,6 +10445,7 @@
    "method_id": 1537,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "sdk"
    ]
@@ -10869,6 +10894,7 @@
    "method_id": 1025,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "cli",
     "sdk"
@@ -11033,6 +11059,7 @@
    "method_id": 1792,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "cli",
     "sdk"
@@ -11082,7 +11109,7 @@
     "PTY surfaces only."
    ],
    "method_id": 774,
-   "priority": "control",
+   "priority": "input",
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
@@ -11957,6 +11984,7 @@
    "method_id": 2564,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "cli",
     "sdk"
@@ -15908,6 +15936,7 @@
    "method_id": 1036,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "cli",
     "sdk"
@@ -17756,7 +17785,7 @@
     "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
    ],
    "method_id": 784,
-   "priority": "bulk",
+   "priority": "input",
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
@@ -18830,6 +18859,7 @@
    "priority": "control",
    "durability": "reply_before_journal",
    "stream_scoped": true,
+   "spawns_terminal": true,
    "clients": [
     "macos",
     "sdk"
@@ -20034,6 +20064,7 @@
    "method_id": 2063,
    "priority": "control",
    "durability": "reply_before_journal",
+   "spawns_terminal": true,
    "clients": [
     "macos",
     "sdk"
@@ -24123,7 +24154,7 @@
    ],
    "method_id": 791,
    "priority": "control",
-   "durability": "read_only",
+   "durability": "memory",
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -24964,8 +24995,7 @@
    ],
    "method_id": 4104,
    "priority": "control",
-   "ordering": "independent",
-   "durability": "read_only",
+   "durability": "memory",
    "clients": [
     "macos",
     "sdk"
@@ -25601,7 +25631,7 @@
    ],
    "method_id": 2836,
    "priority": "control",
-   "durability": "read_only",
+   "durability": "memory",
    "clients": [
     "macos",
     "sdk"
@@ -25929,7 +25959,7 @@
     "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
    ],
    "method_id": 3857,
-   "priority": "bulk",
+   "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
     "macos",
@@ -26422,7 +26452,7 @@
     "The person's own clients with the app's lease (the verified app, an authenticated page), like every lease command. The same steps, fields, rules and refusals as conversation-attachment-upload; begin asks the cloud owner for an upload slot, commit sends the poster or preview then the file to the cloud owner and answers its record. Rejects: attachment_rejected, cloud_* errors. See spec/commands.md."
    ],
    "method_id": 4119,
-   "priority": "bulk",
+   "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
     "macos",
@@ -27205,7 +27235,7 @@
     "See spec/commands.md for the limits and the result object."
    ],
    "method_id": 4352,
-   "priority": "bulk",
+   "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
     "macos",
