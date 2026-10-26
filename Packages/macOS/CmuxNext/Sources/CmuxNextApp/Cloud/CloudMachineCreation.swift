@@ -29,10 +29,14 @@ final class CloudMachineCreation: Identifiable {
     private(set) var readyAfter: Duration?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
+    /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same.
+    let request: CloudMachineRequest
 
-    init(windowID: String?, session: CloudMachineSession? = nil, clock: ContinuousClock = ContinuousClock()) {
+    init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
+         clock: ContinuousClock = ContinuousClock()) {
         self.windowID = windowID
         self.session = session
+        self.request = request
         phase = session == nil ? .requesting : .created
         startedAt = clock.now
     }
@@ -90,8 +94,8 @@ final class CloudCreations {
 
     /// A new creation, listed at once.
     @discardableResult
-    func begin(window: String?, session: CloudMachineSession? = nil) -> CloudMachineCreation {
-        let creation = CloudMachineCreation(windowID: window, session: session)
+    func begin(window: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = CloudMachineCreation(windowID: window, session: session, request: request)
         all.append(creation)
         return creation
     }
@@ -140,8 +144,8 @@ struct CloudCreationFlow {
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
     @discardableResult
-    func start(in window: WindowState?, existing: CloudMachineSession?) -> CloudMachineCreation {
-        let creation = creations.begin(window: window?.id, session: existing)
+    func start(in window: WindowState?, existing: CloudMachineSession?, request: CloudMachineRequest = CloudMachineRequest()) -> CloudMachineCreation {
+        let creation = creations.begin(window: window?.id, session: existing, request: request)
         if let window {
             window.page = nil
             window.cloudCreation = creation.id
