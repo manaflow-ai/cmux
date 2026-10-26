@@ -413,7 +413,7 @@ impl Hub {
     /// Whether a new session may start here (module docs). Hold the returned
     /// guard until the create ends: until then it counts as a live session.
     pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<Admitted<'_>, RpcError> {
-        match self.admit(ask, None).await? {
+        match self.admit(ask, None, None).await? {
             Some(admitted) => Ok(admitted),
             None => Err(RpcError::internal("a create that adopts nothing attached to a session")),
         }
@@ -431,14 +431,16 @@ impl Hub {
         if self.holds_conversation(conversation) {
             return Ok(None);
         }
-        self.admit(ask, Some(conversation)).await
+        self.admit(ask, Some(conversation), None).await
     }
 
-    /// `admit_new`, and for an adopt `admit_adopt`.
+    /// `admit_new`, and for an adopt `admit_adopt`. `until`: the end of the wait
+    /// for other creates of its conversation, set when an adopt first waits.
     async fn admit(
         &self,
         ask: Ask<'_>,
         conversation: Option<&Conversation>,
+        until: Option<tokio::time::Instant>,
     ) -> Result<Option<Admitted<'_>>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
@@ -521,11 +523,16 @@ impl Hub {
         // the race for the room, not for the conversation: it waits for that create
         // and attaches to its session (`admit_adopt`).
         if let Some(c) = conversation {
-            if adopted {
-                self.admitting.wait_while(NAME_WAIT, |open| adopts(open, c)).await;
-            }
+            let until = until.unwrap_or_else(|| tokio::time::Instant::now() + NAME_WAIT);
+            let left = until.saturating_duration_since(tokio::time::Instant::now());
+            let still = adopted && self.admitting.wait_while(left, |open| adopts(open, c)).await;
             if self.holds_conversation(c) {
                 return Ok(None);
+            }
+            // Those creates ended without a session (they failed before one): their
+            // room is free again, so this adopt is counted afresh, within one wait.
+            if adopted && !still && tokio::time::Instant::now() < until {
+                return Box::pin(self.admit(ask, conversation, Some(until))).await;
             }
         }
         let (who, why) = (ask.who, refusal.why());
@@ -561,6 +568,7 @@ pub(crate) fn is_holder_gone(e: &RpcError) -> bool {
 }
 
 /// Who asks for a new session, for `Hub::admit_new`.
+#[derive(Clone)]
 pub(crate) struct Ask<'a> {
     /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged. Set only
     /// where `can_force`.
