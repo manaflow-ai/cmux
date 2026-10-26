@@ -53,6 +53,9 @@ Per mode:
            detached and never ordered in, task p01-process-053), the keys of cmux's defaults domain that changed
            while the host ran less those cmux changed alone before it (pass: none), and a Quit AppleEvent to the
            bundle id (cmux quits, not the host; last row).
+  geometry helper: the window moves, then grows, 1 point per display frame; the host's geometry counters
+           (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
+           display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
@@ -1065,6 +1068,7 @@ def run_helper(rpc, url, inproc_tab):
     row["fork_api"] = state.get("fork_api")
 
     row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    bounded(row, "geometry", lambda: geometry_row(rpc))
     if opts.ime:
         bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
 
@@ -1248,6 +1252,48 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 
 
 IME_STATS = ("changes", "pushes", "frames", "unsent", "watches")
+
+
+GEOMETRY_STATS = ("frames", "applied", "unchanged", "unplaced")
+
+
+def geometry_row(rpc, steps=60):
+    """Geometry frames per moving page per display frame (task p01-process-053). The host places a page's window only
+    when its geometry changed (HostContext::PlaceFrame), so a page that moves every frame costs at most one placement
+    per frame. The window moves 1 point per display frame for `steps` frames, then grows 1 point per frame for
+    `steps` frames (debug.window_frame: one programmatic setFrame each, as a display change or Rectangle does); the
+    host's counters (kOpGeometryStats: frames, applied, unchanged, unplaced) are read before and after through
+    `debug.chromium_host.measure {op: geometry}`. Pass: placements per display frame <= 1 for the one moving page, and
+    no geometry the host could not place. Until cmux's host session asks the host for them, the row says the counters
+    are unavailable instead of passing."""
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "geometry"}) or {}
+    before = counters()
+    if not all(isinstance(before.get(key), (int, float)) for key in GEOMETRY_STATS):
+        return {"unavailable": "the app does not answer debug.chromium_host.measure geometry", "reply": before,
+                "pass": None}
+    start = (rpc("debug.window_frame") or {}).get("frame")
+    if not (isinstance(start, list) and len(start) == 4):
+        return {"error": "no window frame (debug.window_frame)", "pass": False}
+    hz = main_display_hz() or 60.0
+    x, y, w, h = start
+    began = time.monotonic()
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + i, y, w, h]})
+        time.sleep(1 / hz)  # test harness: one move per display frame
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + steps, y, w + i, h]})
+        time.sleep(1 / hz)  # test harness: one resize per display frame
+    time.sleep(0.2)  # test harness: the last geometry reaches the host
+    elapsed = time.monotonic() - began
+    after = counters()
+    rpc("debug.window_frame", {"frame": start})
+    delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in GEOMETRY_STATS}
+    display_frames = max(1, round(elapsed * hz))
+    row = {"steps": 2 * steps, "display_frames": display_frames, "hz": hz, **delta}
+    row["applied_per_frame"] = round(delta["applied"] / display_frames, 3)
+    row["frames_per_frame"] = round(delta["frames"] / display_frames, 3)
+    row["pass"] = delta["applied"] > 0 and delta["applied"] <= display_frames and delta["unplaced"] == 0
+    return row
 
 
 def ime_row(rpc, title, click_point):

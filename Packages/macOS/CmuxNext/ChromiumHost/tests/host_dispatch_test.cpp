@@ -54,6 +54,8 @@ struct Shim {
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
   bool create_at_once = true;  // create_window's AFTER_CREATED comes inside the call
+  int create_result = 1;       // create_window's return (0: refused)
+  bool refuse_detach = false;  // set_detached_hosting(1) answers 0 (a fork that cannot detach)
   // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
   std::vector<std::pair<int, int>> created_in_call;
 } shim;
@@ -77,6 +79,7 @@ void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn) {}
 void cmux_shim_set_new_tab_page_url(const char* url) { shim.calls.push_back(std::string("ntp ") + url); }
 int cmux_shim_create_window(int request, void* parent_view, int, int, const char* url, const char*) {
   shim.calls.push_back("create " + std::to_string(request) + " " + url + (parent_view ? " view" : " noview"));
+  if (!shim.create_result) return 0;
   ++shim.live;
   if (shim.create_at_once) Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
   const std::vector<std::pair<int, int>> created = std::move(shim.created_in_call);
@@ -136,7 +139,7 @@ unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
 }
 int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
   shim.calls.push_back("detached " + std::to_string(browser_id) + " " + std::to_string(enabled));
-  return 1;
+  return enabled && shim.refuse_detach ? 0 : 1;
 }
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
@@ -848,6 +851,17 @@ void LayerHostingDetachesThePageWindow() {
   Expect(shim.calls, {"detached 3 0", "layer_hosting 3 0"}, "hosting off attaches the page window first");
   Expect(f.Sent(), {"reply 52 0"}, "and answers 0");
 
+  // A fork that refuses to detach: the page window would stay attached under a window that is
+  // never ordered in, which the fork's tracker hides, so hosting goes off again and cmux reads a
+  // refused hosting.
+  shim.calls.clear();
+  shim.refuse_detach = true;
+  hosting(kMinted, 1, 54);
+  shim.refuse_detach = false;
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1", "layer_hosting 3 0"},
+         "a refused detach turns hosting off again");
+  Expect(f.Sent(), {"reply 54 0"}, "and answers 0, a refused hosting");
+
   Writer bad;
   bad.I32(kMinted);
   f.host.OnMessages({Op(kOpBrowserSetLayerHosting, 53, bad)});
@@ -913,6 +927,51 @@ void GeometryOnlyOnChange() {
     f.host.PlaceFrame(GeometryFrame(kMinted + 2, 320, 200, 5, 5));
     Check(f.views.calls.size() == 1, "and it counts as the view's last geometry");
   }
+  {
+    // The ring overtakes create_window (not an ordered op): a minted id's geometry that comes
+    // before create_window is dispatched still places its page view, at the creation.
+    Fixture f;
+    f.Start();
+    f.host.PlaceFrame(GeometryFrame(kMinted + 3, 500, 400, 7, 8));
+    f.host.PlaceFrame(GeometryFrame(kMinted + 3, 510, 400, 7, 8));
+    Check(f.views.calls.empty() && f.host.geometry_stats().unplaced == 0, "held, not dropped");
+    CreateWindow(f, kMinted + 3, 12);
+    Expect(f.views.calls, {"open 12", "place 12 510x400 at 7,8"},
+           "create_window's creation places the newest geometry that came before it");
+
+    // A refused create_window drops what it held.
+    shim.create_at_once = false;
+    shim.create_result = 0;
+    f.host.PlaceFrame(GeometryFrame(kMinted + 4, 50, 50, 0, 0));
+    CreateWindow(f, kMinted + 4, 13);
+    shim.create_result = 1;
+    f.views.calls.clear();
+    Emit(CMUX_SHIM_AFTER_CREATED, 4, 42);
+    Check(f.views.calls.empty(), "a refused create_window's held geometry places nothing");
+  }
+}
+
+// The geometry counters go to cmux on request (chromium-host-bench.py geometry row).
+void GeometryStatsReply() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 0, 0));
+  f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 0, 0));
+  f.host.PlaceFrame(GeometryFrame(7, 10, 10, 0, 0));
+  f.Sent();
+  f.host.OnMessages({Op(cmux_host::kOpGeometryStats, 60, Writer())});
+  Check(f.sent.size() == 1 && f.sent[0].op == kOpReply && f.sent[0].token == 60, "a REPLY to the stats request");
+  if (f.sent.size() == 1) {
+    Reader r(f.sent[0].fields);
+    const int64_t frames = r.I64(), applied = r.I64(), unchanged = r.I64(), unplaced = r.I64();
+    Check(r.ok() && r.AtEnd() && frames == 3 && applied == 1 && unchanged == 1 && unplaced == 1,
+          "frames, applied, unchanged, unplaced");
+  }
+  Writer bad;
+  bad.I32(1);
+  f.host.OnMessages({Op(cmux_host::kOpGeometryStats, 61, bad)});
+  Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
 void WipeZeroes() {
@@ -941,6 +1000,7 @@ int main() {
   AccessibilityTokenCreatedInsideAnotherOp();
   LayerHostingDetachesThePageWindow();
   GeometryOnlyOnChange();
+  GeometryStatsReply();
   WipeZeroes();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");

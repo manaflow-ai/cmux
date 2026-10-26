@@ -31,9 +31,14 @@
 //                                              (host_text_input.h)
 //   kOpTextInputStats                           no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpGeometryStats                            no fields: answered with GeometryStats as
+//                                              i64 frames, applied, unchanged, unplaced
+//                                              (chromium-host-bench.py geometry row)
 //   kOpBrowserSetLayerHosting                   the generated case's fields and reply; the
 //                                              host also detaches the page window whose
-//                                              layers it hosts (HandleLayerHosting)
+//                                              layers it hosts, and answers 0 (a refused
+//                                              hosting) when the fork refuses to detach it
+//                                              (HandleLayerHosting)
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
@@ -78,6 +83,9 @@ namespace cmux_host {
 
 using TlvWriter = control::TlvWriter;
 using TlvReader = control::TlvReader;
+
+// Next to kOpTextInputStats (host_text_input.h): not in the generated op table.
+inline constexpr uint16_t kOpGeometryStats = 0x8009;
 
 // Zeroes and clears strings that held secrets (password records) once the
 // call that read them returned.
@@ -225,16 +233,18 @@ class HostContext {
   // An input ring frame (the ordered stream's dispatch, tasks 041 and 042):
   // true when it is a page's geometry, which this applied; false for every
   // other kind, the input dispatch's. The frame names the browser cmux
-  // created the page view's window with (create_window); a geometry of a
-  // browser not created yet waits for its creation. The page view's window
-  // moves or resizes only when the geometry changed (task 053), as Chrome's
+  // created the page view's window with (create_window); the newest geometry
+  // of a minted id with no browser yet, whose create_window the ring frame
+  // overtook or whose creation has not come, waits for its creation. The page
+  // view's window moves or resizes only when the geometry changed (task 053), as Chrome's
   // RenderWidgetHostViewMac sends bounds to the renderer only when they
   // differ (content/browser/renderer_host/render_widget_host_view_mac.mm,
   // OnBoundsInWindowChanged).
   bool PlaceFrame(const Header& frame);
   // Geometry frames in all, and of them those that moved or resized a view,
   // those equal to the view's last geometry, and those of a browser with no
-  // page view (a tab cmux did not create with create_window).
+  // page view (a tab cmux did not create with create_window, or a held
+  // geometry past the bound).
   struct GeometryStats {
     uint64_t frames = 0;
     uint64_t applied = 0;
@@ -268,8 +278,12 @@ class HostContext {
   // window's pixels are in the context cmux shows, the fork's detached
   // hosting of that window (set_detached_hosting(1), API 30), so no page
   // window of the host is ever on screen; turning hosting off attaches it
-  // first. Answers the context id.
+  // first. Answers the context id; when the fork refuses to detach, hosting
+  // goes off again and the answer is 0, as for a refused hosting.
   bool HandleLayerHosting(const control::Message& message);
+  // Keeps `geometry` as `client_id`'s newest until its creation; past
+  // kMaxPendingBinds held ids it is dropped (unplaced).
+  void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
   // `chromium_id`'s page view takes `geometry` when it changed.
   void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -359,9 +373,9 @@ class HostContext {
 
   // The geometry each open page view was last placed at, by token.
   std::unordered_map<uint64_t, PageGeometry> placed_;
-  // The newest geometry of minted ids whose creation has not come, by the
-  // minted id: placed at the creation. Bounded with pending_binds_
-  // (AwaitsCreation).
+  // The newest geometry of minted ids with no browser yet, by the minted id:
+  // placed at the creation, dropped at a refused create or a close. Bounded
+  // by kMaxPendingBinds (HoldGeometry).
   std::unordered_map<int32_t, PageGeometry> geometry_awaiting_;
   GeometryStats geometry_stats_;
 };

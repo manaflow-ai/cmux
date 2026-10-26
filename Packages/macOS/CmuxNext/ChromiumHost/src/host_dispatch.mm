@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "chromium_host_input_ring.h"
+#include "chromium_host_mint.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
 
@@ -204,6 +205,16 @@ void HostContext::Handle(control::Message& message) {
         Reply(message.token, reply);
         return;
       }
+      if (message.op == kOpGeometryStats) {
+        if (!message.fields.empty()) return Bad("a malformed geometry stats request");
+        TlvWriter reply;
+        for (uint64_t value : {geometry_stats_.frames, geometry_stats_.applied, geometry_stats_.unchanged,
+                               geometry_stats_.unplaced}) {
+          reply.I64(static_cast<int64_t>(value));
+        }
+        Reply(message.token, reply);
+        return;
+      }
       if (message.op == kOpBrowserSetLayerHosting) {
         if (!HandleLayerHosting(message)) Bad("a malformed layer hosting op");
         return;
@@ -306,9 +317,13 @@ bool HostContext::HandleLayerHosting(const control::Message& message) {
   if (!r.ok() || !r.AtEnd()) return false;
   const int browser = Browser(client);
   if (!enabled) cmux_shim_browser_set_detached_hosting(browser, 0);
-  const unsigned int context = cmux_shim_browser_set_layer_hosting(browser, enabled);
+  unsigned int context = cmux_shim_browser_set_layer_hosting(browser, enabled);
   if (enabled && context != 0 && !cmux_shim_browser_set_detached_hosting(browser, 1)) {
+    // The page window is never ordered in (HostPageViews), so an attached one is hidden to the
+    // fork's tracker: hosting it would show a blank or frozen page. A refused hosting instead.
     fprintf(stderr, "cmux-chromium-host: the fork did not detach browser %d's page window\n", browser);
+    cmux_shim_browser_set_layer_hosting(browser, 0);
+    context = 0;
   }
   TlvWriter reply;
   reply.U32(context);
@@ -322,12 +337,27 @@ bool HostContext::PlaceFrame(const Header& frame) {
   ++geometry_stats_.frames;
   if (state_ == State::kEnded) return true;
   const int32_t client = input_ring::BrowserOf(frame);
-  if (AwaitsCreation(client)) {
-    geometry_awaiting_[client] = *geometry;  // the newest one; ForwardEvent places it
+  // A minted id that names no browser yet: its create_window is still on the control channel
+  // (create_window is not an ordered op, so the ring can overtake it) or waits for its creation.
+  if (AwaitsCreation(client) || (mint::IsMintedBrowser(client) && !chromium_of_.count(client))) {
+    HoldGeometry(client, *geometry);
     return true;
   }
   PlaceBrowser(Browser(client), *geometry);
   return true;
+}
+
+void HostContext::HoldGeometry(int32_t client_id, const PageGeometry& geometry) {
+  auto held = geometry_awaiting_.find(client_id);
+  if (held != geometry_awaiting_.end()) {
+    held->second = geometry;  // the newest one; ForwardEvent places it
+    return;
+  }
+  if (geometry_awaiting_.size() >= kMaxPendingBinds) {
+    ++geometry_stats_.unplaced;
+    return;
+  }
+  geometry_awaiting_.emplace(client_id, geometry);
 }
 
 void HostContext::PlaceBrowser(int chromium_id, const PageGeometry& geometry) {
@@ -554,6 +584,7 @@ void HostContext::Bind(int32_t client_id, int chromium_id) {
 
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
+  geometry_awaiting_.erase(client_id);
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   for (auto& [op, keys] : watched_) {
@@ -658,6 +689,7 @@ void HostContext::BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind,
   if (result != 1) {
     // The call refused: no event will name the browser.
     fprintf(stderr, "cmux-chromium-host: op %u refused minted id %d\n", op, minted);
+    geometry_awaiting_.erase(minted);
     return;
   }
   if (pending_binds_.size() >= kMaxPendingBinds) return Bad("too many browsers waiting for their creation");
