@@ -198,6 +198,8 @@ RESULT_ENGINE = "chromium"
 # How long a restore waits for the store to apply its own closes (an action's reply comes after the daemon's, the
 # topology after the store's event), as the rebuild's workspace close waits: a bound on a wait for a real change.
 STORE_APPLY_S = 5.0
+# How long a sample's describe waits for the context facts the session set up to be published (Sweep.described).
+CONTEXT_HOLD_S = 2.0
 # The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
 # failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
 FAILED_SESSION_EXIT = 3
@@ -1592,8 +1594,7 @@ class Sweep:
             why = self.enter_contexts(plan["families"])
             if why:
                 return None, why[:200], "gap"
-            described = rpc("action.describe", {"action": ident})
-            info = (described or {}).get("action") if isinstance(described, dict) else None
+            info = self.described(ident, plan)
             if info and info.get("available") is False and not plan["args"]:
                 why = info.get("context_reason") or info.get("unavailable_reason") or "context"
                 return None, f"unavailable here: {why}", "gap"
@@ -1718,6 +1719,31 @@ class Sweep:
         if starts:
             row["from_pane"] = starts
         return row
+
+    def described(self, ident, plan):
+        """action.describe's `action` for `ident` once the context facts it requires are published, or its last answer
+        after CONTEXT_HOLD_S (None when describe does not answer). plan() lets through only facts the session sets up
+        (CONTEXT_SETUP or a family), so a `missing_context` here is one still on its way: the page or view a show()
+        focused takes the keyboard on a later turn, then the registry context and the socket catalog's mask follow
+        (ControlRouter publishes the mask alone). One describe right after show() skipped rows as `unavailable here`
+        at random while their neighbors on the same chat ran. A chat still without the keyboard halfway gets it as
+        the typing benches give it (debug.agent_pane focus_composer: pane.focus, then the composer)."""
+        last, start, nudged = {}, time.monotonic(), []
+
+        def holds():
+            reply = rpc("action.describe", {"action": ident})
+            info = reply.get("action") if isinstance(reply, dict) else None
+            last["info"] = info if isinstance(info, dict) else None
+            missing = (last["info"] or {}).get("missing_context") or []
+            if not last["info"] or last["info"].get("available") is not False or not missing:
+                return True
+            if plan["context"] == "chat" and "agentPaneFocused" in missing and not nudged \
+                    and time.monotonic() - start >= CONTEXT_HOLD_S / 2:
+                nudged.append(rpc("debug.agent_pane", {"action": "focus_composer"}))
+            return False
+
+        wait(holds, CONTEXT_HOLD_S)
+        return last.get("info")
 
     def enter_contexts(self, keys):
         """Enters each family context of `keys` (plan()'s `families`) in order: None, or why one did not hold. A key
