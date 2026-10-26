@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A hidden Chromium page frozen through the page lifecycle: its timers, tasks and rendering stop
 /// until it thaws. On cmux14 this cut a hidden renderer's energy by about 90 %.

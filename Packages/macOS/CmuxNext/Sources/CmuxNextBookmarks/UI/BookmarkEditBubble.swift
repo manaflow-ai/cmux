@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import Observation
+public import CmuxNextWakeups
 import SwiftUI
 
 /// A folder choice in the edit bubble and editor sheets: indented by depth.
@@ -50,16 +50,21 @@ public final class BookmarkEditBubble: NSObject {
     /// The page's title now (observable): a new bookmark made before the page had a title takes
     /// it when it arrives, unless the name was edited.
     private let pageTitle: (() -> String?)?
+    private let mainWork: MainWorkScheduler
+    /// Follows ``pageTitle`` while the bubble shows.
+    private var titleWatch: FrameObservation<String?>?
     /// The name the bubble filled in last (from the page); a different name is the user's.
     private var filledTitle: String
     /// The open bubble, so a second press on the star closes it.
     public private(set) static var current: BookmarkEditBubble?
 
+    /// `mainWork` is the app's one main-thread scheduler: a title that arrives applies at its next frame.
     public init(isNew: Bool, title: String, folder: String, folders: [BookmarkFolderChoice],
-                pageTitle: (() -> String?)? = nil,
+                pageTitle: (() -> String?)? = nil, mainWork: MainWorkScheduler,
                 onSave: @escaping (Result) -> Void, onRemove: @escaping () -> Void, onMore: @escaping () -> Void) {
         model = BookmarkEditModel(isNew: isNew, title: title, folder: folder, folders: folders)
         self.pageTitle = isNew ? pageTitle : nil
+        self.mainWork = mainWork
         filledTitle = title
         self.onSave = onSave
         self.onRemove = onRemove
@@ -106,11 +111,19 @@ public final class BookmarkEditBubble: NSObject {
     /// While the bubble shows, a page title that arrives (or changes) becomes the name, unless the
     /// user edited the name. The star saves the bookmark at once, often before the page has a title.
     private func followPageTitle() {
-        guard let pageTitle, popup.isShown, !finished else { return }
-        let title = withObservationTracking { pageTitle() } onChange: { [weak self] in
-            Task { @MainActor in self?.followPageTitle() }
+        guard let pageTitle, titleWatch == nil else { return }
+        // node-free: the bubble is open only over its page, which shows
+        let watch = FrameObservation(owner: "bookmarks.editBubble.title", delivery: .visible(nil), on: mainWork) {
+            pageTitle()
+        } onChange: { [weak self] title in
+            self?.fill(title)
         }
-        guard let title, !title.isEmpty, title != filledTitle, model.title == filledTitle else { return }
+        titleWatch = watch
+        fill(watch.value)
+    }
+
+    private func fill(_ title: String?) {
+        guard popup.isShown, !finished, let title, !title.isEmpty, title != filledTitle, model.title == filledTitle else { return }
         filledTitle = title
         model.title = title
     }
@@ -134,6 +147,8 @@ public final class BookmarkEditBubble: NSObject {
 
     private func closed() {
         save()
+        titleWatch?.cancel()
+        titleWatch = nil
         if BookmarkEditBubble.current === self { BookmarkEditBubble.current = nil }
     }
 }

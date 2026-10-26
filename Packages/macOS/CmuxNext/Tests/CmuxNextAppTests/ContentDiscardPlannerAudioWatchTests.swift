@@ -5,6 +5,7 @@ import CmuxNextSettings
 import Foundation
 import Observation
 import Testing
+import CmuxNextWakeups
 
 /// Browser hibernation follows each page's sound as Chrome's page node follows its audible bit
 /// (`PageNode::IsAudible`, `GetTimeSinceLastAudibleChange`): the tab's own audible bit, observed
@@ -48,7 +49,7 @@ import Testing
 
     @Test func aHiddenPageHibernatesOnceTheMinuteAfterItsSoundIsOver() async throws {
         let clock = FakeNow()
-        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(now: { clock.now }))
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let (key, _) = try await pageWhoseSoundEnded(rig, minutes: 0.001)
         let next = try #require(rig.hibernation.nextCheck, "the minute's end armed no deadline")
@@ -65,7 +66,7 @@ import Testing
     /// `debug.surfaces` no longer says it is recently audible.
     @Test func aLaterTimeoutDropsTheEndedReason() async throws {
         let clock = FakeNow()
-        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(now: { clock.now }))
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let (key, _) = try await pageWhoseSoundEnded(rig, minutes: 30)
         let atEnd = try #require(rig.hibernation.nextCheck)
@@ -79,7 +80,7 @@ import Testing
     }
 
     @Test func aPageThatNeverPlayedIsNotProtected() throws {
-        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory())
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let (key, _) = try hiddenMockPage(rig, playing: false)
         let entry = try #require(rig.services.cache.browsers[key])
@@ -104,7 +105,7 @@ import Testing
     /// A page whose sound starts and ends while it shows (a page swapped in on screen too) is
     /// followed from its mount, not from a show.
     @Test func aShownPageIsFollowedFromItsMount() async throws {
-        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory())
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/shown")))
         let key = tab.id.rawValue
@@ -122,7 +123,7 @@ import Testing
     /// The watch follows the audible bit only: a load tick or a title on a watched page is no change.
     @Test func aTitleOrLoadTickIsNoAudibleChange() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/quiet")))
-        let history = AudibleHistory()
+        let history = AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var changes = 0
         history.onEnded = { _ in changes += 1 }
         history.watch("quiet", tab) { [weak tab] in tab?.isAudible == true }
@@ -160,7 +161,7 @@ import Testing
     /// after its context stops keeps it (the tab's media report covers media elements only).
     @Test func theFreezeProbeRecordsWebAudio() async throws {
         let clock = FakeNow()
-        let rig = try NeighborTabsWakeTests.Rig(freezes: true, audible: AudibleHistory(now: { clock.now }))
+        let rig = try NeighborTabsWakeTests.Rig(freezes: true, audible: AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/synth")))
         tab.evaluationResult = .string(#"{"media":false,"sound":false,"form":false,"audio":true}"#)
@@ -181,7 +182,7 @@ import Testing
 
     /// A closed page leaves no sound history or watch behind.
     @Test func forgetDropsTheHistory() async throws {
-        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory())
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
         let (key, _) = try hiddenMockPage(rig, playing: true)
         let audible = try #require(rig.hibernation.audible)
