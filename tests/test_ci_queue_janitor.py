@@ -962,6 +962,12 @@ class OrphanPlanTests(unittest.TestCase):
                  path=".github/workflows/ios-appstore-upload.yml"),
             dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
             dict(event="issue_comment", branch="main", name="Claude Code", path=".github/workflows/claude.yml"),
+            # ci.yml's run-name carries routing metadata such as release=arm64.
+            # Run 40039647633 held main's CI concurrency group for two days
+            # because that word made the orphan pass read it as a release.
+            dict(event="workflow_dispatch", branch="main",
+                 name="v1;sha=b42fd54913fa92017bc08195148f70755fb93288;ref=main;cache=r2;release=arm64;coverage=full",
+                 path=".github/workflows/ci.yml"),
         ):
             with self.subTest(**kwargs):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
