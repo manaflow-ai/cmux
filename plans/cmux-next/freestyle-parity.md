@@ -78,12 +78,41 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 | 35 | Egress routing via **the user's computer** (tunnel exit with fallback) | Tunnel hub exists (row 28) as the way a Mac joins the network; no exit-route attachment | none | none | none | none | missing | a639 | W5: attach "exit via device" to tunnel route; fallback to Freestyle egress |
 | 36 | Egress routing via a **router VM** | none | none | none | none | none | missing | a639 | W5 after VPC CRUD |
 | **Developer surface** | | | | | | | | | |
-| 37 | CLI `freestyle` main (vm, snapshot, vpc, tunnels, firewall, tls, domain, identity, tokens, skill) | = rows above | main `cmux vm`, `cmux cloud domains`; tenant `cmux-vm` | catalog | | cloud/cli | partial | a638 | a638 adds `cmux vm` scope in cmux-next; a639 adds `domain`, `identity`, `vpc`, `firewall`, `tls` verbs to CLI tenant as routes land |
-| 38 | CLI `vm`: exec, pty, fs, scp, snapshot | `vm exec/run/shell/push/pull`; tenant: no `exec` verb (route `POST /v1/vms/{id}/exec` exists) | see left | `cloud.*` | | | partial | a638 | tenant `cmux-vm exec` |
+| 37 | CLI `freestyle` main (vm, snapshot, vpc, tunnels, firewall, tls, domain, identity, tokens, skill) | = rows above | main `cmux vm` forwards every tenant verb; tenant `cmux-vm`: `vpc`/`mesh`, `tunnel`/`tunnels`, `firewall get/set`, `session`, `https-proxy set` (table below) | catalog | | cloud/cli; `workers/cmux-vm/README.md` "Operator CLI verbs" | partial | a638 | `tls`, `domain`, `identity <subcommand>` and `update` verbs wait for their tenant routes; `tokens` stays denied (cmux `api-key`) |
+| 38 | CLI `vm`: exec, ssh, pty, fs, scp, snapshot | tenant `cmux-vm exec`, `ssh`, `file`/`fs ls/read/write/stat`, `push`/`pull`/`scp`, `terminal list/close`, `snapshot` | `cmux vm` forwards all of them | `cloud.*` | | | partial | a638 | `fs mkdir/rm`, `vm update` and `snapshot update` need tenant routes; `scp -r` (directories) not yet |
 | 39 | CLI `domains` | `cmux cloud domains …` | | | | cloud/cli | done | a639 | none |
 | 40 | TypeScript SDK (`freestyle` npm: vms, identities, domains, tls, vpc…) | `@cmux/vm` is a thin typed HTTP client with no helpers (`vm.exec`, `fs.readFile`, `identity.tokens`, `pty.open` …) | n/a | n/a | partial | none | partial | a638 | a638 owns SDK; a639 supplies routes the SDK needs (W1–W5) |
 | 41 | Pricing and limits page (per-plan concurrent VMs, saved VMs, sizes) | cmux.com `/pricing`; limits enforced in `entitlements.ts` (5 active VMs, shared vCPU/memory pool, size caps) | `vm status` | `cloud.plan.get` | none | `/pricing` mentions Cloud; no per-plan limits table | partial | a641/a639 | W7: public limits page from `entitlements.ts` constants (generated, so it cannot drift) |
 | 42 | Docs: guides per use-case (Claude Code, Docker, Postgres, VS Code, Chromium, GNOME…) | cmux.com `/docs/cloud/*` (5 pages: machines, cli, networking, workspaces, troubleshooting) | | | | 5 pages | partial | a641 | W7: Tenant API reference (generated from `openapi.json`), identities, domains, files, recipes |
+
+### Provider CLI command to cmux verb (rows 37-38)
+
+`cmux vm X` forwards to `cmux-vm X`. "route pending" means the tenant route does not exist yet; the
+verb slots into the named group when it lands. Every verb takes `--json` (provider `--output=json`).
+
+| Provider command | cmux verb |
+| --- | --- |
+| `vm create/get/list/delete/start/pause/resize` | `create` (`new`), `get`, `list` (`ls`), `delete` (`rm`), `start`, `pause`, `resize`; also `stop`, `resume`, `retire`, `fork` |
+| `vm update` | route pending (`update`) |
+| `vm exec` | `exec VM -- CMD` |
+| `vm ssh` | `ssh VM [--linux-user U] [-- CMD]` (client session, revoked on exit) |
+| `vm scp` | `scp SRC DST`, `push LOCAL VM:PATH`, `pull VM:PATH LOCAL` (single files) |
+| `vm fs ls/read/write/stat` | `file ls/read/write/stat` (alias `fs`) |
+| `vm fs mkdir/rm` | route pending (`file mkdir/rm`) |
+| `snapshot create/list/get/delete` | `snapshot create/list/get/delete` |
+| `snapshot update` | route pending |
+| `vpc create/list/get/delete` | `vpc create/list/get/delete` (alias `mesh`) |
+| `vpc update`, `vpc ips` | route pending |
+| `vpc tunnels` | `vpc tunnels MESH` (also `vpc devices`) |
+| VM membership | `vpc attach/detach MESH VM` |
+| `firewall create/list/get/delete` | `firewall get` (alias `list`) and `firewall set --file` (whole mesh ACL, versioned) |
+| `firewall evaluate` | route pending |
+| `tunnel create/list/get/rotate/delete` | `tunnel create --request`, `list MESH`, `get tun_…\|dev_…`, `rotate` (`rotate-key`), `delete`; plus `peers`, `enrollment-code` |
+| `tunnel update/attach/detach` | route pending (a tenant device belongs to one mesh at enrollment) |
+| `tls` (rules, forward-auth) | `https-proxy set` for outbound proxies; inbound rules route pending |
+| `domain` (verify, list, certs, wildcard) | route pending (App API `cmux cloud domains` today) |
+| `identity create/list/get/delete/permissions/tokens` | per-VM `session create/list/revoke`; end-user identities route pending |
+| `tokens`, `account`, `auth`, `billing`, `skill` | not exposed (see below); cmux keys are `api-key` |
 
 ## Deliberately not exposed (user check list)
 

@@ -600,6 +600,32 @@ holds, with a wildcard certificate; unset disables managed hostnames),
 `CMUX_VM_DOMAIN_EDGE_HOST` and `CMUX_VM_CERTIFICATE_NAMESERVER` (DNS
 instructions in domain responses; unset omits them).
 
+## Operator CLI verbs
+
+`cmux-vm` (and `cmux vm`, which forwards every verb) uses the provider CLI's
+verb vocabulary over the tenant routes. Every verb takes the global `--json`,
+which prints the response body unchanged; destructive verbs ask for the id at a
+terminal and need `--yes` otherwise.
+
+| Verbs | Routes |
+| --- | --- |
+| `create`, `list` (`ls`), `get`, `delete` (`rm`), `start`, `stop`, `pause`, `resume`, `resize`, `retire`, `fork`, `identity`, `exec` | `/v1/vms…` |
+| `file ls\|read\|write\|stat` (also `fs`) | `GET/PUT /v1/vms/{id}/files/{entries,content,stat}`; `read --out` and `write` stream, `--mode` is octal |
+| `push LOCAL VM:PATH`, `pull VM:PATH LOCAL`, `scp SRC DST` | the same file routes, one file per copy; a directory destination takes the source name |
+| `ssh VM [--linux-user U] [-- CMD]` | `POST …/client-session`, then the system `ssh`; the token reaches `ssh` only through `cmux-vm` as its askpass helper, and the session is revoked on exit unless `--keep-session` |
+| `session create\|list\|revoke` | `…/client-session`, `…/client-sessions[/{id}]`; the token is printed only with `--json` |
+| `terminal list\|close` | `…/terminals[/{terminal}]` (attach is a WebSocket and stays in the app) |
+| `vpc create\|list\|get\|delete\|attach\|detach\|devices\|tunnels` (also `mesh`) | `/v1/meshes…`, `PUT/DELETE /v1/meshes/{mesh}/vms/{vm}` |
+| `tunnel create\|list\|get\|peers\|rotate\|delete\|enrollment-code` (also `tunnels`) | mesh devices, `/v1/tunnels/{id}`, `/v1/devices/{id}[/peers\|/rotate-key]`, `…/enrollment-codes`; signed requests come from `--request FILE` and only their public fields are sent |
+| `firewall get\|set` | `GET/PUT /v1/meshes/{mesh}/acl`; `set --file` takes edited `firewall get --json` output and applies at its version |
+| `https-proxy set VM HOST --destination ORIGIN` | `PUT /v1/vms/{id}/https-proxies/{hostname}`; `--headers-file` keeps header values off the command line |
+| `snapshot`, `image`, `api-key`, `creation`, `device` | as before |
+
+New tenant routes slot in as verbs of these groups (for example `file mkdir`,
+`vpc update`, `firewall evaluate`, `tunnel update`); `identity VM_ID` keeps its
+meaning, so end-user identities would arrive as `identity <subcommand>` or under
+`session`.
+
 ## Layout
 
 | path | what |

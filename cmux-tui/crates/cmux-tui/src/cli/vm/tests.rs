@@ -54,3 +54,46 @@ fn workspace_new_points_at_the_app_action() {
     let error = planned(&["vm", "workspace", "new", "vm_1"]).unwrap_err();
     assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
 }
+
+#[test]
+fn every_cmux_vm_verb_is_forwarded_unchanged() {
+    for &verb in FORWARDED {
+        assert_eq!(planned(&["vm", verb, "x"]).unwrap(), args(&[verb, "x"]), "{verb}");
+    }
+    assert_eq!(
+        planned(&["vm", "scp", "a.txt", "vm_1:/root/"]).unwrap(),
+        args(&["scp", "a.txt", "vm_1:/root/"])
+    );
+    assert_eq!(
+        planned(&["vm", "fs", "ls", "vm_1", "/root"]).unwrap(),
+        args(&["fs", "ls", "vm_1", "/root"])
+    );
+    assert_eq!(
+        planned(&["vm", "vpc", "attach", "mesh_1", "vm_1"]).unwrap(),
+        args(&["vpc", "attach", "mesh_1", "vm_1"])
+    );
+}
+
+#[test]
+fn ssh_keeps_the_remote_command_after_the_double_dash() {
+    assert_eq!(
+        planned(&["vm", "ssh", "vm_1", "--linux-user", "dev", "--", "ls", "-la"]).unwrap(),
+        args(&["ssh", "vm_1", "--linux-user", "dev", "--", "ls", "-la"]),
+    );
+}
+
+#[test]
+fn help_reaches_cmux_vm_and_a_verb_names_its_own_help() {
+    assert_eq!(planned(&["vm", "--help"]).unwrap(), args(&["--help"]));
+    assert_eq!(planned(&["vm", "help", "ssh"]).unwrap(), args(&["help", "ssh"]));
+}
+
+#[test]
+fn usage_errors_name_the_new_verbs() {
+    let error = planned(&["vm"]).unwrap_err();
+    for verb in ["ssh", "scp", "vpc", "tunnel", "firewall"] {
+        assert!(error.0.contains(verb), "{}", error.0);
+    }
+    let error = planned(&["vm", "frobnicate"]).unwrap_err();
+    assert!(error.0.contains("frobnicate") && error.0.contains("ssh"), "{}", error.0);
+}

@@ -221,6 +221,7 @@ dependencies = [
  "clap",
  "cmux-vm-client",
  "futures",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
