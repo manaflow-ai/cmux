@@ -61,16 +61,7 @@
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "a daemon restart runs no action; the reconnecting state is its result"
-      }
-    },
-    {
-      "id": "ax-reconnecting",
-      "op": "snapshot",
-      "args": {
-        "facets": [
-          "ax"
-        ]
+        "noReceiptReason": "a daemon restart runs no action"
       }
     },
     {
@@ -108,6 +99,7 @@
   ],
   "untested": [
     "VoiceOver speech output",
-    "the AX trees of web pages (the webviews facet, p15-oracle-215)"
+    "the AX trees of web pages (the webviews facet, p15-oracle-215)",
+    "the transient reconnecting state: no barrier holds it and the ax facet cannot be waited on"
   ]
 }

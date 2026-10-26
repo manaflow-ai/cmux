@@ -131,7 +131,7 @@
   ],
   "invariants": [
     "a kept element whose name is an app string has its localization key, never its text",
-    "the composer keeps its key and role with a draft in it; the draft text is never recorded"
+    "the agent page holds the focus as one leaf (its own elements are the webviews facet's); no draft text is recorded"
   ],
   "teardown": [
     "quit the tagged app the run started",
@@ -139,6 +139,7 @@
   ],
   "untested": [
     "VoiceOver speech output",
-    "the AX trees of web pages (the webviews facet, p15-oracle-215)"
+    "the AX trees of web pages (the webviews facet, p15-oracle-215)",
+    "the composer's role and key with a draft in it (inside the page: the webviews facet, p15-oracle-215)"
   ]
 }

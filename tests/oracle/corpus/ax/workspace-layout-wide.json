@@ -117,7 +117,7 @@
       },
       "args": {
         "keys": [
-          "cmd+shift+r"
+          "cmd+r"
         ]
       },
       "expect": {

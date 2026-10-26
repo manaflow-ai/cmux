@@ -13,13 +13,23 @@ public import Foundation
 /// the name's localization key instead, so the baseline does not depend on the locale and never holds text a
 /// person, a shell or a page wrote (a tab title): a name that is no app string has no key and is recorded as null.
 ///
-/// The host walks the tree in the snapshot's main-actor turn; the keys come after it, off the main actor, from the
-/// string tables on disk (``OracleFacetCapture/mainActorThenBackground(_:)``).
+/// The key an element names itself with (its AX identifier, when that is a key of the app's tables) is recorded as
+/// is. Without one, the key is read back from the shown text, and a text that several keys show (`Back`, `Close`) is
+/// recorded as ``ambiguousKey``, never as one of its keys picked by a rule the element did not use.
+///
+/// The host walks the tree in the snapshot's main-actor turn (``OracleAccessibilityWalk``); the keys come after it,
+/// off the main actor, from the string tables, read once per facet list
+/// (``OracleFacetCapture/mainActorThenBackground(_:)``).
 public struct OracleAccessibilityFacet: OracleFacetProvider {
+    /// The `labelKey` of a node whose shown text is the text of several keys and that names no key itself.
+    public static let ambiguousKey = "<ambiguous>"
+
     /// One kept element.
     public struct Node: Sendable, Hashable {
         /// The AX role (`AXButton`, `AXTextField`, `AXRow`).
         public var role: String
+        /// The element's AX identifier; it is its key when the app's tables have that key.
+        public var identifier: String?
         /// The texts that name the element, in the order the facet tries them for a key (AX label, title,
         /// placeholder, help). Only a key found for one reaches the facet, never the text.
         public var names: [String]
@@ -28,8 +38,9 @@ public struct OracleAccessibilityFacet: OracleFacetProvider {
         /// How many kept elements contain it.
         public var depth: Int
 
-        public init(role: String, names: [String], enabled: Bool, focused: Bool, depth: Int) {
+        public init(role: String, identifier: String? = nil, names: [String], enabled: Bool, focused: Bool, depth: Int) {
             self.role = role
+            self.identifier = identifier
             self.names = names
             self.enabled = enabled
             self.focused = focused
@@ -62,32 +73,62 @@ public struct OracleAccessibilityFacet: OracleFacetProvider {
         }
     }
 
+    /// The app's keys and, for each shown text, the keys that show it.
+    public struct StringIndex: Sendable, Hashable {
+        private var keys: Set<String> = []
+        private var keysByText: [String: Set<String>] = [:]
+
+        /// - Throws: when a table is not a property list of strings: its names would otherwise turn null unseen.
+        public init(_ tables: [StringTable]) throws(OracleFacetError) {
+            for table in tables {
+                let parsed = try? PropertyListSerialization.propertyList(from: table.data, format: nil)
+                guard let strings = parsed as? [String: Any] else {
+                    throw OracleFacetError("string table \(table.name) is not a property list of strings")
+                }
+                for (key, value) in strings {
+                    guard let text = value as? String else { continue }
+                    keys.insert(key)
+                    keysByText[text, default: []].insert(key)
+                }
+            }
+        }
+
+        /// `node`'s key: its identifier when that is a key; else the key of its first name that is an app string's
+        /// text, or ``OracleAccessibilityFacet/ambiguousKey`` when several keys show that text; else nil.
+        public func labelKey(of node: Node) -> String? {
+            if let identifier = node.identifier, keys.contains(identifier) { return identifier }
+            guard let shown = node.names.lazy.compactMap({ keysByText[$0] }).first else { return nil }
+            return shown.count == 1 ? shown.first : OracleAccessibilityFacet.ambiguousKey
+        }
+    }
+
     public var facet: OracleFacet { .ax }
     public let capture: OracleFacetCapture
 
     /// - Parameters:
     ///   - read: Walks every window's tree now, in the snapshot's main-actor turn.
-    ///   - keys: The localization key of each of the given texts that is the shown text of an app string, read off
-    ///     the main actor; a text with none is absent. Called only when some node has a name.
+    ///   - index: Reads the app's string tables, off the main actor. Called once for the facet list, at the first
+    ///     snapshot that has a node with a name or an identifier; a failed read is tried again at the next one.
     public init(read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> [Window],
-                keys: @escaping @Sendable (Set<String>) async throws(OracleFacetError) -> [String: String]) {
+                index: @escaping @Sendable () async throws(OracleFacetError) -> StringIndex) {
+        let cache = IndexCache(load: index)
         capture = .mainActorThenBackground { () throws(OracleFacetError) -> OracleFacetFinish in
             let windows = try read()
             return { () async throws(OracleFacetError) -> OracleValue in
-                let names = Set(windows.flatMap { $0.nodes.flatMap(\.names) })
-                guard !names.isEmpty else { return Self.value(windows, keys: [:]) }
-                return Self.value(windows, keys: try await keys(names))
+                let named = windows.contains { window in window.nodes.contains { !$0.names.isEmpty || $0.identifier != nil } }
+                guard named else { return Self.value(windows, index: nil) }
+                return Self.value(windows, index: try await cache.index())
             }
         }
     }
 
-    /// The facet's object: each node's `labelKey` is the key of its first name that has one, else null.
-    public static func value(_ windows: [Window], keys: [String: String]) -> OracleValue {
+    /// The facet's object: each node's `labelKey` from `index` (``StringIndex/labelKey(of:)``), null without one.
+    public static func value(_ windows: [Window], index: StringIndex?) -> OracleValue {
         ["windows": .array(windows.map { window -> OracleValue in
             ["window": .string(window.id), "nodes": .array(window.nodes.map { node -> OracleValue in
                 [
                     "role": .string(node.role),
-                    "labelKey": node.names.lazy.compactMap { keys[$0] }.first.map(OracleValue.string) ?? .null,
+                    "labelKey": index?.labelKey(of: node).map(OracleValue.string) ?? .null,
                     "enabled": .bool(node.enabled),
                     "focused": .bool(node.focused),
                     "depth": OracleValue(node.depth),
@@ -95,25 +136,22 @@ public struct OracleAccessibilityFacet: OracleFacetProvider {
             })]
         })]
     }
+}
 
-    /// The key of each of `names` that a table maps to that text. A text that several keys show (`Close` in two
-    /// tables) takes the smallest key, so the answer does not depend on the order the tables were read in.
-    ///
-    /// - Throws: when a table is not a property list of strings: its names would otherwise turn null unseen.
-    public static func keys(for names: Set<String>, in tables: [StringTable]) throws(OracleFacetError) -> [String: String] {
-        var keys: [String: String] = [:]
-        for table in tables {
-            let parsed = try? PropertyListSerialization.propertyList(from: table.data, format: nil)
-            guard let strings = parsed as? [String: Any] else {
-                throw OracleFacetError("string table \(table.name) is not a property list of strings")
-            }
-            for (key, value) in strings {
-                guard let text = value as? String, names.contains(text) else { continue }
-                if let kept = keys[text], kept <= key { continue }
-                keys[text] = key
-            }
-        }
-        return keys
+/// The string index of one facet list: the tables do not change while the app runs.
+private actor IndexCache {
+    private let load: @Sendable () async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex
+    private var loaded: OracleAccessibilityFacet.StringIndex?
+
+    init(load: @escaping @Sendable () async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex) {
+        self.load = load
+    }
+
+    func index() async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex {
+        if let loaded { return loaded }
+        let index = try await load()
+        loaded = index
+        return index
     }
 }
 #endif

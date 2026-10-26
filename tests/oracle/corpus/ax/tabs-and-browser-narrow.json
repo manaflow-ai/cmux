@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "tabs-and-browser-narrow",
   "suite": "ax",
-  "title": "Open a browser page, a second tab, go back, reload and close it (narrow, 800 pt): AX tree",
+  "title": "Open a browser page and a second browser tab, go back and reload in it, and close it (narrow, 800 pt): AX tree",
   "journey": "tabs-and-browser",
   "priority": "P0",
   "surface": "cmux-next-native",
@@ -80,30 +80,36 @@
     },
     {
       "id": "new-tab",
-      "op": "key",
+      "op": "action.run",
       "target": {
         "window": "main"
       },
       "args": {
-        "keys": [
-          "cmd+n"
-        ]
+        "action": "openBrowser",
+        "entrypoint": "script",
+        "params": {
+          "url": "$WEB/load.html"
+        }
       },
       "expect": {
         "outcome": "ok",
         "receipt": "action.applied"
+      },
+      "waitFor": {
+        "pointer": "/tabs/selected/loading",
+        "equals": false,
+        "maxMs": 5000
       }
     },
     {
       "id": "back",
-      "op": "key",
+      "op": "action.run",
       "target": {
         "window": "main"
       },
       "args": {
-        "keys": [
-          "cmd+["
-        ]
+        "action": "browserBack",
+        "entrypoint": "script"
       },
       "expect": {
         "outcome": "ok",
@@ -112,18 +118,22 @@
     },
     {
       "id": "reload",
-      "op": "key",
+      "op": "action.run",
       "target": {
         "window": "main"
       },
       "args": {
-        "keys": [
-          "cmd+r"
-        ]
+        "action": "browserReload",
+        "entrypoint": "script"
       },
       "expect": {
         "outcome": "ok",
         "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/tabs/selected/loading",
+        "equals": false,
+        "maxMs": 5000
       }
     },
     {
@@ -137,14 +147,13 @@
     },
     {
       "id": "close-tab",
-      "op": "key",
+      "op": "action.run",
       "target": {
         "window": "main"
       },
       "args": {
-        "keys": [
-          "cmd+w"
-        ]
+        "action": "closeTab",
+        "entrypoint": "script"
       },
       "expect": {
         "outcome": "ok",
