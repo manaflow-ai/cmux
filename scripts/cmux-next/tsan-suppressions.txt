@@ -1,0 +1,13 @@
+# ThreadSanitizer suppressions for scripts/cmux-next/sanitizer-sweep.sh (TSAN_OPTIONS=suppressions=).
+#
+# Rules (sanitizer_sweep.py checks them before every run; a bad file refuses the sweep):
+# - Third-party code only (Sentry, Sparkle, libghostty, CEF, the SDK). A race in cmux code is
+#   fixed, never suppressed: a pattern that names cmux or MessagesLab is refused.
+# - At most 10 entries, each TYPE:PATTERN (race, race_top, thread, mutex, signal, deadlock,
+#   called_from_lib) on its own line, right after a "# reason" line that says why the report is
+#   not a cmux bug and links the upstream issue. TSan reads a trailing comment as part of the
+#   pattern, so the reason goes on the line before.
+# - Add an entry only with a report from a sweep run; remove it when the upstream fix lands.
+#   Chromium keeps the same discipline in build/sanitizers/tsan_suppressions.cc.
+#
+# No entries yet: the first sweep runs with none, so every race it reports is seen.
