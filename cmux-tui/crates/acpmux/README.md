@@ -49,6 +49,7 @@ the web dashboard URL.
 ```sh
 acpmux web                           # print the dashboard URL and open it in the browser
 acpmux new -m codex -n backend-review   # scripted: create a session and open the TUI on it
+acpmux new -m codex --tag task=review --tag owner=leo -n backend-review -d
 acpmux send backend-review "inspect the failing tests"
 acpmux ls
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
@@ -164,6 +165,7 @@ acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send
 acpmux exec -m claude "one-shot"                              # same, and the session is deleted afterwards
 acpmux --json run -m claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
 acpmux ensure NAME -m codex --cwd DIR                         # the session if it exists, else create it
+acpmux ensure NAME -m codex --tag task=review                  # repeatable creation-time labels
 acpmux send NAME --no-wait "..."                              # hand it over and return at once; prints the delivery id
 acpmux send --status ID                                       # queued, delivering, delivered, held or failed
 acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
@@ -817,6 +819,25 @@ acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME -
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
+
+On a Mac running cmux NEXT, `--group` puts a remote chat in a local sidebar
+workspace group:
+
+```sh
+acpmux new --host HOST -m codex --group "Remote demo" -d "say hi"
+```
+
+The local `cmux agent open` receives the session ID mirrored by the local
+daemon; the agent stays on HOST. The group is joined or created, and opening
+the workspace may move focus. Add
+`--name demo --reuse` when rerunning should reuse the same
+session and row; an unnamed launch creates a new session each time. The
+invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
+HOST. A failed sidebar open warns without stopping the agent; retry the
+printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+omit `--group` remotely and open the returned ID on the controller Mac after
+creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
+native tab commands and connection diagnostics.
 
 `acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
 initialize handshake, so a "Method not found" from a peer names the build gap instead of a
