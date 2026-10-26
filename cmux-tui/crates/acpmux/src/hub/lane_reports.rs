@@ -442,7 +442,8 @@ impl Hub {
         started: bool,
         turn: u64,
     ) {
-        let on_reports = self.lane_turns().end(&session.id, turn);
+        // One that failed to start left the lane stuck, so it reports whatever it took in.
+        let on_reports = self.lane_turns().end(&session.id, turn) && started;
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
         }
