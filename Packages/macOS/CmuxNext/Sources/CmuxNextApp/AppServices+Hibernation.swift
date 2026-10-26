@@ -39,19 +39,25 @@ extension AppServices {
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
-        if features.isEnabled(.intentPrewarmHover) { startIntentPrewarm(over: hibernation) }
+        startIntentPrewarm(over: hibernation)
         AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
 
-    /// The hover-dwell intent prewarm (p04-input-043) over `hibernation`, its weak warmer: one background-class
-    /// dwell deadline, the app's memory pressure, the feature's dwell and Energy Saver's inputs as its power.
+    /// The intent prewarm over `hibernation`, its weak warmer, for the triggers whose feature is on: the hover
+    /// dwell (`intentPrewarmHover`, p04-input-043) and the press on a row that commits on its release
+    /// (`intentPrewarmPress`, p04-input-042). One background-class dwell deadline, the app's memory pressure,
+    /// the feature's dwell and Energy Saver's inputs as its power. Neither feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
+        var triggers = Set<IntentPrewarmTrigger>()
+        if features.isEnabled(.intentPrewarmHover) { triggers.insert(.hoverDwell) }
+        if features.isEnabled(.intentPrewarmPress) { triggers.insert(.pointerDown) }
+        guard !triggers.isEmpty else { return }
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,
             dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines),
-            dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200))
+            dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200), triggers: triggers)
         let power = energyMonitor.follow { [weak service] inputs in
             service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)
         }

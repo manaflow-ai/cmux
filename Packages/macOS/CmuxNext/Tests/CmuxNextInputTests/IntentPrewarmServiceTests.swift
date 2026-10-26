@@ -1,10 +1,12 @@
 import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextInputCore
+import CmuxNextInputDiagnostics
 import CmuxNextWakeups
 import Testing
 
-/// Hover-dwell prewarm (p04-input-043): one MainDeadline, pending only while the pointer rests on a cold
+/// Hover-dwell prewarm (p04-input-043) and pointer-down prewarm (p04-input-042, a press on a row that
+/// commits on its release prewarms it at once, through the same FIFO): one MainDeadline, pending only while the pointer rests on a cold
 /// target, restarted on another target and cancelled on nothing, a press or a commit; the prewarm starts
 /// after 200 ms; FIFO of 2, oldest cancelled; nothing starts in Low Power Mode on battery or at memory
 /// pressure warning or worse, and critical pressure cancels the held prewarms (Chrome's speculation rules:
@@ -37,10 +39,10 @@ struct IntentPrewarmServiceTests {
         let dwell: MainDeadline
         let service: IntentPrewarmService<String>
 
-        init(power: IntentPrewarmPower = IntentPrewarmPower()) {
+        init(power: IntentPrewarmPower = IntentPrewarmPower(), triggers: Set<IntentPrewarmTrigger> = Set(IntentPrewarmTrigger.allCases)) {
             dwell = MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.scheduler)
             service = IntentPrewarmService(warmer: warmer, memoryPressure: MemoryPressureEvents(source: pressure),
-                                           dwellTimer: dwell, power: power)
+                                           dwellTimer: dwell, triggers: triggers, power: power)
         }
     }
 
@@ -117,6 +119,125 @@ struct IntentPrewarmServiceTests {
         #expect(!rig.service.isDwelling, "the same target after a press does not re-arm")
         rig.service.pointerHovered("b")
         #expect(rig.service.isDwelling)
+    }
+
+    // MARK: Pointer down (p04-input-042)
+
+    @Test func aPressOnARowThatCommitsOnReleasePrewarmsItAtOnce() {
+        let rig = Rig()
+        rig.service.pointerPressed(on: "a")
+        #expect(rig.warmer.started == ["a"], "the press-to-release time is the head start: no dwell")
+        #expect(rig.warmer.triggers == [.pointerDown])
+        #expect(!rig.service.isDwelling)
+        #expect(rig.service.queue.held == ["a"])
+        #expect(rig.service.counters.started == [.pointerDown: 1])
+        #expect(rig.warmer.cancelled.isEmpty, "a prewarm only starts work: nothing else reaches the content owner")
+    }
+
+    @Test func aPressThatCommitsOnThePressPrewarmsNothingAndEndsTheDwell() {
+        let rig = Rig()
+        rig.service.pointerHovered("a")
+        rig.service.pointerPressed(on: nil)
+        #expect(!rig.service.isDwelling)
+        rig.deadlines.fire()
+        #expect(rig.warmer.started.isEmpty)
+        #expect(rig.service.queue.held.isEmpty)
+    }
+
+    @Test func aPressOnAWarmOrHeldTargetStartsNothing() {
+        let rig = Rig()
+        rig.warmer.cold = ["b"]
+        rig.service.pointerPressed(on: "a")
+        #expect(rig.warmer.started.isEmpty, "a warm page has nothing to prewarm")
+        rig.service.pointerPressed(on: "b")
+        rig.service.pointerPressed(on: "b")
+        #expect(rig.warmer.started == ["b"], "a held target is not started twice")
+        #expect(rig.service.counters.started == [.pointerDown: 1])
+    }
+
+    @Test func pressesShareTheFIFOOfTwoWithTheHoverDwell() {
+        let rig = Rig()
+        rig.service.pointerHovered("a")
+        rig.deadlines.fire()
+        rig.service.pointerPressed(on: "b")
+        rig.service.pointerPressed(on: "c")
+        #expect(rig.warmer.started == ["a", "b", "c"])
+        #expect(rig.service.queue.held == ["b", "c"], "one FIFO for both triggers, oldest out")
+        #expect(rig.warmer.cancelled == ["a"])
+        #expect(rig.service.counters.evicted == 1)
+    }
+
+    @Test func aPressPrewarmKeptAfterAReleaseElsewhereStaysUntilEvictedOrUsed() {
+        let rig = Rig()
+        rig.service.pointerPressed(on: "a")
+        rig.service.pointerHovered("b")
+        rig.service.pointerHovered(nil)
+        #expect(rig.service.queue.held == ["a"], "no cancel when the release lands off the row")
+        #expect(rig.warmer.cancelled.isEmpty)
+        rig.service.committed("a")
+        #expect(rig.service.counters.used == 1)
+    }
+
+    @Test func hitsAreCountedByTheTriggerThatStartedThePrewarm() {
+        let rig = Rig()
+        rig.service.pointerHovered("a")
+        rig.deadlines.fire()
+        rig.service.pointerPressed(on: "b")
+        rig.service.committed("b")
+        rig.service.committed("a")
+        rig.service.committed("c")
+        #expect(rig.service.counters.used == 2)
+        #expect(rig.service.counters.hits == [.hoverDwell: 1, .pointerDown: 1], "press hits apart from hover hits")
+        rig.service.resetCounters()
+        #expect(rig.service.counters == IntentPrewarmCounters())
+    }
+
+    @Test func onlyTheEnabledTriggersStartPrewarms() {
+        let pressOnly = Rig(triggers: [.pointerDown])
+        pressOnly.service.pointerHovered("a")
+        #expect(!pressOnly.service.isDwelling, "intentPrewarmHover off: a hover arms nothing")
+        pressOnly.service.pointerPressed(on: "a")
+        #expect(pressOnly.warmer.started == ["a"])
+
+        let hoverOnly = Rig(triggers: [.hoverDwell])
+        hoverOnly.service.pointerPressed(on: "a")
+        #expect(hoverOnly.warmer.started.isEmpty, "intentPrewarmPress off: a press prewarms nothing")
+        hoverOnly.service.pointerHovered("a")
+        #expect(hoverOnly.service.isDwelling)
+    }
+
+    @Test func aPressInLowPowerModeOnBatteryOrUnderPressureStartsNothing() {
+        let battery = Rig(power: IntentPrewarmPower(lowPowerMode: true, onBattery: true))
+        battery.service.pointerPressed(on: "a")
+        #expect(battery.warmer.started.isEmpty)
+        #expect(battery.service.counters.skippedForPower == 1)
+
+        let pressured = Rig()
+        pressured.pressure.send(.warning)
+        pressured.service.pointerPressed(on: "a")
+        #expect(pressured.warmer.started.isEmpty)
+        #expect(pressured.service.counters.skippedForPressure == 1)
+    }
+
+    /// `debug.input` section `prewarm` reads the live service's counters in one main-actor copy and
+    /// `reset` starts them over; without a service it reads zeros.
+    @Test func theDebugInputSectionReadsAndResetsTheServicesCounters() async {
+        let rig = Rig()
+        rig.service.pointerPressed(on: "a")
+        rig.service.committed("a")
+        rig.service.pointerPressed(on: "b")
+        let service = rig.service
+        let source = IntentPrewarmDebugSource { service }
+        let section = await source.read()
+        #expect(section.started == ["pointerDown": 2])
+        #expect(section.hits == ["pointerDown": 1])
+        #expect(section.held == 1)
+        await source.reset()
+        #expect(rig.service.counters == IntentPrewarmCounters())
+        #expect(rig.service.queue.held == ["b"], "a reset keeps the held prewarms")
+
+        let absent = IntentPrewarmDebugSource { () -> IntentPrewarmService<String>? in nil }
+        #expect(await absent.read() == DebugInputPrewarm(counters: IntentPrewarmCounters(), held: 0))
     }
 
     @Test func theServiceHoldsItsWarmerWeakly() throws {

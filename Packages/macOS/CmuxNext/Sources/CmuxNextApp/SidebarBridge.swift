@@ -88,6 +88,7 @@ final class SidebarBridge {
         container.sidebarView.hoverFrameInput = services.hoverFrameInput
         container.railView.hoverFrameInput = services.hoverFrameInput
         container.sidebarView.onHoverRow = { [weak self] row in self?.noteRowHover(row) } // `intentPrewarmHover`
+        container.sidebarView.onPressRow = { [weak self] row in self?.noteRowPress(row) } // `intentPrewarmPress`
         if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
