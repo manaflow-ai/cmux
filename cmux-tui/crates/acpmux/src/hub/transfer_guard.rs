@@ -189,7 +189,7 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
 }
 
 /// A plain agent session id: the only kind a guarded chat resumes or restores a file for.
-fn plain_agent_session(id: &str) -> bool {
+pub(super) fn plain_agent_session(id: &str) -> bool {
     (8..=128).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }

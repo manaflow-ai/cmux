@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::transfer_guard::plain_agent_session;
 use super::*;
 
 /// True when `id` is a single plain path component, so it can name a
@@ -213,6 +214,50 @@ impl Hub {
     /// Append every record of a bundle's `events/*.ndjson` to the store, in
     /// file order. Returns the highest sequence copied. Under a guard's `control`, the
     /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
+    fn harness_pi_session(root: &Path, agent_id: &str) -> Result<(PathBuf, Vec<u8>)> {
+        if !plain_agent_session(agent_id) {
+            return Err(anyhow::anyhow!("invalid cmux-harness ACP session id"));
+        }
+        let mut found = None;
+        for entry in std::fs::read_dir(root)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = std::fs::symlink_metadata(&path)?.file_type();
+            if !file_type.is_file() || path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let bytes = std::fs::read(&path)?;
+            let first = bytes.splitn(2, |b| *b == b'\n').next().unwrap_or_default();
+            let Ok(header) = serde_json::from_slice::<Value>(first) else { continue };
+            let id = header.get("id").or_else(|| header.get("sessionId")).and_then(Value::as_str);
+            if id == Some(agent_id) {
+                if found.is_some() {
+                    return Err(anyhow::anyhow!("multiple Pi sessions match ACP session id"));
+                }
+                found = Some((path, bytes));
+            }
+        }
+        found.ok_or_else(|| anyhow::anyhow!("Pi session file for ACP session id is missing"))
+    }
+
+    fn rebind_harness_pi_session(bytes: &[u8], agent_id: &str, cwd: &Path) -> Result<Vec<u8>> {
+        let Some(split) = bytes.iter().position(|b| *b == b'\n') else {
+            return Err(anyhow::anyhow!("Pi session file has no header"));
+        };
+        let mut header: Value = serde_json::from_slice(&bytes[..split])?;
+        let id = header.get("id").or_else(|| header.get("sessionId")).and_then(Value::as_str);
+        if id != Some(agent_id) {
+            return Err(anyhow::anyhow!("Pi session header id mismatch"));
+        }
+        if header.get("cwd").is_some() {
+            header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
+        }
+        let mut out = serde_json::to_vec(&header)?;
+        out.push(b'\n');
+        out.extend_from_slice(&bytes[split + 1..]);
+        Ok(out)
+    }
+
     fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
         if meta.harness != "cmux-harness" {
             return Ok(Value::Null);
@@ -220,6 +265,9 @@ impl Hub {
         let agent_id = meta.agent_session_id.as_deref().ok_or_else(|| {
             anyhow::anyhow!("cmux-harness durable state requires an ACP session id")
         })?;
+        if !plain_agent_session(agent_id) {
+            return Err(anyhow::anyhow!("invalid cmux-harness ACP session id"));
+        }
         let Some(session_dir) = self.store.session_dir(&meta.id) else {
             return Err(anyhow::anyhow!(
                 "cmux-harness durable state requires a local session store"
@@ -228,7 +276,7 @@ impl Hub {
         let root =
             session_dir.parent().ok_or_else(|| anyhow::anyhow!("invalid session store root"))?;
         let journal = root.join(agent_id).join("journal.ndjson");
-        let pi_session = root.join(format!("{agent_id}.jsonl"));
+        let (_pi_session_path, session_bytes) = Self::harness_pi_session(root, agent_id)?;
         let read_private = |path: &Path, label: &str| -> Result<Vec<u8>> {
             let meta = std::fs::symlink_metadata(path)?;
             if !meta.file_type().is_file() {
@@ -237,7 +285,6 @@ impl Hub {
             Ok(std::fs::read(path).map_err(|e| anyhow::anyhow!("read {label}: {e}"))?)
         };
         let journal_bytes = read_private(&journal, "durable journal")?;
-        let session_bytes = read_private(&pi_session, "Pi session")?;
         let target = dir.join("harness");
         std::fs::create_dir_all(&target)?;
         std::fs::write(target.join("journal.ndjson"), &journal_bytes)?;
@@ -256,6 +303,9 @@ impl Hub {
         let agent_id = meta.agent_session_id.as_deref().ok_or_else(|| {
             anyhow::anyhow!("cmux-harness durable transfer requires an ACP session id")
         })?;
+        if !plain_agent_session(agent_id) {
+            return Err(anyhow::anyhow!("invalid cmux-harness ACP session id"));
+        }
         let manifest: Value =
             serde_json::from_str(&std::fs::read_to_string(bundle.join("manifest.json"))?)?;
         let spec = manifest
@@ -283,6 +333,7 @@ impl Hub {
         };
         let journal_bytes = checked("journal", "harness/journal.ndjson")?;
         let session_bytes = checked("session", "harness/session.jsonl")?;
+        let session_bytes = Self::rebind_harness_pi_session(&session_bytes, agent_id, &meta.cwd)?;
         let session_dir = self
             .store
             .session_dir(&meta.id)
@@ -291,6 +342,19 @@ impl Hub {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
         let journal_dir = root.join(agent_id);
+        let existing_same = self.sessions.lock().unwrap().get(&meta.id).is_some_and(|session| {
+            session.status() == SessionStatus::Closed
+                && self.moved_away(session)
+                && session.meta().agent_session_id.as_deref() == Some(agent_id)
+        });
+        if std::fs::symlink_metadata(&journal_dir).is_ok() && !existing_same {
+            return Err(anyhow::anyhow!("target durable session is already occupied"));
+        }
+        if let Ok(owner) = std::fs::symlink_metadata(journal_dir.join("owner.sqlite")) {
+            if owner.file_type().is_symlink() {
+                return Err(anyhow::anyhow!("target durable owner lock is symlinked"));
+            }
+        }
         std::fs::create_dir_all(&journal_dir)?;
         let journal_tmp = journal_dir.join("journal.ndjson.importing");
         let session_tmp = root.join(format!("{agent_id}.jsonl.importing"));
@@ -304,6 +368,7 @@ impl Hub {
             file.sync_all()?;
         }
         std::fs::rename(journal_tmp, journal_dir.join("journal.ndjson"))?;
+        std::fs::File::open(&journal_dir)?.sync_all()?;
         std::fs::rename(session_tmp, root.join(format!("{agent_id}.jsonl")))?;
         std::fs::File::open(root)?.sync_all()?;
         Ok(())
