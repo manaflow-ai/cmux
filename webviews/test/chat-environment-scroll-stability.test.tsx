@@ -9,7 +9,10 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () => {
   setDefaultTimeout(180_000);
-  for (const [engine, launch] of [["chromium", chromium], ["webkit", webkit]] as const) {
+  for (const [engine, launch] of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as const) {
     describe(engine, () => {
       let browser: Browser;
       let pane: Awaited<ReturnType<typeof papercutPane>>;
@@ -23,13 +26,17 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
         await browser?.close();
       });
 
-      const settle = (page: Page) => page.evaluate(async () => {
-        await document.fonts.ready;
-        await Promise.all(document.getAnimations()
-          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-          .map((animation) => animation.finished.catch(() => undefined)));
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      });
+      const settle = (page: Page) =>
+        page.evaluate(async () => {
+          await document.fonts.ready;
+          await Promise.all(
+            document
+              .getAnimations()
+              .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+              .map((animation) => animation.finished.catch(() => undefined)),
+          );
+          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
 
       const publish = async (page: Page, fields: Record<string, unknown>) => {
         await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
@@ -55,20 +62,28 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
           test(`${placement}, ${inTabRow ? "native tab row" : "standalone header"}: no location label after folder/host changes and scroll`, async () => {
             const page = await pane.open({ width: 980, height: 720 });
             try {
-              await page.evaluate(async ({ placement, inTabRow }) => {
-                // @ts-expect-error Vite resolves this test-only runtime entry.
-                const { setChatDisplay } = await import(/* @vite-ignore */ "/chatDisplay.ts");
-                // @ts-expect-error Vite resolves this test-only runtime entry.
-                const { setTabRow } = await import(/* @vite-ignore */ "/header/tabRow.ts");
-                setChatDisplay({ "agentPane.display.environment.placement": placement });
-                setTabRow(inTabRow ? { height: 28, trailingInset: 0 } : undefined);
-              }, { placement, inTabRow });
+              await page.evaluate(
+                async ({ placement, inTabRow }) => {
+                  // @ts-expect-error Vite resolves this test-only runtime entry.
+                  const { setChatDisplay } = await import(/* @vite-ignore */ "/chatDisplay.ts");
+                  // @ts-expect-error Vite resolves this test-only runtime entry.
+                  const { setTabRow } = await import(/* @vite-ignore */ "/header/tabRow.ts");
+                  setChatDisplay({ "agentPane.display.environment.placement": placement });
+                  setTabRow(inTabRow ? { height: 28, trailingInset: 0 } : undefined);
+                },
+                { placement, inTabRow },
+              );
               await settle(page);
               await expectQuietHeader(page);
 
               await publish(page, { cwd: "/home/dev/scratchpad", branch: "feature/example" });
               await expectQuietHeader(page);
-              await publish(page, { cwd: "/remote/project", peer: "remote-demo", host: "remote-demo", hostKind: "ssh" });
+              await publish(page, {
+                cwd: "/remote/project",
+                peer: "remote-demo",
+                host: "remote-demo",
+                hostKind: "ssh",
+              });
               await expectQuietHeader(page);
               await page.evaluate(() => {
                 const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
