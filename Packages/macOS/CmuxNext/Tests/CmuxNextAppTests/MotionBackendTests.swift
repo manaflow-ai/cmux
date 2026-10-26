@@ -75,8 +75,9 @@ import Testing
         #expect(LayoutTunables.motionRenderServer.key == "motion.renderServer")
         #expect(LayoutTunables.all.contains { $0.key == "motion.renderServer" })
         // A kind registers in the task that moves it, behind the switch: the split (p03-rendering-022a).
-        #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose])
-        #expect(LayoutRootView.renderServerMotions.isEmpty)
+        #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose, .zoom])
+        // The drop highlight (p03-rendering-032).
+        #expect(LayoutRootView.renderServerMotions.map(\.kind) == [.dropHighlight])
     }
 
     @Test func offACloseCallsNoVariantAndMovesExactlyAsBefore() {
