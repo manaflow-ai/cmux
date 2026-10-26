@@ -9,11 +9,11 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a workspace on a Cloud machine: --target machine:<id>, else the focused window's, else the \
-            only one. A connected machine gets a new workspace; one not connected is connected (a paused one \
-            resumes) and its first workspace opens. When no machine is picked (none, several and none \
-            focused, or a --target that names none) it creates a machine, which may ask the person first. \
-            Answers at once with no ids: `cmux cloud new-terminal-on-machine` returns a workspace_id.
+            Opens a workspace on the Cloud machine the focused window shows, else the only one. A connected \
+            machine gets a new workspace; one not connected is connected (a paused one resumes) and its first \
+            workspace opens. When neither picks a machine (none, or several and none focused) it creates one, \
+            which may ask the person first. Answers at once with no ids: \
+            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
             """,
         "newCloudMachine": """
             Creates a Cloud machine and returns machine_id, title, status and target (machine:<id>) once the \
@@ -31,14 +31,15 @@ nonisolated enum CloudActionDescriptions {
             A snapshot that takes longer than 30 s answers pending: true and finishes on its own.
             """,
         "palette.cloud.restore": """
-            Starts a new machine from a snapshot (--snapshot <snapshot id>, from \
-            `cmux cloud snapshot-machine` or `cmux cloud promote-machine-to-template`). Pass any \
-            --target machine:<id> when no Cloud workspace is focused; the new machine does not depend on it. \
-            Answers at once with no id; the machine shows in `cmux cloud list-machines` when it is up.
+            Starts a new machine from a snapshot: --snapshot <snapshot id>, from \
+            `cmux cloud snapshot-machine --target machine:<id>`. With no Cloud workspace focused, also pass \
+            --target machine:<id> of any machine; the new machine does not depend on it. Answers at once with no \
+            id; the machine shows in `cmux cloud list-machines` when it is up.
             """,
         "palette.cloud.promoteTemplate": """
             Saves the machine (--target machine:<id>) as a template: a snapshot named \
-            template-<id>-<time> that `cmux cloud restore-machine --snapshot <id>` starts new machines from. \
+            template-<first 12 characters of the machine id>-<Unix seconds>, which \
+            `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. \
             Returns machine_id and snapshot_id; after 30 s it answers pending: true and finishes on its own.
             """,
         "palette.cloud.status": """
@@ -75,8 +76,8 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
-            paused machine first. Returns no ids: `cmux cloud new-terminal-on-machine` returns a \
-            workspace_id.
+            paused machine first. Returns no ids: \
+            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
             """,
         "cloudExec": """
             Runs a shell command on the machine through the Cloud API and returns machine_id, exit_code, \
@@ -165,8 +166,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
-            machine first, and returns machine_id and workspace_id. The window shows it only with --focus; \
-            a resume that takes longer than 30 s answers pending: true.
+            machine first, and returns machine_id and workspace_id. The window shows it only with --focus. When \
+            the whole run (resume, connect and the new workspace) takes longer than 30 s it answers machine_id and \
+            pending: true, and the workspace still opens.
             """,
         "cloudOpenMachine": """
             Shows the machine's first workspace in the window (creating one when it has none), connecting \
@@ -175,7 +177,8 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
-            once, before the rename is done.
+            once, before the rename is done. Without --name it asks the person for the name in the app, so a \
+            script or agent passes --name.
             """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
@@ -183,7 +186,7 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudPauseMachine": """
             Pauses the machine (--target machine:<id>); the run ends when the server has paused it. Returns \
-            no fields. `cmux cloud resume-machine` starts it again.
+            no fields. `cmux cloud resume-machine --target machine:<id>` starts it again.
             """,
         "cloudResumeMachine": """
             Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it. \

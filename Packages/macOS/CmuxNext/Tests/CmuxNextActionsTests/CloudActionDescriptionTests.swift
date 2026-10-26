@@ -26,8 +26,9 @@ import Testing
         }
     }
 
-    /// A description that names a command names one the CLI offers: a verb
-    /// that is GUI-only or clipboard-only prints `not_a_verb` and exits 64.
+    /// A description that names a command names one the CLI offers (a verb
+    /// that is GUI-only or clipboard-only prints `not_a_verb` and exits 64),
+    /// with the `--target machine:<id>` a machine action needs from a script.
     @Test func everyCommandNamedIsOneTheCLIOffers() throws {
         var named = 0
         for action in Self.cloud {
@@ -36,6 +37,10 @@ import Testing
                 let words = command.split(separator: " ").prefix(2).joined(separator: " ")
                 let offered = ActionCatalog.all.first { $0.cliName == words }
                 #expect(offered?.cli == true, "\(action.id) names `cmux \(words)`, which the CLI does not offer")
+                // A CLI or agent run of a machine action must name its machine.
+                if offered?.targets.contains(.machine) == true {
+                    #expect(command.contains("--target machine:"), "\(action.id) names `cmux \(words)` without --target machine:<id>")
+                }
                 named += 1
             }
         }
