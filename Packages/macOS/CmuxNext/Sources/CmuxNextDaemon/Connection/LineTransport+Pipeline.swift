@@ -16,6 +16,16 @@ extension LineTransport {
             case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
             }
         }
+
+        /// How its reply line counts: read when a request waits for it, or when it is the error of one
+        /// sent without waiting; otherwise dropped.
+        func replyKind(ok: Bool) -> DaemonWireStats.FrameKind {
+            switch self {
+            case .reply: .reply
+            case .discard: ok ? .droppedReply : .reply
+            case .expired: .droppedReply
+            }
+        }
     }
 }
 
@@ -70,11 +80,21 @@ extension LineTransport {
     func pipeline(_ lines: [PipelinedLine], timeout: Duration?) async -> [Result<Response, any Error>] {
         var slots: [ReplySlot] = []
         var ids: [UInt64] = []
+        // Each request's `daemon.request` slice, as ``request(cmd:timeout:_:)`` opens it.
+        var spans: [RequestSpan?] = []
         for line in lines {
             let slot = ReplySlot()
             slots.append(slot)
+            let command = requestCommand(line.cmd)
+            var span: RequestSpan?
+            let submitted = submit(.reply(cmd: line.cmd, slot)) { id in
+                let data = try line.body(id)
+                span = beginRequestSpan(command, id: id)
+                return data
+            }
+            spans.append(span)
             // A failed submit resolved the slot already.
-            if case .success(let id) = submit(.reply(cmd: line.cmd, slot), line.body) { ids.append(id) }
+            if case .success(let id) = submitted { ids.append(id) }
         }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
@@ -84,11 +104,13 @@ extension LineTransport {
             }
         }
         var results: [Result<Response, any Error>] = []
-        for slot in slots {
+        for (slot, span) in zip(slots, spans) {
             do {
                 results.append(.success(try await slot.value()))
+                endRequestSpan(span, .reply)
             } catch {
                 results.append(.failure(error))
+                endRequestSpan(span, RequestOutcome(error))
             }
         }
         return results
