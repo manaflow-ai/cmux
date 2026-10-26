@@ -3678,6 +3678,25 @@
       "reason": "Out buffer of renderer ids (task 018); the hover card can show the previous value until the reply."
     },
     {
+      "name": "cmux_shim_renderer_pid",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+Processes.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A tab's renderer pid for energy attribution (debug.energy tabs, busy watchdog records; p14-energy-124). Attribution is in-process only: in host mode the renderers are the host's children, which the app does not sample, so the remote shim returns 0. Host mode is task p14-energy-124a (an async op answered with the host shim's pid, and the host's children sampled)."
+    },
+    {
       "name": "cmux_shim_set_context_proxy",
       "class": "post",
       "args": [

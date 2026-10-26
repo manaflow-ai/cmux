@@ -371,6 +371,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
   CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
+  CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
 #undef CMUX_BIND
 }
 
