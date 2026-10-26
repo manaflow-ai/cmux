@@ -88,6 +88,14 @@ async function jpegSize(file: Blob): Promise<{ width: number; height: number } |
   return undefined;
 }
 
+/** The largest picture of a type whose size is not read here (HEIC, TIFF, BMP, AVIF) that is
+ * decoded: a 48 MP iPhone ProRAW HEIC is about 25 MB. */
+export const MAX_UNSIZED_DECODE_BYTES = 40 * 1024 * 1024;
+
+function isSizedType(type: string): boolean {
+  return type === "image/png" || type === "image/jpeg" || type === "image/gif" || type === "image/webp";
+}
+
 export type Thumb = { url: string; width: number; height: number };
 /// A fitted image: its type, its bytes as base64, and its chip's thumbnail when one could be drawn.
 export type PreparedImage = { mimeType: "image/png" | "image/jpeg"; data: string; thumb?: Thumb };
@@ -112,7 +120,10 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
   try {
     // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
     // it goes as a file, linked or uploaded, which the agent opens itself.
-    // One whose size cannot be read is not decoded either: it may be any size.
+    // One whose size cannot be read is not decoded either: it may be any size. A picture the engine
+    // converts (an iPhone's HEIC, TIFF, BMP, AVIF) has no header read here: past a file size no
+    // phone photo reaches, it goes as a file.
+    if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
     const size = await imageSize(file);
     if (size && (size.width === undefined || size.height === undefined)) return undefined;
     if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)

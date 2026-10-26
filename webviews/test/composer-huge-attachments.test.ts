@@ -153,3 +153,28 @@ test("an older host still gets the one-frame upload when the first file is cance
   expect(calls).toContain("chat.upload");
   expect(sent).toEqual({ paths: ["", "/tmp/b.txt"] });
 });
+
+// Review (Codex): a picture the engine converts has no header read here; past a phone photo's size
+// it goes as a file, never decoded.
+test("a huge picture of a converted type is never decoded", async () => {
+  let decoded = 0;
+  g.createImageBitmap = async () => {
+    decoded += 1;
+    throw new Error("decoded");
+  };
+  g.OffscreenCanvas = class {};
+  const heic = new File([new Uint8Array(41 * 1024 * 1024)], "big.heic", { type: "image/heic" });
+  expect(await prepareImage(heic)).toBeUndefined();
+  expect(decoded).toBe(0);
+});
+
+test("an older host's limit counts only the files not cancelled", async () => {
+  const host = async (method: string, params: Record<string, unknown>) => {
+    if (method === "chat.upload.begin") throw Object.assign(new Error("unsupported"), { code: "unsupported" });
+    if (method === "chat.upload")
+      return { uploads: (params.files as { name: string }[]).map((file) => ({ path: `/tmp/${file.name}` })) };
+    return null;
+  };
+  const files = [new File([new Uint8Array(25 * 1024 * 1024)], "big.bin"), new File(["small"], "small.txt")];
+  expect(await uploadToMachine(files, host, (index) => index === 0)).toEqual({ paths: ["", "/tmp/small.txt"] });
+});

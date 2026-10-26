@@ -93,7 +93,7 @@ export async function uploadToMachine(
       if (!begun && notTaken(error)) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
-        if (files.some((entry) => entry.size > LEGACY_FRAME_SAFE_BYTES))
+        if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))
           return { error: "This host cannot stream an attachment this large." };
         return legacyUpload(files, call, cancelled);
       }
