@@ -80,16 +80,6 @@ extension PageWebView {
     }
 }
 
-extension WebUIHost {
-    /// Signals ``oracleChanges`` when `page` posts ``PageRouter/oracleStateChangedOp`` or its document starts or
-    /// finishes loading. The host hooks each page it opens; the `webviews` facet hooks each page it asks, so a page
-    /// made outside the host (a pooled Settings page) is hooked too. Hooking twice is one hook.
-    public func observeOracleState(of page: PageWebView) {
-        let feed = oracleChanges
-        page.router.oracleStateChanged = { feed.signal() }
-    }
-}
-
 /// Says "a page's oracle reading may have changed" to every subscriber (``WebUIHost/oracleChanges``).
 /// `debug.oracle.wait_for` on the `webviews` facet subscribes, so a wait on a draft or a route wakes at the page's
 /// own change point, never by a poll. Each subscriber buffers at most one pending signal: it only says "read again".
