@@ -517,15 +517,31 @@ final class WorkspaceContentViewVisibilityTests {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        // Loading-card workspaces, as in the tests above, so no shell or git
-        // probe publishes during the measured window.
+        // Loading-card workspaces in a controlled project root, as in the tests
+        // above, so no shell, git or project-root discovery publishes during
+        // the measured window. Await each root rather than counting idle turns.
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(
+            at: projectRoot.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
         let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         for index in 0..<3 {
             tabManager.addWorkspace(
+                workingDirectory: projectRoot.path,
                 initialSurface: .cloudVMLoading,
                 select: index == 0,
                 autoWelcomeIfNeeded: false
             )
+        }
+        for workspace in tabManager.tabs {
+            for await root in workspace.$extensionSidebarProjectRootPath.values {
+                if root == projectRoot.path { break }
+            }
+            try #require(workspace.extensionSidebarProjectRootPath == projectRoot.path)
         }
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
@@ -574,11 +590,14 @@ final class WorkspaceContentViewVisibilityTests {
             workspace.objectWillChange.sink { _ in workspacePublishes += 1 }
         }
         defer { publishes.forEach { $0.cancel() } }
-        // Handle the change a full reload posts (SharedLiveAgentIndex.startReload,
-        // no userInfo) on every workspace, as each one's observer does.
-        for workspace in tabManager.tabs {
-            workspace.handleSharedLiveAgentIndexChange(userInfo: nil)
-        }
+        // The post a full reload makes (SharedLiveAgentIndex.startReload). Each
+        // workspace's observer handles it before post returns; the drain lets
+        // any SwiftUI update it scheduled run before the counts are read.
+        try #require(tabManager.tabs.allSatisfy { $0.sharedLiveAgentIndexObserver != nil })
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared
+        )
         await Self.drainMainRunLoop(for: window)
         counts.isMeasuringInvalidations = false
 

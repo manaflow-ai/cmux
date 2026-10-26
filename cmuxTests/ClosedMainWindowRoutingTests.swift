@@ -3006,8 +3006,7 @@ struct WorkspaceProcessWideObserverRetirementTests {
         await drainMainActorQueue()
         #expect(workspace.sharedLiveAgentIndexObserver != nil)
 
-        // Queue one final matching publication, then retire before its
-        // MainActor task runs.
+        // A matching publication while live is handled without publishing.
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,

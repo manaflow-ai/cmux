@@ -4628,13 +4628,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // it opens, so a refresh must not publish this workspace: a full reload
         // posts without userInfo at most every 5 s while agent hooks write the
         // hook store, and each publish re-rendered every pane (issue 22703).
+        // SharedLiveAgentIndex is MainActor, so it posts on the main thread and
+        // the change is handled before post returns.
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.handleSharedLiveAgentIndexChange(userInfo: notification.userInfo)
+            let userInfo = notification.userInfo
+            MainActor.assumeIsolated {
+                self?.handleSharedLiveAgentIndexChange(userInfo: userInfo)
             }
         }
         featureFlagsObserver = NotificationCenter.default.addObserver(
