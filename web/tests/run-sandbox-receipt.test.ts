@@ -228,6 +228,10 @@ describe("sandbox receipt", () => {
       expect(sandboxReply(line)).not.toContain("c2lnbmF0dXJlMTIz");
     }
     expect(sandboxReply("signal: 9")).toBe("signal: 9");
+    // Docker's config.json keeps a reversible user:password under "auth".
+    expect(sandboxReply('{"auths":{"registry.example":{"auth":"dXNlcjpwYXNz"}}}')).not.toContain("dXNlcjpwYXNz");
+    expect(sandboxReply("auth: required")).toBe("auth: required");
+    expect(redactReceiptValue({ auths: { "registry.example": { auth: "dXNlcjpwYXNz" } } }, [])).toEqual({ auths: { "registry.example": { auth: "[redacted]" } } });
     // A one-character value under a secret-named key is still a value.
     expect(sandboxReply("PASSWORD: x")).toBe("PASSWORD: [redacted]");
     expect(sandboxReply("sig: a")).toBe("sig: [redacted]");

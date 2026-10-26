@@ -52,8 +52,12 @@ export type RunSnapshot = {
   readonly sandboxVmUnknown?: boolean;
 };
 
-/** The VM reaper's failure code for a create that passed its deadline with no provider id (services/vms/workflows.ts). */
-const VM_CREATE_ABANDONED_CODE = "create_abandoned";
+/**
+ * Failure codes of a create that may have reached the provider (services/vms/workflows.ts): the
+ * VM reaper's abandoned create, a row update that failed after the provider made the machine
+ * (its rollback destroy is best-effort), and a create whose provider cleanup is still pending.
+ */
+const VM_CREATE_MAYBE_ALLOCATED_CODES = new Set(["create_abandoned", "database_finalize_failed", "provider_create_cleanup_pending"]);
 
 export type CreateRunInput = {
   readonly userId: string;
@@ -182,10 +186,10 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
   )).limit(keys.length * 4);
   // A create that failed with no provider id never ran: no VM time, nothing to clean. Except one
-  // the VM reaper abandoned at its deadline (`create_abandoned`): the provider may have made the
-  // machine and the process died before recording it, so whether it exists is unknown, and the
-  // receipt says cleanup is pending and VM time is unknown rather than claim either.
-  const allocationUnknown = rows.some((row) => row.status === "failed" && !row.providerVmId && row.failureCode === VM_CREATE_ABANDONED_CODE);
+  // that failed after the provider call (the VM reaper abandoned it at its deadline, or the row
+  // update after a create failed and its rollback destroy is unconfirmed): the machine may exist
+  // unrecorded, so the receipt says cleanup is pending and VM time is unknown rather than claim either.
+  const allocationUnknown = rows.some((row) => row.status === "failed" && !row.providerVmId && !!row.failureCode && VM_CREATE_MAYBE_ALLOCATED_CODES.has(row.failureCode));
   const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => {
     const confirmedAt = row.destroyConfirmed ? new Date(row.destroyConfirmed) : null;
     const confirmed = !!confirmedAt && !Number.isNaN(confirmedAt.getTime());
@@ -1231,7 +1235,8 @@ function sandboxVmUnconfirmed() {
 /** Record that a strict destroy confirmed the sandbox VM is gone, so the orphan sweep stops looking for it. */
 export async function confirmSandboxVmDestroyed(providerVmId: string, nowAt = new Date()): Promise<void> {
   await cloudDb().update(cloudVms).set({
-    providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [SANDBOX_VM_DESTROY_CONFIRMED_KEY]: nowAt.toISOString() })}::jsonb`,
+    // The first confirmation stands: a retried cleanup never moves the end of the VM's time.
+    providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(${SANDBOX_VM_DESTROY_CONFIRMED_KEY}::text, coalesce(${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY}, ${nowAt.toISOString()}::text))`,
   }).where(and(
     eq(cloudVms.providerVmId, providerVmId),
     sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,

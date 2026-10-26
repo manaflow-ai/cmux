@@ -525,8 +525,11 @@ describe("sandboxed Run lifecycle in the repository", () => {
       // Reconciled to destroyed (with a destroyed_at) but never confirmed: still counting.
       await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${vmId}`;
       expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toBeNull();
-      await repo().confirmSandboxVmDestroyed(vmId);
-      expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toBeInstanceOf(Date);
+      await repo().confirmSandboxVmDestroyed(vmId, new Date("2026-10-26T10:00:00Z"));
+      expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toEqual(new Date("2026-10-26T10:00:00Z"));
+      // A retried cleanup confirms again; the first confirmation stands.
+      await repo().confirmSandboxVmDestroyed(vmId, new Date("2026-10-26T14:00:00Z"));
+      expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toEqual(new Date("2026-10-26T10:00:00Z"));
 
       await expect(repo().recordRunArtifact({
         runId: target.runId, attemptId: target.attemptId, ...target.lease, name: "out.txt", sizeBytes: 1, digest: vmId, uri: "artifact://x",
@@ -567,6 +570,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
       const abandoned = await repo().getRun(target.runId, userId);
       expect(abandoned.sandboxVmLive).toBe(true);
       expect(abandoned.sandboxVmUnknown).toBe(true);
+      // A row update that failed after the provider call: its rollback destroy is unconfirmed.
+      await sql!`update cloud_vms set failure_code = 'database_finalize_failed' where idempotency_key = ${key}`;
+      expect((await repo().getRun(target.runId, userId)).sandboxVmUnknown).toBe(true);
       await sql!`update cloud_vms set failure_code = 'provider_create_failed' where idempotency_key = ${key}`;
       const failed = await repo().getRun(target.runId, userId);
       expect(failed.sandboxVmUnknown).toBe(false);

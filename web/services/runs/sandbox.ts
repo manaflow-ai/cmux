@@ -48,6 +48,8 @@ const TOKEN_SHAPES = [
   // npm's `_auth`, Azure SAS `sig`, and the signature and credential parameters of signed cloud URLs
   // (`X-Amz-Signature`, `X-Goog-Signature`, …), in any spacing, quoting or JSON; the key exactly
   // (`my_author` and `signal` are not one).
+  // Docker's config.json `"auth": "<base64 user:password>"` (the quoted JSON key only: a bare `auth:` is ordinary text).
+  /((?<![A-Za-z0-9_-])"auth"\s*:\s*)(?:"(?:[^"\\]|\\.)*(?:"|$))/gi,
   /((?<![A-Za-z0-9_-])(?:_auth|sig|x-(?:amz|goog)-(?:signature|credential|security-token))["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
@@ -147,7 +149,7 @@ function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
 }
 
 /** Keys whose value is a secret whatever it looks like. */
-const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|signature|^_auth$|^sig$|^x-(?:amz|goog)-(?:credential|security-token)$)/i;
+const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|signature|^_?auth$|^sig$|^x-(?:amz|goog)-(?:credential|security-token)$)/i;
 
 /**
  * Every string inside `value` (any depth) redacted like the receipt: keys too, and the whole value
