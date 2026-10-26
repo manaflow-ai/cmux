@@ -8,11 +8,12 @@ public import Darwin
 
 // The size-gated seams for long CPU work (``BlockingKind/cpuIntensive``). Chrome keeps this work off its UI thread:
 // `AssertLongCPUWorkAllowed()` (base/threading/thread_restrictions.h) fails there, and large JSON and image decodes
-// go to the data decoder service (services/data_decoder/public/cpp/data_decoder.h). A small input is cheap on any
-// thread, so at or below its gate a seam is the plain call; above it, on the main thread, it is a cpu-intensive
-// site (timed like a blocking call). Off the main thread it is always the plain call: a lane, the pool and the
+// go to the data decoder service (services/data_decoder/public/cpp/data_decoder.h). Small work is cheap on any
+// thread, so at or below its gate (by the size the work grows with: input bytes, decoded pixels, uncompressed bytes,
+// searched text) a seam is the plain call; above it, on the main thread, it is a cpu-intensive site (timed like a
+// blocking call). Off the main thread it is always the plain call: a lane, the pool and the
 // `.cpu` lane are where this work belongs. Decode, compress or search a large input there and apply the result on
-// main. threading-inventory.py `--rule cpu-intensive` lists the raw calls in main-actor targets (MQ-18).
+// main. threading-inventory.py `--rule cpu-intensive` lists the raw calls that run on the main thread (MQ-18).
 
 /// Runs `body`, CPU work over `size` units of input, as a checked ``BlockingKind/cpuIntensive`` call: in builds with
 /// the detector (Debug, bench, and Nightly to come), `body` on the main thread with `size` above `limit` records a
@@ -21,14 +22,15 @@ public import Darwin
 /// in Release, it is `body` alone. The seams below call it; call it directly for other CPU work whose cost grows
 /// with one input's size.
 ///
-/// Off the main thread it is one `pthread_main_np()` call; at or below the gate, one compare.
+/// Off the main thread it is one `pthread_main_np()` call: `size` is read only on the main thread (an image seam
+/// reads its header for it), and never in Release.
 ///
 /// ```swift
 /// let layout = cpuIntensiveCall(size: text.utf16.count, limit: 32 * 1024) { Layout(text) }
 /// ```
 ///
 /// - Parameters:
-///   - size: The input's size, in the units `limit` counts.
+///   - size: The work's size, in the units `limit` counts.
 ///   - limit: The largest size that may run on the main thread without a site.
 ///   - fileID: The calling code's `#fileID` (a seam passes its own caller's).
 ///   - line: The calling code's `#line`.
@@ -37,10 +39,11 @@ public import Darwin
 /// - Throws: What `body` throws.
 @inlinable @inline(__always)
 public func cpuIntensiveCall<Result, Failure: Error>(
-    size: Int, limit: Int, fileID: StaticString = #fileID, line: UInt = #line, _ body: () throws(Failure) -> Result
+    size: @autoclosure () -> Int, limit: Int, fileID: StaticString = #fileID, line: UInt = #line,
+    _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard size > limit, pthread_main_np() != 0 else { return try body() }
+    guard pthread_main_np() != 0, size() > limit else { return try body() }
     return try BlockingViolationTable.mainThreadBlockingCall(.cpuIntensive, fileID: fileID, line: line, body)
     #else
     return try body()
@@ -110,12 +113,55 @@ extension JSONSerialization {
     }
 }
 
+extension PropertyListSerialization {
+    /// Parses a property list, like `propertyList(from:options:format:)`, as a checked CPU call: on the main thread,
+    /// `data` larger than ``BlockingKind/cpuIntensiveJSONBytes`` is a site.
+    ///
+    /// - Parameters:
+    ///   - data: The property list bytes (XML, binary or OpenStep).
+    ///   - options: Foundation's mutability options.
+    ///   - format: Receives the format `data` was in, when not nil.
+    ///   - fileID: The calling code's `#fileID` (names the call site).
+    ///   - line: The calling code's `#line`.
+    /// - Returns: The parsed object.
+    /// - Throws: What `propertyList(from:options:format:)` throws.
+    @inlinable
+    public static func blockingPropertyList(
+        from data: Data, options: ReadOptions = [], format: UnsafeMutablePointer<PropertyListFormat>? = nil,
+        fileID: StaticString = #fileID, line: UInt = #line
+    ) throws -> Any {
+        try cpuIntensiveCall(size: data.count, limit: BlockingKind.cpuIntensiveJSONBytes, fileID: fileID, line: line) {
+            try propertyList(from: data, options: options, format: format)
+        }
+    }
+}
+
+/// The bytes the image at `index` of `source` decodes to, 4 per pixel, from its header (no pixel is decoded), or
+/// `encoded` when that is larger or the header names no size.
+///
+/// - Parameters:
+///   - source: The image source.
+///   - index: Which image of the source.
+///   - encoded: The encoded image's size in bytes.
+/// - Returns: The larger of the decoded and the encoded size, `Int.max` when the product overflows.
+@usableFromInline
+func decodedImageBytes(_ source: CGImageSource, at index: Int, encoded: Int) -> Int {
+    guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+          let height = properties[kCGImagePropertyPixelHeight] as? Int else { return encoded }
+    let pixels = width.multipliedReportingOverflow(by: height)
+    let bytes = pixels.partialValue.multipliedReportingOverflow(by: 4)
+    return pixels.overflow || bytes.overflow ? .max : max(encoded, bytes.partialValue)
+}
+
 /// Decodes one image of encoded image data (PNG, JPEG, HEIC...) to its pixels, as a checked CPU call: on the main
-/// thread, `data` larger than ``BlockingKind/cpuIntensiveImageBytes`` is a site.
+/// thread, an image that decodes to more than ``BlockingKind/cpuIntensiveImagePixelBytes`` (its header's width by
+/// height, 4 bytes a pixel) is a site, however small `data` is.
 ///
 /// The pixels are decoded here (`kCGImageSourceShouldCacheImmediately`), not where the image is first drawn, so the
-/// work happens on the calling thread. For an `NSImage`, wrap the result with `NSImage(cgImage:size:)`:
-/// `NSImage(data:)` leaves the decode to its first draw, on the main thread. Read a file first with
+/// work happens on the calling thread. For an `NSImage`, `NSBitmapImageRep` or `CIImage`, wrap the result with
+/// `NSImage(cgImage:size:)`, `NSBitmapImageRep(cgImage:)` or `CIImage(cgImage:)`: `NSImage(data:)` leaves the
+/// decode to its first draw, on the main thread. Read a file first with
 /// ``Foundation/Data/init(blockingContentsOf:options:fileID:line:)``.
 ///
 /// - Parameters:
@@ -128,17 +174,20 @@ extension JSONSerialization {
 public func blockingImageDecode(
     _ data: Data, at index: Int = 0, fileID: StaticString = #fileID, line: UInt = #line
 ) -> CGImage? {
-    cpuIntensiveCall(size: data.count, limit: BlockingKind.cpuIntensiveImageBytes, fileID: fileID, line: line) {
-        () -> CGImage? in
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    return cpuIntensiveCall(
+        size: decodedImageBytes(source, at: index, encoded: data.count),
+        limit: BlockingKind.cpuIntensiveImagePixelBytes,
+        fileID: fileID, line: line
+    ) { () -> CGImage? in
         let decodeNow = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         return CGImageSourceCreateImageAtIndex(source, index, decodeNow)
     }
 }
 
 /// Makes a thumbnail of one image of encoded image data, like `CGImageSourceCreateThumbnailAtIndex`, as a checked
-/// CPU call: on the main thread, `data` larger than ``BlockingKind/cpuIntensiveImageBytes`` is a site (the
-/// thumbnail decodes the source to scale it).
+/// CPU call gated like ``blockingImageDecode(_:at:fileID:line:)``, by the full image's decoded bytes (the thumbnail
+/// decodes the source to scale it).
 ///
 /// - Parameters:
 ///   - data: The encoded image.
@@ -152,10 +201,13 @@ public func blockingImageDecode(
 public func blockingImageThumbnail(
     _ data: Data, at index: Int = 0, options: [CFString: Any], fileID: StaticString = #fileID, line: UInt = #line
 ) -> CGImage? {
-    cpuIntensiveCall(size: data.count, limit: BlockingKind.cpuIntensiveImageBytes, fileID: fileID, line: line) {
-        () -> CGImage? in
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    return cpuIntensiveCall(
+        size: decodedImageBytes(source, at: index, encoded: data.count),
+        limit: BlockingKind.cpuIntensiveImagePixelBytes,
+        fileID: fileID, line: line
+    ) { () -> CGImage? in
+        CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
     }
 }
 
@@ -178,22 +230,44 @@ extension Data {
         }
     }
 
-    /// Decompresses the bytes, like `NSData.decompressed(using:)`, as a checked CPU call: on the main thread, more
-    /// than ``BlockingKind/cpuIntensiveCompressionBytes`` compressed bytes is a site.
+    /// Decompresses the bytes, like `NSData.decompressed(using:)`, as a checked CPU call gated by its output: on the
+    /// main thread, more than ``BlockingKind/cpuIntensiveCompressionBytes`` decompressed bytes is a site.
+    ///
+    /// The output's size is not known before the work, so the gate takes `expectedSize` when the caller knows it (a
+    /// stored length, a header), else ``BlockingKind/cpuIntensiveCompressionRatio`` times the compressed bytes.
     ///
     /// - Parameters:
     ///   - algorithm: The algorithm the bytes were compressed with.
+    ///   - expectedSize: The decompressed size in bytes, when the caller knows it.
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The decompressed bytes.
     /// - Throws: What `NSData.decompressed(using:)` throws.
     @inlinable
     public func blockingDecompress(
-        using algorithm: NSData.CompressionAlgorithm, fileID: StaticString = #fileID, line: UInt = #line
+        using algorithm: NSData.CompressionAlgorithm, expectedSize: Int? = nil,
+        fileID: StaticString = #fileID, line: UInt = #line
     ) throws -> Data {
-        try cpuIntensiveCall(size: count, limit: BlockingKind.cpuIntensiveCompressionBytes, fileID: fileID, line: line) {
+        try cpuIntensiveCall(
+            size: Self.decompressedBytes(compressed: count, expected: expectedSize),
+            limit: BlockingKind.cpuIntensiveCompressionBytes, fileID: fileID, line: line
+        ) {
             try (self as NSData).decompressed(using: algorithm) as Data
         }
+    }
+
+    /// The decompressed size the gate counts: `expected` (at least `compressed`), or
+    /// ``BlockingKind/cpuIntensiveCompressionRatio`` times `compressed`, `Int.max` when that overflows.
+    ///
+    /// - Parameters:
+    ///   - compressed: The compressed size in bytes.
+    ///   - expected: The decompressed size in bytes, when the caller knows it.
+    /// - Returns: The size in bytes.
+    @usableFromInline
+    static func decompressedBytes(compressed: Int, expected: Int?) -> Int {
+        if let expected { return max(compressed, expected) }
+        let estimate = compressed.multipliedReportingOverflow(by: BlockingKind.cpuIntensiveCompressionRatio)
+        return estimate.overflow ? .max : estimate.partialValue
     }
 }
 

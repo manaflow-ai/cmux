@@ -50,13 +50,19 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// The largest JSON or property list input, in bytes, the decode seams take on the main thread without a
     /// ``cpuIntensive`` site (64 KiB: about a millisecond of Codable decoding, a sixteenth of a 60 Hz frame).
     public static let cpuIntensiveJSONBytes = 64 * 1024
-    /// The largest encoded image, in bytes, ``blockingImageDecode(_:at:fileID:line:)`` and
-    /// ``blockingImageThumbnail(_:at:options:fileID:line:)`` take on the main thread without a site (256 KiB:
-    /// compressed pixels grow about tenfold when decoded).
-    public static let cpuIntensiveImageBytes = 256 * 1024
-    /// The largest input, in bytes, the compression seams take on the main thread without a site (64 KiB; the
-    /// decompression gate counts the compressed bytes).
+    /// The largest decoded image, in bytes of 8-bit RGBA (4 per pixel), ``blockingImageDecode(_:at:fileID:line:)``
+    /// and ``blockingImageThumbnail(_:at:options:fileID:line:)`` take on the main thread without a site (256 KiB:
+    /// 256 by 256 pixels). A decode costs by its pixels, not its encoded bytes: a 2880 by 1800 screenshot is a PNG of
+    /// about 200 KiB and 20 MB of pixels. Chrome bounds its image decodes the same way, by decoded bytes
+    /// (`ImageDecoder`'s `max_decoded_bytes`, third_party/blink/renderer/platform/image-decoders/image_decoder.h).
+    public static let cpuIntensiveImagePixelBytes = 256 * 1024
+    /// The largest uncompressed size, in bytes, the compression seams take on the main thread without a site
+    /// (64 KiB): the input of ``Foundation/Data/blockingCompress(using:fileID:line:)``, the output of
+    /// ``Foundation/Data/blockingDecompress(using:expectedSize:fileID:line:)``.
     public static let cpuIntensiveCompressionBytes = 64 * 1024
+    /// How many times its compressed size ``Foundation/Data/blockingDecompress(using:expectedSize:fileID:line:)``
+    /// takes the output to be when the caller does not know it (8: lzfse and zlib on text and JSON).
+    public static let cpuIntensiveCompressionRatio = 8
     /// The longest searched range, in UTF-16 code units, the regular-expression seams take on the main thread
     /// without a site (32 Ki units: a pattern that backtracks costs much more per unit than a decode).
     public static let cpuIntensiveRegexUTF16 = 32 * 1024

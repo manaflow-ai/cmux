@@ -18,12 +18,32 @@ struct CPUIntensiveSeamTests {
         #expect(BlockingKind.cpuIntensive.rawValue == "cpu-intensive")
     }
 
-    /// The gates the design names: JSON 64 KiB, images 256 KiB, compression 64 KiB, regex 32 Ki UTF-16 units.
+    /// The gates: JSON 64 KiB, images 256 KiB of decoded pixels, compression 64 KiB uncompressed (a decompression
+    /// without its expected size counts 8 times its input), regex 32 Ki UTF-16 units.
     @Test func theGatesAreTheDesignedSizes() {
         #expect(BlockingKind.cpuIntensiveJSONBytes == 65_536)
-        #expect(BlockingKind.cpuIntensiveImageBytes == 262_144)
+        #expect(BlockingKind.cpuIntensiveImagePixelBytes == 262_144)
         #expect(BlockingKind.cpuIntensiveCompressionBytes == 65_536)
+        #expect(BlockingKind.cpuIntensiveCompressionRatio == 8)
         #expect(BlockingKind.cpuIntensiveRegexUTF16 == 32_768)
+    }
+
+    /// A decompression counts its expected size when given (at least the input), else 8 times its input, and
+    /// saturates instead of overflowing.
+    @Test func theDecompressionGateCountsTheOutput() {
+        #expect(Data.decompressedBytes(compressed: 10, expected: nil) == 80)
+        #expect(Data.decompressedBytes(compressed: 10, expected: 1_000) == 1_000)
+        #expect(Data.decompressedBytes(compressed: 10, expected: 5) == 10)
+        #expect(Data.decompressedBytes(compressed: .max, expected: nil) == .max)
+    }
+
+    /// An image's gate size is its header's width by height at 4 bytes a pixel (no pixel decoded), or the encoded
+    /// size when that is larger.
+    @Test nonisolated func theImageGateCountsDecodedPixels() throws {
+        let png = try CPUFixture.png(side: CPUFixture.flatSide, flat: true)
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        #expect(decodedImageBytes(source, at: 0, encoded: png.count) == CPUFixture.flatSide * CPUFixture.flatSide * 4)
+        #expect(decodedImageBytes(source, at: 0, encoded: .max) == .max)
     }
 
     /// Each seam returns what the plain call returns, above and below its gate (off the main thread, so the large
@@ -36,6 +56,10 @@ struct CPUIntensiveSeamTests {
             #expect(try JSONSerialization.blockingJSONObject(with: inputs.json) as? [String] == plain)
             let listed = try PropertyListDecoder().decode([String].self, from: inputs.plist)
             #expect(try PropertyListDecoder().blockingDecode([String].self, from: inputs.plist) == listed)
+            #expect(try PropertyListSerialization.blockingPropertyList(from: inputs.plist) as? [String] == listed)
+            let expanded = try inputs.bytes.blockingCompress(using: .lzfse)
+                .blockingDecompress(using: .lzfse, expectedSize: inputs.bytes.count)
+            #expect(expanded == inputs.bytes)
             #expect(try inputs.bytes.blockingCompress(using: .lzfse).blockingDecompress(using: .lzfse) == inputs.bytes)
             let pairs = inputs.text.utf16.count / 2
             #expect(inputs.regex.blockingRegexMatches(in: inputs.text).count == pairs)
@@ -103,6 +127,46 @@ struct CPUIntensiveSeamTests {
 
         #expect(called == CPUSeamInputs.seamCount)
         #expect(BlockingDetector(table: table).sites.isEmpty)
+    }
+
+    /// The design's finding: a screenshot-like PNG, far below 256 KiB encoded but many megabytes of pixels, decoded
+    /// or scaled on the main thread is a site each time.
+    @MainActor @Test func aSmallPNGOfManyPixelsOnTheMainThreadRecordsASite() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        let png = try CPUFixture.png(side: CPUFixture.flatSide, flat: true)
+        #expect(png.count < BlockingKind.cpuIntensiveImagePixelBytes)
+        let expected = BlockingViolationTable.$scoped.withValue(table) {
+            var calls = CPUSeamCalls()
+            calls.seam(.cpuIntensive) { _ = blockingImageDecode(png) }
+            calls.seam(.cpuIntensive) { _ = blockingImageThumbnail(png, options: CPUFixture.thumbnailOptions) }
+            return calls.expected
+        }
+        await table.flush()
+
+        #expect(expected.count == 2)
+        #expect(CPUSeamCalls.observed(table) == expected)
+    }
+
+    /// A small compressed blob that expands past the gate on the main thread is a site: by its expected size when
+    /// the caller passes it, and by 8 times its input otherwise. The same blob with a small expected size is not.
+    @MainActor @Test func aSmallBlobThatExpandsPastTheGateOnTheMainThreadRecordsASite() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        let text = Data(repeating: 0x61, count: 1024 * 1024)
+        let blob = try (text as NSData).compressed(using: .lzfse) as Data
+        let noise = try (CPUFixture.noise(bytes: 10 * 1024) as NSData).compressed(using: .lzfse) as Data
+        #expect(blob.count * BlockingKind.cpuIntensiveCompressionRatio <= BlockingKind.cpuIntensiveCompressionBytes)
+        #expect(noise.count < BlockingKind.cpuIntensiveCompressionBytes)
+        let expected = try BlockingViolationTable.$scoped.withValue(table) {
+            var calls = CPUSeamCalls()
+            try calls.seam(.cpuIntensive) { _ = try blob.blockingDecompress(using: .lzfse, expectedSize: text.count) }
+            try calls.seam(.cpuIntensive) { _ = try noise.blockingDecompress(using: .lzfse) }
+            _ = try blob.blockingDecompress(using: .lzfse, expectedSize: 1024)
+            return calls.expected
+        }
+        await table.flush()
+
+        #expect(expected.count == 2)
+        #expect(CPUSeamCalls.observed(table) == expected)
     }
 
     /// The gate is exclusive: an input of exactly the limit is not a site, one unit more is.
@@ -185,7 +249,7 @@ struct CPUIntensiveSeamTests {
 /// The inputs of ``callEachCPUSeam(_:)``: each above its seam's gate when `large`, each well below it otherwise.
 private nonisolated struct CPUSeamInputs {
     /// How many seam calls ``callEachCPUSeam(_:)`` makes.
-    static let seamCount = 12
+    static let seamCount = 13
 
     let json: Data
     let plist: Data
@@ -204,10 +268,12 @@ private nonisolated struct CPUSeamInputs {
         compressed = try (bytes as NSData).compressed(using: .lzfse) as Data
         text = String(repeating: "ab", count: large ? 20 * 1024 : 512)
         regex = try NSRegularExpression(pattern: "ab")
-        let sizes = [json.count, plist.count, png.count, compressed.count, text.utf16.count]
+        let side = large ? CPUFixture.largeSide : CPUFixture.smallSide
+        let sizes = [json.count, plist.count, side * side * 4, bytes.count,
+                     compressed.count * BlockingKind.cpuIntensiveCompressionRatio, text.utf16.count]
         let gates = [BlockingKind.cpuIntensiveJSONBytes, BlockingKind.cpuIntensiveJSONBytes,
-                     BlockingKind.cpuIntensiveImageBytes, BlockingKind.cpuIntensiveCompressionBytes,
-                     BlockingKind.cpuIntensiveRegexUTF16]
+                     BlockingKind.cpuIntensiveImagePixelBytes, BlockingKind.cpuIntensiveCompressionBytes,
+                     BlockingKind.cpuIntensiveCompressionBytes, BlockingKind.cpuIntensiveRegexUTF16]
         precondition(zip(sizes, gates).allSatisfy { large ? $0 > $1 : $0 * 4 <= $1 }, "\(sizes) against \(gates)")
     }
 }
@@ -220,6 +286,7 @@ private nonisolated func callEachCPUSeam(_ inputs: CPUSeamInputs) throws -> [CPU
     try calls.seam(.cpuIntensive) { _ = try JSONDecoder().blockingDecode([String].self, from: inputs.json) }
     try calls.seam(.cpuIntensive) { _ = try PropertyListDecoder().blockingDecode([String].self, from: inputs.plist) }
     try calls.seam(.cpuIntensive) { _ = try JSONSerialization.blockingJSONObject(with: inputs.json) }
+    try calls.seam(.cpuIntensive) { _ = try PropertyListSerialization.blockingPropertyList(from: inputs.plist) }
     calls.seam(.cpuIntensive) { _ = blockingImageDecode(inputs.png) }
     calls.seam(.cpuIntensive) { _ = blockingImageThumbnail(inputs.png, options: CPUFixture.thumbnailOptions) }
     try calls.seam(.cpuIntensive) { _ = try inputs.bytes.blockingCompress(using: .lzfse) }
@@ -301,10 +368,13 @@ private nonisolated struct CPUSeamCalls {
 
 /// Inputs of a chosen size, the same on every run.
 private nonisolated enum CPUFixture {
-    /// The side of the large test image: 400 by 400 pixels of noise encode to about 470 KiB of PNG.
+    /// The side of the large test image: 400 by 400 pixels, 640,000 bytes decoded (noise: about 470 KiB of PNG).
     static let largeSide = 400
-    /// The side of the small test image: well under 1 KiB of PNG.
+    /// The side of the small test image: 64 bytes decoded, well under 1 KiB of PNG.
     static let smallSide = 4
+    /// The side of the flat test image: 1024 by 1024 pixels of one color, 4 MiB decoded from a few KiB of PNG, as
+    /// a screenshot of text and flat colors compresses.
+    static let flatSide = 1024
     /// The longest side ``thumbnailOptions`` asks for.
     static let thumbnailSide = 16
     /// Thumbnail options that always scale the full image down to ``thumbnailSide``.
@@ -338,9 +408,9 @@ private nonisolated enum CPUFixture {
         })
     }
 
-    /// A `side` by `side` PNG of noise.
-    static func png(side: Int) throws -> Data {
-        let pixels = noise(bytes: side * side * 4)
+    /// A `side` by `side` PNG of noise, or of one color when `flat`.
+    static func png(side: Int, flat: Bool = false) throws -> Data {
+        let pixels = flat ? Data(repeating: 0x80, count: side * side * 4) : noise(bytes: side * side * 4)
         let provider = try #require(CGDataProvider(data: pixels as CFData))
         let image = try #require(CGImage(
             width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
