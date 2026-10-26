@@ -90,6 +90,9 @@ public final class SidebarDocStore {
     /// The Chief's adds not echoed yet, oldest first, with their keys (`SidebarPendingChief`): what the sidebar draws
     /// for it until then.
     @ObservationIgnored var pendingChief: [(key: String, add: SidebarPendingChief)] = []
+    /// Those the daemon answered, by key, with the revision that holds each: a load at that revision or later holds
+    /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
+    @ObservationIgnored var answeredChief: [String: UInt64] = [:]
 
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
@@ -135,10 +138,12 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            let rejected = answering.flatMap { mirror.reject($0) }
-            // A Chief change the load answered or the mirror dropped (it no longer applies, on the load or behind a
+            // So does each answered Chief change at the load's revision or before it: it stops replaying too.
+            let settled = answering.union(self.answeredChief.filter { $0.value <= records.revision }.keys)
+            let rejected = settled.flatMap { mirror.reject($0) }
+            // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
             // change put back) is settled; one it replays stays pending.
-            self.settlePendingChief(answering.union(dropped).union(rejected))
+            self.settlePendingChief(settled.union(dropped).union(rejected))
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -348,6 +353,9 @@ public final class SidebarDocStore {
                     // echo, and the first echo may have gone to a closed connection. The next load settles the key.
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
+                    if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
+                        self.answeredChief[key] = revision
+                    }
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key, redraws: redraws)

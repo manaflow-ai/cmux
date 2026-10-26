@@ -101,6 +101,7 @@ extension SidebarDocStore {
     func settlePendingChief(_ keys: Set<String>) -> Bool {
         let count = pendingChief.count
         pendingChief.removeAll { keys.contains($0.key) }
+        answeredChief = answeredChief.filter { !keys.contains($0.key) }
         return pendingChief.count != count
     }
 }
