@@ -114,8 +114,8 @@ export function IncomingMessageLine({
   // Only the reader's own clicks play the motion; Find opening a message for its match does not.
   const played = useRef(false);
   const envelope = useAnchoredCollapse({ open: details, onOpenChange: setDetails, animates: () => played.current });
-  // The text's height as drawn when the reader clicked, which its resize starts from.
-  const textFrom = useRef<number | undefined>(undefined);
+  // The card's height as drawn when the reader clicked, which its text's resize starts from.
+  const cardFrom = useRef<number | undefined>(undefined);
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
@@ -125,7 +125,7 @@ export function IncomingMessageLine({
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
     played.current = false;
-    textFrom.current = undefined;
+    cardFrom.current = undefined;
     show(true);
     if (inRaw) setDetails(true);
     reveal?.repaint();
@@ -190,16 +190,22 @@ export function IncomingMessageLine({
   const folded = minimal && !open;
   const preview = useMemo(() => (minimal ? messagePreview(body) : ""), [minimal, body]);
   const cut = long && !open && !minimal;
-  // A reader's click: the motion plays, a drawn card's text resizing from its height now.
+  // A reader's click: the motion plays, a drawn card resizing from its height now.
   const byReader = () => {
     played.current = true;
-    textFrom.current = minimal ? undefined : textBox.current?.getBoundingClientRect().height;
+    cardFrom.current = minimal ? undefined : textBox.current?.parentElement?.getBoundingClientRect().height;
   };
+  // The text starts at the height that keeps the card as tall as it was drawn: Show more leaves (or
+  // comes back) at once, and a card a frame shorter would pull the transcript's end, and the held
+  // line with it, up by the button.
   useLayoutEffect(() => {
     const node = textBox.current;
-    const from = textFrom.current;
-    textFrom.current = undefined;
-    if (node && from !== undefined) playResize(node, from);
+    const card = node?.parentElement;
+    const from = cardFrom.current;
+    cardFrom.current = undefined;
+    if (!node || !card || from === undefined) return;
+    const text = node.getBoundingClientRect().height;
+    playResize(node, from - (card.getBoundingClientRect().height - text));
   }, [open]);
   // "Open chief-ui (huge-blue)": the chat the chip opens, and the other machine it runs on.
   const openLabel = sender.host
