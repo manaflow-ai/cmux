@@ -363,6 +363,10 @@ public final class AgentPageProvider: PageProvider {
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
+        // The launch marks bench-startup.py reads (`agent_pane.handshake_end` is its agent-ready mark).
+        guard request == .ready else { return try Self.value(of: await model.respond(to: request)) }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
+        defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
         return try Self.value(of: await model.respond(to: request))
     }
 

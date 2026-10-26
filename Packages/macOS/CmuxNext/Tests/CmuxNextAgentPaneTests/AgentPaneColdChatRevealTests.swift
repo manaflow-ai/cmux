@@ -17,8 +17,9 @@ struct AgentPaneColdChatRevealTests {
 
     private static func pane(newTab: AgentPaneNewTab? = nil) throws -> (AgentPaneView, NSWindow) {
         _ = NSApplication.shared
+        let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: newTab),
-                                              source: .bundled(try #require(AgentPageTestRoot.page)), webUI: .agentPaneTestHost()))
+                                              source: .bundled(file), webUI: .agentPaneTestHost()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
