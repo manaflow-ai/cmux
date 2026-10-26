@@ -41,6 +41,9 @@ public final class AccountsTeamsModel {
 
     @ObservationIgnored private let services: any AccountsServices
     @ObservationIgnored private var membershipRead = 0
+    /// Teams a role read was already started for, so a team the server does
+    /// not list (roles unknown) asks once, not on every redraw.
+    @ObservationIgnored private var askedFor: Set<String> = []
     @ObservationIgnored private var detailRead = 0
 
     init(services: any AccountsServices) {
@@ -50,11 +53,24 @@ public final class AccountsTeamsModel {
     /// The person's role in `teamID`, nil when unknown.
     public func role(of teamID: String) -> CMUXTeamRole? { memberships[teamID]?.role }
 
+    /// The team list changed (a team made from the palette, an invitation
+    /// accepted in the browser, another account): re-reads the roles once for
+    /// teams it has none for. The page calls it as it draws the list, so the
+    /// read follows the list's own change, never a timer.
+    func noteTeams(_ ids: [String]) {
+        let unknown = Set(ids).subtracting(memberships.keys).subtracting(askedFor)
+        guard !unknown.isEmpty else { return }
+        askedFor.formUnion(unknown)
+        // task-owner: one role read for a membership change; reload drops a superseded answer.
+        Task { await reload() }
+    }
+
     /// Re-reads the roles, then the open details. A newer read supersedes an
     /// older one; a failed read keeps the roles last shown.
     public func reload() async {
         guard services.activeTeam != nil else {
             memberships = [:]
+            askedFor = []
             close()
             return
         }
@@ -143,7 +159,10 @@ public final class AccountsTeamsModel {
     /// Runs one change of `form`: the form stays open with the failure, or
     /// closes with the outcome and the roles re-read.
     private func save(_ form: Form, _ work: @escaping () async throws -> String) async -> String? {
-        guard !isSaving else { return AccountsStrings.teamsErrorBusy }
+        guard !isSaving else {
+            if self.form == form { formError = AccountsStrings.teamsErrorBusy }
+            return AccountsStrings.teamsErrorBusy
+        }
         self.form = form
         formError = nil
         notice = nil

@@ -64,10 +64,10 @@ public struct CMUXTeamMembership: Equatable, Identifiable, Sendable {
     /// The team summary the rest of the app uses.
     public var team: CMUXAuthTeam { CMUXAuthTeam(id: id, displayName: displayName) }
 
-    /// Whether the user may rename the team.
-    public var canRename: Bool { permissions?.updateTeam ?? false }
-    /// Whether the user may delete the team.
-    public var canDelete: Bool { permissions?.deleteTeam ?? false }
+    /// Whether the user may rename the team: the server requires an admin with the permission.
+    public var canRename: Bool { role == .admin && permissions?.updateTeam == true }
+    /// Whether the user may delete the team: the server requires an admin with the permission.
+    public var canDelete: Bool { role == .admin && permissions?.deleteTeam == true }
 }
 
 /// The signed-in user's teams with roles, and the account's selected team.
@@ -258,15 +258,18 @@ public enum CMUXTeamError: Error, Equatable, Sendable {
 
 /// A team name the person typed, trimmed and checked: 1 to ``maximumLength`` characters.
 public struct CMUXTeamName: Equatable, Sendable {
-    /// The longest name the apps accept.
+    /// The longest name the Mac's team forms accept.
     public static let maximumLength = 64
+    /// The longest name the cmux team API accepts (`web/services/teams/schemas.ts`).
+    public static let serverMaximumLength = 120
 
     public let value: String
 
+    /// - Parameter maximumLength: The longest trimmed name allowed.
     /// - Throws: ``CMUXTeamError/invalidName`` when the trimmed name is empty or too long.
-    public init(_ raw: String) throws {
+    public init(_ raw: String, maximumLength: Int = CMUXTeamName.maximumLength) throws {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.count <= Self.maximumLength else { throw CMUXTeamError.invalidName }
+        guard !trimmed.isEmpty, trimmed.count <= maximumLength else { throw CMUXTeamError.invalidName }
         value = trimmed
     }
 }

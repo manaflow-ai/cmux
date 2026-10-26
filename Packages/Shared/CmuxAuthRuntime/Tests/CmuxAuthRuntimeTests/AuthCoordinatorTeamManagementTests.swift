@@ -87,6 +87,43 @@ struct AuthCoordinatorTeamManagementTests {
         #expect(await client.teams.first?.displayName == "Alpha")
     }
 
+    /// A team-list read that started before a delete answers with the team in
+    /// it; landing after the delete, it must not bring the team back.
+    @Test func aReadInFlightDoesNotBringADeletedTeamBack() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha, beta], selected: "team-a")
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextSelectedTeamRead(started: started, release: release)
+
+        let refresh = Task { await coordinator.refreshTeams() }
+        await started.waitUntilStarted()
+        try await coordinator.deleteTeam(id: "team-b")
+        await release.release()
+        await refresh.value
+
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a"])
+    }
+
+    /// No switch starts while a delete runs, so the delete's fallback is the
+    /// team cmux ends in.
+    @Test func aSwitchDuringADeleteIsRefused() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha, beta], selected: "team-a")
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamDelete(started: started, release: release)
+
+        let delete = Task { try await coordinator.deleteTeam(id: "team-a") }
+        await started.waitUntilStarted()
+        #expect(coordinator.isDeletingTeam)
+        await #expect(throws: AuthTeamChangeInProgressError.self) { try await coordinator.selectTeam(id: "team-a") }
+        await release.release()
+        try await delete.value
+
+        #expect(!coordinator.isDeletingTeam)
+        #expect(coordinator.resolvedTeamID == "team-b")
+        #expect(await client.lastSelectedTeamID == "team-b")
+    }
+
     @Test func membershipsCarryRoles() async throws {
         let (coordinator, _) = try await signedIn(teams: [alpha, beta], selected: "team-a")
 
@@ -128,6 +165,10 @@ extension FakeAuthClient: TeamManaging {
     }
 
     func deleteTeam(id: String) async throws {
+        if let gate = takeTeamDeleteGate() {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         if id == Self.billedTeamID { throw CMUXTeamError.subscriptionActive }
         guard teams.contains(where: { $0.id == id }) else { throw CMUXTeamError.notFound }
         teams.removeAll { $0.id == id }

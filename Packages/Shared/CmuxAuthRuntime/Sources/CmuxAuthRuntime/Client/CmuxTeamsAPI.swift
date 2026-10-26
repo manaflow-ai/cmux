@@ -43,14 +43,14 @@ public struct CmuxTeamsAPI: Sendable {
 
     /// `POST /api/teams`: creates a team; the creator becomes its admin.
     public func create(displayName: String) async throws -> CMUXAuthTeam {
-        let name = try CMUXTeamName(displayName)
+        let name = try CMUXTeamName(displayName, maximumLength: CMUXTeamName.serverMaximumLength)
         let reply: TeamReply = try await send("POST", ["api", "teams"], body: NameBody(displayName: name.value))
         return CMUXAuthTeam(id: reply.team.id, displayName: reply.team.displayName)
     }
 
     /// `PATCH /api/teams/:id`: renames a team (admins only).
     public func rename(teamID: String, displayName: String) async throws -> CMUXAuthTeam {
-        let name = try CMUXTeamName(displayName)
+        let name = try CMUXTeamName(displayName, maximumLength: CMUXTeamName.serverMaximumLength)
         let reply: TeamReply = try await send("PATCH", ["api", "teams", teamID], body: NameBody(displayName: name.value))
         return CMUXAuthTeam(id: reply.team.id, displayName: reply.team.displayName)
     }
