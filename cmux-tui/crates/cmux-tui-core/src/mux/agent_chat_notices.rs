@@ -359,6 +359,9 @@ struct Chat {
     muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// Work it started runs past its turn (a background subagent, a working sub-session;
+    /// acpmux's `subagentsWorkingSince`): the task is not done yet.
+    works_below: bool,
     /// The ended turn already notified (or passed over), so it notifies once.
     notified_turn: Option<String>,
     last_message: String,
@@ -402,6 +405,7 @@ impl Chat {
             shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
+            works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
@@ -450,6 +454,8 @@ impl Chat {
     /// An ended turn notifies once, unless a pane showed the chat as it ended:
     /// when it ends while no pane shows the chat, or once acpmux marks the
     /// chat unread (a turn that failed before it started is never marked so).
+    /// A turn that ends while work it started still runs waits: acpmux marks
+    /// the chat unread when that work ends (manaflow-ai/cmux#25563).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
@@ -458,6 +464,7 @@ impl Chat {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
         if let Some((turn, status)) = &self.last_turn
+            && !self.works_below
             && (self.unread || (!self.shown && ended_now(turn)))
             && self.notified_turn.as_ref() != Some(turn)
         {

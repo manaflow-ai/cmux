@@ -1059,9 +1059,11 @@ impl Hub {
             }
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
+        // started still runs (a background subagent, a working sub-session) the task is not
+        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
         if !self.shown(session) {
-            session.meta.lock().unwrap().unread = true;
+            self.mark_unread_unless_work_below(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;

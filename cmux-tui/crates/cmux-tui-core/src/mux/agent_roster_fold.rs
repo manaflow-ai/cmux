@@ -28,6 +28,10 @@ impl Mux {
         {
             return Ok(());
         }
+        // A child agent changes no lifecycle state, but a turn's finish may wait for it.
+        if ingress.kind.starts_with("agent.child.") {
+            return self.apply_agent_child_hook(ingress);
+        }
         use crate::journal_reducers::hook_roster_state;
         let native_event =
             ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
@@ -136,8 +140,13 @@ impl Mux {
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
         // replays the notification instead of posting it twice, and the fence
-        // (stored by the report) still advances exactly once.
-        if let Some((title, body, level)) = agent_hook_notification(ingress) {
+        // (stored by the report) still advances exactly once. A turn that ends
+        // while its child agents run is not done: its finish waits for them
+        // (`agent_hook_children.rs`).
+        let notification = agent_hook_notification(ingress);
+        let held =
+            self.hold_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
+        if let Some((title, body, level)) = notification.filter(|_| !held) {
             self.create_durable_notification(
                 &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
