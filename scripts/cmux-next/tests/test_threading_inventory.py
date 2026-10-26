@@ -136,7 +136,7 @@ enum Work {
         Task.detached {
             print("unstated")
         }
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             print("stated")
         }
     }
