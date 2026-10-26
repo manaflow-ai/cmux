@@ -87,8 +87,18 @@ impl AppActions for ControlSocketActions {
         let request = run_request(action, target, args, key);
         let (value, answer) = crate::workspaces::control_reply(&self.socket, &request, RUN_TIMEOUT)
             .map_err(RunError::NoAnswer)?;
-        let reply = crate::workspaces::reply_result(&value, &answer).map_err(RunError::Refused)?;
-        Ok(reply.get("result").cloned().unwrap_or(Value::Null))
+        run_result(&value, &answer)
+    }
+}
+
+/// The run's `result` fields from the app's reply `value` (line `answer`).
+/// The app's own `timeout` error is no answer: the run goes on settling under
+/// its key (or, `not_run`, never started and left the key free).
+pub fn run_result(value: &Value, answer: &str) -> Result<Value, RunError> {
+    match crate::workspaces::reply_result(value, answer) {
+        Ok(reply) => Ok(reply.get("result").cloned().unwrap_or(Value::Null)),
+        Err(e) if value["error"]["code"] == "timeout" => Err(RunError::NoAnswer(e)),
+        Err(e) => Err(RunError::Refused(e)),
     }
 }
 
@@ -705,6 +715,28 @@ mod tests {
             })
             .unwrap_err();
         assert!(error.contains("size must be one of"), "{error}");
+    }
+
+    /// The app's own timeout answer is a run still going, never a refusal:
+    /// its retry keeps the key and joins it.
+    #[test]
+    fn the_apps_timeout_is_no_answer() {
+        let timeout = json!({"ok": false, "error": {"code": "timeout", "message": "action.run did not finish within 40000 ms"}});
+        assert!(matches!(
+            run_result(&timeout, ""),
+            Err(RunError::NoAnswer(_))
+        ));
+        let refused =
+            json!({"ok": false, "error": {"code": "unavailable", "message": "not connected"}});
+        assert_eq!(
+            run_result(&refused, ""),
+            Err(RunError::Refused("not connected".into()))
+        );
+        let done = json!({"ok": true, "result": {"ran": true, "result": {"workspace_id": "ws_1"}}});
+        assert_eq!(
+            run_result(&done, "").unwrap(),
+            json!({"workspace_id": "ws_1"})
+        );
     }
 
     #[test]
