@@ -147,6 +147,9 @@ let fullAccessManaged = false;
 /// The last ask's ticket: only the newest ask's answer counts. An answer to an older ask (two asks in
 /// flight across a push) changes nothing, also when the newer ask failed: what was kept stays.
 let fullAccessAsked = 0;
+/// The newest ticket whose answer said anything about full access (`rememberFullAccess`): an ask
+/// that returns without one (acpmux refused it) did not tell the pane whether full access is managed.
+let fullAccessAnswered = 0;
 
 /// A ticket for an `_acpmux/start_mode` ask about to be sent (direct.ts `startMode`).
 export function fullAccessTicket(): number {
@@ -158,6 +161,7 @@ export function fullAccessTicket(): number {
 /// sent since. No ticket (the gallery): the newest.
 export function rememberFullAccess(field: unknown, ticket: number = fullAccessTicket()): void {
   if (ticket < fullAccessAsked) return;
+  fullAccessAnswered = ticket;
   const next = field === "managed";
   if (next === fullAccessManaged) return;
   fullAccessManaged = next;
@@ -201,6 +205,7 @@ export function resetStartModesForTests(): void {
   memory = undefined;
   fullAccessManaged = false;
   fullAccessAsked = 0;
+  fullAccessAnswered = 0;
   askedGeneration = -1;
   failedAsks = 0;
   version += 1;
@@ -236,21 +241,28 @@ export async function askStartMode(
   if (!source) return exactStartMode(harness, cwd);
   const sent = generation;
   askedGeneration = sent;
+  const before = fullAccessAsked;
+  // An ask that told the pane nothing about full access (it failed, or acpmux refused it): a shown
+  // chat's probe asks again, once (`failedAsks`), unless this was that probe (reviews 42 and 45).
+  const unanswered = () => {
+    if (askedGeneration === sent) askedGeneration = -1;
+    if (!probe && source === ask) {
+      failedAsks += 1;
+      notify();
+    }
+  };
   let mode: StartMode | undefined;
   try {
     mode = await source(harness, cwd);
   } catch {
     // Not asked (the socket closed under it, the request failed): acpmux said nothing, so the
     // kept answer stays. Kept as "sets none", the chip lost its mode until the next answer.
-    // Nor did it say whether full access is managed: a shown chat's probe asks again, once
-    // (`failedAsks`), unless this was that probe.
-    if (askedGeneration === sent) askedGeneration = -1;
-    if (!probe && source === ask) {
-      failedAsks += 1;
-      notify();
-    }
+    unanswered();
     return exactStartMode(harness, cwd);
   }
+  // Answered, but with a refusal (an unavailable harness): the mode it sets is none, and whether
+  // full access is managed is still unknown.
+  if (fullAccessAnswered <= before) unanswered();
   rememberStartMode(harness, cwd, mode);
   return mode;
 }
