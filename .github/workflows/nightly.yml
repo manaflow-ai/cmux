@@ -5869,7 +5869,8 @@ jobs:
           # nightly.yml run on nightly-next wins, so a foreign or unreadable
           # artifact never hides a valid pending submission.
           candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
-            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"' || true)"
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"')" \
+            || { echo "::error title=cmux NIGHTLY-identity could not list pending submissions (cx-x7hwx)::$candidates"; exit 1; }
           for candidate in $(tr ' ' ':' <<<"$candidates"); do
             meta_id="${candidate%%:*}" meta_run="${candidate##*:}"
             origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$meta_run" --jq '"\(.path) \(.event)"' 2>/dev/null || true)"
@@ -5934,9 +5935,19 @@ jobs:
             bundle_run="$(sed -n 's/^bundle_run=//p' <<<"$decision")"
             [ "$action" != none ] || break
             # shellcheck disable=SC2086 # REQUIRED is a space-separated SHA list
-            if check="$(NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes" ./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)"; then
+            rc=0
+            check="$(NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes" ./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)" || rc=$?
+            if [ "$rc" = 0 ]; then
               echo "build $build meets the requirement ($check)"
               break
+            fi
+            # Only exit 3 is a refusal. An error (a rate-limited API read, run
+            # 40239403743 on 2026-10-25) refused the build and left the old feed
+            # 1h+ behind with every legacy job skipped: fail instead, so the job
+            # is red and the feed watch re-runs it.
+            if [ "$rc" != 3 ]; then
+              echo "::error title=cmux NIGHTLY-identity requirement check failed (cx-x7hwx)::build $build: $check"
+              exit 1
             fi
             echo "::warning title=cmux NIGHTLY-identity build $build refused (cx-x7hwx)::$check"
             refuse_args+=(--refuse-build "$build")
@@ -6907,6 +6918,46 @@ jobs:
         run: |
           echo "the cmux NIGHTLY-identity attempt for build $NIGHTLY_BUILD failed" >&2
           exit 1
+
+  # Leo, 2026-10-26: "I still just don't have the nightly ... we can't just break
+  # the update situation." The legacy jobs are continue-on-error, so a run that
+  # published cmux NEXT stayed quiet while every legacy job skipped (run
+  # 40239403743). When cmux NEXT publishes, the old feed publishes too, or there
+  # was nothing to publish (current, refused, or still in Apple's queue), or
+  # this job turns the run red. No job needs it.
+  nightly-identity-legacy-published:
+    needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, publish-nightly-identity-legacy]
+    if: "always() && !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      TARGET: ${{ needs.legacy-identity-target.result }}
+      ACTION: ${{ needs.legacy-identity-target.outputs.action }}
+      BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      SIGN: ${{ needs.sign-nightly-identity-legacy.result }}
+      SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
+      SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
+      VERIFY: ${{ needs.verify-nightly-identity-legacy.result }}
+      PUBLISH: ${{ needs.publish-nightly-identity-legacy.result }}
+    steps:
+      - name: The old feed published, or had nothing to publish
+        run: |
+            set -euo pipefail
+            echo "target=$TARGET action=${ACTION:-} build=${BUILD:-} sign=$SIGN (skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-}) verify=$VERIFY publish=$PUBLISH"
+            if [ "$TARGET" != success ]; then
+              echo "::error title=cmux NIGHTLY feed not published::legacy-identity-target $TARGET; the old feed keeps its previous build"; exit 1
+            fi
+            if [ -z "${BUILD:-}" ] || [ "${ACTION:-none}" = none ]; then
+              echo "the old feed is current, or its candidate was refused (recorded on the failure issue)"; exit 0
+            fi
+            if [ "$SIGN" = success ] && { [ "${SIGN_SKIP:-}" = true ] || [ "${SIGN_PENDING:-}" = true ]; }; then
+              echo "build $BUILD is already on the old feed, or still in Apple's queue (a later run continues it)"; exit 0
+            fi
+            if [ "$PUBLISH" = success ]; then
+              echo "build $BUILD published to the old feed"; exit 0
+            fi
+            echo "::error title=cmux NIGHTLY feed not published::build $BUILD: sign $SIGN, verify $VERIFY, publish $PUBLISH"; exit 1
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow

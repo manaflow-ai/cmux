@@ -301,5 +301,58 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("scripts/ci/nightly_next_ring.py", text)
 
 
+class LegacyPublishedTests(unittest.TestCase):
+    """Run 40239403743 published cmux NEXT while every legacy job skipped: a rate-limited
+    requirement read was taken for a refusal, and continue-on-error kept the run quiet."""
+
+    WORKFLOW = NIGHTLY_YML.read_text()
+
+    def job(self, name: str) -> str:
+        match = re.search(rf"\n  {name}:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)", self.WORKFLOW, re.S)
+        self.assertIsNotNone(match, name)
+        return match.group(1)
+
+    def gate(self, **env: str) -> subprocess.CompletedProcess:
+        body = self.job("nightly-identity-legacy-published")
+        script = body[body.index("        run: |\n") + len("        run: |\n"):]
+        script = "\n".join(line[12:] for line in script.splitlines())
+        base = {"TARGET": "success", "ACTION": "new", "BUILD": "4023940374302", "SIGN": "success",
+                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "VERIFY": "success", "PUBLISH": "success"}
+        return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
+                              capture_output=True, text=True)
+
+    def test_the_gate_is_red_unless_the_old_feed_published_or_had_nothing_to(self):
+        self.assertEqual(self.gate().returncode, 0)
+        for env in ({"ACTION": "none", "BUILD": ""}, {"SIGN_SKIP": "true", "PUBLISH": "skipped"},
+                    {"SIGN_PENDING": "true", "PUBLISH": "skipped"}):
+            self.assertEqual(self.gate(**env).returncode, 0, env)
+        for env in ({"TARGET": "failure", "ACTION": "", "BUILD": ""},
+                    {"SIGN": "skipped", "VERIFY": "skipped", "PUBLISH": "skipped"},
+                    {"SIGN": "failure", "VERIFY": "skipped", "PUBLISH": "failure"},
+                    {"PUBLISH": "skipped"}):
+            result = self.gate(**env)
+            self.assertEqual(result.returncode, 1, env)
+            self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
+
+    def test_the_gate_runs_whenever_cmux_next_published_and_is_not_masked(self):
+        body = self.job("nightly-identity-legacy-published")
+        for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
+                     "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
+            self.assertIn(need, body.split("\n", 1)[0])
+        self.assertIn("always() && !cancelled()", body)
+        self.assertIn("needs.publish-nightly.result == 'success'", body)
+        self.assertNotIn("continue-on-error", body)
+
+    def test_only_a_refusal_skips_a_build_and_an_error_fails_the_target(self):
+        body = self.job("legacy-identity-target")
+        self.assertIn('nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)" || rc=$?', body)
+        self.assertIn('if [ "$rc" != 3 ]; then', body)
+        self.assertNotIn('if check="$(', body)
+        listing = body[body.index('candidates="$(gh api'):]
+        listing = listing[:listing.index("\n          for candidate")]
+        self.assertNotIn("|| true", listing)
+        self.assertIn("exit 1", listing)
+
+
 if __name__ == "__main__":
     unittest.main()
