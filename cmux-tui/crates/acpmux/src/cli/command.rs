@@ -876,7 +876,7 @@ pub enum DaemonCmd {
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
     /// exited, and fails naming any host left.
-    #[command(alias = "kill-server")]
+    #[command(visible_alias = "stop", alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds, where a plain shutdown ended
         /// the agents; hosted agents keep running anyway.
@@ -1334,9 +1334,10 @@ mod help_contract_tests {
                 _ => panic!("{argv:?} is not daemon shutdown"),
             }
         }
+        // `daemon --help` lists it on shutdown's line: `[aliases: stop]`.
         let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
         let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
-        assert!(line.contains("stop"), "daemon --help does not list the stop alias:\n{help}");
+        assert!(line.contains("stop]"), "daemon --help does not list the stop alias:\n{help}");
     }
 
     #[test]
