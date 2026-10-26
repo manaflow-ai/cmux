@@ -140,13 +140,6 @@ class HiddenWakeTests(unittest.TestCase):
         self.assertEqual((total["sha"], total["host"], total["sources"], total["main_wakes_per_s"]), ("a" * 40, "cmux20", 5, 10.0))
         self.assertEqual(sum(1 for line in lines if line.startswith("HIDDEN-WAKE-OBSERVER ")), 1)
 
-    def test_hidden_sessions_launch_in_shipping_mode(self):
-        for session in ("light-hidden", "minimized"):
-            self.assertEqual(ib.session_env(session), {"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1", "CMUX_NEXT_DEV_SENTRY": "1",
-                                                       "CMUX_NEXT_DEV_HANG_REPORTS": "1"})
-        self.assertEqual(ib.session_env("light"), {})
-        self.assertTrue(ib.SESSIONS["minimized"]["minimize"])
-
     def test_threads_from_sample_skips_waits(self):
         threads = ib.threads_from_sample(SAMPLE)
         main = next(v for k, v in threads.items() if "main-thread" in k)

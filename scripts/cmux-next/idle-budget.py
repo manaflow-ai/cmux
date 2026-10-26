@@ -22,7 +22,7 @@ Sessions (--sessions):
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
   minimized     the light session with its window minimized (minimizeWindow)
-  light-hidden and minimized run in shipping mode (SHIPPING_ENV) and name every main-thread wake source above
+  light-hidden and minimized run in shipping mode (as every session) and name every main-thread wake source above
   0.1/s in HIDDEN-WAKE lines (owner, per_s, top frame; `hidden_wake_sources`), from the wakeup ledger, the main
   run loop's repeating timer fires and the run-loop callouts of a `/usr/bin/sample` of the main thread.
   Each session starts from an empty saved session (`fresh_session`).
@@ -33,6 +33,16 @@ Sessions (--sessions):
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
+
+Shipping measurement mode (always on; plans/cmux-next/chrome-parity/p14-energy.md, task 100): every session
+launches with bench_launch.shipping_env (CMUX_NEXT_BENCH_SHIPPING_DRAW=1: occluded windows stop drawing as in a
+user's launch; CMUX_NEXT_DEV_SENTRY=1 and CMUX_NEXT_DEV_HANG_REPORTS=1: Sentry and hang reports run; no
+CMUX_NEXT_NO_ACTIVATE) and activates the app once before the settle. `--shipping-draw off` keeps the automation draw
+of occluded windows (a Debug build's), for an on/off comparison. The bundle's build config (debug, bench-hooks,
+release) is read first, and `--gate` refuses a Debug build: its code and its draw are not what users run. Each
+session records build_config, sentry_started (a SentryCrash thread runs in the app), hang_reports (the launch's opt-in
+and the main-thread watchdog), draws_when_occluded (WindowDrawPolicy's rule for this build and launch env) and
+activated.
 
 Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
 Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
@@ -48,7 +58,7 @@ Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line
 kind, for a hidden session `HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host,
 a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, glob, json, os, platform, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -61,7 +71,7 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib") if sys.platform == "darwin" else None  # the pure parts load anywhere (tests)
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -647,16 +657,55 @@ SESSIONS = {
 }
 
 
-# Shipping measurement mode (p14-energy-100): the app draws as a shipping build does, not as an automation launch
-# (CMUX_NEXT_BENCH_SHIPPING_DRAW: WindowDrawPolicy's isAutomationLaunch and rendersWhenCovered false), with Sentry
-# (CrashReportingPolicy.devOptInKey) and hang reports (HangReportsController.devOptInKey) started, so the hidden
-# main wakes measured are the ones a person's app has.
-SHIPPING_ENV = {"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1"}
+def bundle_build_config(app):
+    """The bundle's build config as bench_launch reads it: `debug`, `bench-hooks` or `release`."""
+    import bench_launch
+    app = os.path.realpath(app).rstrip("/")
+    binary = os.path.join(app, "Contents/MacOS/cmux DEV")
+    if not os.path.exists(binary):
+        found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+        if not found:
+            raise SystemExit(f"idle-budget: no executable in {app}/Contents/MacOS")
+        binary = found[0]
+    return bench_launch.bundle_kind(app, binary)
 
 
-def session_env(session):
-    """The launch environment a session adds to BenchApp's (shipping mode for the hidden-wake sessions)."""
-    return dict(SHIPPING_ENV) if SESSIONS[session].get("hidden_wake") else {}
+def gate_refusal(build_config, gate):
+    """Why `--gate` refuses this bundle, or None: a Debug build is not the code or the draw users run."""
+    if gate and build_config == "debug":
+        return ("--gate refuses a Debug build: measure a Release build with CMUX_BENCH_HOOKS "
+                "(its code, occlusion draw and Sentry are what users run)")
+    return None
+
+
+def launch_env(shipping_draw=True):
+    """BenchApp's `env` of every session: the shipping measurement mode (bench_launch.shipping_env)."""
+    import bench_launch
+    return bench_launch.shipping_env(draw=shipping_draw)
+
+
+def draws_when_occluded(build_config, env):
+    """WindowDrawPolicy.isAutomationLaunch for this build and launch env (PageWebView.rendersWhenCovered follows
+    it): only a Debug build draws occluded windows, in an automation launch without CMUX_NEXT_BENCH_SHIPPING_DRAW=1."""
+    if build_config != "debug" or env.get("CMUX_NEXT_BENCH_SHIPPING_DRAW") == "1":
+        return False
+    return env.get("CMUX_NEXT_NO_ACTIVATE") == "1" or env.get("CMUX_NEXT_SOCKET_MODE") == "automation"
+
+
+SENTRY_THREAD_PREFIX = "SentryCrash"  # Sentry's Mach exception handler threads (crash-ends-app-gate.py PRIMARY)
+SHIPPING_FIELDS = ("build_config", "sentry_started", "hang_reports", "draws_when_occluded", "activated")
+
+
+def shipping_fields(build_config, env, thread_names, hangs, activation):
+    """The five shipping-mode fields of a session: what ran, not only what the launch asked for."""
+    return {
+        "build_config": build_config,
+        "sentry_started": any(name.startswith(SENTRY_THREAD_PREFIX) for name in thread_names),
+        "hang_reports": {"dev_opt_in": env.get("CMUX_NEXT_DEV_HANG_REPORTS") == "1",
+                         "watchdog": bool((hangs or {}).get("installed"))},
+        "draws_when_occluded": draws_when_occluded(build_config, env),
+        "activated": dict(activation),
+    }
 
 
 def build_sha_of(app_path):
@@ -703,7 +752,7 @@ def table(session, kinds, overs):
     return "\n".join(lines)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help='a tagged "cmux DEV <tag>.app" (not running)')
     parser.add_argument("--tag", help="ignored (split-spring passes it); the tag comes from the app")
@@ -713,39 +762,53 @@ def main():
     parser.add_argument("--settle", type=float, default=60)
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--budget", default=BUDGET_FILE)
-    parser.add_argument("--gate", action="store_true", help="exit 1 when a value is over its budget")
+    parser.add_argument("--gate", action="store_true",
+                        help="exit 1 when a value is over its budget; exit 2 at once on a Debug build")
+    parser.add_argument("--shipping-draw", choices=("on", "off"), default="on",
+                        help="off: keep the automation draw of occluded windows (Debug), to compare with the shipping draw")
     parser.add_argument("--sample", type=float, default=10,
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
-    opts, _unknown = parser.parse_known_args()
+    opts, _unknown = parser.parse_known_args(argv)
+    build_config = bundle_build_config(opts.app)
+    refusal = gate_refusal(build_config, opts.gate)
+    if refusal:
+        print(f"IDLE-BUDGET-REFUSED build_config={build_config}: {refusal}", flush=True)
+        sys.exit(2)
     from bench_launch import BenchApp
+    env = launch_env(shipping_draw=opts.shipping_draw == "on")
     budget = json.load(open(opts.budget))
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
     print("IDLE-BUDGET-MACHINE " + json.dumps(machine), flush=True)
-    report = {"machine": machine, "app": opts.app, "settle_s": opts.settle, "measure_s": opts.measure, "sessions": {}}
+    report = {"machine": machine, "app": opts.app, "build_config": build_config, "shipping_draw": opts.shipping_draw,
+              "settle_s": opts.settle, "measure_s": opts.measure, "sessions": {}}
     all_overs = []
     markdown = []
     for session in [s for s in opts.sessions.split(",") if s]:
         if session not in SESSIONS:
             raise SystemExit(f"idle-budget: unknown session {session} (one of {', '.join(SESSIONS)})")
-        app = BenchApp(opts.app, out=os.path.join(out, session), config=SESSIONS[session].get("config"),
-                       env=session_env(session))
+        app = BenchApp(opts.app, out=os.path.join(out, session), env=env, config=SESSIONS[session].get("config"))
         try:
             entry = {"fresh_session": fresh_session(app)}
             app.launch()
             if session in ("stress", "stress-static"):
                 entry["stress"] = build_stress(app, static=session == "stress-static")
+            activation = app.activate()  # once, before the settle (and before a hide): users run an active app
+            if not activation["activated"]:
+                print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
             if SESSIONS[session].get("minimize"):
                 entry["minimize"] = app.rpc("action.run", {"action": "minimizeWindow", "focus": False,
                                                            "origin": "script"}, timeout=30)
-            if SESSIONS[session].get("hidden_wake"):
-                entry["shipping_env"] = sorted(SHIPPING_ENV)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
+            names = [name for _cpu, name in threads(app.process.pid).values()]
+            entry.update(shipping_fields(build_config, app.launched_env or {}, names,
+                                         read_rpc(app, "debug.hangs", {"limit": 0}), activation))
+            print(f"IDLE-BUDGET-MODE {session} " + json.dumps({k: entry[k] for k in SHIPPING_FIELDS}), flush=True)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure)
             result["window_state"] = {"start": window_before, "end": window_state(app)}

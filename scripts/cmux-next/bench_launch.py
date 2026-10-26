@@ -98,6 +98,22 @@ def load_by_path(name, path):
 # process's search path, not a switch.
 bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
+# The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
+# stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
+# with these opt-ins), and CMUX_NEXT_NO_ACTIVATE is removed, since it refuses every activation (``BenchApp.activate``).
+SHIPPING_DRAW_KEY = "CMUX_NEXT_BENCH_SHIPPING_DRAW"
+SHIPPING_ENV = {SHIPPING_DRAW_KEY: "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1"}
+
+
+def shipping_env(draw=True):
+    """BenchApp's `env` for the shipping measurement mode; `draw=False` keeps the automation draw of occluded windows
+    (a Debug build's), for an on/off comparison."""
+    env = {**SHIPPING_ENV, "CMUX_NEXT_NO_ACTIVATE": None}
+    if not draw:
+        del env[SHIPPING_DRAW_KEY]
+    return env
+
+
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
@@ -925,6 +941,35 @@ class BenchApp:
 
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
+
+    def activate(self, timeout=10):
+        """Brings the launched app to the front once (AppleScript `activate` of its bundle id, as a click on its Dock
+        icon). A launch with CMUX_NEXT_NO_ACTIVATE=1 refuses every activation, so this needs ``shipping_env`` or
+        another env without it. Returns {"activated": bool, "error": str}: activated once a window of the app is key
+        (debug.window_list) within `timeout` seconds."""
+        if self.process is None or self.process.poll() is not None:
+            return {"activated": False, "error": "the app is not running"}
+        if (self.launched_env or {}).get("CMUX_NEXT_NO_ACTIVATE") == "1":
+            return {"activated": False, "error": "launched with CMUX_NEXT_NO_ACTIVATE=1, which refuses every activation"}
+        ident = bundle_id(self.app)
+        if not ident:
+            return {"activated": False, "error": f"{self.app} has no CFBundleIdentifier"}
+        try:
+            run = subprocess.run([osascript_path(), "-e", f'tell application id "{ident}" to activate'],
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {"activated": False, "error": f"osascript: {error}"[:200]}
+        if run.returncode != 0:
+            return {"activated": False, "error": f"osascript exit {run.returncode}: {run.stderr.strip()[:200]}"}
+        deadline = time.monotonic() + timeout
+        while True:
+            reply = self.rpc("debug.window_list", timeout=10)
+            windows = reply.get("windows") if isinstance(reply, dict) else None
+            if isinstance(windows, list) and any(isinstance(w, dict) and w.get("key") for w in windows):
+                return {"activated": True, "error": ""}
+            if time.monotonic() >= deadline:
+                return {"activated": False, "error": f"no window of the app is key {timeout:g} s after activate"}
+            time.sleep(0.2)  # bench: the activation reaches the window server asynchronously
 
     def record(self, story, metric, unit, samples, better, engine, target_ref=None):
         """Writes one `cmux-perf-result/v1` file (perf_result.write_ndjson) into the out folder; returns its path.

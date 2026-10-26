@@ -72,12 +72,19 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// start the app on a host where it is never in front) keep occluded windows
 /// drawing, so captures show content. The same rule as React pages
 /// (`PageWebView.rendersWhenCovered`). Users keep the energy saving.
+/// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (idle-budget's shipping measurement
+/// mode) makes an automation launch a user's launch for this rule, so an
+/// energy bench measures what users run.
 @MainActor
 public struct WindowDrawPolicy {
     public init() {}
+    /// The environment key of the shipping measurement mode.
+    nonisolated public static let shippingDrawKey = "CMUX_NEXT_BENCH_SHIPPING_DRAW"
+
     /// Whether a launch with `environment` draws occluded windows.
     nonisolated public static func isAutomationLaunch(_ environment: [String: String]) -> Bool {
         #if DEBUG
+        guard environment[shippingDrawKey] != "1" else { return false }
         return environment["CMUX_NEXT_NO_ACTIVATE"] == "1" || environment["CMUX_NEXT_SOCKET_MODE"] == "automation"
         #else
         return false
