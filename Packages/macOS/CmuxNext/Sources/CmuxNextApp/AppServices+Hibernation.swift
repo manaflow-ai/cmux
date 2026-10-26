@@ -86,7 +86,7 @@ extension AppServices {
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
         }
-        if features.isEnabled(.windowOcclusionFamily) { lifetimeFollowers.append(WindowOcclusionChecker.feedingFamilies()) }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`
