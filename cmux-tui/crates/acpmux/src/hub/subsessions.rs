@@ -699,7 +699,7 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(parent, &probe, &req.prompt, None, false, false, Some(started))
+            .send_family_prompt(parent, &probe, text_block(&req.prompt), None, false, false, Some(started))
             .await;
         let accepted = match accepted {
             Ok(v) => v,
@@ -768,7 +768,7 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// Sends `blocks` from `from` to `to` as a prompt with the family provenance; answers once it
     /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
     /// `interrupt`: `Hub::interrupt_once_queued`. `accepted` runs at the acceptance, before the
     /// turn can end.
@@ -777,7 +777,7 @@ impl Hub {
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
-        text: &str,
+        blocks: Vec<Value>,
         prompt_id: Option<String>,
         steer: bool,
         interrupt: bool,
@@ -815,7 +815,6 @@ impl Hub {
             provenance: Some(provenance),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, to2) = (self.clone(), to.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
@@ -1156,4 +1155,9 @@ impl Hub {
         }
         Some(cut)
     }
+}
+
+/// A prompt of `text` alone.
+fn text_block(text: &str) -> Vec<Value> {
+    vec![json!({"type": "text", "text": text})]
 }

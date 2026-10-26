@@ -14,6 +14,7 @@ impl Hub {
         caller: &Arc<Session>,
         target: &Arc<Session>,
         text: &str,
+        attachments: Vec<Value>,
         deliver: Option<Delivery>,
         prompt_id: Option<String>,
     ) -> Result<Value, RpcError> {
@@ -49,8 +50,19 @@ impl Hub {
         // Never to a session that asks less than the sender (`subsession_guard.rs`); a queued
         // one is checked again when it runs (`turns.rs`).
         self.receiver_check(caller, target).await?;
+        let mut blocks = vec![json!({"type": "text", "text": text})];
+        if !attachments.is_empty() {
+            // Saved in the receiver's uploads, as a message's files are (`attach.rs`).
+            blocks.extend(attachments);
+            let (id, key) = (target.id.clone(), prompt_id.clone());
+            blocks = tokio::task::spawn_blocking(move || {
+                crate::attach::receive(&id, key.as_deref(), false, &mut blocks).map(|()| blocks)
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))??;
+        }
         let accepted = self
-            .send_family_prompt(caller, target, text, prompt_id, steer, interrupt, None)
+            .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None)
             .await?;
         Ok(sent_reply(target, &accepted))
     }

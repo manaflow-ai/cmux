@@ -2,8 +2,8 @@
 //! screenshots to big-red one at a time on 2026-10-25; Leo: "If this doesn't work as well as it
 //! should, we need to improve ACP Mux.").
 //!
-//! The sender ([`block`], `acpmux send --attach`) adds each file to the prompt as a block marked
-//! `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an `image` block,
+//! The sender ([`blocks_from_paths`]: `acpmux send --attach`, cmux-subsessions `send_message`)
+//! adds each file to the prompt as a block marked `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an `image` block,
 //! any other file as an embedded `resource`. The prompt then goes as every prompt goes (direct,
 //! through the outbox, or whole over the peer link), so the send rules, the prompt id's run-once
 //! ledger and the `--from` provenance are those of any message.
@@ -23,6 +23,7 @@
 //! which `_acpmux/file_put` takes.
 
 use crate::rpc::RpcError;
+use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -113,6 +114,30 @@ pub fn block(name: &str, bytes: &[u8]) -> Value {
     }
 }
 
+/// The attachment blocks of the files at `paths` (`acpmux send --attach`, the cmux-subsessions
+/// `send_message` tool), refused past the caps before any is read (the receiver checks the bytes
+/// it gets).
+pub fn blocks_from_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
+    let label = |path: &Path| path.display().to_string();
+    let mut sizes = Vec::with_capacity(paths.len());
+    for path in paths {
+        let meta =
+            std::fs::metadata(path).with_context(|| format!("cannot attach {}", label(path)))?;
+        anyhow::ensure!(meta.is_file(), "cannot attach {}: not a file", label(path));
+        sizes.push((label(path), usize::try_from(meta.len()).unwrap_or(usize::MAX)));
+    }
+    check_sizes(&sizes).map_err(|e| anyhow::anyhow!(e.message))?;
+    paths
+        .iter()
+        .map(|path| {
+            let bytes =
+                std::fs::read(path).with_context(|| format!("cannot attach {}", label(path)))?;
+            let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+            Ok(block(&name, &bytes))
+        })
+        .collect()
+}
+
 fn mark(block: &Value) -> Option<&Value> {
     block.pointer("/_meta/acpmux/attachment").filter(|m| !m.is_null())
 }
@@ -120,6 +145,11 @@ fn mark(block: &Value) -> Option<&Value> {
 /// Whether any of `blocks` is an attachment.
 pub fn any(blocks: &[Value]) -> bool {
     blocks.iter().any(|b| mark(b).is_some())
+}
+
+/// Whether every one of `blocks` is an attachment.
+pub fn all(blocks: &[Value]) -> bool {
+    blocks.iter().all(|b| mark(b).is_some())
 }
 
 /// An attachment block's base64 bytes.
