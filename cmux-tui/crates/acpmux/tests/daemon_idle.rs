@@ -16,6 +16,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::os::unix::net::UnixStream;
@@ -37,6 +38,7 @@ const CHATS: usize = 2000;
 /// The Claude Code conversation the watched chat follows; not one of the `CHATS`.
 const WATCHED: &str = "11111111-1111-4111-8111-111111111111";
 
+/// What a process used in one window.
 #[derive(Clone, Copy, Debug)]
 struct Usage {
     cpu: Duration,
@@ -47,8 +49,18 @@ struct Usage {
     wakeups: u64,
 }
 
+/// A process's counters at one instant. Context switches are per thread id
+/// on Linux, where a thread's count leaves the process total when the thread
+/// exits (tokio's idle blocking threads exit 10 s after their last task); on
+/// macOS the task total keeps dead threads' counts, under the one key 0.
+struct Mark {
+    cpu: Duration,
+    switches: BTreeMap<u64, u64>,
+    wakeups: u64,
+}
+
 #[cfg(target_os = "macos")]
-fn usage(pid: u32) -> Usage {
+fn usage(pid: u32) -> Mark {
     use std::os::raw::{c_int, c_void};
 
     #[repr(C)]
@@ -123,15 +135,15 @@ fn usage(pid: u32) -> Usage {
     // Task times are Mach absolute ticks on Apple silicon.
     let ticks = task.total_user + task.total_system;
     let nanos = ticks as u128 * timebase.numer as u128 / timebase.denom.max(1) as u128;
-    Usage {
+    Mark {
         cpu: Duration::from_nanos(nanos as u64),
-        switches: task.csw.max(0) as u64,
+        switches: BTreeMap::from([(0, task.csw.max(0) as u64)]),
         wakeups: rusage.pkg_idle_wkups + rusage.interrupt_wkups,
     }
 }
 
 #[cfg(target_os = "linux")]
-fn usage(pid: u32) -> Usage {
+fn usage(pid: u32) -> Mark {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
     // Fields after the parenthesized command name; utime and stime are 14 and 15.
     let fields: Vec<&str> = stat[stat.rfind(')').unwrap() + 2..].split(' ').collect();
@@ -142,22 +154,31 @@ fn usage(pid: u32) -> Usage {
     let switches = fs::read_dir(format!("/proc/{pid}/task"))
         .unwrap()
         .filter_map(Result::ok)
-        .filter_map(|task| fs::read_to_string(task.path().join("status")).ok())
-        .flat_map(|status| {
-            status
+        .filter_map(|task| {
+            let tid = task.file_name().to_str()?.parse::<u64>().ok()?;
+            let status = fs::read_to_string(task.path().join("status")).ok()?;
+            let switches = status
                 .lines()
                 .filter(|line| line.contains("ctxt_switches:"))
                 .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
-                .collect::<Vec<_>>()
+                .sum();
+            Some((tid, switches))
         })
-        .sum();
-    Usage { cpu: Duration::from_millis(ticks * 1000 / hz), switches, wakeups: 0 }
+        .collect();
+    Mark { cpu: Duration::from_millis(ticks * 1000 / hz), switches, wakeups: 0 }
 }
 
-fn delta(before: Usage, after: Usage) -> Usage {
+/// Use between two marks. Switches count per thread alive at `after`: one
+/// that started after `before` counts from 0, one that exited is left out.
+fn delta(before: &Mark, after: &Mark) -> Usage {
+    let switches = after
+        .switches
+        .iter()
+        .map(|(tid, now)| now.saturating_sub(before.switches.get(tid).copied().unwrap_or(0)))
+        .sum();
     Usage {
         cpu: after.cpu.saturating_sub(before.cpu),
-        switches: after.switches.saturating_sub(before.switches),
+        switches,
         wakeups: after.wakeups.saturating_sub(before.wakeups),
     }
 }
@@ -393,7 +414,7 @@ fn assert_idle(daemon: &Daemon, what: &str) {
     let processes: Vec<(String, u32)> = std::iter::once(("daemon".to_string(), pid))
         .chain(children(pid).into_iter().map(|child| (format!("child {child}"), child)))
         .collect();
-    let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
+    let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Mark>>()];
     for _ in 0..WINDOWS {
         std::thread::sleep(WINDOW);
         marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
@@ -401,7 +422,7 @@ fn assert_idle(daemon: &Daemon, what: &str) {
     let mut failures = Vec::new();
     for (at, (name, _)) in processes.iter().enumerate() {
         let windows: Vec<Usage> =
-            marks.windows(2).map(|pair| delta(pair[0][at], pair[1][at])).collect();
+            marks.windows(2).map(|pair| delta(&pair[0][at], &pair[1][at])).collect();
         if woke(&windows) {
             failures.push(format!("{name}: {windows:?}"));
         }
@@ -434,8 +455,8 @@ fn acpmux_daemon_idle_with_a_pending_wait() {
     let mut app = watch_stream(&daemon);
     let id = watched_chat(&mut app);
     // Taken over, the chat no longer reads the transcript: an idle chat with
-    // no agent, so only the wait is measured. `open`, because the transcript
-    // was just written and reads as live in its app.
+    // no agent, so only the wait is measured. `open` skips the holder check
+    // (no Claude Code registered this conversation here).
     app.call("_acpmux/watch_take_over", json!({"sessionId": id, "ifLive": "open"}));
     assert!(session_summary(&mut app, &id)["watching"].is_null());
     let mut waiter = daemon.connect();
