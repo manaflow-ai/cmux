@@ -1,0 +1,29 @@
+{
+  "_comment": "The PR size advisory (scripts/ci/pr_size.py, .github/workflows/pr-size-advisory.yml) counts added plus deleted lines on feat-cmux-next pull requests and warns above `limit`. Files matching a glob here are not counted: generated output, lockfiles, localization catalogs and fixture or vector data. `**` matches any number of directories, `*` stays within one. tests/test_ci_pr_size_advisory.py fails when a glob no longer matches any tracked file, so a stale entry cannot hide authored lines.",
+  "limit": 800,
+  "exclude": [
+    {"glob": "plans/cmux-next/action-surfaces.json", "why": "action export, regenerate-action-exports.sh"},
+    {"glob": "plans/cmux-next/actions.md", "why": "action export, regenerate-action-exports.sh"},
+    {"glob": "plans/cmux-next/links.json", "why": "action export, regenerate-action-exports.sh"},
+    {"glob": "schemas/settings/settings-schema.json", "why": "settings export, regenerate-settings-exports.sh"},
+    {"glob": "schemas/settings-export/**", "why": "settings export source stamp"},
+    {"glob": "docs/mdm/com.manaflow.cmux.*", "why": "MDM settings exports, regenerate-settings-exports.sh"},
+    {"glob": "web/data/next-docs/*.generated.json", "why": "web/scripts/export-next-docs.ts output"},
+    {"glob": "**/*.generated.swift", "why": "generated Swift"},
+    {"glob": "**/*.generated.ts", "why": "generated TypeScript"},
+    {"glob": "**/generated/**", "why": "codegen output directories (bindings, protocol, strings tables)"},
+    {"glob": "**/_generated/**", "why": "codegen output directories (Python bindings)"},
+    {"glob": "**/bun.lock", "why": "lockfile"},
+    {"glob": "**/package-lock.json", "why": "lockfile"},
+    {"glob": "**/Cargo.lock", "why": "lockfile"},
+    {"glob": "**/Package.resolved", "why": "lockfile"},
+    {"glob": "**/go.sum", "why": "lockfile"},
+    {"glob": "**/*.xcstrings", "why": "localization catalog"},
+    {"glob": "**/*.lproj/**", "why": "localized strings"},
+    {"glob": "**/fixtures/**", "why": "fixture data"},
+    {"glob": "**/Fixtures/**", "why": "fixture data"},
+    {"glob": "**/goldens/**", "why": "golden output data"},
+    {"glob": "**/*_vectors.json", "why": "test vector data"},
+    {"glob": "**/*-vectors.json", "why": "test vector data"}
+  ]
+}
