@@ -4,11 +4,12 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p14-energy-120: the hub socket pings nothing while the Mac sleeps, and a wake that finds the
-/// network reconnects it exactly once, within the wake's jitter instead of its backoff.
+/// p14-energy-120: the hub socket pings nothing while the Mac sleeps, keeps pinging while only the
+/// displays sleep, and a wake that finds the network reconnects it exactly once, within the wake's
+/// jitter instead of its backoff.
 @Suite(.timeLimit(.minutes(1)))
 struct DeviceHubSocketWakeTests {
-    /// A socket that stays open until it is closed, recording what it sent.
+    /// A socket that stays open until it is closed, recording what it sent; ``sends`` yields each sent frame.
     // crash-allow: test fake; `sentFrames` and `closed` are read and written only under `lock`.
     final class HeldConnection: DeviceHubSocketConnection, @unchecked Sendable {
         private let lock = NSLock()
@@ -16,8 +17,13 @@ struct DeviceHubSocketWakeTests {
         private var isClosed = false
         private let frames: AsyncStream<String>
         private let feed: AsyncStream<String>.Continuation
+        let sends: AsyncStream<String>
+        private let sending: AsyncStream<String>.Continuation
 
-        init() { (frames, feed) = AsyncStream.makeStream(of: String.self) }
+        init() {
+            (frames, feed) = AsyncStream.makeStream(of: String.self)
+            (sends, sending) = AsyncStream.makeStream(of: String.self)
+        }
 
         var sent: [String] { lock.withLock { sentFrames } }
         var closed: Bool { lock.withLock { isClosed } }
@@ -27,7 +33,10 @@ struct DeviceHubSocketWakeTests {
             throw URLError(.networkConnectionLost)
         }
 
-        func send(_ text: String) async throws { lock.withLock { sentFrames.append(text) } }
+        func send(_ text: String) async throws {
+            lock.withLock { sentFrames.append(text) }
+            sending.yield(text)
+        }
 
         func close() {
             lock.withLock { isClosed = true }
@@ -106,6 +115,35 @@ struct DeviceHubSocketWakeTests {
         energy.update(EnergyPolicy(onBattery: true, networkResumes: 1))
         #expect(!second.closed)
         #expect(connector.attempts == 2)
+        task.cancel()
+        await task.value
+    }
+
+    @Test func theDisplaysSleepingStillSendThePingAfterAnIntervalOfSilence() async throws {
+        let connection = HeldConnection()
+        let connector = Connections([connection])
+        let clock = ManualClock()
+        let energy = EnergyPolicySource()
+        let socket = DeviceHubSocket(connector: connector, pingInterval: .seconds(30), clock: clock, energy: energy)
+        let (events, event) = AsyncStream.makeStream(of: DeviceHubSocket.Event.self)
+        let task = Task { await socket.run { event.yield($0) } }
+        var iterator = events.makeAsyncIterator()
+
+        await Self.skip(&iterator) { $0 == .state(.connected) }
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == .seconds(30))
+
+        // Only the displays sleep: the Mac is still the Mac Screen host a phone reaches, so the armed
+        // ping stays, goes out after the interval, and the next one is armed behind it.
+        energy.update(EnergyPolicy(screensAsleep: true))
+        #expect(clock.sleeperCount == 1)
+        clock.advance(by: .seconds(30))
+        for await _ in connection.sends { break }
+        #expect(connection.sent == [#"{"type":"ping"}"#])
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == .seconds(60))
+        #expect(!connection.closed)
+        #expect(connector.attempts == 1)
         task.cancel()
         await task.value
     }

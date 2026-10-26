@@ -196,6 +196,30 @@ struct SuspendWatchTests {
         #expect(log.closes == 0)
     }
 
+    @Test func aSystemSleepGateKeepsTheKeepaliveWhileOnlyTheDisplaysSleep() {
+        let source = EnergyPolicySource()
+        let gate = KeepaliveGate(source, hold: .systemSleep)
+        let log = Log()
+        gate.follow { log.append($0) }
+        gate.opened(close: { log.close() }, resume: { log.resume() })
+
+        source.update(EnergyPolicy(screensAsleep: true))
+        #expect(!gate.isPaused)
+        var armed = false
+        gate.whileAwake { armed = true }
+        #expect(armed)
+        #expect(log.edges.isEmpty)
+
+        // The Mac itself sleeps: the keepalive holds until it wakes, whether the displays are dark or not.
+        source.update(EnergyPolicy(suspended: true, screensAsleep: true))
+        #expect(gate.isPaused)
+        source.update(EnergyPolicy(screensAsleep: true))
+        #expect(!gate.isPaused)
+        #expect(log.edges == [.pause, .resume])
+        #expect(log.resumes == 1)
+        #expect(log.closes == 0)
+    }
+
     @Test(.timeLimit(.minutes(1))) func aReconnectEndsTheBackoffWaitWithTheShortWait() async throws {
         let source = EnergyPolicySource()
         let gate = KeepaliveGate(source, random: { 0 })

@@ -68,10 +68,12 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
 /// interval of silence, and a reconnect with jittered backoff whenever it drops.
 /// While a socket is open nothing else wakes it but frames and the ping.
 ///
-/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) the ping holds while the
-/// Mac or its displays sleep, and a wake that finds the network closes the socket once and opens a
-/// new one within ``EnergyPolicy/reconnectJitter`` (a backoff wait in progress ends early): the
-/// socket that slept is a dead TCP stream the OS has not reported yet.
+/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) the ping holds only while the
+/// Mac sleeps (``KeepaliveGate/Hold/systemSleep``): a Mac whose displays sleep is still the Mac Screen
+/// host a phone reaches, and without the ping a dropped stream goes unseen. A wake that finds the
+/// network closes the socket once and opens a new one within ``EnergyPolicy/reconnectJitter`` (a
+/// backoff wait in progress ends early): the socket that slept is a dead TCP stream the OS has not
+/// reported yet.
 public final class DeviceHubSocket: Sendable {
     public enum State: Sendable, Equatable {
         case disconnected
@@ -120,7 +122,7 @@ public final class DeviceHubSocket: Sendable {
     /// `handler` gets every state change and push, in order.
     public func run(_ handler: @escaping @Sendable (Event) async -> Void) async {
         var backoff = self.backoff
-        let gate = KeepaliveGate(energy, random: wakeJitter)
+        let gate = KeepaliveGate(energy, hold: .systemSleep, random: wakeJitter)
         let keepalive = DemandTimer(owner: "DeviceHubSocket.ping", clock: clock)
         let retry = DemandTimer(owner: "device-hub.socket", clock: clock)
         gate.follow { edge in if edge == .pause { keepalive.cancel() } }

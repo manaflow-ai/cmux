@@ -1093,12 +1093,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// cmux follows the Mac's sleep, wake and display sleep: daemon heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep, and each cloud socket reconnects once within 2 s after a wake finds the network.
+    /// cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.
     public static let sleepWakeKeepalives = Feature(
         index: 63,
         name: "sleepWakeKeepalives",
         owner: "Performance Lead",
-        description: "cmux follows the Mac's sleep, wake and display sleep: daemon heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep, and each cloud socket reconnects once within 2 s after a wake finds the network.",
+        description: "cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

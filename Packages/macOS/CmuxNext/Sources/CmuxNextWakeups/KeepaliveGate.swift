@@ -1,7 +1,7 @@
 import CmuxNextCompat
 
 /// A socket owner's reading of the Mac's sleep and wake in the ``EnergyPolicy`` (p14-energy-120):
-/// its keepalive holds while ``EnergyPolicy/pausesKeepalives`` (the Mac or its displays sleep), and
+/// its keepalive holds while its ``Hold`` says so (the Mac sleeps, or also its displays), and
 /// each new ``EnergyPolicy/networkResumes`` (a wake that found a satisfied network path) closes the
 /// open connection once when it was open through the sleep, so the owner's retry loop reconnects
 /// after a random wait of at most ``EnergyPolicy/reconnectJitter`` instead of its backoff. A
@@ -18,11 +18,30 @@ import CmuxNextCompat
 /// connection, arms its keepalive inside ``whileAwake(_:)``, and spaces its attempts with
 /// ``retryWait(_:timer:)``. A gate with no source never pauses and never reconnects.
 public final class KeepaliveGate: Sendable {
+    /// When the keepalive holds.
+    public enum Hold: Sendable, Equatable {
+        /// Only while the Mac sleeps (``EnergyPolicy/suspended``), as Chrome's GCM heartbeat stops on
+        /// `OnSuspend` alone. For a socket that must stay reachable while the displays sleep, such as
+        /// the device hub socket of a Mac a phone reaches through Mac Screen.
+        case systemSleep
+        /// While the Mac or its displays sleep (``EnergyPolicy/pausesKeepalives``): nothing on this
+        /// Mac can see what the socket brings in.
+        case systemOrDisplaySleep
+
+        /// The keepalive holds under `policy`.
+        public func holds(_ policy: EnergyPolicy) -> Bool {
+            switch self {
+            case .systemSleep: policy.suspended
+            case .systemOrDisplaySleep: policy.pausesKeepalives
+            }
+        }
+    }
+
     /// What changed for the owner, in the order the owner gets them for one policy change.
     public enum Edge: Sendable, Equatable {
-        /// The Mac goes to sleep or its displays sleep: drop the armed keepalive.
+        /// The keepalive starts to hold (``Hold``): drop the armed keepalive.
         case pause
-        /// Awake with the displays on: the open connection's `resume` has armed its keepalive again.
+        /// The keepalive no longer holds: the open connection's `resume` has armed its keepalive again.
         case resume
         /// A wake found the network: the gate closed the open connection if it slept, and the next
         /// ``retryWait(_:timer:)`` waits ``reconnectDelay()``.
@@ -56,6 +75,7 @@ public final class KeepaliveGate: Sendable {
     }
 
     private let source: EnergyPolicySource?
+    private let hold: Hold
     private let random: @Sendable () -> Double
     // concurrency-allow: the pause flag and the open connection's hooks, read synchronously by the owner's keepalive arm and set by the policy's writer (lock carve-out: a few fields, no I/O; the hooks run after the lock is released).
     private let state: Mutex<State>
@@ -64,12 +84,15 @@ public final class KeepaliveGate: Sendable {
     ///
     /// - Parameters:
     ///   - source: The app's one policy source (`MainWorkScheduler.energy`).
+    ///   - hold: When the keepalive holds; by default while the Mac or its displays sleep.
     ///   - random: A value in 0..<1 that spreads the reconnect over ``EnergyPolicy/reconnectJitter`` (tests pass a constant).
-    public init(_ source: EnergyPolicySource?, random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
+    public init(_ source: EnergyPolicySource?, hold: Hold = .systemOrDisplaySleep,
+                random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
         self.source = source
+        self.hold = hold
         self.random = random
         let policy = source?.policy ?? .normal
-        state = Mutex(State(paused: policy.pausesKeepalives, suspended: policy.suspended, resumes: policy.networkResumes))
+        state = Mutex(State(paused: hold.holds(policy), suspended: policy.suspended, resumes: policy.networkResumes))
     }
 
     /// The keepalive holds now.
@@ -82,7 +105,7 @@ public final class KeepaliveGate: Sendable {
         let observation = source.observe { [weak self] policy in self?.changed(to: policy, handler) }
         let policy = source.policy
         let old = state.withLock { state -> EnergyPolicyObservation? in
-            state.paused = policy.pausesKeepalives
+            state.paused = hold.holds(policy)
             state.suspended = policy.suspended
             state.resumes = policy.networkResumes
             defer { state.observation = observation }
@@ -190,8 +213,8 @@ public final class KeepaliveGate: Sendable {
             var edges: [Edge] = []
             state.suspended = policy.suspended
             if policy.suspended { state.connection?.slept = true }
-            if policy.pausesKeepalives != state.paused {
-                state.paused = policy.pausesKeepalives
+            if hold.holds(policy) != state.paused {
+                state.paused = hold.holds(policy)
                 edges.append(state.paused ? .pause : .resume)
             }
             guard policy.networkResumes > state.resumes else {
