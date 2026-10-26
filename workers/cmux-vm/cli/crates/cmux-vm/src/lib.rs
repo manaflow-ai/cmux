@@ -992,25 +992,26 @@ async fn client_session(
 ) -> Result<(), CliError> {
     match command {
         ClientSessionCommand::Create(args) => {
-            if let Some(path) = args.token_file.as_deref() {
-                output::reserve_token_file(path)?;
-            }
             let body: types::CreateClientSessionRequest = request_body(json!({
                 "linuxUser": args.user,
             }))?;
+            let reserved = match args.token_file.as_ref() {
+                Some(path) => Some((path.clone(), output::reserve_token_file(path)?)),
+                None => None,
+            };
             let response =
                 match fetch_body(client.agents_create_client_session(&args.vm_id, None, &body))
                     .await
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        if let Some(path) = args.token_file.as_deref() {
+                        if let Some((path, _)) = reserved.as_ref() {
                             let _ = std::fs::remove_file(path);
                         }
                         return Err(error.for_vm(&args.vm_id, "client-session create"));
                     }
                 };
-            out.client_session_create(&response, args.token_file.as_deref(), &args.vm_id)
+            out.client_session_create(&response, reserved, &args.vm_id)
         }
         ClientSessionCommand::List(ClientSessionVmArgs { vm_id }) => {
             let response = fetch_body(client.agents_list_client_sessions(&vm_id, None))

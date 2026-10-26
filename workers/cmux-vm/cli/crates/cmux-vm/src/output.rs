@@ -2,7 +2,7 @@
 //! (pretty-printed, keys in the server's order), so fields newer than this CLI
 //! still reach the caller. Human mode decodes the body into the generated types.
 
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
@@ -22,7 +22,7 @@ pub struct Printer<'a> {
 /// Reserve a token path before making the request that mints the one-time
 /// token. The caller owns this empty 0600 file and may remove it if the
 /// request fails.
-pub fn reserve_token_file(path: &Path) -> Result<(), CliError> {
+pub fn reserve_token_file(path: &Path) -> Result<File, CliError> {
     let mut file = OpenOptions::new();
     file.write(true).create_new(true);
     #[cfg(unix)]
@@ -30,7 +30,7 @@ pub fn reserve_token_file(path: &Path) -> Result<(), CliError> {
         use std::os::unix::fs::OpenOptionsExt;
         file.mode(0o600);
     }
-    file.open(path).map(|_| ()).map_err(|e| {
+    file.open(path).map_err(|e| {
         CliError::unexpected(format!(
             "could not prepare the token file {}: {e}; choose a new --token-file",
             path.display()
@@ -353,7 +353,7 @@ impl<'a> Printer<'a> {
     pub fn client_session_create(
         &mut self,
         body: &[u8],
-        token_file: Option<&Path>,
+        token_file: Option<(std::path::PathBuf, File)>,
         vm_id: &str,
     ) -> Result<(), CliError> {
         let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
@@ -379,23 +379,11 @@ impl<'a> Printer<'a> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("ubuntu");
         let ssh = format!("{provider_vm}+{user}@beta-ssh.freestyle.sh");
-        if let Some(path) = token_file {
-            let mut file = OpenOptions::new();
-            file.write(true).truncate(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                file.mode(0o600);
-            }
-            let mut file = file.open(path).map_err(|e| {
-                CliError::unexpected(format!("could not write the token for VM {vm_id} to {}: {e}; choose a new --token-file", path.display()))
-            })?;
+        if let Some((path, mut file)) = token_file {
             if let Err(error) = file.write_all(token.as_bytes()) {
-                // The provider will never return this token again. Preserve
-                // recoverability if the selected file fails after minting.
-                self.line(&format!("token {token}"))?;
                 return Err(CliError::unexpected(format!(
-                    "could not finish writing the token for VM {vm_id}: {error}; the token was printed above"
+                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke the session and try again",
+                    path.display()
                 )));
             }
             if self.json {
