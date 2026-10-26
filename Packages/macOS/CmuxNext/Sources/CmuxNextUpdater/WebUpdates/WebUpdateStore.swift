@@ -108,14 +108,15 @@ nonisolated public struct WebUpdateStore: Sendable {
     ///
     /// The spawn runs off the caller through ``AsyncProcess``, and tar at the caller's priority's `processQoS`.
     /// A cancel lets tar finish: the caller removes `folder` after this returns, never while tar writes into it.
+    /// `onLaunch` gets tar's pid on the thread that spawned it (tests check that thread).
     @concurrent static func unpack(_ archive: URL, into folder: URL,
-                                   processes: AsyncProcess = AsyncProcess()) async throws(WebUpdateRefusal) {
+                                   onLaunch: (@Sendable (Int32) -> Void)? = nil) async throws(WebUpdateRefusal) {
         let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tar"),
                                      ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"],
-                                     onCancel: .finish)
+                                     onCancel: .finish, onLaunch: onLaunch)
         let outcome: ProcessOutcome
         do {
-            outcome = try await processes.run(request)
+            outcome = try await AsyncProcess().run(request)
         } catch {
             throw .integrity("the archive did not unpack")
         }
