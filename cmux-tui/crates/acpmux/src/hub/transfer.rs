@@ -402,6 +402,9 @@ impl Hub {
     /// A failed import's store goes once its durable state is rolled back (`abort_harness_state`).
     fn drop_failed_import(&self, meta: &SessionMeta) {
         if self.abort_harness_state(meta) {
+            // The store stays; its log writer goes, as `delete` drops it: a sweep may remove the
+            // store before a retry writes it again.
+            self.store.close_log(&meta.id);
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
             let _ = self.store.delete(&meta.id);
