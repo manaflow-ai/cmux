@@ -256,6 +256,25 @@ test("a search lists a model several providers serve once, naming its provider",
   expect(detailOf(rows[0]!)).toBe("OpenCode");
 });
 
+test("a search for a running model whose provider is unavailable lands an available provider", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  const { landed } = await mount("opencode/deepseek-v4-pro", { catalog });
+  await typeIn("v4 pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(rows[0]!)).toBe("OpenRouter");
+  await act(async () => rows[0]!.click());
+  expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
+});
+
 test("a New Tab row of a model lands an available provider when the first one is unavailable", async () => {
   const catalog = [
     {
