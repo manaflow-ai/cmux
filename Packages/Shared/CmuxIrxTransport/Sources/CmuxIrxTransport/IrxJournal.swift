@@ -1,4 +1,5 @@
 public import Foundation
+import os
 import OSLog
 
 /// One journaled transport event. Every state transition, dial attempt,
@@ -42,20 +43,25 @@ public struct IrxJournalEvent: Sendable {
 /// level (notice persists in `log show` where info does not) and, when a
 /// journal URL is configured, to an append-only JSONL file the soak analyzer
 /// consumes directly. Also keeps a bounded in-memory ring for the diag verb.
-public final class IrxJournal: @unchecked Sendable {
+public final class IrxJournal: Sendable {
     public static let ringCapacity = 512
+
+    /// The ring, the counters and the terminal-trace rate window; the journal
+    /// file is written under the same lock so lines never interleave.
+    private struct State: Sendable {
+        var ring: [IrxJournalEvent] = []
+        var counters: [String: Int] = [:]
+        var terminalTraceWindowInitialized = false
+        var terminalTraceWindowStartMs: UInt64 = 0
+        var terminalTraceEventsInWindow = 0
+    }
 
     /// The append-only JSONL file this journal writes, when one was configured.
     public let fileURL: URL?
     private let logger: Logger
-    private let lock = NSLock()
+    private let state = OSAllocatedUnfairLock(initialState: State())
     private let startedAt = DispatchTime.now()
-    private var fileHandle: FileHandle?
-    private var ring: [IrxJournalEvent] = []
-    private var counters: [String: Int] = [:]
-    private var terminalTraceWindowInitialized = false
-    private var terminalTraceWindowStartMs: UInt64 = 0
-    private var terminalTraceEventsInWindow = 0
+    private let fileHandle: FileHandle?
     private static let terminalTraceEventsPerMinute = 120
     private static func isoTimestamp(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
@@ -66,18 +72,21 @@ public final class IrxJournal: @unchecked Sendable {
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
         logger = Logger(subsystem: subsystem, category: category)
         fileURL = journalFileURL
-        if let journalFileURL {
-            let manager = FileManager.default
-            try? manager.createDirectory(
-                at: journalFileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if !manager.fileExists(atPath: journalFileURL.path) {
-                manager.createFile(atPath: journalFileURL.path, contents: nil)
-            }
-            fileHandle = try? FileHandle(forWritingTo: journalFileURL)
-            _ = try? fileHandle?.seekToEnd()
+        fileHandle = journalFileURL.flatMap(IrxJournal.openAppending)
+    }
+
+    private static func openAppending(_ journalFileURL: URL) -> FileHandle? {
+        let manager = FileManager.default
+        try? manager.createDirectory(
+            at: journalFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if !manager.fileExists(atPath: journalFileURL.path) {
+            manager.createFile(atPath: journalFileURL.path, contents: nil)
         }
+        let handle = try? FileHandle(forWritingTo: journalFileURL)
+        _ = try? handle?.seekToEnd()
+        return handle
     }
 
     deinit {
@@ -95,21 +104,22 @@ public final class IrxJournal: @unchecked Sendable {
         let monotonicMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         if component == "terminal-trace" {
-            lock.lock()
-            if !terminalTraceWindowInitialized
-                || monotonicMs < terminalTraceWindowStartMs
-                || monotonicMs - terminalTraceWindowStartMs >= 60_000 {
-                terminalTraceWindowInitialized = true
-                terminalTraceWindowStartMs = monotonicMs
-                terminalTraceEventsInWindow = 0
+            let admitted: Bool = state.withLock { state in
+                if !state.terminalTraceWindowInitialized
+                    || monotonicMs < state.terminalTraceWindowStartMs
+                    || monotonicMs - state.terminalTraceWindowStartMs >= 60_000 {
+                    state.terminalTraceWindowInitialized = true
+                    state.terminalTraceWindowStartMs = monotonicMs
+                    state.terminalTraceEventsInWindow = 0
+                }
+                guard state.terminalTraceEventsInWindow < Self.terminalTraceEventsPerMinute else {
+                    state.counters["terminal_trace_dropped", default: 0] += 1
+                    return false
+                }
+                state.terminalTraceEventsInWindow += 1
+                return true
             }
-            guard terminalTraceEventsInWindow < Self.terminalTraceEventsPerMinute else {
-                counters["terminal_trace_dropped"] = counters["terminal_trace_dropped", default: 0] + 1
-                lock.unlock()
-                return
-            }
-            terminalTraceEventsInWindow += 1
-            lock.unlock()
+            guard admitted else { return }
         }
         let entry = IrxJournalEvent(
             wallTime: Date(),
@@ -120,31 +130,27 @@ public final class IrxJournal: @unchecked Sendable {
         ).redacted()
         let rendered = Self.render(entry)
         logger.notice("irx \(rendered, privacy: .public)")
-        lock.lock()
-        counters[event, default: 0] += 1
-        ring.append(entry)
-        if ring.count > Self.ringCapacity {
-            ring.removeFirst(ring.count - Self.ringCapacity)
+        state.withLock { state in
+            state.counters[event, default: 0] += 1
+            state.ring.append(entry)
+            if state.ring.count > Self.ringCapacity {
+                state.ring.removeFirst(state.ring.count - Self.ringCapacity)
+            }
+            if let fileHandle {
+                try? fileHandle.write(contentsOf: Data((rendered + "\n").utf8))
+            }
         }
-        if let fileHandle {
-            try? fileHandle.write(contentsOf: Data((rendered + "\n").utf8))
-        }
-        lock.unlock()
     }
 
     /// Counter snapshot for diagnostics (dials, admissions, denials by code,
     /// rotations, pings, closes by reason).
     public func counterSnapshot() -> [String: Int] {
-        lock.lock()
-        defer { lock.unlock() }
-        return counters
+        state.withLock { $0.counters }
     }
 
     /// The newest events, oldest first, for the diag socket verb.
     public func tail(_ count: Int = 100) -> [IrxJournalEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return Array(ring.suffix(count))
+        state.withLock { Array($0.ring.suffix(count)) }
     }
 
     public static func render(_ entry: IrxJournalEvent) -> String {

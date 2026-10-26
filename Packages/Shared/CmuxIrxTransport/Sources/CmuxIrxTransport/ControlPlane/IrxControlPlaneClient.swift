@@ -126,6 +126,7 @@ public actor IrxControlPlaneClient {
     /// `Sendable`; with Swift 6.0 and the macOS 15 SDK the bare formatters
     /// cannot be captured by the `@Sendable` custom decoding closure. Boxing
     /// them keeps one pair per decoder instead of allocating per date.
+    // crash-allow: both formatters are configured once in init and only read after; ISO8601DateFormatter is thread-safe (Foundation docs, macOS 10.12+)
     private struct ISO8601Formatters: @unchecked Sendable {
         let plain = ISO8601DateFormatter()
         let fractional: ISO8601DateFormatter = {

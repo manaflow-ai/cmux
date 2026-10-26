@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// One account device as the control plane's directory describes it, keyed by
 /// its TLS endpoint identity. The judge consults `revoked` only; the rest is
@@ -115,22 +116,17 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
 /// Admission must be O(1) with no actor hop (the judge closure runs inside
 /// `IrxAdmission().performServer`), so this is a lock-guarded box the runtime
 /// swaps atomically on every directory apply and clears on sign-out.
-public final class IrxDeviceListCurrent: @unchecked Sendable {
-    private let lock = NSLock()
-    private var snapshot: IrxDeviceListSnapshot?
+public final class IrxDeviceListCurrent: Sendable {
+    private let snapshot = OSAllocatedUnfairLock<IrxDeviceListSnapshot?>(initialState: nil)
 
     public init() {}
 
     public var current: IrxDeviceListSnapshot? {
-        lock.lock()
-        defer { lock.unlock() }
-        return snapshot
+        snapshot.withLock { $0 }
     }
 
     public func replace(_ next: IrxDeviceListSnapshot?) {
-        lock.lock()
-        snapshot = next
-        lock.unlock()
+        snapshot.withLock { $0 = next }
     }
 
     /// Fails closed instantly: with no snapshot, the judge denies everything.
@@ -148,18 +144,18 @@ public final class IrxDeviceListCurrent: @unchecked Sendable {
         receivedAtWall: Date,
         receivedAtMonotonic: ContinuousClock.Instant
     ) -> IrxDeviceListSnapshot? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard
-            let updated = snapshot?.restamped(
-                rev: rev,
-                issuedAt: issuedAt,
-                receivedAtWall: receivedAtWall,
-                receivedAtMonotonic: receivedAtMonotonic
-            )
-        else { return nil }
-        snapshot = updated
-        return updated
+        snapshot.withLock { snapshot in
+            guard
+                let updated = snapshot?.restamped(
+                    rev: rev,
+                    issuedAt: issuedAt,
+                    receivedAtWall: receivedAtWall,
+                    receivedAtMonotonic: receivedAtMonotonic
+                )
+            else { return nil }
+            snapshot = updated
+            return updated
+        }
     }
 }
 
