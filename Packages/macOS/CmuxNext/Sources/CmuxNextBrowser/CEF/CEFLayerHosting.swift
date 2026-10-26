@@ -81,7 +81,7 @@ final class CEFLayerHosting {
     static let resizeFenceForkAPI: Int32 = 32
     /// The first fork API whose `cmux_browser_attach_view` attaches (Track B). The shim exports
     /// `cmux_shim_browser_attach_view` in every build; below this API it always refuses.
-    static let attachViewForkAPI: Int32 = 33
+    static let attachViewForkAPI: Int32 = 36
     /// The first fork API with `cmux_browser_set_embedder_visibility` (p03-rendering-058).
     static let embedderVisibilityForkAPI: Int32 = 34
 

@@ -25,4 +25,8 @@ public nonisolated struct MachineAgentInventoryUnwatchRequest: DaemonRequest {
         self.expectedWatchID = expectedWatchID
         enabled = false
     }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", expectedWatchID = "expected_watch_id", enabled
+    }
 }

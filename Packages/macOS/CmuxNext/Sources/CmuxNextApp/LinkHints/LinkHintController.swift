@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextFocusUI
 import Foundation
 
 /// Link hints on a focused Chromium page (`f` follows, `F` opens a link in a
@@ -20,11 +21,17 @@ final class LinkHintController {
         let notice: (String) -> Void
     }
 
-    private var session: Session?
+    private var session: Session? { didSet { noteActive() } }
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
     private var work: Task<Void, Never>?
 
     var isActive: Bool { session != nil }
+
+    /// The key router's modes: while labels show, the router asks this controller first for typing keys too
+    /// (``KeyRouterMode/linkHints``). `AppServices` passes the router's instance.
+    var keyModes: KeyRouterModes? { didSet { noteActive() } }
+
+    private func noteActive() { keyModes?.set(.linkHints, isActive) }
 
     func start(_ mode: LinkHintSession.Mode, tab: CEFTab, window: NSWindow?, isFocused: @escaping () -> Bool,
                openInSplit: @escaping (URL) -> Void, notice: @escaping (String) -> Void) {

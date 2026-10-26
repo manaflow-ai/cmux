@@ -90,7 +90,7 @@ struct HangMonitor {
         var details: [String: JSONValue] = ["scope": .string(overdue.name),
                                             "thread_kind": .string(overdue.kind.map { "\($0)" } ?? "")]
         guard overdue.tier == .hang else {
-            details["thread"] = .string(ThreadStackSampler.threadName(overdue.port))
+            details["thread"] = .string(MachThreads.name(overdue.port))
             janks.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
             return
         }
@@ -100,7 +100,7 @@ struct HangMonitor {
         if let crashKeys, crashKeys.noteHung(CrashKeySlots.HungThread(port: overdue.port, kind: overdue.kind?.rawValue ?? 0)) {
             named.append(overdue)
         }
-        let threadName = ThreadStackSampler.threadName(overdue.port)
+        let threadName = MachThreads.name(overdue.port)
         details["thread"] = .string(threadName)
         if let tags = crashKeys?.snapshot().tags, !tags.isEmpty { details["crash_keys"] = .object(tags.mapValues(JSONValue.string)) }
         let record = log.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: addresses, kind: .hang, details: details)

@@ -142,7 +142,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
-        if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
+        if event.type == .keyDown, Self.dropsCrossWindowKey(event, keyWindow: keyWindow, using: crossWindowKeyGuard) { return }
         // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
         // key.frame or key.scroll_frame interval (InputLatencyDispatch).
         let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
@@ -175,7 +175,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func dispatch(_ event: NSEvent) {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
-        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
+        if event.type == .keyDown, FindPillView.forwardArrowKeyDownToEditingPill(event, in: keyWindow ?? event.window) { return }
         Self.dispatchThroughTap(event, tap: inputTap) { delivered in
             dispatchDelivered = true
             super.sendEvent(delivered)
@@ -308,6 +308,14 @@ extension CmuxApplication {
         let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
         if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { tap?.deliverAfterDispatch(event) } } else { tap?.deliverAfterDispatch(event) }
         return result
+    }
+
+    /// The cross-window stage of a key-down: true when `keyGuard` (`CrossWindowInputGuard`) drops
+    /// it. The guard runs only when the key window is not the window the key was typed into, so a
+    /// key in the key window costs one window-number compare.
+    static func dropsCrossWindowKey(_ event: NSEvent, keyWindow: NSWindow?, using keyGuard: ((NSEvent, NSWindow?) -> Bool)?) -> Bool {
+        guard let keyGuard, let keyWindow, event.windowNumber != keyWindow.windowNumber else { return false }
+        return keyGuard(event, keyWindow)
     }
 }
 
