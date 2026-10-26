@@ -61,6 +61,9 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     case ghostty
     /// Live window resize ticks to the frame that shows them. Owner: PL-motion-core.
     case resize
+    /// cmux's own web pages (the WebUI host): lifecycle changes, opens to first paint, preload slot moves and
+    /// `cmux-page://` scheme work. Owner: p13-webui.
+    case webui
 
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
@@ -90,6 +93,7 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
         case .control: 17
         case .ghostty: 18
         case .resize: 19
+        case .webui: 20
         }
     }
 
@@ -99,7 +103,9 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     public var isBlackBoxDefault: Bool {
         switch self {
         case .action, .key, .switch, .create, .cef, .launch, .daemon, .hang, .crash: true
-        case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize: false
+        case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize,
+             .webui:
+            false
         }
     }
 }

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""idle-budget.py's pure parts: process kinds, per-kind sums, the budget check and the perf cron rows; and
-procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU time, the coalition)."""
+"""idle-budget.py's pure parts: process kinds, per-kind sums, the v2 budget check (sessions, sums, ratios,
+assertions) and the perf cron rows; and procs.py's counters (interrupt and package-idle wakeups apart,
+billed energy, GPU time, the coalition). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -38,6 +40,11 @@ class IdleBudgetTests(unittest.TestCase):
                          "cef-extension")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/x --type=utility --utility-sub-type=n"), "cef-utility")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper"), "cef-helper")
+        # The Chromium Host is a second executable of the app (Contents/MacOS), not the app.
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host --framework=/x/Chromium Embedded Framework.framework"),
+                         "cef-host")
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host"), "cef-host")
+        # Older builds' Chromium Host app in Contents/Frameworks.
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Chromium Host.app/Contents/MacOS/cmux Chromium Host --x"),
                          "cef-host")
         # A --type process outside a Helper app is not a Chromium helper: the app binary is the app.
@@ -76,7 +83,8 @@ class IdleBudgetTests(unittest.TestCase):
         self.assertIsNone(rows["idle_budget.light.app.threads_max"]["budget"])
 
     def test_checked_in_budget_parses(self):
-        budget = ib.json.load(open(ib.BUDGET_FILE))
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(budget["version"], 2)
         self.assertEqual(budget["kinds"]["app"]["main_wakes_per_s"], 0)
         self.assertIn("energy_mw_billed", budget["kinds"]["app"])
         self.assertIn("gpu_ms_per_s", budget["kinds"]["app"])
@@ -194,6 +202,259 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(xbench.ROW_INFO["power-idle-visible-gpu"][1], "ms/s")
         self.assertEqual(xbench.fmt(2.25, "ms/s"), "2.2 ms/s")
         self.assertIn("ms/s", xbench.FLOORS)
+
+    # -- v2 (p14-energy-002) ------------------------------------------------------------------------------
+
+    def test_v2_kinds(self):
+        frameworks = f"{APP}/Contents/Frameworks"
+        host = f"{frameworks}/cmux DEV t Chromium Host.app/Contents/MacOS/cmux DEV t Chromium Host"
+        self.assertEqual(ib.kind(host), "cef-host")
+        self.assertEqual(ib.kind(f"{host} --remote-debugging-port=0"), "cef-host")
+        helper = f"{frameworks}/cmux Helper.app/Contents/MacOS/cmux Helper"
+        self.assertEqual(ib.kind(f"{helper} --type=renderer --extension-process"), "cef-extension")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=network.mojom.NetworkService"), "cef-network")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=storage.mojom.StorageService"), "cef-storage")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=audio.mojom.AudioService"), "cef-audio")
+        self.assertEqual(ib.kind(f"{helper} --type=utility --utility-sub-type=data_decoder.mojom.DataDecoderService"),
+                         "cef-utility")
+        self.assertEqual(ib.kind(f"{helper} --type=crashpad-handler --database=x"), "crashpad")
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV"), "app")
+
+    def test_app_plus_daemon_sum_is_an_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": {"wakeups_per_s": 0.7, "main_wakes_per_s": 0.2}, "daemon": {"wakeups_per_s": 0.4}}
+        overs = ib.over_budget("tabs-static", kinds, budget)
+        self.assertIn(("app+daemon", "wakeups_per_s", 1.1, 1.0), overs)
+        self.assertEqual(ib.over_line("tabs-static", ("app+daemon", "wakeups_per_s", 1.1, 1.0)),
+                         "IDLE-BUDGET-OVER tabs-static app+daemon wakeups_per_s 1.1 > 1.0")
+        # Each alone is within its own kind limit: only the sum is over.
+        self.assertEqual([o for o in overs if o[0] in ("app", "daemon")], [])
+        rows = ib.cron_rows({"sessions": {"tabs-static": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.tabs-static.app+daemon.wakeups_per_s"]["p50"], 1.1)
+        self.assertEqual(rows["idle_budget.tabs-static.app+daemon.wakeups_per_s"]["budget"], 1.0)
+        self.assertIn("idle_budget.tabs-static.tree.wakeups_per_s", rows)
+
+    def test_v1_file_still_loads_and_judges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v1.json"
+            path.write_text(json.dumps({"kinds": {"app": {"main_wakes_per_s": 0, "wakeups_per_s": 1.0},
+                                                  "holder": {"wakeups_max": {"light": 0}}}}))
+            budget = ib.load_budget(str(path))
+        self.assertEqual(budget["version"], 1)
+        self.assertEqual(budget["sessions"], {})
+        kinds = {"app": {"main_wakes_per_s": 0.2, "wakeups_per_s": 1.5}, "holder": {"wakeups_max": 0.5}}
+        self.assertEqual(ib.over_budget("light", kinds, budget),
+                         [("app", "main_wakes_per_s", 0.2, 0), ("app", "wakeups_per_s", 1.5, 1.0),
+                          ("holder", "wakeups_max", 0.5, 0)])
+        rows = ib.cron_rows({"sessions": {"light": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.light.app.wakeups_per_s"]["budget"], 1.0)
+
+    def test_d2_to_d7_sessions_and_numbers(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        sessions = budget["sessions"]
+
+        def limit(session, name, field):
+            return ib.limit_for(budget, session, name, field)
+
+        # D2: light-webkit keeps the owner's zeros and tightens; light takes D4's Chromium limits.
+        self.assertEqual(limit("light-webkit", "app", "main_wakes_per_s"), 0)
+        self.assertEqual(limit("light-webkit", "holder", "wakeups_max"), 0)
+        self.assertEqual(limit("light-webkit", "terminal-host", "wakeups_max"), 0)
+        self.assertEqual(limit("light-webkit", "app", "wakeups_per_s"), 0.5)
+        self.assertEqual(limit("light-webkit", "daemon", "wakeups_per_s"), 0.2)
+        self.assertEqual(limit("light-webkit", "acpmux", "wakeups_max"), 0.1)
+        self.assertEqual(sessions["light-webkit"]["sums"]["tree"], {"energy_mw_cpu": 1.0})  # D2: tree CPU energy
+        self.assertEqual(limit("light", "app", "wakeups_per_s"), 1.0)
+        self.assertEqual(limit("light", "app", "main_wakes_per_s"), 0.5)
+        # D3: hidden, minimized, occluded, each no higher than light on the same run, and napped.
+        for name in ("light-hidden", "minimized", "occluded"):
+            self.assertEqual(limit(name, "app", "wakeups_per_s"), 0.3)
+            self.assertEqual(limit(name, "app", "main_wakes_per_s"), 0.1)
+            self.assertEqual(limit(name, "app", "role"), "napped")
+            self.assertEqual({(r["to"], r["max_ratio"]) for r in sessions[name]["relative"]}, {("light", 1.0)})
+        # D4 tabs-static.
+        self.assertEqual(sessions["tabs-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
+        self.assertEqual(limit("tabs-static", "app", "main_wakes_per_s"), 0.5)
+        self.assertEqual(limit("tabs-static", "cef-renderer", "hidden_wakeups_max"), 0.1)
+        self.assertEqual(limit("tabs-static", "cef-extension", "wakeups_max"), 0.1)
+        self.assertEqual(limit("tabs-static", "cef-network", "wakeups_per_s"), 0.2)
+        self.assertEqual(limit("tabs-static", "webkit-webcontent", "hidden_wakeups_max"), 0.5)
+        # D5 stress-static.
+        self.assertEqual(sessions["stress-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
+        self.assertEqual(limit("stress-static", "app", "main_wakes_per_s"), 0.5)
+        # D6 Chrome ratios.
+        chrome = {f"{r['of']}/{r['vs']}.{r['field']}": r["max_ratio"] for r in budget["ratio_to_chrome"]}
+        xbench = {(r["browser"], r["row"]): r.get("max_ratio", r.get("max")) for r in budget["xbench"]}
+        self.assertEqual(xbench[("cmux-chromium", "idle-wakeups-20")], 0.5)
+        self.assertEqual(xbench[("cmux-chromium", "idle-wakeups-1")], 0.5)
+        self.assertEqual(xbench[("cmux-chromium", "power-idle-visible")], 1.0)
+        self.assertEqual(xbench[("cmux-chromium", "power-idle-hidden")], 1.0)
+        self.assertEqual(xbench[("cmux-terminal", "idle-wakeups-home")], 1.0)
+        self.assertEqual(chrome["cef-host/browser.wakeups_per_s"], 1.0)
+        self.assertEqual(chrome["cef-gpu/gpu.wakeups_per_s"], 1.0)
+        # D7 energy saver.
+        for name, reason in (("energy-saver", "setting"), ("energy-saver-auto", "battery")):
+            self.assertEqual(sessions[name]["limits"]["page_raf_per_s"], 31)
+            self.assertEqual(sessions[name]["expect"], {"saver": True, "saver_reason": reason})
+            self.assertEqual(sessions[name]["relative"],
+                             [{"to": "tabs-static", "of": "tree", "field": "wakeups_per_s", "max_ratio": 0.6}])
+        self.assertEqual(sessions["energy-saver-auto"]["simulate"], {"on_battery": True, "percent": 15})
+
+    def test_assertion_with_keep_awake_off_is_an_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        held = [{"pid": 4242, "type": "PreventUserIdleSystemSleep", "name": "cmux keep awake"}]
+        off = {"sessions.keepAwake": "off", "phone.keepAwake": "off"}
+        over = ("assertions", "held", 1, 0)
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": held, "settings": off}), [over])
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": held}), [over])
+        self.assertEqual(ib.over_budget("light", {}, budget, facts={"assertions": [], "settings": off}), [])
+        # The shipping default (pluggedIn) with no agent at work: the assertion is a leak, and the run did not
+        # have the settings the session asked for (off).
+        shipping = {"sessions.keepAwake": "pluggedIn", "phone.keepAwake": "pluggedIn"}
+        overs = ib.over_budget("light", {}, budget, facts={"assertions": held, "settings": shipping})
+        self.assertIn(over, overs)
+        self.assertIn(("session", "sessions.keepAwake", "pluggedIn", "off"), overs)
+        self.assertIn(("session", "phone.keepAwake", "pluggedIn", "off"), overs)
+        # Only a session that itself turns keep-awake on may hold one; busy and reference sessions are not judged.
+        asks = {"sessions": {"keep-awake": {"settings": {"sessions.keepAwake": "always"}}},
+                "assertions_allowed_when": budget["assertions_allowed_when"]}
+        self.assertEqual(ib.over_budget("keep-awake", {}, asks,
+                                        facts={"assertions": held, "settings": {"sessions.keepAwake": "always"}}), [])
+        for name in ("agent-working-visible", "busy-hidden", "chrome-static"):
+            self.assertEqual(ib.over_budget(name, {}, budget, facts={"assertions": held, "settings": shipping}), [])
+        # STRESS has no agent at work: judged.
+        self.assertIn(over, ib.over_budget("stress", {}, budget, facts={"assertions": held}))
+
+    def test_every_session_runs_with_keep_awake_off(self):
+        for session in ib.SESSIONS:
+            config = ib.session_config(session)
+            self.assertEqual((config["sessions"]["keepAwake"], config["phone"]["keepAwake"]), ("off", "off"))
+            self.assertEqual(config["appearance"], {"backgroundOpacity": 1})
+        self.assertEqual(ib.session_config("light-webkit")["browser"], {"defaultEngine": "webkit"})
+
+    def test_relative_and_chrome_ratios(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        light = {"app": {"wakeups_per_s": 0.2, "main_wakes_per_s": 0.05}}
+        hidden = {"app": {"wakeups_per_s": 0.25, "main_wakes_per_s": 0.0}}
+        # light-hidden measured before light: judged all the same once both are measured.
+        overs, notes = ib.cross_overs(budget, {"light-hidden": hidden, "light": light})
+        self.assertEqual(overs, [("light-hidden", ("app", "wakeups_per_s/light", 1.25, 1.0))])
+        self.assertEqual(notes, [])
+        overs, notes = ib.cross_overs(budget, {"light-hidden": hidden})
+        self.assertEqual(overs, [])
+        self.assertIn("light-hidden app wakeups_per_s/light: not judged: reference session light not measured", notes)
+        # 40/s vs Chrome's 63.5/s at 0.5 (task 004's fixture) and a Chromium Host above Chrome's browser process,
+        # with tabs-static measured before chrome-static (task 004's --sessions tabs-static,chrome-static).
+        cmux = {"app": {"wakeups_per_s": 30.0, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
+                "daemon": {"wakeups_per_s": 0.0, "energy_mw_billed": 1.0},
+                "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": 2.0},
+                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0}}
+        chrome = {"browser": {"wakeups_per_s": 3.5, "energy_mw_billed": 20.0},
+                  "gpu": {"wakeups_per_s": 60.0, "energy_mw_billed": 20.0}}
+        overs, notes = ib.cross_overs(budget, {"tabs-static": cmux, "chrome-static": chrome})
+        got = [over for session, over in overs if session == "tabs-static"]
+        self.assertIn(("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5), got)
+        self.assertIn(("cef-host", "wakeups_per_s/chrome:browser", 1.143, 1.0), got)
+        self.assertNotIn("cef-gpu", [o[0] for o in got])
+        self.assertEqual(notes, [])
+        # Without chrome-static, every ratio_to_chrome row says it was not judged.
+        _, notes = ib.cross_overs(budget, {"tabs-static": cmux})
+        self.assertEqual(len([n for n in notes if "chrome-static not measured" in n]), len(budget["ratio_to_chrome"]))
+        # A partial tree is no value: an unknown part makes the ratio not judged, not a pass.
+        partial = {**cmux, "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": None}}
+        overs, notes = ib.cross_overs(budget, {"tabs-static": partial, "chrome-static": chrome})
+        self.assertNotIn("energy_mw_billed/chrome:tree", [o[1] for _, o in overs])
+        self.assertIn("tabs-static tree energy_mw_billed/chrome:tree: not judged: tree energy_mw_billed unknown", notes)
+
+    def test_a_sum_with_an_unknown_part_is_no_value(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": {"energy_mw_cpu": 0.6, "wakeups_per_s": 0.1, "main_wakes_per_s": 0},
+                 "cef-gpu": {"energy_mw_cpu": None, "wakeups_per_s": 0.1}}
+        self.assertIsNone(ib.selector_value(kinds, "tree", "energy_mw_cpu"))
+        self.assertTrue(ib.unknown_sum(kinds, "tree", "energy_mw_cpu"))
+        self.assertEqual(ib.over_budget("light-webkit", kinds, budget), [])
+        self.assertEqual(ib.sum_notes("light-webkit", kinds, budget), ["light-webkit tree energy_mw_cpu: not judged: unknown"])
+        # A kind that lacks a field another kind carries is unknown too; a kind that did not run is skipped.
+        self.assertIsNone(ib.selector_value({"app": {"x": 1.0}, "daemon": {}}, "tree", "x"))
+        self.assertEqual(ib.selector_value({"app": {"x": 1.0}}, "app+daemon", "x"), 1.0)
+        self.assertIsNone(ib.selector_value({}, "app+daemon", "x"))
+        known = {"app": {"energy_mw_cpu": 0.6}, "daemon": {"energy_mw_cpu": 0.5}}
+        self.assertEqual(ib.over_budget("light-webkit", known, budget), [("tree", "energy_mw_cpu", 1.1, 1.0)])
+        rows = ib.cron_rows({"sessions": {"light-webkit": {"kinds": known}}}, budget)
+        self.assertEqual(rows["idle_budget.light-webkit.tree.energy_mw_cpu"]["budget"], 1.0)
+        self.assertEqual(rows["idle_budget.light-webkit.tree.energy_mw_cpu"]["unit"], "mW")
+
+    def test_disk_and_log_reported_by_some_processes_only_are_unknown(self):
+        processes = [{**row("daemon", 4, 0.0), "disk_bytes_per_s": 0.0}, row("daemon", 4, 0.0),
+                     {**row("app", 30, 0.0), "disk_bytes_per_s": 0.0, "log_lines": 0}, row("holder", 2, 0.0)]
+        kinds = ib.aggregate({"processes": processes})
+        self.assertIsNone(kinds["daemon"]["disk_bytes_per_s"])
+        self.assertEqual((kinds["app"]["disk_bytes_per_s"], kinds["app"]["log_lines"]), (0.0, 0))
+        self.assertNotIn("disk_bytes_per_s", kinds["holder"])
+
+    def test_stress_keeps_the_v1_limits_outside_its_busy_pages(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"holder": {"wakeups_max": 0.5}, "terminal-host": {"wakeups_max": 0.0},
+                 "daemon": {"wakeups_per_s": 1.5}, "app": {"wakeups_per_s": 0.5, "main_wakes_per_s": 0},
+                 "cef-renderer": {"wakeups_max": 60.0, "disk_bytes_per_s": 4096.0},
+                 "webkit-webcontent": {"disk_bytes_per_s": 10.0}}
+        self.assertEqual(ib.over_budget("stress", kinds, budget),
+                         [("daemon", "wakeups_per_s", 1.5, 1.0), ("holder", "wakeups_max", 0.5, 0)])
+        self.assertEqual(ib.limit_for(budget, "stress", "app", "main_wakes_per_s"), 0)
+        self.assertEqual(ib.limit_for(budget, "stress", "terminal-host", "wakeups_max"), 0)
+        self.assertIsNone(ib.limit_for(budget, "stress", "cef-renderer", "disk_bytes_per_s"))
+        rows = ib.cron_rows({"sessions": {"stress": {"kinds": kinds}}}, budget)
+        self.assertEqual(rows["idle_budget.stress.holder.wakeups_max"]["budget"], 0)
+        self.assertEqual(rows["idle_budget.stress.daemon.wakeups_per_s"]["budget"], 1.0)
+
+    def test_xbench_rows(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        result = {"rows": {"idle-wakeups-20": {"cmux-chromium": {"median": 40.0}, "chrome": {"median": 63.5}},
+                           "idle-wakeups-1": {"cmux-chromium": {"median": 20.0}, "chrome": {"median": 44.8}},
+                           "power-idle-visible": {"cmux-chromium": {"median": 90.0}, "chrome": {"median": 100.0}},
+                           "idle-wakeups-home": {"cmux-terminal": {"median": 8.6}}}}
+        overs, notes = ib.xbench_overs(budget, result)
+        self.assertEqual(overs, [("cmux-chromium", "idle-wakeups-20/chrome", 0.63, 0.5),
+                                 ("cmux-terminal", "idle-wakeups-home", 8.6, 1.0)])
+        self.assertEqual(notes, ["xbench cmux-chromium power-idle-hidden: not judged: not measured"])
+        self.assertEqual(ib.over_line("xbench", overs[1]),
+                         "IDLE-BUDGET-OVER xbench cmux-terminal idle-wakeups-home 8.6 > 1.0")
+
+    def test_session_limits_expectations_roles_and_busy_sessions(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        facts = {"page_raf_per_s": 60.0, "saver": True, "saver_reason": "setting"}
+        self.assertEqual(ib.over_budget("energy-saver", {}, budget, facts=facts),
+                         [("session", "page_raf_per_s", 60.0, 31)])
+        self.assertEqual(ib.over_budget("energy-saver-auto", {}, budget, facts={**facts, "page_raf_per_s": 30}),
+                         [("session", "saver_reason", "setting", "battery")])
+        self.assertEqual(ib.over_line("x", ("session", "saver_reason", "setting", "battery")),
+                         "IDLE-BUDGET-OVER x session saver_reason setting != battery")
+        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["foreground"]}}
+        self.assertEqual(ib.over_budget("minimized", napped, budget), [("app", "role", "foreground", "napped")])
+        # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
+        # their own limits.
+        self.assertEqual(ib.over_budget("light", {"other:zsh": {"disk_bytes_per_s": 12.0}}, budget),
+                         [("other:zsh", "disk_bytes_per_s", 12.0, 0)])
+        busy = {"app": {"wakeups_per_s": 1.5, "main_wakes_per_s": 30.0, "disk_bytes_per_s": 100.0}}
+        self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [])
+        self.assertEqual(ib.over_budget("chrome-static", busy, budget), [])
+
+    def test_aggregate_hidden_max_roles_and_energy(self):
+        processes = [{**row("cef-renderer", 10, 0.05), "hidden": True, "energy_mw_billed": 0.25, "role": "best-effort"},
+                     {**row("cef-renderer", 12, 3.0), "energy_mw_billed": 1.0, "role": "foreground"},
+                     {**row("cef-renderer", 11, 0.3), "hidden": True, "role": "best-effort"}]
+        entry = ib.aggregate({"processes": processes})["cef-renderer"]
+        self.assertEqual(entry["hidden_wakeups_max"], 0.3)
+        self.assertEqual(entry["wakeups_max"], 3.0)
+        self.assertEqual(entry["energy_mw_billed"], 1.25)
+        self.assertEqual(entry["roles"], ["best-effort", "foreground"])
+
+    def test_allowed_periodic_fits_wakeup_audit_limits(self):
+        entries = ib.load_budget(ib.BUDGET_FILE)["allowed_periodic"]
+        self.assertLessEqual(len(entries), 6)
+        for entry in entries:
+            self.assertTrue(entry["owner"] and entry["why"])
+            self.assertGreaterEqual(entry["period_s"], 15)
 
 
 if __name__ == "__main__":

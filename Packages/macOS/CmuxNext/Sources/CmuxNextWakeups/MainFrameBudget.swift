@@ -206,7 +206,10 @@ public final class MainFrameBudget {
         if let index { ranThisFrame[index] = true }
         open.append(task)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
-        let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name) : nil
+        let interval = signposts
+            ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name,
+                                     classID: UInt8(truncatingIfNeeded: workClass.rawValue), ownerID: owner.index)
+            : nil
         defer {
             if let interval { Signposter.stall.end(.stallMainTask, interval) }
             finish(index: index)
