@@ -183,6 +183,7 @@ struct AgentPaneVideoInfoTests {
 
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.home = home.path
+        model.replyLinks.videoFolder = folder.appendingPathComponent("videos", isDirectory: true)
         var looked: [URL] = []
         model.replyLinks.quickLookFile = { looked.append($0) }
         model.transport.gestures.record(click: true)
@@ -191,11 +192,17 @@ struct AgentPaneVideoInfoTests {
         model.transport.gestures.record(click: true)
         #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": clip.path])) == nil)
         #expect(looked.count == 1)
+        // It plays the clip's copy, which a later rewrite of the clip into a pointer never reaches.
+        let shown = try #require(looked.first)
+        #expect(shown != clip && shown.lastPathComponent == "clip.mov")
+        try Data(contentsOf: pointer).write(to: clip)
+        #expect(await AgentPaneVideoInfo.isSelfContained(shown))
     }
 
-    @Test func aPathSwappedForAnotherFileOrALinkAfterItsCheckGivesNothing() async throws {
-        // The path is checked again after the read: a file replaced, or a folder on the way turned
-        // into a link to a denied folder, between the check and the read is caught.
+    @Test func whatIsReadAndPlayedIsAPrivateCopyTakenFromTheFileAsItWasOpened() async throws {
+        // A path is never read again after its check: the copy comes from the file opened once, so
+        // one rewritten in place (into a reference movie), replaced, or reached through a folder
+        // swapped for a link to `.ssh` afterwards changes nothing of what is read or played.
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let home = folder.appendingPathComponent("home", isDirectory: true)
@@ -204,33 +211,44 @@ struct AgentPaneVideoInfoTests {
         for dir in [stage, ssh] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         let clip = stage.appendingPathComponent("clip.mov")
         try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 640, height: 360, seconds: 1)
+        let pointer = folder.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.home = home.path
+        let videos = folder.appendingPathComponent("videos", isDirectory: true)
+        model.replyLinks.videoFolder = videos
 
-        let checked = try #require(await model.videoFile(clip.path))
-        #expect(await model.videoFileIsStill(checked, clip.path))
-        // Another file at the same path: a different inode.
-        let copy = folder.appendingPathComponent("copy.mov")
-        try FileManager.default.copyItem(at: clip, to: copy)
+        let copy = try #require(await model.videoSnapshot(clip.path))
+        #expect(copy.path.hasPrefix(videos.path + "/") && copy.lastPathComponent == "clip.mov")
+        let bytes = try Data(contentsOf: clip)
+        #expect(try Data(contentsOf: copy) == bytes)
+        // The file rewritten in place into a reference movie: the copy is still the clip.
+        try Data(contentsOf: pointer).write(to: clip)
+        #expect(!(await AgentPaneVideoInfo.isSelfContained(clip)))
+        #expect(try Data(contentsOf: copy) == bytes)
+        #expect(await AgentPaneVideoInfo.isSelfContained(copy))
+        #expect(await AgentPaneVideoInfo.read(copy)?.width == 320)
+        await AgentPaneVideoInfo.discard(copy)
+        #expect(!FileManager.default.fileExists(atPath: copy.deletingLastPathComponent().path))
+
+        // The folder a link to `.ssh`, which holds a movie of the same name: refused.
         try FileManager.default.removeItem(at: clip)
-        try FileManager.default.moveItem(at: copy, to: clip)
-        #expect(await !model.videoFileIsStill(checked, clip.path))
-
-        // The folder becomes a link to `.ssh`, which holds a movie of the same name: refused.
-        let again = try #require(await model.videoFile(clip.path))
-        try FileManager.default.moveItem(at: clip, to: ssh.appendingPathComponent("clip.mov"))
+        try await Self.movie(at: ssh.appendingPathComponent("clip.mov"), width: 320, height: 180, seconds: 1)
         try FileManager.default.removeItem(at: stage)
         try FileManager.default.createSymbolicLink(at: stage, withDestinationURL: ssh)
-        #expect(await !model.videoFileIsStill(again, clip.path))
+        #expect(await model.videoSnapshot(clip.path) == nil)
         #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        // A read leaves no copy behind; a refusal makes none.
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: videos.path)) ?? []).isEmpty)
 
-        // A chat that turned remote after the check gets nothing either.
+        // A chat on another machine gets no copy.
         try FileManager.default.removeItem(at: stage)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
         try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
-        let local = try #require(await model.videoFile(clip.path))
         model.remoteChat = true
-        #expect(await !model.videoFileIsStill(local, clip.path))
+        #expect(await model.videoSnapshot(clip.path) == nil)
     }
 
     @Test func aFileThatIsNotAVideoGivesNothing() async throws {
@@ -256,6 +274,8 @@ struct AgentPaneVideoInfoTests {
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.home = home.path
         model.workspaceRoots = { [project.path] }
+        let videos = folder.appendingPathComponent("videos", isDirectory: true)
+        model.replyLinks.videoFolder = videos
         var looked: [URL] = []
         model.replyLinks.quickLookFile = { looked.append($0) }
 
@@ -294,7 +314,10 @@ struct AgentPaneVideoInfoTests {
         model.transport.gestures.record(click: true)
         let played = await Self.ask(model, "video.quickLook", ["src": clip.path])
         #expect(Self.errorCode(played) == nil, "\(played)")
-        #expect(looked.map { $0.resolvingSymlinksInPath().path } == [clip.resolvingSymlinksInPath().path])
+        // Its copy, not the file itself.
+        let shown = try #require(looked.first)
+        #expect(looked.count == 1 && shown.path.hasPrefix(videos.path + "/"))
+        #expect(try Data(contentsOf: shown) == Data(contentsOf: clip))
     }
 
     @Test func aVideoInTheChatsSessionFolderIsReadWithTheFolderMadeCanonicalOffTheMainActor() async throws {

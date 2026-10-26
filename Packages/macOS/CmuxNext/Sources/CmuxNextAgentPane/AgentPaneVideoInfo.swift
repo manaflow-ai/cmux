@@ -1,6 +1,7 @@
 import AVFoundation
 import CmuxNextCompat
 import CoreGraphics
+import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -94,26 +95,62 @@ nonisolated enum AgentPaneVideoInfo {
         (try? file.blockingResourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
-    /// A video file checked against its scope, and which file it was then (its device and inode):
-    /// the path is checked again after the read, so one swapped for another file or a link while it
-    /// was read (a folder on the way turned into a link to `~/.ssh`) gives nothing.
-    struct Checked: Equatable, Sendable {
-        var url: URL
-        var device: UInt64
-        var inode: UInt64
+    /// The largest video copied byte by byte when the disk cannot clone it (not APFS).
+    static let maximumCopyBytes: off_t = 512 << 20
+    /// How long a copy may stay in its folder before a later one sweeps it away (one Quick Look
+    /// still shows is kept that long).
+    static let copyLifetime: TimeInterval = 60 * 60
+
+    /// A private copy of the video file `src` names in `scope` (``AgentPaneReplyPaths/resolveVideo(_:)``),
+    /// in a new folder of `parent`: what is read and played is the copy, never the path again, so a
+    /// file rewritten in place, replaced, or reached through a folder swapped for a link (to `~/.ssh`)
+    /// after its check, and swapped back, gives nothing of another file's. The file is opened once
+    /// without following a link, must be a regular file, and the path the system gives for the open
+    /// file must be the one checked inside the scope; the copy comes from that open file. On APFS
+    /// it is a clone (no bytes copied, and later writes to the file never reach it); elsewhere at
+    /// most ``maximumCopyBytes`` are copied.
+    @concurrent static func snapshot(_ src: String, in scope: AgentPaneReplyPaths.Scope, into parent: URL) async -> URL? {
+        guard let resolved = AgentPaneReplyPaths(scope).resolveVideo(src), resolved.place == .root, !resolved.isFolder else { return nil }
+        let descriptor = open(resolved.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var info = stat()
+        var opened = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, fcntl(descriptor, F_GETPATH, &opened) == 0,
+              String(decoding: opened.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == resolved.path else { return nil }
+        sweep(parent)
+        let folder = parent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let copy = folder.appendingPathComponent((resolved.path as NSString).lastPathComponent, isDirectory: false)
+        guard (try? FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])) != nil else { return nil }
+        if fclonefileat(descriptor, AT_FDCWD, copy.path, 0) == 0 { return copy }
+        guard info.st_size <= maximumCopyBytes, copyBytes(descriptor, to: copy) else {
+            try? FileManager.checked.removeItem(at: folder)
+            return nil
+        }
+        return copy
     }
 
-    /// The video file `src` names in `scope` (``AgentPaneReplyPaths/resolveVideo(_:)``), when it is
-    /// a regular file inside it: made canonical and checked here, off the main actor.
-    @concurrent static func file(_ src: String, in scope: AgentPaneReplyPaths.Scope) async -> Checked? {
-        guard let resolved = AgentPaneReplyPaths(scope).resolveVideo(src), resolved.place == .root, !resolved.isFolder else { return nil }
-        let file = URL(fileURLWithPath: resolved.path, isDirectory: false)
-        // `attributesOfItem` reads a link itself, not its target: the canonical path has none.
-        guard isRegularFile(file), let item = try? FileManager.default.attributesOfItem(atPath: file.path),
-              item[.type] as? FileAttributeType == .typeRegular,
-              let device = (item[.systemNumber] as? NSNumber)?.uint64Value,
-              let inode = (item[.systemFileNumber] as? NSNumber)?.uint64Value else { return nil }
-        return Checked(url: file, device: device, inode: inode)
+    /// Copies the open file `descriptor` to a new file `copy`, byte by byte.
+    static func copyBytes(_ descriptor: Int32, to copy: URL) -> Bool {
+        let out = open(copy.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard out >= 0 else { return false }
+        defer { close(out) }
+        return fcopyfile(descriptor, out, nil, copyfile_flags_t(COPYFILE_DATA)) == 0
+    }
+
+    /// Removes the copies in `parent` older than ``copyLifetime``.
+    static func sweep(_ parent: URL) {
+        let old = Date().addingTimeInterval(-copyLifetime)
+        let folders = (try? FileManager.checked.contentsOfDirectory(at: parent, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for folder in folders where ((try? folder.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) < old {
+            try? FileManager.checked.removeItem(at: folder)
+        }
+    }
+
+    /// Removes the copy ``snapshot(_:in:into:)`` made, with its folder.
+    @concurrent static func discard(_ copy: URL) async {
+        try? FileManager.checked.removeItem(at: copy.deletingLastPathComponent())
     }
 
     /// Whether every track of the video at `file` holds its media in the file itself: a reference
@@ -152,39 +189,44 @@ nonisolated enum AgentPaneVideoInfo {
 }
 
 extension AgentPaneModel {
-    /// The video file `src` (a path or `file://` URL) names, when the pane may show it: a chat on
-    /// this Mac, a regular `.mov`, `.mp4` or `.m4v` file inside the chat's roots, its folder, `/tmp`
-    /// or home (where a screen recording lands, as for a reply's image), and not on the deny list.
-    /// A chat on another machine names its own files: this Mac's are never read for it. The disk is
+    /// A private copy of the video file `src` (a path or `file://` URL) names
+    /// (``AgentPaneVideoInfo/snapshot(_:in:into:)``), when the pane may show it: a chat on this
+    /// Mac, a regular `.mov`, `.mp4` or `.m4v` file inside the chat's roots, its folder, `/tmp` or
+    /// home (where a screen recording lands, as for a reply's image), and not on the deny list. A
+    /// chat on another machine names its own files: this Mac's are never read for it. The disk is
     /// read off the main actor.
-    func videoFile(_ src: String) async -> AgentPaneVideoInfo.Checked? {
+    func videoSnapshot(_ src: String) async -> URL? {
         guard !chatIsElsewhere else { return nil }
-        let checked = await AgentPaneVideoInfo.file(src, in: replyPathScope())
+        guard let copy = await AgentPaneVideoInfo.snapshot(src, in: replyPathScope(), into: replyLinks.videoFolder) else { return nil }
         // A chat that turned remote while the disk was read gets nothing (cx-k21v).
-        return chatIsElsewhere ? nil : checked
+        guard !chatIsElsewhere else {
+            await AgentPaneVideoInfo.discard(copy)
+            return nil
+        }
+        return copy
     }
 
-    /// Whether `src` still names the file `checked` was, in a chat still on this Mac: after a read
-    /// or before Quick Look opens it.
-    func videoFileIsStill(_ checked: AgentPaneVideoInfo.Checked, _ src: String) async -> Bool {
-        await videoFile(src) == checked
-    }
-
-    /// `video.info {src}`: the video's length, size, poster and key frames (``AgentPaneVideoInfo``).
+    /// `video.info {src}`: the video's length, size, poster and key frames (``AgentPaneVideoInfo``),
+    /// read from its copy, which is then removed.
     func videoInfo(_ src: String) async -> [String: Any] {
-        guard let checked = await videoFile(src), let info = await AgentPaneVideoInfo.read(checked.url),
-              await videoFileIsStill(checked, src) else { return Self.replyFailure(.mediaRefused) }
+        guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
+        let info = await AgentPaneVideoInfo.read(copy)
+        await AgentPaneVideoInfo.discard(copy)
+        guard let info, !chatIsElsewhere else { return Self.replyFailure(.mediaRefused) }
         return AgentPaneReply.success(info.reply)
     }
 
-    /// `video.quickLook {src}`: plays the video in Quick Look, on the person's click. The click is
-    /// spent before the file is checked, so a request that waits on the disk never takes a later one.
-    /// A reference movie is refused: Quick Look would play the media it points at.
+    /// `video.quickLook {src}`: plays the video's copy in Quick Look, on the person's click. The click
+    /// is spent before the file is checked, so a request that waits on the disk never takes a later
+    /// one. A reference movie is refused: Quick Look would play the media it points at.
     func quickLookVideo(_ src: String) async -> [String: Any] {
         guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-        guard let checked = await videoFile(src), await AgentPaneVideoInfo.isSelfContained(checked.url),
-              await videoFileIsStill(checked, src) else { return Self.replyFailure(.mediaRefused) }
-        replyLinks.quickLookFile(checked.url)
+        guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
+        guard await AgentPaneVideoInfo.isSelfContained(copy), !chatIsElsewhere else {
+            await AgentPaneVideoInfo.discard(copy)
+            return Self.replyFailure(.mediaRefused)
+        }
+        replyLinks.quickLookFile(copy)
         return AgentPaneReply.success()
     }
 }

@@ -59,6 +59,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
+    /// Where a video's private copies are read and played from (``AgentPaneVideoInfo/snapshot(_:in:into:)``).
+    var videoFolder = AgentPaneImageCopies.defaultFolder().deletingLastPathComponent().appendingPathComponent("Agent Videos", isDirectory: true)
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
