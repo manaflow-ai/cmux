@@ -7,44 +7,48 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/measure/pane-overflow-fade.sh"
-source = SCRIPT.read_text()
-# Measure workers use detached checkouts without a configured origin. The
-# preflight must continue with the published objects instead of requiring a
-# network fetch that cannot work on that checkout.
-assert "git remote get-url origin" in source
-assert "NATIVE_FADE_FETCH_SKIPPED no-origin" in source
-fetch_guard = source[source.index("if git remote get-url origin"):source.index("\nFIXED_BLOB=")]
-
-def test_detached_fetch_guard():
+source = Path(os.environ.get("NX_FADE_TEST_SCRIPT", SCRIPT)).read_text()
+# Execute the actual fetch preflight against a cold shallow, detached checkout
+# with no remote; only the canonical network destination is replaced by a local
+# fixture server. A later tooling commit must still measure the requested fix.
+def test_detached_fetch_preflight():
     with tempfile.TemporaryDirectory(prefix="pane-fade-no-origin-") as directory:
-        repo = Path(directory) / "repo"
-        repo.mkdir()
-        def fixture_git(*args):
+        upstream = Path(directory) / "upstream"
+        upstream.mkdir()
+        def fixture_git(repo, *args):
             return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
-        fixture_git("init", "-q")
-        (repo / "tracked").write_text("published objects\n")
-        fixture_git("add", ".")
-        fixture_git("-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
-                    "-c", "core.hooksPath=/dev/null", "commit", "-qm", "published")
-        head = fixture_git("rev-parse", "HEAD")
-        command = (
-            "set -euo pipefail\n"
-            "die() { echo \"$*\" >&2; exit 2; }\n"
-            f"HEAD_SHA={head}\n"
-            + fetch_guard + "\n"
-            + "printf 'FETCH_GUARD_DONE\\n'\n"
-        )
+        fixture_git(upstream, "init", "-q")
+        for name in ("parent", "product", "tooling"):
+            (upstream / "tracked").write_text(name + "\n")
+            fixture_git(upstream, "add", ".")
+            fixture_git(upstream, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
+                        "-c", "core.hooksPath=/dev/null", "commit", "-qm", name)
+            if name == "product":
+                product = fixture_git(upstream, "rev-parse", "HEAD")
+                parent = fixture_git(upstream, "rev-parse", "HEAD^")
+        repo = Path(directory) / "checkout"
+        repo.mkdir()
+        fixture_git(repo, "init", "-q")
+        fixture_git(repo, "fetch", "--depth=1", upstream.as_uri(), "HEAD")
+        fixture_git(repo, "checkout", "-q", "--detach", "FETCH_HEAD")
+        script_head = fixture_git(repo, "rev-parse", "HEAD")
+        assert fixture_git(repo, "remote") == ""
+        start = source.index('SCRIPT_SHA=') if 'SCRIPT_SHA=' in source else source.index('HEAD_SHA=')
+        preflight = source[start:source.index('\nFIXED_BLOB=')]
+        preflight = preflight.replace("https://github.com/manaflow-ai/cmux.git", upstream.as_uri())
         result = subprocess.run(
-            ["bash", "-c", command], cwd=repo,
-            env=os.environ | {"GIT_TRACE": "1"},
-            capture_output=True, text=True,
+            ["bash", "-c", 'set -euo pipefail\ndie() { echo "$*" >&2; exit 2; }\n' + preflight +
+             '\ngit cat-file -e "$HEAD_SHA^"\nprintf "%s\\n" "$HEAD_SHA"\n', "fixture", product],
+            cwd=repo, capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr
-        assert "NATIVE_FADE_FETCH_SKIPPED no-origin" in result.stdout, result.stdout + result.stderr
-        assert "FETCH_GUARD_DONE" in result.stdout
-        assert " fetch " not in result.stderr, result.stderr
+        assert f"head={product}" in result.stdout, result.stdout
+        assert fixture_git(repo, "rev-parse", "HEAD") == script_head
+        assert fixture_git(repo, "rev-parse", product + "^") == parent
+        assert fixture_git(repo, "remote") == ""
+        print("PASS cold detached preflight: target and parent fetched without changing HEAD or remotes")
 
-test_detached_fetch_guard()
+test_detached_fetch_preflight()
 # Execute the actual identity fence, before the native probe/build portion.
 fence = source[source.index('\nFIXED_BLOB=') + 1:source.index('WORK="$(mktemp')]
 PRODUCT = "product.swift"
@@ -91,7 +95,8 @@ def run_case(kind):
         env = os.environ | {
             "PRODUCT_PATH": PRODUCT, "REGRESSION_PATH": REGRESSION,
             "EXPECTED_FIXED_BLOB": fixed_blob, "EXPECTED_OLD_BLOB": old_blob,
-            "EXPECTED_RED_TEST_BLOB": test_blob, "HEAD_SHA": head,
+            "EXPECTED_RED_TEST_BLOB": test_blob, "HEAD_SHA": head, "SCRIPT_SHA": head,
+            "SCRIPT_TREE": git(repo, "rev-parse", "HEAD^{tree}"),
             "HEAD_TREE": git(repo, "rev-parse", "HEAD^{tree}"),
         }
         before = Path(directory) / "before"
