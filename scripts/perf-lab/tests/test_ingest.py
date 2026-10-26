@@ -32,13 +32,17 @@ def load(name: str, path: Path):
 
 ingest = load("perf_lab_ingest", PERF_LAB / "ingest.py")
 lab = load("perf_lab_lab", LAB_PY)
+alerts = load("perf_lab_alerts", PERF_LAB / "alerts.py")
+sheriff = load("perf_lab_sheriff", PERF_LAB / "sheriff.py")
 pr = ingest.perf_result
 store = ingest.store
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 SHA_C = "c" * 40
-POSITIONS = {SHA_A: 100, SHA_B: 101, SHA_C: 102}
+SHA_SIDE = "5" * 40  # a commit of a side branch: its first-parent count is no mainline position
+POSITIONS = {SHA_A: ingest.CommitPosition(100, mainline=True), SHA_B: ingest.CommitPosition(101, mainline=True),
+             SHA_C: ingest.CommitPosition(102, mainline=True), SHA_SIDE: ingest.CommitPosition(101, mainline=False)}
 CHIP = "Apple M4 Pro"
 HOST = pr.Host(fingerprint="f" * 64, host_class=store.host_class(chip=CHIP, memory_gb=24, display_hz=120), chip=CHIP,
                macos="26.1", macos_build="25B78", display_hz=120)
@@ -107,16 +111,66 @@ class IngestTests(StoreCase):
         good = pr.write_ndjson(self.results, [result()])
         other = pr.write_ndjson(self.results, [result(metric="frames_dropped", samples=[0, 1])])
         bad = self.results / "result-bad.ndjson"
-        broken = result().to_dict()
+        broken = result(run_id="run9").to_dict()
         broken["samples"] = []
-        bad.write_text(json.dumps(result().to_dict()) + "\n" + json.dumps(broken) + "\n")
+        bad.write_text(json.dumps(result(run_id="run9").to_dict()) + "\n" + json.dumps(broken) + "\n")
         report = self.ingest()
         self.assertEqual([(r.source, r.reason) for r in report.rejected],
                          [(str(bad), "line 2: samples: empty; a result needs at least one raw sample")])
         self.assertEqual((report.added_runs, report.added_results), (1, 2))
         self.assertEqual(self.db.run_metrics("run1/" + STORY),
                          {"key_to_frame_ms": [4.0, 5.0, 6.0], "frames_dropped": [0, 1]})
+        self.assertEqual(self.db.run_metrics("run9/" + STORY), {})
         self.assertTrue(good.exists() and other.exists())
+
+    def test_run_with_a_rejected_file_is_stored_whole_after_the_fix_never_in_part(self):
+        pr.write_ndjson(self.results, [result()])
+        bad = self.results / "result-bad.ndjson"
+        broken = result(metric="frames_dropped", samples=[0, 1]).to_dict()
+        broken["unit"] = "furlongs"
+        bad.write_text(json.dumps(broken) + "\n")
+        first = self.ingest()
+        self.assertEqual(first.added_runs, 0)
+        self.assertEqual([r.source for r in first.rejected][0], str(bad))
+        self.assertIn(f"{bad} holds results of this run and was rejected", first.rejected[1].reason)
+        self.assertEqual(self.db.run_metrics("run1/" + STORY), {})
+        bad.unlink()
+        pr.write_ndjson(self.results, [result(metric="frames_dropped", samples=[0, 1])])
+        second = self.ingest()
+        self.assertEqual((second.rejected, second.added_runs, second.added_results), ([], 1, 2))
+        self.assertEqual(self.db.run_metrics("run1/" + STORY),
+                         {"key_to_frame_ms": [4.0, 5.0, 6.0], "frames_dropped": [0, 1]})
+
+    def test_file_that_names_no_run_holds_back_its_folder_only(self):
+        pr.write_ndjson(self.results, [result()])
+        (self.results / "result-junk.ndjson").write_text('{"run": {"id": "run1", "start\n')
+        elsewhere = self.root / "elsewhere"
+        pr.write_ndjson(elsewhere, [result(run_id="run2", started="2026-10-25T13:00:00Z")])
+        report = self.ingest(self.results, elsewhere)
+        self.assertEqual(report.added_runs, 1)
+        self.assertEqual(self.db.run_metrics("run1/" + STORY), {})
+        self.assertIn("in the same folder was rejected", report.rejected[1].reason)
+        self.assertEqual(self.db.run_metrics("run2/" + STORY), {"key_to_frame_ms": [4.0, 5.0, 6.0]})
+
+    def test_started_at_on_no_calendar_rejects_that_run_and_stores_the_rest(self):
+        pr.write_ndjson(self.results, [result()])
+        pr.write_ndjson(self.results, [result(run_id="leap", started="2026-12-31T23:59:60Z")])
+        pr.write_ndjson(self.results, [result(run_id="feb30", started="2026-02-30T12:00:00Z")])
+        report = self.ingest()
+        self.assertEqual(report.added_runs, 1)
+        reasons = sorted(r.reason for r in report.rejected)
+        self.assertEqual(len(reasons), 2)
+        self.assertTrue(reasons[0].startswith("run.started_at '2026-02-30T12:00:00Z' is not a valid time: "), reasons)
+        self.assertTrue(reasons[1].startswith("run.started_at '2026-12-31T23:59:60Z' is not a valid time: "), reasons)
+        self.assertEqual(self.db.run_metrics("run1/" + STORY), {"key_to_frame_ms": [4.0, 5.0, 6.0]})
+
+    def test_side_branch_commit_is_no_waterfall_point_but_a_try_run(self):
+        pr.write_ndjson(self.results, [result(sha=SHA_SIDE)])
+        report = self.ingest()
+        self.assertEqual(report.added_runs, 0)
+        self.assertIn("is not on the mainline's first-parent chain", report.rejected[0].reason)
+        self.assertEqual(self.ingest(kind="try").added_runs, 1)
+        self.assertEqual(self.db.series_points(self.key()), [])
 
     def test_one_point_per_run_with_summary_from_perf_stats(self):
         pr.write_ndjson(self.results, [result(samples=[1, 2, 3, 4, 100])])
@@ -125,7 +179,7 @@ class IngestTests(StoreCase):
         self.assertEqual(point.summary, ingest.perf_stats.summary([1, 2, 3, 4, 100]))
         self.assertEqual((point.sha, point.commit_pos, point.features_hash, point.macos_build, point.safe_mode),
                          (SHA_A, 100, "fh1", "25B78", "inactive"))
-        self.assertFalse(ingest.is_legacy(point.summary))
+        self.assertEqual(alerts.judged_points([point]), [point])
 
     def test_debug_result_never_lands_in_a_bench_series(self):
         pr.write_ndjson(self.results, [result(sha=SHA_A, run_id="bench1")])
@@ -239,16 +293,24 @@ class PerfCronImportTests(StoreCase):
         self.assertEqual(report.rejected, [])
         self.assertEqual(report.added_runs, 3)
         points = self.db.series_points(self.legacy_key("diff.stream.p95", "blacksmith-32vcpu-ubuntu-2404"))
-        self.assertEqual([(p.sha, p.samples) for p in points], [(SHA_A, [21.0]), (SHA_B, [22.11])])
+        self.assertEqual([(p.sha, p.samples, p.summary["p95"]) for p in points],
+                         [(SHA_A, [], 21.0), (SHA_B, [], 22.11)])
         for point in points:
             self.assertTrue(point.summary["legacy_p95_only"] and point.summary["legacy_stat"])
-            self.assertTrue(ingest.is_legacy(point.summary))
-        self.assertEqual(ingest.judged_points(points), [])
+            self.assertTrue(point.measure_version.startswith("legacy"))
+        # The detector's and the sheriff's own rules, each by one of its checks: no raw samples, legacy version, flags.
+        self.assertEqual(alerts.judged_points(points), [])
+        self.assertEqual(sheriff.judged_batches(points, after_pos=0), [])
+        with_samples = [ingest.store.Point(**{**p.__dict__, "samples": [p.summary["p95"]]}) for p in points]
+        self.assertEqual(alerts.judged_points(with_samples), [])
+        unflagged = [ingest.store.Point(**{**p.__dict__, "summary": {"p95": p.summary["p95"]}}) for p in with_samples]
+        self.assertEqual(alerts.judged_points(unflagged), [])
 
     def test_row_stored_before_host_keys_gets_the_cron_bench_host(self):
         ingest.import_perf_cron(self.db, cron_state(), commit_positions=POSITIONS.get)
         [point] = self.db.series_points(self.legacy_key("panes.1x2.split.frame", "cmux20-bench"))
-        self.assertEqual((point.sha, point.samples, point.host_name), (SHA_B, [8.3], "cmux20-bench"))
+        self.assertEqual((point.sha, point.samples, point.summary["p95"], point.host_name),
+                         (SHA_B, [], 8.3, "cmux20-bench"))
 
     def test_legacy_series_are_never_lab_bench_series(self):
         ingest.import_perf_cron(self.db, cron_state(), commit_positions=POSITIONS.get)
@@ -295,17 +357,31 @@ class PerfCronImportTests(StoreCase):
 
 
 class GitCommitPositionsTests(unittest.TestCase):
-    def test_first_parent_count_and_unknown_commit(self):
+    def test_mainline_position_side_branch_commit_and_unknown_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-            subprocess.run([*git, "init", "-q"], check=True)
+
+            def sha(ref):
+                done = subprocess.run([*git, "rev-parse", ref], check=True, capture_output=True, text=True)
+                return done.stdout.strip()
+
+            subprocess.run([*git, "init", "-q", "-b", "trunk"], check=True)
             subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "one"], check=True)
+            subprocess.run([*git, "checkout", "-q", "-b", "side"], check=True)
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "side one"], check=True)
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "side two"], check=True)
+            subprocess.run([*git, "checkout", "-q", "trunk"], check=True)
             subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "two"], check=True)
-            head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-            positions = ingest.GitCommitPositions(repo)
-            self.assertEqual(positions(head), 2)
+            subprocess.run([*git, "merge", "-q", "--no-ff", "-m", "merge side", "side"], check=True)
+            positions = ingest.GitCommitPositions(repo, mainline="trunk")
+            self.assertEqual(positions(sha("trunk")), ingest.CommitPosition(3, mainline=True))
+            self.assertEqual(positions(sha("trunk~1")), ingest.CommitPosition(2, mainline=True))
+            # side two is an ancestor of trunk through the merge's second parent; its count 3 collides with the merge.
+            self.assertEqual(positions(sha("side")), ingest.CommitPosition(3, mainline=False))
             self.assertIsNone(positions("0" * 40))
+            with self.assertRaises(ingest.IngestError):
+                ingest.GitCommitPositions(repo, mainline="no-such-branch")
 
     def test_not_a_checkout_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -353,13 +429,13 @@ class LabDispatcherTests(unittest.TestCase):
             head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
             results = root / "results"
             pr.write_ndjson(results, [result(sha=head)])
-            (results / "result-junk.ndjson").write_text("{not json\n")
+            (results / "result-junk.ndjson").write_text('{"run": {"id": "junk"}}\n')  # names another run
             db = root / "lab.sqlite3"
             env = {**os.environ, ingest.DB_ENV: str(db)}
 
             def lab_cli(*args):
-                return subprocess.run([sys.executable, "-I", str(LAB_PY), *args, "--repo", tmp, "--json"],
-                                      capture_output=True, text=True, env=env)
+                return subprocess.run([sys.executable, "-I", str(LAB_PY), *args, "--repo", tmp, "--mainline", "HEAD",
+                                       "--json"], capture_output=True, text=True, env=env)
 
             first = lab_cli("ingest", str(results))
             self.assertEqual(first.returncode, 1, first.stderr)

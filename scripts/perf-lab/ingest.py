@@ -7,13 +7,17 @@
 `ingest` reads every `*.ndjson` file (perf_result.read_file), rejects a bad file with its path and reason and stores
 the rest. Results of one run and one story become one store run with one result row per metric, as chromeperf's
 add_histograms turns one uploaded HistogramSet into Rows of one revision (catapult
-`dashboard/dashboard/api/add_histograms.py`, `add_histograms_queue.py`). The build config is part of the series key
-(store.series_key), so a debug result lands in a debug series and is never a point of a bench series.
+`dashboard/dashboard/api/add_histograms.py`, `add_histograms_queue.py`). A stored run is never changed, so a run with
+results in a rejected file is not stored at all until that file is fixed (`_rejected_runs`). The build config is part
+of the series key (store.series_key), so a debug result lands in a debug series and is never a point of a bench series.
+A waterfall point's commit position is its index on the mainline's first-parent chain, as Chromium's
+Cr-Commit-Position is `refs/heads/main@{#N}`; a commit off that chain is no waterfall point.
 
 `import-perf-cron` turns each good p95 of the cron's `row_history` (scripts/cmux-next/perf-cron.py, state artifact
-`perf-cron-state`) into one point of a legacy series. The cron kept p95 only, from Debug builds: a legacy point is
-flagged in its summary (LEGACY_FLAGS) and lives on a `perf-cron:<host>` host class, so it is shown on the dashboard
-and never judged (`judged_points`). Its series are never the lab's bench series (p12-perf-process.md, Risks).
+`perf-cron-state`) into one point of a legacy series. The cron kept p95 only, from Debug builds: a legacy point has no
+raw samples, carries its p95 and LEGACY_FLAGS in its summary, has a `legacy-` measure version and lives on a
+`perf-cron:<host>` host class, so it is shown on the dashboard and never judged (alerts.judged_points). Its series are
+never the lab's bench series (p12-perf-process.md, Risks).
 
 Both are idempotent: a run is stored under a stable id, and store.insert_run keeps a replay of the same content as a
 no-op, so a second ingest or import adds 0 rows.
@@ -31,7 +35,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,14 +73,16 @@ LAB_COMMANDS = {
     "import-perf-cron": "import a perf-cron-state history as legacy points (shown, never judged)",
 }
 
-# A legacy point's summary carries both flags. legacy_p95_only: the point is one p95, no raw samples (its samples
-# list holds that value alone). legacy_stat: the statistic came from the cron's own pipeline over a Debug build, not
-# from perf_stats over raw samples, so no lab rule may compare it.
+# A legacy point's summary carries both flags. legacy_p95_only: the point is one p95 and has no raw samples.
+# legacy_stat: the statistic came from the cron's own pipeline over a Debug build, not from perf_stats over raw
+# samples, so no lab rule may compare it.
 LEGACY_FLAGS = ("legacy_p95_only", "legacy_stat")
 LEGACY_CONFIG = "debug"  # perf-cron.py measures the Debug build (p12-perf-process.md 2, "Perf cron")
 LEGACY_STORY_PREFIX = "perf-cron."
 LEGACY_HOST_PREFIX = "perf-cron:"
-LEGACY_MEASURE_VERSION = "perf-cron"
+LEGACY_MEASURE_VERSION = "legacy-perf-cron"  # alerts.judged_points skips a "legacy" measure version
+# The branch the lab measures: its first-parent commits give waterfall commit positions (p12-perf-process.md).
+DEFAULT_MAINLINE = "origin/feat-cmux-next"
 # A result-v1 host class in store.host_class form: chip / memory / display Hz.
 MAC_CLASS = re.compile(r"^(?P<chip>.+)/(?P<memory>[0-9]+)gb/(?P<hz>[0-9]+)hz$")
 CRON_TIME = "%Y-%m-%dT%H:%M:%SZ"
@@ -131,23 +137,43 @@ class IngestReport:
                 f"{self.unchanged_runs} already stored; {len(self.rejected)} rejected")
 
 
-CommitPositions = Callable[[str], "int | None"]
+@dataclass(frozen=True)
+class CommitPosition:
+    """A commit's first-parent count, and whether the commit is on the mainline's first-parent chain. Only a mainline
+    position orders series points: a branch commit's count says nothing about where it sits on the mainline."""
+
+    position: int
+    mainline: bool
+
+
+CommitPositions = Callable[[str], "CommitPosition | None"]
 
 
 class GitCommitPositions:
-    """A commit's position on its first-parent chain (Chromium's Cr-Commit-Position): `git rev-list --count
-    --first-parent SHA` in `repo`. None when the checkout does not have the commit."""
+    """Commit positions in `repo` (Chromium's Cr-Commit-Position, `refs/heads/main@{#N}`).
 
-    def __init__(self, repo: Path | str, *, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
+    A commit on the first-parent chain of `mainline` is at its index on that chain, counted from the root commit,
+    which equals its `git rev-list --count --first-parent`. Any other commit gets that count with mainline False.
+    None when the checkout does not have the commit.
+    """
+
+    def __init__(self, repo: Path | str, *, mainline: str = DEFAULT_MAINLINE,
+                 run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
         self._repo = str(repo)
         self._run = run
-        self._cache: dict[str, int | None] = {}
+        self._cache: dict[str, CommitPosition | None] = {}
         shallow = self._git("rev-parse", "--is-shallow-repository")
         if shallow is None:
             raise IngestError(f"{repo}: not a git checkout; commit positions need one")
         if shallow == "true":
             raise IngestError(f"{repo}: shallow checkout; its first-parent counts are not commit positions "
                               "(git fetch --unshallow)")
+        tip = self._git("rev-parse", "--verify", "--quiet", f"{mainline}^{{commit}}")
+        chain = self._git("rev-list", "--first-parent", "--reverse", tip, "--") if tip else None
+        if chain is None:
+            raise IngestError(f"{repo}: mainline {mainline!r} is not a commit in this checkout (git fetch it)")
+        self.mainline = mainline
+        self._mainline = {sha: index for index, sha in enumerate(chain.split(), start=1)}
 
     def _git(self, *args: str) -> str | None:
         try:
@@ -156,30 +182,39 @@ class GitCommitPositions:
             return None
         return done.stdout.strip() if done.returncode == 0 else None
 
-    def __call__(self, sha: str) -> int | None:
+    def __call__(self, sha: str) -> CommitPosition | None:
+        if sha in self._mainline:
+            return CommitPosition(self._mainline[sha], mainline=True)
         if sha not in self._cache:
             count = self._git("rev-list", "--count", "--first-parent", f"{sha}^{{commit}}", "--")
-            self._cache[sha] = int(count) if count and count.isdigit() else None
+            self._cache[sha] = CommitPosition(int(count), mainline=False) if count and count.isdigit() else None
         return self._cache[sha]
 
 
-def is_legacy(summary: dict[str, object] | None) -> bool:
-    """True for a point imported from the perf cron: shown, never judged."""
-    return bool(summary) and any(summary.get(flag) for flag in LEGACY_FLAGS)
-
-
-def judged_points(points: Iterable[store.Point]) -> list[store.Point]:
-    """The points a lab rule may judge: every point but the legacy ones."""
-    return [point for point in points if not is_legacy(point.summary)]
-
-
 def _parse_time(text: str) -> datetime:
-    """result-v1 run.started_at (RFC 3339 UTC, Z, up to 9 fraction digits) as an aware datetime (microseconds)."""
+    """result-v1 run.started_at (RFC 3339 UTC, Z, up to 9 fraction digits) as an aware datetime (microseconds).
+
+    The result pattern admits times that are on no calendar (second 60, February 30): such a run is rejected.
+    """
     body = text[:-1]
     if "." in body:
         whole, fraction = body.split(".", 1)
         body = f"{whole}.{fraction[:6].ljust(6, '0')}"
-    return datetime.fromisoformat(body).replace(tzinfo=timezone.utc)
+    try:
+        return datetime.fromisoformat(body).replace(tzinfo=timezone.utc)
+    except ValueError as error:
+        raise _Reject(f"run.started_at {text!r} is not a valid time: {error}") from None
+
+
+def _position(commit_positions: CommitPositions, sha: str, *, waterfall: bool, again: str) -> int:
+    """The commit position a run of `sha` is stored at; a waterfall run needs a commit on the mainline."""
+    commit = commit_positions(sha)
+    if commit is None:
+        raise _Reject(f"commit {sha} is not in the lab's checkout; fetch it and {again}")
+    if waterfall and not commit.mainline:
+        raise _Reject(f"commit {sha} is not on the mainline's first-parent chain, so a waterfall point has no "
+                      "position for it (ingest a branch build with --kind try)")
+    return commit.position
 
 
 def _store_host(host: perf_result.Host, name: str) -> LabHost:
@@ -258,9 +293,7 @@ def _store_records(group: _Group, *, commit_positions: CommitPositions, host_nam
         metrics.append(store.Metric(name=result.metric, unit=result.unit, better=result.better,
                                     samples=list(result.samples), summary=perf_stats.summary(result.samples),
                                     target_ref=_target_ref(result.target_ref)))
-    position = commit_positions(first.build.sha)
-    if position is None:
-        raise _Reject(f"commit {first.build.sha} is not in the lab's checkout; fetch it and ingest again")
+    position = _position(commit_positions, first.build.sha, waterfall=kind == "waterfall", again="ingest again")
     host = _store_host(first.host, host_name or f"fp-{first.host.fingerprint[:12]}")
     attachments: list[dict[str, str]] = []
     for _, result in group.results:
@@ -300,23 +333,68 @@ def _file_reason(path: Path, error: perf_result.ResultError) -> str:
     return f"line {line[1]}: {reason[line.end():]}" if line else reason
 
 
+def _rejected_runs(path: Path) -> set[str] | None:
+    """The run ids of a rejected file's lines; None when it cannot be read or a line names no run."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    runs: set[str] = set()
+    for line in filter(str.strip, lines):
+        try:
+            run_id = json.loads(line)["run"]["id"]
+        except (ValueError, TypeError, KeyError):
+            return None
+        if not isinstance(run_id, str):
+            return None
+        runs.add(run_id)
+    return runs
+
+
+def _incomplete(group: _Group, runs: dict[str, Path], folders: dict[Path, Path]) -> str | None:
+    """Why `group` may lack results of a rejected file, or None. A stored run is never changed, so a run stored
+    without them would stay without them."""
+    if group.run_id in runs:
+        return f"{runs[group.run_id]} holds results of this run and was rejected; fix it and ingest again"
+    for path, _ in group.results:
+        if path.parent in folders:
+            return (f"{folders[path.parent]} in the same folder was rejected and its runs are unknown; "
+                    "fix it and ingest again")
+    return None
+
+
 def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positions: CommitPositions,
                  host_name: str | None = None, kind: str = "waterfall", tier: str | None = None) -> IngestReport:
-    """Stores every valid result under `paths`; a bad file or an inconsistent run is rejected, the rest is stored."""
+    """Stores every valid result under `paths`; a bad file or an inconsistent run is rejected, the rest is stored.
+
+    A run is stored whole or not at all: a run with results in a rejected file, or with results next to a rejected
+    file whose runs are unknown, is rejected too.
+    """
     if kind not in store.RUN_KINDS:
         raise IngestError(f"run kind {kind!r} is not one of {store.RUN_KINDS}")
     report = IngestReport()
     groups: dict[tuple[str, str], _Group] = {}
+    rejected_runs: dict[str, Path] = {}
+    rejected_folders: dict[Path, Path] = {}
     for path in _result_files(paths, report.rejected):
         try:
             results = perf_result.read_file(path)
         except perf_result.ResultError as error:
             report.rejected.append(Rejection(str(path), _file_reason(path, error)))
+            runs = _rejected_runs(path)
+            if runs is None:
+                rejected_folders.setdefault(path.parent, path)
+            for run_id in runs or ():
+                rejected_runs.setdefault(run_id, path)
             continue
         for result in results:
             key = (result.run.id, result.story)
             groups.setdefault(key, _Group(result.run.id, result.story)).results.append((path, result))
     for group in sorted(groups.values(), key=lambda g: (g.results[0][1].run.started_at, g.run_uuid)):
+        incomplete = _incomplete(group, rejected_runs, rejected_folders)
+        if incomplete is not None:
+            report.rejected.append(Rejection(group.source, incomplete))
+            continue
         try:
             records = _store_records(group, commit_positions=commit_positions, host_name=host_name, kind=kind,
                                      tier=tier)
@@ -383,17 +461,15 @@ def _cron_point(cron, name: str, entry: object, *, units: dict[str, str], shas: 
     sha = entry.get("sha") if cron.is_sha(entry.get("sha")) else shas.get(at)
     if sha is None:
         raise _Reject(f"no commit is known for the measurement at {at}")
-    position = commit_positions(sha)
-    if position is None:
-        raise _Reject(f"commit {sha} is not in the lab's checkout; fetch it and import again")
+    position = _position(commit_positions, sha, waterfall=True, again="import again")
     lab_class = f"{LEGACY_HOST_PREFIX}{host_name}"
     host = LabHost(name=host_name, chip="unknown", memory_gb=0, display_hz=0, fingerprint=lab_class,
                    declared_class=lab_class)
     run = store.Run(run_uuid=f"perf-cron:{name}:{at}", kind="waterfall", measure_version=LEGACY_MEASURE_VERSION,
                     story=story, engine="none", macos_major=0, macos_build="", features_hash="", safe_mode="",
                     started_at=started)
-    summary = {"p95": value, "legacy_p95_only": True, "legacy_stat": True}
-    metrics = [store.Metric(name=metric, unit=unit, better="lower", samples=[value], summary=summary)]
+    summary = {"p95": value, **dict.fromkeys(LEGACY_FLAGS, True)}
+    metrics = [store.Metric(name=metric, unit=unit, better="lower", samples=[], summary=summary)]
     return run, store.Build(sha=sha, config=LEGACY_CONFIG, commit_pos=position), host, metrics
 
 
@@ -433,6 +509,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db", default=os.environ.get(DB_ENV),
                         help=f"the lab store (SQLite); default ${DB_ENV}")
     parser.add_argument("--repo", default=str(ROOT), help="git checkout that resolves commit positions")
+    parser.add_argument("--mainline", default=DEFAULT_MAINLINE,
+                        help=f"the ref whose first-parent chain orders waterfall points (default {DEFAULT_MAINLINE})")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     if command == "ingest":
         parser.add_argument("paths", nargs="+", help="result folders (their *.ndjson files) or .ndjson files")
@@ -466,7 +544,7 @@ def run(command: str, args: argparse.Namespace) -> int:
             print(f"lab.py {command}: {args.state}: {error}", file=sys.stderr)
             return 2
     try:
-        positions = GitCommitPositions(args.repo)
+        positions = GitCommitPositions(args.repo, mainline=args.mainline)
         db = store.Store(args.db)
     except (IngestError, store.StoreError, sqlite3.Error) as error:
         print(f"lab.py {command}: {error}", file=sys.stderr)
