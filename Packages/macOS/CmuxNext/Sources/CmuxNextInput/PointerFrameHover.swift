@@ -7,8 +7,10 @@ public import CmuxNextWakeups
 /// delivers rAF-aligned mouse moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
 /// With no ``frames`` (the feature off) or no window, each move hovers at once.
 ///
-/// Enter, exit and a press are discrete: the view calls ``flush()`` before it acts on them, so they see
-/// the moves before them (`ShouldFlushQueue`). A move delivered after the view left its window hovers nothing.
+/// The pointer leaving the view and a press are discrete: the view calls ``flush()`` before it acts on
+/// them, so they see the moves before them (`ShouldFlushQueue`). Crossing a part inside the view (a row)
+/// is not: it posts like a move (``crossed(_:)``). A move delivered after the view left its window hovers
+/// nothing.
 ///
 /// ```swift
 /// lazy var hover = PointerFrameHover(owner: "SidebarRailView.hover", view: self) { [weak self] point in
@@ -51,7 +53,21 @@ public final class PointerFrameHover {
         hover(event.locationInWindow)
     }
 
-    /// The pending moves hover now (an enter, an exit or a press comes next).
+    /// The pointer crossed the edge of one of the view's parts (a row's tracking area, `mouseEntered` or
+    /// `mouseExited`): a position like a move, coalesced with the moves around it. Blink derives
+    /// mouseover, mouseenter and mouseleave from the rAF-aligned mousemove in the same way
+    /// (`third_party/blink/renderer/core/input/boundary_event_dispatcher.cc`), so a sweep across many
+    /// rows in one frame still hovers at most twice. Only the pointer leaving the whole view is discrete:
+    /// its owner calls ``flush()`` for that.
+    public func crossed(_ event: NSEvent) {
+        if let consumer = consumer(for: view?.window) {
+            consumer.post(InputEventRecord(event, type: .mouseMoved))
+            return
+        }
+        hover(event.locationInWindow)
+    }
+
+    /// The pending moves hover now (the pointer left the view, or a press comes next).
     public func flush() { consumer?.flush() }
 
     /// The view's moves are waiting for the frame (debug and tests).
