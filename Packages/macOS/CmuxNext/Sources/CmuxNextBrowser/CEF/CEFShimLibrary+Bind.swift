@@ -254,6 +254,7 @@ nonisolated extension CEFShimLibrary {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        dragTarget = try CEFShimDragTargetOps(r)
         let cBrowserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)? = unsafe r.optional("cmux_shim_browser_attach_view")
         if r.hostExports == nil, let c = unsafe cBrowserAttachView {  // host mode: no view pointer crosses the process
             browserAttachView = { browser, parent in unsafe c(browser, parent?.pointer) }

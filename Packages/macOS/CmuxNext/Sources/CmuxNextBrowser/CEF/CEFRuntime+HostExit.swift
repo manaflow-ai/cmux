@@ -65,11 +65,11 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:)``):
-    /// its start attaches through `supervisor` (the host's widgets in cmux when `showsWidgets`), and the
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:)``):
+    /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`), and the
     /// host's ends reach ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
-    func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false) {
-        hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets)
+    func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false) {
+        hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags)
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }

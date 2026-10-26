@@ -42,6 +42,7 @@ extension CEFPaneHost {
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
+        takeHostDrags(on: page)
         return page
     }
 
