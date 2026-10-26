@@ -115,7 +115,13 @@ pub(crate) struct SshPlan {
 
 /// Builds the `ssh` arguments and environment from a session. The token goes
 /// only into the environment, read back by `askpass` below.
-pub(crate) fn ssh_plan(host: &str, login: &str, token: &str, askpass: &Path, command: &[String]) -> SshPlan {
+pub(crate) fn ssh_plan(
+    host: &str,
+    login: &str,
+    token: &str,
+    askpass: &Path,
+    command: &[String],
+) -> SshPlan {
     let mut args: Vec<String> = [
         "-o",
         "StrictHostKeyChecking=accept-new",
@@ -184,7 +190,12 @@ pub(crate) async fn ssh(
     let session = fetch_body(client.agents_create_client_session(id.as_str(), None, &body)).await?;
     let session: Value = serde_json::from_slice(&session)
         .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable client session"))?;
-    let field = |pointer: &str| session.pointer(pointer).and_then(Value::as_str).map(str::to_owned);
+    let field = |pointer: &str| {
+        session
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
     let (Some(session_id), Some(token), Some(host), Some(login)) = (
         field("/id"),
         field("/token"),
@@ -203,7 +214,8 @@ pub(crate) async fn ssh(
         .envs(plan.env.iter().map(|(k, v)| (k.as_str(), v.as_os_str())))
         .status();
     if !args.keep_session {
-        let revoked = call(client.agents_revoke_client_session(id.as_str(), &session_id, None)).await;
+        let revoked =
+            call(client.agents_revoke_client_session(id.as_str(), &session_id, None)).await;
         if revoked.is_err() {
             error::report_warning(
                 &format!(
@@ -244,8 +256,9 @@ pub(crate) async fn session(
             if out.is_json() {
                 return out.raw_json(&session);
             }
-            let value: Value = serde_json::from_slice(&session)
-                .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable client session"))?;
+            let value: Value = serde_json::from_slice(&session).map_err(|_| {
+                CliError::unexpected("the cmux VM API sent an unreadable client session")
+            })?;
             // Human output never shows the token or the SSH login it pairs with.
             for (label, pointer) in [
                 ("id", "/id"),
@@ -253,7 +266,10 @@ pub(crate) async fn session(
                 ("linux user", "/linuxUser"),
                 ("created", "/createdAt"),
             ] {
-                let text = value.pointer(pointer).and_then(Value::as_str).unwrap_or("unknown");
+                let text = value
+                    .pointer(pointer)
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
                 out.line(&format!("{label:<11}{}", text.escape_debug()))?;
             }
             out.line("The token is shown only with --json. Connect with `cmux-vm ssh VM`.")
@@ -264,8 +280,9 @@ pub(crate) async fn session(
             if out.is_json() {
                 return out.raw_json(&body);
             }
-            let list: Value = serde_json::from_slice(&body)
-                .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable session list"))?;
+            let list: Value = serde_json::from_slice(&body).map_err(|_| {
+                CliError::unexpected("the cmux VM API sent an unreadable session list")
+            })?;
             let sessions = list["sessions"].as_array().cloned().unwrap_or_default();
             if sessions.is_empty() {
                 return out.line("no client sessions");
@@ -303,17 +320,22 @@ pub(crate) async fn terminal(
             let id = crate::files::vm_id(&args.vm_id)?;
             let user = crate::parse_opt::<types::TerminalsListTerminalsUser>("--user", args.user)?;
             let body =
-                fetch_body(client.terminals_list_terminals(id.as_str(), user.as_ref(), None)).await?;
+                fetch_body(client.terminals_list_terminals(id.as_str(), user.as_ref(), None))
+                    .await?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
-            let list: Value = serde_json::from_slice(&body)
-                .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable terminal list"))?;
+            let list: Value = serde_json::from_slice(&body).map_err(|_| {
+                CliError::unexpected("the cmux VM API sent an unreadable terminal list")
+            })?;
             let items = list["items"].as_array().cloned().unwrap_or_default();
             if items.is_empty() {
                 return out.line("no terminals");
             }
-            out.line(&format!("{:<8} {:<9} {:<12} {:<9} NAME", "ID", "STATE", "USER", "SIZE"))?;
+            out.line(&format!(
+                "{:<8} {:<9} {:<12} {:<9} NAME",
+                "ID", "STATE", "USER", "SIZE"
+            ))?;
             for t in items {
                 let id = t["sessionId"].to_string();
                 let size = format!("{}x{}", t["cols"], t["rows"]);
@@ -347,7 +369,10 @@ pub(crate) async fn terminal(
                 Value::Null => "none".to_owned(),
                 other => other.to_string(),
             };
-            out.line(&format!("closed terminal {} (exit code {code})", args.terminal.escape_debug()))
+            out.line(&format!(
+                "closed terminal {} (exit code {code})",
+                args.terminal.escape_debug()
+            ))
         }
     }
 }
@@ -368,10 +393,22 @@ mod tests {
         assert!(plan.args.iter().all(|a| !a.contains("secret-token")));
         let tail = &plan.args[plan.args.len() - 5..];
         assert_eq!(tail, ["host+dev", "--", "ssh.example", "uname", "-a"]);
-        assert!(plan.args.contains(&"StrictHostKeyChecking=accept-new".to_owned()));
-        assert!(plan.env.contains(&(ASKPASS_TOKEN_ENV.to_owned(), OsString::from("secret-token"))));
-        assert!(plan.env.contains(&("SSH_ASKPASS_REQUIRE".to_owned(), OsString::from("force"))));
-        assert!(plan.env.contains(&("SSH_ASKPASS".to_owned(), OsString::from("/bin/cmux-vm"))));
+        assert!(
+            plan.args
+                .contains(&"StrictHostKeyChecking=accept-new".to_owned())
+        );
+        assert!(
+            plan.env
+                .contains(&(ASKPASS_TOKEN_ENV.to_owned(), OsString::from("secret-token")))
+        );
+        assert!(
+            plan.env
+                .contains(&("SSH_ASKPASS_REQUIRE".to_owned(), OsString::from("force")))
+        );
+        assert!(
+            plan.env
+                .contains(&("SSH_ASKPASS".to_owned(), OsString::from("/bin/cmux-vm")))
+        );
     }
 
     #[test]
@@ -382,15 +419,22 @@ mod tests {
             _ => None,
         };
         let mut out = Vec::new();
-        assert_eq!(askpass(&child, Some("host+dev@ssh.example's password: "), &mut out), Some(0));
+        assert_eq!(
+            askpass(&child, Some("host+dev@ssh.example's password: "), &mut out),
+            Some(0)
+        );
         assert_eq!(out, b"tok\n");
         let mut out = Vec::new();
         assert_eq!(
-            askpass(&child, Some("Are you sure you want to continue connecting (yes/no)?"), &mut out),
+            askpass(
+                &child,
+                Some("Are you sure you want to continue connecting (yes/no)?"),
+                &mut out
+            ),
             Some(1)
         );
         assert!(out.is_empty());
-        let plain = |_: &str| None;
+        let plain = |_: &str| None::<String>;
         assert_eq!(askpass(&plain, Some("password"), &mut Vec::new()), None);
         let no_force = |name: &str| (name == ASKPASS_TOKEN_ENV).then(|| "tok".to_owned());
         assert_eq!(askpass(&no_force, Some("password"), &mut Vec::new()), None);

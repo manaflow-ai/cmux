@@ -253,7 +253,8 @@ pub(crate) async fn vpc(
         VpcCommand::Attach(args) => {
             let mesh = mesh_id(&args.mesh_id)?;
             let vm = crate::files::vm_id(&args.vm_id)?;
-            let body = fetch_body(client.mesh_attach_mesh_vm(mesh.as_str(), vm.as_str(), None)).await?;
+            let body =
+                fetch_body(client.mesh_attach_mesh_vm(mesh.as_str(), vm.as_str(), None)).await?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -270,11 +271,14 @@ pub(crate) async fn vpc(
             let vm = crate::files::vm_id(&args.vm_id)?;
             call(client.mesh_detach_mesh_vm(mesh.as_str(), vm.as_str(), None)).await?;
             if out.is_json() {
-                return out.json_value(&json!({ "meshId": mesh.as_str(), "vmId": vm.as_str(), "detached": true }));
+                return out.json_value(
+                    &json!({ "meshId": mesh.as_str(), "vmId": vm.as_str(), "detached": true }),
+                );
             }
             out.line(&format!("detached {} from {}", vm.as_str(), mesh.as_str()))
         }
-        VpcCommand::Devices(MeshArg { mesh_id: id }) | VpcCommand::Tunnels(MeshArg { mesh_id: id }) => {
+        VpcCommand::Devices(MeshArg { mesh_id: id })
+        | VpcCommand::Tunnels(MeshArg { mesh_id: id }) => {
             let id = mesh_id(&id)?;
             let body = fetch_body(client.mesh_list_devices(id.as_str(), None)).await?;
             out.device_list(&body)
@@ -294,9 +298,10 @@ pub(crate) async fn tunnel(
             let request: types::EnrollDeviceRequest = server_request(&args.request)?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::MeshEnrollDeviceIdempotencyKey>(&key_text)?;
-            let body = fetch_body(client.mesh_enroll_device(id.as_str(), Some(&key), None, &request))
-                .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+            let body =
+                fetch_body(client.mesh_enroll_device(id.as_str(), Some(&key), None, &request))
+                    .await
+                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -324,8 +329,9 @@ pub(crate) async fn tunnel(
                 }
                 out.tunnel_lines(&decode(&body)?)
             } else {
-                let device = device_id(&id)
-                    .map_err(|_| CliError::usage("expected a tunnel id (tun_...) or a device id (dev_...)"))?;
+                let device = device_id(&id).map_err(|_| {
+                    CliError::usage("expected a tunnel id (tun_...) or a device id (dev_...)")
+                })?;
                 let body = fetch_body(client.mesh_get_device(device.as_str(), None)).await?;
                 if out.is_json() {
                     return out.raw_json(&body);
@@ -339,7 +345,10 @@ pub(crate) async fn tunnel(
                     ("wg key", "/wgPublicKey"),
                     ("created", "/createdAt"),
                 ] {
-                    out.line(&format!("{label:<10}{}", text(&device, pointer).escape_debug()))?;
+                    out.line(&format!(
+                        "{label:<10}{}",
+                        text(&device, pointer).escape_debug()
+                    ))?;
                 }
                 Ok(())
             }
@@ -351,7 +360,11 @@ pub(crate) async fn tunnel(
                 return out.raw_json(&body);
             }
             let map: Value = decode(&body)?;
-            out.line(&format!("device {} ACL version {}", text(&map, "/deviceId"), map["aclVersion"]))?;
+            out.line(&format!(
+                "device {} ACL version {}",
+                text(&map, "/deviceId"),
+                map["aclVersion"]
+            ))?;
             let peers = map["peers"].as_array().cloned().unwrap_or_default();
             if peers.is_empty() {
                 return out.line("no reachable peers");
@@ -364,7 +377,8 @@ pub(crate) async fn tunnel(
         TunnelCommand::Rotate(args) => {
             let id = device_id(&args.device_id)?;
             let request: types::RotateKeyRequest = server_request(&args.request)?;
-            let body = fetch_body(client.mesh_rotate_device_key(id.as_str(), None, &request)).await?;
+            let body =
+                fetch_body(client.mesh_rotate_device_key(id.as_str(), None, &request)).await?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -383,9 +397,14 @@ pub(crate) async fn tunnel(
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::MeshCreateEnrollmentCodeIdempotencyKey>(&key_text)?;
             let request = types::CreateEnrollmentCodeRequest::Object(serde_json::Map::new());
-            let body = fetch_body(client.mesh_create_enrollment_code(id.as_str(), Some(&key), None, &request))
-                .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+            let body = fetch_body(client.mesh_create_enrollment_code(
+                id.as_str(),
+                Some(&key),
+                None,
+                &request,
+            ))
+            .await
+            .map_err(|e| e.with_idempotency_hint(&key_text))?;
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -411,7 +430,11 @@ pub(crate) async fn firewall(
                 return out.raw_json(&body);
             }
             let acl: Value = decode(&body)?;
-            out.line(&format!("mesh {} version {}", text(&acl, "/meshId"), acl["version"]))?;
+            out.line(&format!(
+                "mesh {} version {}",
+                text(&acl, "/meshId"),
+                acl["version"]
+            ))?;
             let rules = acl["rules"].as_array().cloned().unwrap_or_default();
             if rules.is_empty() {
                 return out.line("no rules: nothing is reachable");
@@ -511,14 +534,19 @@ pub(crate) async fn https_proxy(
 
 /// Header flags and file merged into one object; `None` when there are none,
 /// which the server reads as "clear the headers".
-pub(crate) fn proxy_headers(flags: &[String], file: Option<&Path>) -> Result<Option<Value>, CliError> {
+pub(crate) fn proxy_headers(
+    flags: &[String],
+    file: Option<&Path>,
+) -> Result<Option<Value>, CliError> {
     let mut headers = serde_json::Map::new();
     if let Some(file) = file {
         match read_json_file(file, "headers file")? {
             Value::Object(fields) => {
                 for (name, value) in fields {
                     let Value::String(value) = value else {
-                        return Err(CliError::usage("header values in the headers file must be strings"));
+                        return Err(CliError::usage(
+                            "header values in the headers file must be strings",
+                        ));
                     };
                     headers.insert(name, Value::String(value));
                 }
@@ -540,7 +568,8 @@ pub(crate) fn proxy_headers(flags: &[String], file: Option<&Path>) -> Result<Opt
 
 /// A JSON file of at most 1 MiB. Its content is never echoed in errors.
 fn read_json_file(path: &Path, what: &str) -> Result<Value, CliError> {
-    let file = std::fs::File::open(path).map_err(|_| CliError::usage(format!("could not read the {what}")))?;
+    let file = std::fs::File::open(path)
+        .map_err(|_| CliError::usage(format!("could not read the {what}")))?;
     let mut bytes = Vec::new();
     file.take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)
@@ -548,7 +577,8 @@ fn read_json_file(path: &Path, what: &str) -> Result<Value, CliError> {
     if bytes.len() > 1024 * 1024 {
         return Err(CliError::usage(format!("the {what} exceeds 1 MiB")));
     }
-    serde_json::from_slice(&bytes).map_err(|_| CliError::usage(format!("the {what} is not valid JSON")))
+    serde_json::from_slice(&bytes)
+        .map_err(|_| CliError::usage(format!("the {what} is not valid JSON")))
 }
 
 fn items(body: &[u8], field: &str) -> Result<Vec<Value>, CliError> {
@@ -583,7 +613,10 @@ impl Printer<'_> {
             ("ipv4", "/ipv4Cidr"),
             ("created", "/createdAt"),
         ] {
-            self.line(&format!("{label:<9}{}", text(&mesh, pointer).escape_debug()))?;
+            self.line(&format!(
+                "{label:<9}{}",
+                text(&mesh, pointer).escape_debug()
+            ))?;
         }
         Ok(())
     }
@@ -609,7 +642,11 @@ impl Printer<'_> {
     }
 
     fn tunnel_lines(&mut self, tunnel: &Value) -> Result<(), CliError> {
-        let endpoint = format!("{}:{}", text(tunnel, "/endpointHost"), text(tunnel, "/endpointPort"));
+        let endpoint = format!(
+            "{}:{}",
+            text(tunnel, "/endpointHost"),
+            text(tunnel, "/endpointPort")
+        );
         for (label, value) in [
             ("tunnel", text(tunnel, "/id")),
             ("device", text(tunnel, "/deviceId")),
@@ -634,7 +671,8 @@ mod tests {
         let (rules, version) =
             acl_from_file(json!({"meshId": "m", "version": 3, "rules": [rule.clone()]})).unwrap();
         assert_eq!((rules, version), (json!([rule.clone()]), Some(3)));
-        let (_, version) = acl_from_file(json!({"expectedVersion": 5, "version": 3, "rules": []})).unwrap();
+        let (_, version) =
+            acl_from_file(json!({"expectedVersion": 5, "version": 3, "rules": []})).unwrap();
         assert_eq!(version, Some(5));
         assert_eq!(acl_from_file(json!([rule])).unwrap().1, None);
         assert!(acl_from_file(json!({"rules": "nope"})).is_err());

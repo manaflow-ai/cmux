@@ -37,7 +37,10 @@ impl cmux_vm::Prompt for Tty {
 
 async fn run(server: &MockServer, args: &[&str], prompt: &mut dyn cmux_vm::Prompt) -> Output {
     let uri = server.uri();
-    let env = [("CMUX_VM_API_KEY", KEY.to_owned()), ("CMUX_VM_BASE_URL", uri)];
+    let env = [
+        ("CMUX_VM_API_KEY", KEY.to_owned()),
+        ("CMUX_VM_BASE_URL", uri),
+    ];
     let lookup = move |name: &str| env.iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone());
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -59,8 +62,12 @@ fn authorized() -> wiremock::matchers::HeaderExactMatcher {
 }
 
 fn json_stdout(out: &Output) -> Value {
-    serde_json::from_str(&out.stdout)
-        .unwrap_or_else(|e| panic!("stdout is not JSON ({e}): {}\nstderr: {}", out.stdout, out.stderr))
+    serde_json::from_str(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "stdout is not JSON ({e}): {}\nstderr: {}",
+            out.stdout, out.stderr
+        )
+    })
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -110,13 +117,31 @@ async fn file_write_streams_the_file_with_its_length_and_octal_mode() {
         .await;
     let out = cli(
         &server,
-        &["--json", "file", "write", VM_ID, "/root/hello.txt", local.to_str().unwrap(), "--mode", "0644"],
+        &[
+            "--json",
+            "file",
+            "write",
+            VM_ID,
+            "/root/hello.txt",
+            local.to_str().unwrap(),
+            "--mode",
+            "0644",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["bytes"], 11);
-    let out = cli(&server, &["file", "write", VM_ID, "/root/x", dir.to_str().unwrap()]).await;
-    assert_eq!(out.code, exit::USAGE, "a directory is refused: {}", out.stderr);
+    let out = cli(
+        &server,
+        &["file", "write", VM_ID, "/root/x", dir.to_str().unwrap()],
+    )
+    .await;
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "a directory is refused: {}",
+        out.stderr
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -138,7 +163,15 @@ async fn file_read_prints_bytes_or_saves_them_and_refuses_json_without_out() {
     let saved = dir.join("hostname");
     let out = cli(
         &server,
-        &["--json", "file", "read", VM_ID, "/etc/hostname", "--out", saved.to_str().unwrap()],
+        &[
+            "--json",
+            "file",
+            "read",
+            VM_ID,
+            "/etc/hostname",
+            "--out",
+            saved.to_str().unwrap(),
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
@@ -215,12 +248,24 @@ async fn session_create_shows_the_token_only_with_json() {
         .expect(2)
         .mount(&server)
         .await;
-    let human = cli(&server, &["session", "create", VM_ID, "--linux-user", "dev"]).await;
+    let human = cli(
+        &server,
+        &["session", "create", VM_ID, "--linux-user", "dev"],
+    )
+    .await;
     assert_eq!(human.code, exit::OK, "{}", human.stderr);
-    assert!(!human.stdout.contains("secret-session-token"), "{}", human.stdout);
+    assert!(
+        !human.stdout.contains("secret-session-token"),
+        "{}",
+        human.stdout
+    );
     assert!(!human.stderr.contains("secret-session-token"));
     assert!(human.stdout.contains(SESSION));
-    let json_out = cli(&server, &["--json", "session", "create", VM_ID, "--linux-user", "dev"]).await;
+    let json_out = cli(
+        &server,
+        &["--json", "session", "create", VM_ID, "--linux-user", "dev"],
+    )
+    .await;
     assert_eq!(json_stdout(&json_out)["token"], "secret-session-token");
 }
 
@@ -235,21 +280,46 @@ async fn session_revoke_and_terminal_close_need_confirmation() {
         .await;
     Mock::given(method("DELETE"))
         .and(path(format!("/v1/vms/{VM_ID}/terminals/7")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sessionId": 7, "exitCode": null})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"sessionId": 7, "exitCode": null})),
+        )
         .expect(1)
         .mount(&server)
         .await;
     let out = cli(&server, &["session", "revoke", VM_ID, SESSION]).await;
-    assert_eq!(out.code, exit::USAGE, "no terminal and no --yes: {}", out.stderr);
-    let out = run(&server, &["session", "revoke", VM_ID, SESSION], &mut Tty { answer: "nope" }).await;
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "no terminal and no --yes: {}",
+        out.stderr
+    );
+    let out = run(
+        &server,
+        &["session", "revoke", VM_ID, SESSION],
+        &mut Tty { answer: "nope" },
+    )
+    .await;
     assert_eq!(out.code, exit::CANCELLED);
-    let out = run(&server, &["session", "revoke", VM_ID, SESSION], &mut Tty { answer: SESSION }).await;
+    let out = run(
+        &server,
+        &["session", "revoke", VM_ID, SESSION],
+        &mut Tty { answer: SESSION },
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
-    let out = cli(&server, &["--json", "session", "revoke", VM_ID, SESSION, "--yes"]).await;
+    let out = cli(
+        &server,
+        &["--json", "session", "revoke", VM_ID, SESSION, "--yes"],
+    )
+    .await;
     assert_eq!(json_stdout(&out), json!({"id": SESSION, "revoked": true}));
     let out = cli(&server, &["terminal", "close", VM_ID, "7"]).await;
     assert_eq!(out.code, exit::USAGE);
-    let out = cli(&server, &["--json", "terminal", "close", VM_ID, "7", "--yes"]).await;
+    let out = cli(
+        &server,
+        &["--json", "terminal", "close", VM_ID, "7", "--yes"],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["sessionId"], 7);
 }
@@ -317,7 +387,19 @@ async fn vpc_verbs_use_the_mesh_routes_and_mesh_is_an_alias() {
         .expect(1)
         .mount(&server)
         .await;
-    let out = cli(&server, &["--json", "vpc", "create", "--name", "lab", "--idempotency-key", "k-1"]).await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "vpc",
+            "create",
+            "--name",
+            "lab",
+            "--idempotency-key",
+            "k-1",
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out), mesh);
     let out = cli(&server, &["mesh", "list"]).await;
@@ -328,7 +410,11 @@ async fn vpc_verbs_use_the_mesh_routes_and_mesh_is_an_alias() {
     let out = cli(&server, &["--json", "vpc", "detach", MESH, VM_ID]).await;
     assert_eq!(json_stdout(&out)["detached"], true);
     let out = cli(&server, &["vpc", "delete", MESH]).await;
-    assert_eq!(out.code, exit::USAGE, "delete needs --yes without a terminal");
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "delete needs --yes without a terminal"
+    );
     let out = cli(&server, &["vpc", "delete", MESH, "--yes"]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
 }
@@ -386,9 +472,14 @@ async fn firewall_set_applies_edited_get_output_at_its_version() {
     let rule = json!({"src": ["dev:*"], "dst": ["vm:*"], "allow": ["tcp:22"]});
     Mock::given(method("PUT"))
         .and(path(format!("/v1/meshes/{MESH}/acl")))
-        .and(body_json(json!({"expectedVersion": 4, "rules": [rule.clone()]})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"meshId": MESH, "version": 5, "ruleCount": 1,
-            "rulesCreated": 1, "rulesDeleted": 0, "applyMs": 12})))
+        .and(body_json(
+            json!({"expectedVersion": 4, "rules": [rule.clone()]}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"meshId": MESH, "version": 5, "ruleCount": 1,
+            "rulesCreated": 1, "rulesDeleted": 0, "applyMs": 12})),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -396,10 +487,24 @@ async fn firewall_set_applies_edited_get_output_at_its_version() {
     let file = dir.join("acl.json");
     std::fs::write(
         &file,
-        serde_json::to_vec(&json!({"meshId": MESH, "version": 4, "rules": [rule], "updatedAt": null})).unwrap(),
+        serde_json::to_vec(
+            &json!({"meshId": MESH, "version": 4, "rules": [rule], "updatedAt": null}),
+        )
+        .unwrap(),
     )
     .unwrap();
-    let out = cli(&server, &["--json", "firewall", "set", MESH, "--file", file.to_str().unwrap()]).await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "firewall",
+            "set",
+            MESH,
+            "--file",
+            file.to_str().unwrap(),
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["version"], 5);
     std::fs::remove_dir_all(dir).unwrap();
@@ -410,14 +515,28 @@ async fn https_proxy_set_sends_destination_and_headers() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
         .and(path(format!("/v1/vms/{VM_ID}/https-proxies/api.internal")))
-        .and(body_json(json!({"destination": "https://api.example.com", "headers": {"x-team": "a"}})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": VM_ID, "hostname": "api.internal"})))
+        .and(body_json(
+            json!({"destination": "https://api.example.com", "headers": {"x-team": "a"}}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"id": VM_ID, "hostname": "api.internal"})),
+        )
         .expect(1)
         .mount(&server)
         .await;
     let out = cli(
         &server,
-        &["https-proxy", "set", VM_ID, "api.internal", "--destination", "https://api.example.com", "--header", "x-team=a"],
+        &[
+            "https-proxy",
+            "set",
+            VM_ID,
+            "api.internal",
+            "--destination",
+            "https://api.example.com",
+            "--header",
+            "x-team=a",
+        ],
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);

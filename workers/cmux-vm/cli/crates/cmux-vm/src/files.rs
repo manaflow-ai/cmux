@@ -94,7 +94,7 @@ pub(crate) struct ScpArgs {
 
 /// One single-file copy, after deciding which side is the VM.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Copy {
+pub(crate) enum Transfer {
     Push {
         local: PathBuf,
         vm_id: String,
@@ -107,13 +107,15 @@ pub(crate) enum Copy {
     },
 }
 
-impl Copy {
-    pub(crate) fn push(args: PushArgs) -> Result<(Copy, Option<u32>), CliError> {
+impl Transfer {
+    pub(crate) fn push(args: PushArgs) -> Result<(Transfer, Option<u32>), CliError> {
         let Some((vm_id, path)) = parse_remote(&args.remote) else {
-            return Err(CliError::usage("push needs a destination such as vm_…:/root/file"));
+            return Err(CliError::usage(
+                "push needs a destination such as vm_…:/root/file",
+            ));
         };
         Ok((
-            Copy::Push {
+            Transfer::Push {
                 local: args.local,
                 vm_id,
                 path,
@@ -122,18 +124,20 @@ impl Copy {
         ))
     }
 
-    pub(crate) fn pull(args: PullArgs) -> Result<Copy, CliError> {
+    pub(crate) fn pull(args: PullArgs) -> Result<Transfer, CliError> {
         let Some((vm_id, path)) = parse_remote(&args.remote) else {
-            return Err(CliError::usage("pull needs a source such as vm_…:/root/file"));
+            return Err(CliError::usage(
+                "pull needs a source such as vm_…:/root/file",
+            ));
         };
-        Ok(Copy::Pull {
+        Ok(Transfer::Pull {
             vm_id,
             path,
             local: args.local,
         })
     }
 
-    pub(crate) fn scp(args: ScpArgs) -> Result<(Copy, Option<u32>), CliError> {
+    pub(crate) fn scp(args: ScpArgs) -> Result<(Transfer, Option<u32>), CliError> {
         Ok((plan_scp(&args.source, &args.destination)?, args.mode))
     }
 }
@@ -149,7 +153,7 @@ pub(crate) fn parse_remote(spec: &str) -> Option<(String, String)> {
 }
 
 /// Which way an `scp SOURCE DESTINATION` copies.
-pub(crate) fn plan_scp(source: &str, destination: &str) -> Result<Copy, CliError> {
+pub(crate) fn plan_scp(source: &str, destination: &str) -> Result<Transfer, CliError> {
     match (parse_remote(source), parse_remote(destination)) {
         (Some(_), Some(_)) => Err(CliError::usage(
             "only one side of scp may be a VM path; copy VM to VM through a local file",
@@ -157,12 +161,12 @@ pub(crate) fn plan_scp(source: &str, destination: &str) -> Result<Copy, CliError
         (None, None) => Err(CliError::usage(
             "one side of scp must be a VM path such as vm_…:/root/file",
         )),
-        (None, Some((vm_id, path))) => Ok(Copy::Push {
+        (None, Some((vm_id, path))) => Ok(Transfer::Push {
             local: PathBuf::from(source),
             vm_id,
             path,
         }),
-        (Some((vm_id, path)), None) => Ok(Copy::Pull {
+        (Some((vm_id, path)), None) => Ok(Transfer::Pull {
             vm_id,
             path,
             local: PathBuf::from(destination),
@@ -271,7 +275,8 @@ pub(crate) async fn file(
                     "file contents are not JSON: pass --out FILE with --json",
                 )),
                 None => {
-                    let stream = call(client.files_read_file(id.as_str(), &path, None, None)).await?;
+                    let stream =
+                        call(client.files_read_file(id.as_str(), &path, None, None)).await?;
                     let mut stream = stream.into_inner();
                     while let Some(chunk) = stream.next().await {
                         let chunk = chunk.map_err(cut_off)?;
@@ -292,25 +297,26 @@ pub(crate) async fn file(
 
 pub(crate) async fn copy(
     client: &Client,
-    copy: Copy,
+    copy: Transfer,
     mode: Option<u32>,
     mut out: Printer<'_>,
 ) -> Result<(), CliError> {
     match copy {
-        Copy::Push {
+        Transfer::Push {
             local,
             vm_id: vm,
             path,
         } => {
             let id = vm_id(&vm)?;
             // The final target is validated below; a stat first needs a valid path too.
-            let is_directory = !path.ends_with('/') && remote_is_directory(client, &id, &path).await?;
+            let is_directory =
+                !path.ends_with('/') && remote_is_directory(client, &id, &path).await?;
             let target = push_target(&path, is_directory, &local);
             let target_path = guest_path(&target)?;
             let bytes = upload(client, id.as_str(), &target_path, &local, mode).await?;
             out.copied(id.as_str(), target_path.as_str(), &local, bytes, "pushed")
         }
-        Copy::Pull {
+        Transfer::Pull {
             vm_id: vm,
             path,
             local,
@@ -377,8 +383,15 @@ async fn upload(
     }
     let length = metadata.len();
     let header = content_length(length)?;
-    call(client.files_write_file(id, mode.as_deref(), path, Some(&header), None, file_body(file)))
-        .await?;
+    call(client.files_write_file(
+        id,
+        mode.as_deref(),
+        path,
+        Some(&header),
+        None,
+        file_body(file),
+    ))
+    .await?;
     Ok(length)
 }
 
@@ -426,12 +439,14 @@ async fn download(
         let mut written = 0_u64;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(cut_off)?;
-            file.write_all(&chunk)
-                .map_err(|e| CliError::unexpected(format!("could not write {}: {e}", local.display())))?;
+            file.write_all(&chunk).map_err(|e| {
+                CliError::unexpected(format!("could not write {}: {e}", local.display()))
+            })?;
             written += chunk.len() as u64;
         }
-        file.flush()
-            .map_err(|e| CliError::unexpected(format!("could not write {}: {e}", local.display())))?;
+        file.flush().map_err(|e| {
+            CliError::unexpected(format!("could not write {}: {e}", local.display()))
+        })?;
         Ok::<u64, CliError>(written)
     }
     .await;
@@ -439,7 +454,10 @@ async fn download(
         Ok(written) => {
             std::fs::rename(&partial, local).map_err(|e| {
                 let _ = std::fs::remove_file(&partial);
-                CliError::unexpected(format!("could not move the download to {}: {e}", local.display()))
+                CliError::unexpected(format!(
+                    "could not move the download to {}: {e}",
+                    local.display()
+                ))
             })?;
             Ok(written)
         }
@@ -520,7 +538,7 @@ mod tests {
     fn scp_picks_the_direction_and_refuses_two_or_zero_vm_sides() {
         assert_eq!(
             plan_scp("a.txt", "vm_1:/root/").unwrap(),
-            Copy::Push {
+            Transfer::Push {
                 local: "a.txt".into(),
                 vm_id: "vm_1".into(),
                 path: "/root/".into()
@@ -528,7 +546,7 @@ mod tests {
         );
         assert_eq!(
             plan_scp("vm_1:/etc/hosts", ".").unwrap(),
-            Copy::Pull {
+            Transfer::Pull {
                 vm_id: "vm_1".into(),
                 path: "/etc/hosts".into(),
                 local: ".".into()

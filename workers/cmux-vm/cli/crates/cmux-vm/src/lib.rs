@@ -940,12 +940,12 @@ async fn dispatch(
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
         Command::File(command) => files::file(client, command, out).await,
         Command::Push(args) => {
-            let copy = files::Copy::push(args)?;
+            let copy = files::Transfer::push(args)?;
             files::copy(client, copy.0, copy.1, out).await
         }
-        Command::Pull(args) => files::copy(client, files::Copy::pull(args)?, None, out).await,
+        Command::Pull(args) => files::copy(client, files::Transfer::pull(args)?, None, out).await,
         Command::Scp(args) => {
-            let (copy, mode) = files::Copy::scp(args)?;
+            let (copy, mode) = files::Transfer::scp(args)?;
             files::copy(client, copy, mode, out).await
         }
         Command::Ssh(_) => Err(CliError::usage("ssh needs account configuration")),
