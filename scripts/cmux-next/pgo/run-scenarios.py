@@ -26,44 +26,52 @@ The plan (PLAN, fixed: the same launches, keys and actions every run):
 Cold here means no daemon and an empty saved session, not an empty file cache: the code a launch runs does not
 depend on the page cache, so the profile needs no purge.
 
-Each launch writes two profiles into `DIR/runs/<run>/` (the flush hooks, task 103; the runner names both files
-in the app's environment):
+Each launch writes two profiles into `DIR/runs/<run>/`. The runner sets only LLVM_PROFILE_FILE, to
+`DIR/runs/<run>/other-%p.profraw`; the flush hooks (task 103, ProfileFlush.Files(environment:)) put both files in
+that variable's folder, and `profile_files` derives the same two paths here:
 
-    launch.profraw   LAUNCH_PROFILE_ENV: written at `startup_complete`, then the counters reset
-    rest.profraw     REST_PROFILE_ENV: written at `debug.pgo_flush`, which the runner sends before it quits the
-                     app, and again by the profile runtime at exit (the same counters plus the quit path)
+    launch.profraw   written at `startup_complete`; then the hooks reset the counters and switch the runtime's
+                     file to rest.profraw
+    rest.profraw     written at `debug.pgo_flush`, which the runner sends before it quits the app, and again by
+                     the profile runtime at exit (the same counters plus the quit path)
 
-LLVM_PROFILE_FILE is `other-%p.profraw` in the same folder, for any instrumented helper process; those files are
-kept but not merged. A run whose launch.profraw or rest.profraw is missing or empty fails the stage.
+Until `startup_complete` the runtime's file is other-%p.profraw, so an app that exits before it leaves its counters
+there; an instrumented helper process writes its own other-<pid>.profraw. Those files are kept but not merged. A
+run whose launch.profraw or rest.profraw is missing or empty fails the stage.
 
 Outputs in DIR:
 
     cmux-next.profdata          `llvm-profdata merge` of every launch.profraw and rest.profraw, inputs sorted
     cmux-next.profdata.sha256   its sha256, `sha256sum` format (052 checks it, 109 binds the order file to it)
-    launch-functions.txt        the functions that ran before `startup_complete` in a majority of the launches
-                                (--min-launches), one profile name per line, sorted by name; `#` lines are
-                                comments. Stage 2 (`--stage order`, task 109) maps it through the link map.
+    launch-functions.txt        the functions that ran before `startup_complete` in a majority of the cold launches
+                                or in a majority of the warm launches (--min-launches), one profile name per line,
+                                sorted by name; `#` lines are comments. Stage 2 (`--stage order`, task 109) maps it
+                                through the link map.
     stage-profile.json          the plan, each run's files and step counts, the tool version and the sha256
 
-The list keeps a function only when it ran in a majority of the launch profiles, so a function that one launch
-happened to reach before completion (a timer that fired early) does not move in and out of the order file
-between refreshes; the counts themselves vary by run, so the list is ordered by name, not by count.
+The launches are of two kinds that run different code: cold (no daemon, an empty session: cold-1..3,
+chromium-first-tab, stress-build) and warm (restored from the kept daemon: warm-1..3, stress-restore). The list
+keeps a function when it ran in a majority of the launches of either kind, so the warm restore path, the normal
+launch, is in it although it runs in only 4 of the 9 launches; a function that one launch happened to reach before
+completion (a timer that fired early) does not move in and out of the order file between refreshes. The counts
+vary by run, so the list is ordered by name, not by count.
 
-Exit codes: 0 ok, 1 a launch, a profile or the merge failed, 2 usage. Warnings (a key the app refused, a scratch
-workspace that did not come back) are printed and kept in stage-profile.json; they do not fail the stage.
+Exit codes: 0 ok, 1 a launch, a step, a profile or the merge failed (the error line names the run), 2 usage. A
+step fails when the app refused its first key or more than MAX_REFUSED_SHARE of its keys: the profile would miss
+that scenario. A few refused keys and a scratch workspace that did not come back are warnings, printed and kept
+in stage-profile.json.
 
 Seams (tests only): `--llvm-profdata` or CMUX_PGO_LLVM_PROFDATA replace `xcrun llvm-profdata` (as in
-build-profile.sh); ProfileStage takes the launcher and the STRESS builder.
+build-profile.sh); ProfileStage takes the launcher and the STRESS context, each with `errors`, the exceptions it
+raises for a failed run (the stage reports them as that run's error).
 """
 import argparse, contextlib, dataclasses, hashlib, importlib.util, json, os, re, shlex, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CMUX_NEXT = os.path.dirname(HERE)
 
-# The names the flush hooks (task 103, CmuxNextLaunch/ProfileFlush.swift) read: the file written at
-# `startup_complete` and the file `debug.pgo_flush` and the exit write.
-LAUNCH_PROFILE_ENV = "CMUX_PGO_LAUNCH_PROFILE"
-REST_PROFILE_ENV = "CMUX_PGO_REST_PROFILE"
+# The file names of the flush hooks (task 103, CmuxNextLaunch/ProfileFlush.swift, ProfileFlush.Files), both in
+# the folder of LLVM_PROFILE_FILE.
 LAUNCH_PROFILE, REST_PROFILE, OTHER_PROFILES = "launch.profraw", "rest.profraw", "other-%p.profraw"
 PROFDATA, LAUNCH_FUNCTIONS, MANIFEST = "cmux-next.profdata", "launch-functions.txt", "stage-profile.json"
 STARTUP_COMPLETE = "startup_complete"
@@ -83,6 +91,11 @@ class Run:
     quit: str
     steps: tuple = ()
 
+    @property
+    def kind(self):
+        """`warm` restores from the kept daemon, `cold` starts one: the launch list takes a majority of each."""
+        return "warm" if self.keep_state else "cold"
+
 
 STRESS_STEPS = ("typing", "tab_cycle", "split_cycle", "workspace_cycle", "workspace_switch", "palette")
 PLAN = (
@@ -98,6 +111,7 @@ PLAN = (
 )
 
 TYPED_KEYS, TYPED_LINE = 2000, 64
+MAX_REFUSED_SHARE = 0.02
 CYCLES, SWITCHES, PALETTE_OPENS = 50, 100, 20
 PALETTE_QUERY = "sp"
 
@@ -158,8 +172,21 @@ def press_all(app, keys, report):
         if isinstance(reply, dict) and reply.get("error"):
             report["refused"] = report.get("refused", 0) + 1
             report.setdefault("first_refusal", f"{json.dumps(press)}: {str(reply['error'])[:160]}")
+            if report["keys"] == 1:
+                report["first_key_refused"] = True
         if not app.alive():
             raise StageError(f"the app exited during {report['step']} after {report['keys']} keys")
+
+
+def refusal_problem(step):
+    """Why the app's refusals fail `step`, or None: it refused the step's first key (the one that opens what the
+    rest act on) or more than MAX_REFUSED_SHARE of its keys."""
+    refused, keys = step.get("refused", 0), step.get("keys", 0)
+    if step.get("first_key_refused"):
+        return f"the app refused its first key, {step['first_refusal']}"
+    if refused > keys * MAX_REFUSED_SHARE:
+        return f"the app refused {refused} of {keys} keys, first {step['first_refusal']}"
+    return None
 
 
 def press_balanced(app, keys, report):
@@ -206,12 +233,12 @@ def step_chromium_first_tab(app, ctx, report):
     workspace_id = stress.focused_workspace()
     panes = stress.panes(stress.workspace(workspace_id))
     if not panes:
-        raise StageError(f"chromium-first-tab: workspace {workspace_id} shows no pane")
+        raise StageError(f"workspace {workspace_id} shows no pane")
     stress.add_tab(workspace_id, panes[0]["id"], "chromium")  # raises when the tab never appears
     ready = ctx.wait(lambda: (app.rpc("debug.cef") or {}).get("state") == "ready", 60)
     problems = ctx.cef_problems(app.rpc("debug.cef"))
     if not ready or problems:
-        raise StageError(f"chromium-first-tab: Chromium did not get ready: {problems}")
+        raise StageError(f"Chromium did not get ready: {problems}")
     report["chromium"] = "ready"
 
 
@@ -237,7 +264,10 @@ def load_by_path(name, path):
 
 class StressContext:
     """What the Chromium and STRESS steps share across the stage: one local page server for every Chromium tab,
-    so the pages stress-build opened still load when stress-restore brings them back."""
+    so the pages stress-build opened still load when stress-restore brings them back. `errors`: what its builder
+    raises for a failed step (StressShapeError, and the RuntimeError of a tab that never appeared)."""
+
+    errors = (RuntimeError,)
 
     def __init__(self, module=None):
         self.module = module or load_by_path("perf_stress_session", os.path.join(CMUX_NEXT, "perf-stress-session.py"))
@@ -269,11 +299,13 @@ class LiveApp:
 
 class BenchLauncher:
     """Launches the profile build through bench_launch.BenchApp (its GUI session check, Finder limits, scratch
-    config and socket wait) and quits it with the run's debug.quit fixture."""
+    config and socket wait) and quits it with the run's debug.quit fixture. `errors`: what a failed launch raises
+    (bench_launch.LaunchError and its other SystemExit reports, RecordError)."""
 
     def __init__(self, app, timeout=180, quit_timeout=60):
         self.bench_launch = load_by_path("bench_launch", os.path.join(CMUX_NEXT, "bench_launch.py"))
         self.app, self.timeout, self.quit_timeout = app, timeout, quit_timeout
+        self.errors = (SystemExit, self.bench_launch.RecordError)
 
     def end_tag(self):
         """Ends every process of the bundle's tag (daemons a kept run or an earlier stage left)."""
@@ -302,9 +334,15 @@ class BenchLauncher:
 
 
 def profile_env(run_dir):
-    return {LAUNCH_PROFILE_ENV: os.path.join(run_dir, LAUNCH_PROFILE),
-            REST_PROFILE_ENV: os.path.join(run_dir, REST_PROFILE),
-            "LLVM_PROFILE_FILE": os.path.join(run_dir, OTHER_PROFILES)}
+    """The app's profile environment: the runtime's file, whose folder also places the two profiles."""
+    return {"LLVM_PROFILE_FILE": os.path.join(run_dir, OTHER_PROFILES)}
+
+
+def profile_files(env):
+    """{"launch": path, "rest": path}: where the flush hooks write for `env`, as ProfileFlush.Files(environment:)
+    derives them, beside LLVM_PROFILE_FILE."""
+    folder = os.path.dirname(env["LLVM_PROFILE_FILE"])
+    return {"launch": os.path.join(folder, LAUNCH_PROFILE), "rest": os.path.join(folder, REST_PROFILE)}
 
 
 def nonempty(path):
@@ -355,32 +393,48 @@ class ProfileStage:
             if name.endswith(".profraw"):
                 os.remove(os.path.join(run_dir, name))
         env = profile_env(run_dir)
+        files = profile_files(env)
         report = {"run": run.name, "keep_state": run.keep_state, "quit": run.quit, "steps": []}
         started = time.monotonic()
         self.log(f"pgo-stage: {run.name}: launching")
-        with self.launcher.launch(run, run_dir, env) as app:
-            if not self.wait(lambda: startup_completed(app) or not app.alive(), self.timeout) or not app.alive():
-                raise StageError(f"{run.name}: the app never reached {STARTUP_COMPLETE}")
-            if not self.wait(lambda: nonempty(env[LAUNCH_PROFILE_ENV]), 30):
-                raise StageError(f"{run.name}: {STARTUP_COMPLETE} came but {env[LAUNCH_PROFILE_ENV]} was not written: "
-                                 "is this a profile build (reload.sh --config profile) with the flush hooks (103)?")
-            for name in run.steps:
-                step = {"step": name}
-                STEPS[name](app, self.context, step)
-                if step.get("warning") or step.get("refused"):
-                    self.log(f"pgo-stage: WARNING {run.name} {name}: {step.get('warning') or step.get('first_refusal')}")
-                report["steps"].append(step)
-            flushed = app.rpc("debug.pgo_flush", timeout=60)
-            if not isinstance(flushed, dict) or flushed.get("error"):
-                raise StageError(f"{run.name}: debug.pgo_flush answered {str(flushed)[:200]}: the build has no flush "
-                                 "hooks (103)")
-        for path in (env[LAUNCH_PROFILE_ENV], env[REST_PROFILE_ENV]):
+        try:
+            with self.launcher.launch(run, run_dir, env) as app:
+                self.drive(run, app, files, report)
+        except self.launcher.errors as error:
+            raise StageError(f"{run.name}: launch: {type(error).__name__}: {error}") from error
+        for path in files.values():
             if not nonempty(path):
                 raise StageError(f"{run.name}: no profile at {path}")
         report["seconds"] = round(time.monotonic() - started, 1)
         with open(os.path.join(run_dir, "run.json"), "w") as out:
             json.dump(report, out, indent=1)
         return report
+
+    def drive(self, run, app, files, report):
+        """The launched app's part of `run`: startup complete and its launch profile, the steps, the flush."""
+        if not self.wait(lambda: startup_completed(app) or not app.alive(), self.timeout) or not app.alive():
+            raise StageError(f"{run.name}: the app never reached {STARTUP_COMPLETE}")
+        if not self.wait(lambda: nonempty(files["launch"]), 30):
+            raise StageError(f"{run.name}: {STARTUP_COMPLETE} came but {files['launch']} was not written: is this a "
+                             "profile build (reload.sh --config profile) with the flush hooks (103)?")
+        for name in run.steps:
+            step = {"step": name}
+            try:
+                STEPS[name](app, self.context, step)
+            except StageError as error:
+                raise StageError(f"{run.name} {name}: {error}") from error
+            except self.context.errors as error:
+                raise StageError(f"{run.name} {name}: {type(error).__name__}: {error}") from error
+            report["steps"].append(step)
+            problem = refusal_problem(step)
+            if problem:
+                raise StageError(f"{run.name} {name}: {problem}")
+            if step.get("warning") or step.get("refused"):
+                self.log(f"pgo-stage: WARNING {run.name} {name}: {step.get('warning') or step.get('first_refusal')}")
+        flushed = app.rpc("debug.pgo_flush", timeout=60)
+        if not isinstance(flushed, dict) or flushed.get("error"):
+            raise StageError(f"{run.name}: debug.pgo_flush answered {str(flushed)[:200]}: the build has no flush "
+                             "hooks (103)")
 
 
 # The merge.
@@ -426,16 +480,29 @@ def majority(count):
     return count // 2 + 1
 
 
-def launch_functions(per_launch, min_launches=None):
-    """The names with an entry count above 0 in at least `min_launches` (default a majority) of the launch
-    profiles `per_launch` ({name: count} each), sorted by name."""
-    needed = majority(len(per_launch)) if min_launches is None else min_launches
-    ran = {}
-    for counts in per_launch:
-        for name, count in counts.items():
-            if count > 0:
-                ran[name] = ran.get(name, 0) + 1
-    return sorted(name for name, launches in ran.items() if launches >= needed)
+def needed_launches(sizes, min_launches=None):
+    """{kind: launch profiles a listed function ran in} for `sizes` ({kind: launch profiles of that kind}):
+    `min_launches` for every kind, default a majority of each."""
+    needed = {kind: majority(size) if min_launches is None else min_launches for kind, size in sizes.items()}
+    for kind, count in needed.items():
+        if not 1 <= count <= sizes[kind]:
+            raise StageError(f"--min-launches {count}: there are {sizes[kind]} {kind} launch profiles")
+    return needed
+
+
+def launch_functions(per_kind, min_launches=None):
+    """The names with an entry count above 0 in at least the needed number (needed_launches) of the launch
+    profiles of any one kind of `per_kind` ({kind: [{name: count}, ...]}), sorted by name."""
+    needed = needed_launches({kind: len(pool) for kind, pool in per_kind.items()}, min_launches)
+    kept = set()
+    for kind, pool in per_kind.items():
+        ran = {}
+        for counts in pool:
+            for name, count in counts.items():
+                if count > 0:
+                    ran[name] = ran.get(name, 0) + 1
+        kept.update(name for name, launches in ran.items() if launches >= needed[kind])
+    return sorted(kept)
 
 
 def sha256_of(path):
@@ -449,38 +516,40 @@ def sha256_of(path):
 def merge_stage(out, tool, plan=PLAN, min_launches=None):
     """Merges the profiles of every run of `plan` in `out/runs` into `out`/PROFDATA and writes the launch function
     list; returns the merge part of the manifest."""
-    launches, rests = [], []
+    launches, rests = {}, []
     for run in plan:
-        run_dir = os.path.join(out, "runs", run.name)
-        for name, kept in ((LAUNCH_PROFILE, launches), (REST_PROFILE, rests)):
-            path = os.path.join(run_dir, name)
+        files = profile_files(profile_env(os.path.join(out, "runs", run.name)))
+        for path in files.values():
             if not nonempty(path):
                 raise StageError(f"{run.name}: no profile at {path}")
-            kept.append(path)
-    needed = majority(len(launches)) if min_launches is None else min_launches
-    if not 1 <= needed <= len(launches):
-        raise StageError(f"--min-launches {needed}: there are {len(launches)} launch profiles")
+        launches.setdefault(run.kind, []).append(files["launch"])
+        rests.append(files["rest"])
+    sizes = {kind: len(launches[kind]) for kind in sorted(launches)}
+    needed = needed_launches(sizes, min_launches)
+    inputs = sorted([path for paths in launches.values() for path in paths] + rests)
     profdata = os.path.join(out, PROFDATA)
-    run_tool(tool, "merge", "-o", profdata, *sorted(launches + rests))
-    per_launch = []
-    for path in launches:
-        counts = function_counts(run_tool(tool, "show", "--all-functions", path))
-        if not counts:
-            raise StageError(f"llvm-profdata show listed no functions for {path}")
-        per_launch.append(counts)
-    names = launch_functions(per_launch, needed)
+    run_tool(tool, "merge", "-o", profdata, *inputs)
+    per_kind = {}
+    for kind in sizes:
+        for path in launches[kind]:
+            counts = function_counts(run_tool(tool, "show", "--all-functions", path))
+            if not counts:
+                raise StageError(f"llvm-profdata show listed no functions for {path}")
+            per_kind.setdefault(kind, []).append(counts)
+    names = launch_functions(per_kind, min_launches)
     sha = sha256_of(profdata)
     with open(profdata + ".sha256", "w") as stamp:
         stamp.write(f"{sha}  {PROFDATA}\n")
+    rule = " or ".join(f"{needed[kind]} of {size} {kind}" for kind, size in sizes.items())
     with open(os.path.join(out, LAUNCH_FUNCTIONS), "w") as listing:
-        listing.write(f"# cmux-next launch functions: ran before {STARTUP_COMPLETE} in at least {needed} of "
-                      f"{len(launches)} launch profiles (run-scenarios.py --stage profile)\n")
+        listing.write(f"# cmux-next launch functions: ran before {STARTUP_COMPLETE} in at least {rule} launch "
+                      "profiles (run-scenarios.py --stage profile)\n")
         listing.write(f"# profdata sha256 {sha}\n")
         listing.writelines(name + "\n" for name in names)
     return {"profdata": {"path": PROFDATA, "sha256": sha, "bytes": os.path.getsize(profdata),
-                         "inputs": [os.path.relpath(p, out) for p in sorted(launches + rests)]},
+                         "inputs": [os.path.relpath(p, out) for p in inputs]},
             "launch_functions": {"path": LAUNCH_FUNCTIONS, "count": len(names), "min_launches": needed,
-                                 "launch_profiles": len(launches)},
+                                 "launch_profiles": sizes},
             "tool": [*tool], "tool_version": run_tool(tool, "--version").strip().splitlines()[:2]}
 
 
@@ -496,7 +565,7 @@ def read_reports(out, plan=PLAN):
 
 def write_manifest(out, app, reports, merged, plan=PLAN):
     manifest = {"stage": "profile", "app": app, "plan": [dataclasses.asdict(run) for run in plan],
-                "profile_env": [LAUNCH_PROFILE_ENV, REST_PROFILE_ENV], "runs": reports, **merged}
+                "profile_env": sorted(profile_env("")), "runs": reports, **merged}
     with open(os.path.join(out, MANIFEST), "w") as target:
         json.dump(manifest, target, indent=1)
     return manifest
@@ -509,7 +578,8 @@ def parse_args(argv):
     parser.add_argument("--out", required=True, help="the stage folder: runs/, the profdata and the function list")
     parser.add_argument("--merge-only", action="store_true", help="merge the runs already in --out; launch nothing")
     parser.add_argument("--timeout", type=float, default=180, help="seconds for a launch to answer and complete")
-    parser.add_argument("--min-launches", type=int, help="launch profiles a listed function ran in (default a majority)")
+    parser.add_argument("--min-launches", type=int, help="launch profiles of one kind (cold or warm) a listed "
+                        "function ran in (default a majority of each kind)")
     parser.add_argument("--llvm-profdata", help="llvm-profdata command (default: xcrun llvm-profdata)")
     args = parser.parse_args(argv)
     if not args.merge_only and not args.app:
