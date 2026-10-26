@@ -27,6 +27,8 @@ mod auto_resume;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/full_access_guards.rs"]
+mod full_access_guards;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
