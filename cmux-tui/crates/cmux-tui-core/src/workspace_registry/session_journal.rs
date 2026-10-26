@@ -1795,7 +1795,7 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+pub(crate) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
@@ -1810,13 +1810,15 @@ fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     ))
 }
 
-struct DecodedJournalSegment {
-    start_sequence: u64,
-    end_sequence: u64,
-    records: Vec<SessionJournalRecord>,
+pub(crate) struct DecodedJournalSegment {
+    pub(crate) start_sequence: u64,
+    pub(crate) end_sequence: u64,
+    pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+pub(crate) fn decode_journal_segment(
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -1953,7 +1955,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-type StoredRecordRow = (
+pub(crate) type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -1999,7 +2001,7 @@ fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     ))
 }
 
-fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+pub(crate) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,

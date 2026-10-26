@@ -16,12 +16,12 @@ use std::path::{Path, PathBuf};
 /// Largest request head the listener reads before it decides. Browsers send
 /// every 127.0.0.1 cookie (cookies ignore the port), so a handshake head can
 /// be large; a bigger one gets 431.
-pub(super) const REQUEST_HEAD_MAX_BYTES: usize = 64 * 1024;
+pub(crate) const REQUEST_HEAD_MAX_BYTES: usize = 64 * 1024;
 /// Largest page file served.
 const PAGE_FILE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// One parsed HTTP request head.
-pub(super) struct RequestHead {
+pub(crate) struct RequestHead {
     pub method: String,
     pub target: String,
     headers: Vec<(String, String)>,
@@ -45,8 +45,12 @@ impl RequestHead {
 
 /// Reads up to the end of the request head. Returns every byte read (the
 /// head and anything after it, for the WebSocket handshake to replay) and the
-/// parsed head; None for a closed, oversized or malformed request.
-pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, RequestHead)> {
+/// parsed head; None for a closed, oversized or malformed request. Generic
+/// over the stream so the fuzz target (cmux-tui/fuzz `page_request_head`)
+/// drives it with in-memory reads.
+pub(crate) fn read_request_head(
+    stream: &mut (impl Read + Write),
+) -> Option<(Vec<u8>, RequestHead)> {
     let mut bytes = Vec::with_capacity(1024);
     let mut chunk = [0u8; 4096];
     let end = loop {
@@ -231,3 +235,6 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
         .flat_map(|root| PAGE_BUNDLE_LAYOUTS.map(|layout| root.join(layout)))
         .find(|dir| dir.is_dir())
 }
+
+#[cfg(test)]
+mod tests;

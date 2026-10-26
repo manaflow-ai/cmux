@@ -658,6 +658,13 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
+// The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
+#[cfg(all(any(unix, windows), feature = "fuzz"))]
+pub(crate) use shared::codec::{
+    HostLaunch, decode_default_colors_payload, decode_hex_array, decode_lower_hex_array,
+    decode_snapshot_with_program_status, encode_default_colors_payload, encode_hex,
+    encode_kitty_graphics_limits, encode_resize, encode_snapshot_for_version,
+};
 #[cfg(any(unix, windows))]
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]

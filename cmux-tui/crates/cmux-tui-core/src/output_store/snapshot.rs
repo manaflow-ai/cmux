@@ -270,27 +270,53 @@ fn write(
     replay: &[u8],
 ) -> anyhow::Result<()> {
     fs::create_dir_all(directory)?;
-    let header = serde_json::json!({
-        "generation": generation,
-        "stream_end": stream_end,
-        "cols": cols,
-        "rows": rows,
-        "written_at_ms": crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-    });
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(replay)?;
-    let compressed = encoder.finish()?;
+    let header = SnapshotHeader {
+        generation,
+        stream_end,
+        cols,
+        rows,
+        written_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+    };
     let target = path(directory, terminal_id);
     let staged = target.with_extension(format!("{SUFFIX}.tmp"));
     {
         let mut file = fs::File::create(&staged)?;
-        file.write_all(MAGIC)?;
-        serde_json::to_writer(&mut file, &header)?;
-        file.write_all(b"\n")?;
-        file.write_all(&compressed)?;
+        encode(&mut file, &header, replay)?;
         file.sync_all()?;
     }
     fs::rename(&staged, &target)?;
+    Ok(())
+}
+
+/// The header line of a snapshot file.
+pub(crate) struct SnapshotHeader<'a> {
+    pub(crate) generation: &'a str,
+    pub(crate) stream_end: u64,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) written_at_ms: u64,
+}
+
+/// A snapshot file's bytes: magic, header line, gzip of `replay`.
+pub(crate) fn encode(
+    output: &mut impl Write,
+    header: &SnapshotHeader<'_>,
+    replay: &[u8],
+) -> anyhow::Result<()> {
+    let header = serde_json::json!({
+        "generation": header.generation,
+        "stream_end": header.stream_end,
+        "cols": header.cols,
+        "rows": header.rows,
+        "written_at_ms": header.written_at_ms,
+    });
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(replay)?;
+    let compressed = encoder.finish()?;
+    output.write_all(MAGIC)?;
+    serde_json::to_writer(&mut *output, &header)?;
+    output.write_all(b"\n")?;
+    output.write_all(&compressed)?;
     Ok(())
 }
 
@@ -334,7 +360,11 @@ pub(super) fn read(
     if fs::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
         return None;
     }
-    let contents = fs::read(&file).ok()?;
+    decode(&fs::read(&file).ok()?)
+}
+
+/// A snapshot file's replay and generation, `None` when it is malformed.
+pub(crate) fn decode(contents: &[u8]) -> Option<(TerminalReplay, String)> {
     let rest = contents.strip_prefix(MAGIC)?;
     let newline = rest.iter().position(|byte| *byte == b'\n')?;
     let (header, body) = rest.split_at_checked(newline)?;
