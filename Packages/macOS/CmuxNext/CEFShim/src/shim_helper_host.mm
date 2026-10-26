@@ -5,9 +5,18 @@
 // detached page's IME and composition bounds. Each returns 0 (or
 // does nothing) when the fork lacks the call. UI thread only unless noted.
 
+#include <cstddef>
+
 #include "shim_internal.h"
 
 using namespace cmux_shim;
+
+// The fork reads these spans as its cmux_ime_span_t {int start, end, thick;
+// uint32_t underline_color, background_color} (include/cef_cmux.h).
+static_assert(sizeof(cmux_shim_ime_span) == 20 && offsetof(cmux_shim_ime_span, thick) == 8 &&
+                  offsetof(cmux_shim_ime_span, underline_color) == 12 &&
+                  offsetof(cmux_shim_ime_span, background_color) == 16,
+              "cmux_shim_ime_span must keep the fork's cmux_ime_span_t layout");
 
 // Fork API 31 (task p01-process-170): IME of a detached page, used from the
 // release that declares API 31 (task 178), as cef_cmux.h's history says.

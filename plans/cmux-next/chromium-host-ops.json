@@ -610,8 +610,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "IME op of the page view's NSTextInputClient (task 043): on the input ring after the keys it follows, with the input seq barrier (task 092), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order.",
-      "channel": "input"
+      "reason": "IME op of the page view's NSTextInputClient (task 043): on the control channel with the input seq it follows (task 092's barrier, p01-process.md 3.1), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order. Its text and spans do not fit a 64-byte input ring frame."
     },
     {
       "name": "cmux_shim_browser_ime_commit_text",
@@ -640,8 +639,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "IME op of the page view's NSTextInputClient (task 043): on the input ring after the keys it follows, with the input seq barrier (task 092), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order.",
-      "channel": "input"
+      "reason": "IME op of the page view's NSTextInputClient (task 043): on the control channel with the input seq it follows (task 092's barrier, p01-process.md 3.1), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order. Its text and spans do not fit a 64-byte input ring frame."
     },
     {
       "name": "cmux_shim_browser_ime_finish_composing",
@@ -658,8 +656,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "IME op of the page view's NSTextInputClient (task 043): on the input ring after the keys it follows, with the input seq barrier (task 092), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order.",
-      "channel": "input"
+      "reason": "IME op of the page view's NSTextInputClient (task 043): on the control channel with the input seq it follows (task 092's barrier, p01-process.md 3.1), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order. Its text and spans do not fit a 64-byte input ring frame."
     },
     {
       "name": "cmux_shim_browser_ime_cancel",
@@ -676,8 +673,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "IME op of the page view's NSTextInputClient (task 043): on the input ring after the keys it follows, with the input seq barrier (task 092), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order.",
-      "channel": "input"
+      "reason": "IME op of the page view's NSTextInputClient (task 043): on the control channel with the input seq it follows (task 092's barrier, p01-process.md 3.1), as Chrome's RenderWidgetHostNSViewHost IME messages follow the key events in order. Its text and spans do not fit a 64-byte input ring frame."
     },
     {
       "name": "cmux_shim_browser_composition_bounds_watch",
@@ -703,7 +699,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. As text_input_watch: the client keeps fn per browser and calls it on main in the event batch from the host's push of the composition bounds (task 044, with TEXT_INPUT_STATE); only the watch on/off crosses the wire."
+      "reason": "Function-pointer arg. As text_input_watch, the client code is task 014b's (client/remote_shim_local.mm): it keeps fn per browser and calls it on main in the event batch from the host's push of the composition bounds (task 044, with TEXT_INPUT_STATE); only the watch on/off crosses the wire."
     },
     {
       "name": "cmux_shim_set_new_tab_page_url",

@@ -176,7 +176,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "fa7e6a35f2d64d238bfa8357313803208e34d40c142f31284b07eeebb72b60ae";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "6a9a88981cdb4f85313128f92d4db642019cd532527f65ebcc5518c6c2bda454";
+inline constexpr char kWireID[] = "edbe909be69f210b16d9c0b404ea0e1c72947deeec0bf5e0fb7429b5c157a73e";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -364,7 +364,7 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_ime_set_composition(int arg_browser_id, c
   op_w.I32(arg_replacement_end);
   op_w.I32(arg_selection_start);
   op_w.I32(arg_selection_end);
-  (void)PostInput(kOpBrowserImeSetComposition, 0, op_w);
+  (void)Post(kOpBrowserImeSetComposition, 0, op_w);
   return 1;
 }
 
@@ -374,21 +374,21 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_ime_commit_text(int arg_browser_id, const
   op_w.Str(arg_text);
   op_w.I32(arg_replacement_start);
   op_w.I32(arg_replacement_end);
-  (void)PostInput(kOpBrowserImeCommitText, 0, op_w);
+  (void)Post(kOpBrowserImeCommitText, 0, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_browser_ime_finish_composing(int arg_browser_id) {
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
-  (void)PostInput(kOpBrowserImeFinishComposing, 0, op_w);
+  (void)Post(kOpBrowserImeFinishComposing, 0, op_w);
   return 1;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_browser_ime_cancel(int arg_browser_id) {
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
-  (void)PostInput(kOpBrowserImeCancel, 0, op_w);
+  (void)Post(kOpBrowserImeCancel, 0, op_w);
   return 1;
 }
 

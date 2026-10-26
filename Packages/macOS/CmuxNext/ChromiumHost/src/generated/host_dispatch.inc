@@ -174,7 +174,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "fa7e6a35f2d64d238bfa8357313803208e34d40c142f31284b07eeebb72b60ae";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "6a9a88981cdb4f85313128f92d4db642019cd532527f65ebcc5518c6c2bda454";
+inline constexpr char kWireID[] = "edbe909be69f210b16d9c0b404ea0e1c72947deeec0bf5e0fb7429b5c157a73e";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
