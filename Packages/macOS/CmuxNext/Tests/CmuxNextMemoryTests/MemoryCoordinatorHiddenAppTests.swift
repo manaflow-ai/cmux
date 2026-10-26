@@ -1,11 +1,15 @@
 import CmuxNextCompat
+import CmuxNextInputCore
+import CmuxNextInputCoreTestSupport
 import CmuxNextMemory
+import CmuxNextWakeups
 import Dispatch
 import Testing
 
 /// While no cmux window is visible, ``MemoryCoordinator`` releases in 8 ms slices back to back on
 /// main-queue turns instead of 2 ms slices on frames that a hidden app gets only on the frame
-/// scheduler's 100 ms stall deadline; input or a shown window puts the next slice back on a frame.
+/// scheduler's 100 ms stall deadline; input or a shown window puts the next slice back on a frame,
+/// and a frame slice with no input since the one before it lets a hidden app go back to turns.
 ///
 /// Time is a ``ManualClock``: consumer work advances it, ``drive(frameGap:)`` adds the gap before
 /// each frame (a stall tick when hidden, a refresh when visible) and a little queued work before
@@ -133,12 +137,78 @@ import Testing
         turns.runTurn()
         #expect(big.entries == left && log.releases.count == releases, "the turn asked before the input still released")
 
-        let turnRequests = turns.requests
-        drive(frameGap: Self.visibleFrameGap)
-        #expect(big.entries == 0)
-        #expect(turns.requests == turnRequests, "the release went back to turns after input")
+        // Input before every frame keeps every slice on a frame at 2 ms.
+        for _ in 0..<5 {
+            coordinator.inputDidArrive()
+            clock.advance(by: Self.stallFrameGap)
+            #expect(slicer.fireFrame(), "the release stopped asking for frames while input came")
+            #expect(coordinator.pace == .frames, "a slice went back to turns while input kept coming")
+        }
+        #expect(big.entries > 0, "the test needs the release still in progress")
         #expect(slicer.frameDurations.allSatisfy { $0 <= MemoryCoordinator.sliceBudget })
         withExtendedLifetime(registration) {}
+    }
+
+    @Test func afterAFrameWithNoInputAHiddenReleaseGoesBackToTurns() {
+        let big = consumer("big", entries: 500)
+        let registration = register(big)
+        coordinator.isAppHidden = true
+        source.send(.critical)
+        turns.runTurn()
+        let inputAt = clock.now
+        coordinator.inputDidArrive()
+
+        clock.advance(by: Self.stallFrameGap)
+        slicer.fireFrame()
+        #expect(coordinator.pace == .frames, "the frame slice the input asked for already went back to turns")
+        clock.advance(by: Self.stallFrameGap)
+        slicer.fireFrame()
+        #expect(coordinator.pace == .hiddenTurns, "a frame slice with no input since the last one kept the 2 ms rule")
+        #expect(turns.hasPendingTurn, "no turn waits after the pace went back to turns")
+        let framesBeforeTurns = slicer.frameDurations.count
+
+        drive(frameGap: Self.stallFrameGap)
+        #expect(big.entries == 0, "the release left \(big.entries) entries")
+        let elapsed = inputAt.duration(to: clock.now)
+        #expect(elapsed < .seconds(1), "one input held the rest of a hidden release on stall frames: \(elapsed)")
+        // Only the stale frame the second slice asked for may come after; it releases nothing.
+        #expect(slicer.frameDurations.dropFirst(framesBeforeTurns).allSatisfy { $0 == .zero },
+                "a frame slice ran after the pace went back to turns")
+        #expect(turns.turnDurations.contains { $0 > MemoryCoordinator.sliceBudget }, "the turns kept the 2 ms slice")
+        withExtendedLifetime(registration) {}
+    }
+
+    @Test func followAppHidesWithTheWindowsAndHearsTheTapsInput() {
+        let windows = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        windows.track(window)
+        let tap = FakeInputTap()
+        coordinator.followApp(windows: windows, input: tap)
+        #expect(!coordinator.isAppHidden)
+
+        window.set(.hidden)
+        #expect(coordinator.isAppHidden && coordinator.pace == .hiddenTurns)
+        tap.deliver(InputEventRecord(type: .mouseMoved, timestamp: 1))
+        #expect(coordinator.pace == .hiddenTurns, "a pointer move counted as input")
+        tap.deliver(InputEventRecord(type: .keyDown, timestamp: 2))
+        #expect(coordinator.pace == .frames, "a key from the tap did not count as input")
+
+        window.set(.visible)
+        #expect(!coordinator.isAppHidden)
+        #expect(tap.liveSubscriptions == 1)
+    }
+
+    @Test func followAppStartsFromTheWindowsShownNow() {
+        coordinator.followApp(windows: ShownWindows(), input: FakeInputTap())
+        #expect(!coordinator.isAppHidden, "a launch with no window yet counted as hidden")
+
+        let windows = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .hidden)
+        windows.track(window)
+        let hidden = MemoryCoordinatorHiddenAppTests()
+        hidden.coordinator.followApp(windows: windows, input: FakeInputTap())
+        #expect(hidden.coordinator.isAppHidden, "an app whose only window is hidden counted as shown")
+        withExtendedLifetime(window) {}
     }
 
     @Test func aWindowThatShowsPutsTheNextSliceBackOnAFrame() {

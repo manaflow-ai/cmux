@@ -49,21 +49,23 @@ struct AppMemoryConsumers {
     let services: AppServices
 
     /// The app's one memory coordinator: it follows `pressure` and releases in background-class frame
-    /// work on `mainWork`. AppServices holds it next to its pressure source.
+    /// work on `mainWork`, or on main run loop passes while the app is hidden (``followHiddenApp()``).
+    /// AppServices holds it next to its pressure source.
     ///
     /// - Parameters:
     ///   - pressure: The app's one memory pressure source.
     ///   - mainWork: The app's main-thread scheduler.
     /// - Returns: The coordinator.
     static func coordinator(pressure: MemoryPressureEvents, mainWork: MainWorkScheduler) -> MemoryCoordinator {
-        MemoryCoordinator(pressure: pressure, slicer: FrameReleaseSlicer(
-            queue: FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: mainWork)))
+        let frames = FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: mainWork)
+        return MemoryCoordinator(pressure: pressure, slicer: FrameReleaseSlicer(queue: frames), turns: MainRunLoopReleaseTurns())
     }
 
     /// AppServices' init calls this once, after the services the consumers belong to are built. Each
     /// consumer's owner keeps its registration token; nothing here stores one.
     func registerMemoryConsumers() {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
+        followHiddenApp()  // CmuxNextMemory (p07-memory-071)
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerAgentPaneCaches()  // CmuxNextAgentPane
@@ -80,6 +82,13 @@ struct AppMemoryConsumers {
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTabCaches()  // CmuxNextTabs
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryHiddenAppRelease` (default off): while no window shows, the coordinator releases in 8 ms slices on
+    /// main run loop passes; the person's input puts it back on 2 ms frame slices (p07-memory-071).
+    func followHiddenApp() {
+        guard services.features.isEnabled(.memoryHiddenAppRelease) else { return }
+        services.memoryCoordinator.followApp(windows: services.appVisibility.shownWindows, input: services.inputTap)
     }
 
     /// `memoryAgentAndControlCaches` (default off): the agent pane's New Tab frames, chat tails and

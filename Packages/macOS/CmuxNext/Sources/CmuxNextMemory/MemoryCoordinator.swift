@@ -1,4 +1,6 @@
 public import CmuxNextCompat
+public import CmuxNextInputCore
+public import CmuxNextWakeups
 
 /// The app's one memory coordinator: it sets each registered ``MemoryConsumer``'s limit from the
 /// memory pressure level and the Memory Saver mode, and releases what is above the limits in short
@@ -31,7 +33,9 @@ public import CmuxNextCompat
 /// - While no cmux window is visible (``isAppHidden``) there is no frame to protect, and the hidden
 ///   app's frames come only on the frame scheduler's stall deadline (2 ms per 100 ms). Slices then
 ///   take 8 ms each, back to back on main-queue turns from the injected ``MemoryReleaseTurns``.
-///   Input (``inputDidArrive()``) or a window that shows puts the next slice back on a frame, at 2 ms.
+///   Input (``inputDidArrive()``) or a window that shows puts the next slice back on a frame, at 2 ms;
+///   once a frame slice passes with no input since the one before, a hidden app goes back to turns.
+///   ``followApp(windows:input:)`` feeds both from the app's windows and input tap.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
@@ -44,7 +48,7 @@ public import CmuxNextCompat
 /// let coordinator = MemoryCoordinator(
 ///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, turns: mainTurns,
 ///     releaseSink: MemoryReleaseSink())
-/// coordinator.isAppHidden = !windows.anyDraws || displaysAsleep
+/// coordinator.followApp(windows: appVisibility.shownWindows, input: inputTap)
 /// let cache = PreviewImageCache(sink: coordinator.releaseSink)
 /// registration = MemoryConsumerRegistration(
 ///     name: "preview-images", traits: traits, consumer: cache, registry: coordinator)
@@ -94,19 +98,21 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     }
 
     /// Whether no cmux window is visible: none draws (`WindowDrawPolicy`) or the displays sleep.
-    /// The app sets it from its windows' occlusion and the display sleep and wake notifications.
+    /// ``followApp(windows:input:)`` sets it from the app's window nodes (a hidden app and sleeping
+    /// displays hide every one).
     public var isAppHidden = false {
         didSet {
             guard isAppHidden != oldValue else { return }
-            inputSinceHidden = false
+            inputHoldsFrames = false
+            inputSinceFrameSlice = false
             paceInputsDidChange()
         }
     }
 
-    /// The pace of the next slice: ``ReleasePace/hiddenTurns`` while the app is hidden, no input came
-    /// since it was hidden and a ``MemoryReleaseTurns`` was given; else ``ReleasePace/frames``.
+    /// The pace of the next slice: ``ReleasePace/hiddenTurns`` while the app is hidden, no recent
+    /// input holds frames and a ``MemoryReleaseTurns`` was given; else ``ReleasePace/frames``.
     public var pace: ReleasePace {
-        isAppHidden && !inputSinceHidden && turns != nil ? .hiddenTurns : .frames
+        isAppHidden && !inputHoldsFrames && turns != nil ? .hiddenTurns : .frames
     }
 
     /// The registered consumers in ``MemoryReleaseOrder`` (equal orders in registration order),
@@ -122,7 +128,13 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     private var needsSlice = false
     private var isFrameAsked = false
     private var isTurnAsked = false
-    private var inputSinceHidden = false
+    /// Input came while the app is hidden: slices stay on frames until a frame slice passes with no
+    /// input since the frame slice before it.
+    private var inputHoldsFrames = false
+    /// Input came since the last frame slice of a hidden app.
+    private var inputSinceFrameSlice = false
+    /// ``followApp(windows:input:)``'s subscriptions, kept for the coordinator's life.
+    private var appFollow: (windows: ShownWindowsObservation, input: InputSubscription)?
     /// Set by an escalation to critical; the slice that finishes that pass relieves the heap once.
     private var isHeapReliefDue = false
     private let slicer: any MemoryReleaseSlicer
@@ -205,11 +217,32 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     }
 
     /// Notes that the person gave input: while the app is hidden, the next slice goes back to a frame
-    /// at ``sliceBudget`` until the app is hidden again. Cheap enough for every input event.
+    /// at ``sliceBudget``, and slices stay there until a frame slice passes with no input since the
+    /// one before it. Chromium's input use case likewise ends a fixed time after the last input
+    /// (`third_party/blink/renderer/platform/scheduler/main_thread/user_model.cc`); here that time is
+    /// counted in frames, with no timer. O(1): cheap enough for every input event.
     public func inputDidArrive() {
-        guard isAppHidden, !inputSinceHidden else { return }
-        inputSinceHidden = true
+        guard isAppHidden else { return }
+        inputSinceFrameSlice = true
+        guard !inputHoldsFrames else { return }
+        inputHoldsFrames = true
         paceInputsDidChange()
+    }
+
+    /// Follows the app from now on: ``isAppHidden`` while none of `windows` shows, and each key,
+    /// modifier, click, scroll or gesture from `input` is ``inputDidArrive()``. The coordinator keeps
+    /// both subscriptions. A launch that has made no window yet counts as shown, so the launch's own
+    /// work never shares the main thread with 8 ms slices.
+    ///
+    /// - Parameters:
+    ///   - windows: The app's window nodes (`AppVisibilitySource.shownWindows`).
+    ///   - input: The app's one input tap.
+    public func followApp(windows: ShownWindows, input: any InputObserving) {
+        isAppHidden = windows.trackedCount > 0 && !windows.anyShown
+        appFollow = (
+            windows: windows.observe { [weak self] anyShown in self?.isAppHidden = !anyShown },
+            input: input.observe([.key, .flags, .button, .scroll, .gesture]) { [weak self] _ in self?.inputDidArrive() }
+        )
     }
 
     public func observePressureVote(_ handler: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void)
@@ -289,7 +322,25 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         case .hiddenTurns: isTurnAsked = false
         }
         guard arrived == pace, needsSlice else { return }
-        runSlice(for: arrived == .frames ? sliceDuration : hiddenSliceDuration)
+        switch arrived {
+        case .frames:
+            runSlice(for: sliceDuration)
+            frameSliceDidRun()
+        case .hiddenTurns:
+            runSlice(for: hiddenSliceDuration)
+        }
+    }
+
+    /// While input holds a hidden app's slices on frames, a frame slice with no input since the one
+    /// before it lets the next slice go back to turns.
+    private func frameSliceDidRun() {
+        guard isAppHidden, inputHoldsFrames else { return }
+        guard !inputSinceFrameSlice else {
+            inputSinceFrameSlice = false
+            return
+        }
+        inputHoldsFrames = false
+        paceInputsDidChange()
     }
 
     /// One slice's release: the consumers over their limit, in order, until `duration` is spent.
