@@ -29,3 +29,16 @@ test("a remembered Fast setting wins over the catalog fallback", () => {
   expect(option?.currentValue).toBe("on");
   expect(option?.options.map((entry) => entry.value)).toEqual(["off", "on"]);
 });
+
+
+test("a fresh model uses Fast advertised by the joined catalog", () => {
+  const option = pendingSpeed(
+    {
+      summary: { sessionId: "", harness: "pending-speed-fresh", model: "fresh-model" },
+      catalog: [{ id: "pending-speed-fresh", name: "Fresh", models: [{ id: "fresh-model" }] }],
+    } as AcpmuxSnapshot,
+    { fast: true },
+  );
+  expect(option?.currentValue).toBe("off");
+  expect(option?.options.map((entry) => entry.value)).toEqual(["off", "on"]);
+});
