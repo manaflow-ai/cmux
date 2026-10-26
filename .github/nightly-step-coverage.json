@@ -235,7 +235,7 @@
         "Report a failed publication": {"nightly_only": "opens issue with write token"},
         "Fail a failed attempt": {"plumbing": true}},
       "nightly-identity-legacy-published": {
-        "The old feed published, or had nothing to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"}},
+        "The old feed published, or had nothing to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"}},
       "generate-nightly-deltas": {
         "Select Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (job env; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},
