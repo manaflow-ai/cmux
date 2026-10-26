@@ -6947,13 +6947,14 @@ jobs:
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
       SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
+      SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
       ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
       PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}
     steps:
       - name: The old feed published, or had nothing to publish
         run: |
           set -euo pipefail
-          echo "decided=${DECIDED:-} action=${ACTION:-} build=${BUILD:-} next=${NEXT_BUILD:-} sign skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-} already=${ALREADY:-} published=${PUBLISHED:-}"
+          echo "decided=${DECIDED:-} action=${ACTION:-} build=${BUILD:-} next=${NEXT_BUILD:-} sign skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-} ok=${SIGN_OK:-} already=${ALREADY:-} published=${PUBLISHED:-}"
           if [ "${DECIDED:-}" != true ]; then
             echo "::error title=cmux NIGHTLY feed not published::legacy-identity-target did not finish; the old feed keeps its previous build"; exit 1
           fi
@@ -6963,7 +6964,9 @@ jobs:
           if [ "${SIGN_SKIP:-}" = true ] || [ "${ALREADY:-}" = true ]; then
             echo "build $BUILD is already on the old feed"; exit 0
           fi
-          if [ "${SIGN_PENDING:-}" = true ]; then
+          # Pending counts only when the whole sign job passed (its pending
+          # bundle and metadata stored, so a later run can continue it).
+          if [ "${SIGN_PENDING:-}" = true ] && [ "${SIGN_OK:-}" = true ]; then
             echo "build $BUILD is still in Apple's queue; a later run continues it"; exit 0
           fi
           if [ "${PUBLISHED:-}" = true ]; then
