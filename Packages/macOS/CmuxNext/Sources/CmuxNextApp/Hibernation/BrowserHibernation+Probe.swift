@@ -136,6 +136,8 @@ extension BrowserHibernation {
     /// replans. A sample already running gives its reading when it lands.
     private func sampleMemory() {
         guard let measureMemory, memoryReadings.begin() else { return }
+        // task-owner: one memory sample; `memoryReadings` admits one at a time
+        // main-hop-allow: measureMemory is the app's resource sampler, a main-actor async seam whose process reads run off main; the readings land in its one resume
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
