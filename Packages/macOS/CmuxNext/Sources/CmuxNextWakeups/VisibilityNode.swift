@@ -284,6 +284,12 @@ import Darwin
     /// The number of keys waiting for this node to become visible.
     public var deferredCount: Int { deferred.count }
 
+    /// The live subscriptions to this node's flips and to its exemption changes (tests).
+    package var subscriberCounts: (flips: Int, exemptions: Int) {
+        (subscriptions.count(where: { $0.subscription?.isActive == true }),
+         exemptionSubscriptions.count(where: { $0.subscription?.isActive == true }))
+    }
+
     func remove(_ subscription: VisibilitySubscription) {
         subscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
         exemptionSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
