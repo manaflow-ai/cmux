@@ -253,12 +253,19 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // Every "off" goes before every "on": Ghostty keeps one mouse event
         // mode and one mouse format, and any reset in a family clears it, so
         // the host's number-ordered `?1006h ?1015l` would leave X10 reports.
+        // Of several mouse formats left on (crossterm sends ?1015h then
+        // ?1006h), the richest is applied last so SGR beats urxvt.
         appendDefaultModeBaseline(to: &bytes)
         let replayedModes = frame.modes.filter { !isReplayExcludedMode($0) }
         for mode in replayedModes where !mode.on {
             bytes.append(modeBytes(mode))
         }
-        for mode in replayedModes where mode.on {
+        let enabledModes = replayedModes.filter(\.on)
+        for mode in enabledModes where mouseFormatRank(mode) == nil {
+            bytes.append(modeBytes(mode))
+        }
+        let enabledFormats = enabledModes.compactMap { mode in mouseFormatRank(mode).map { (mode, $0) } }
+        for (mode, _) in enabledFormats.sorted(by: { $0.1 < $1.1 }) {
             bytes.append(modeBytes(mode))
         }
 

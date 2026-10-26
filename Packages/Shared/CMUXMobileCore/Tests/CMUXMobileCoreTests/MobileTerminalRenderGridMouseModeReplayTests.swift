@@ -78,3 +78,10 @@ private func replayedMouseState(on enabled: Set<Int>) throws -> GhosttyMouseStat
     #expect(state.event == "none")
     #expect(state.format == "x10")
 }
+
+@Test func renderGridFullSnapshotPrefersSGROverURXVTWhenBothAreOn() throws {
+    // crossterm's EnableMouseCapture: ?1000h ?1002h ?1003h ?1015h ?1006h.
+    let state = try replayedMouseState(on: [1000, 1002, 1003, 1015, 1006])
+    #expect(state.event == "any")
+    #expect(state.format == "sgr")
+}

@@ -48,12 +48,14 @@ import CmuxTerminalCore
 
     /// X10 and UTF-8 mouse reports are `ESC [ M` plus three coordinate
     /// characters, not a CSI. Column 95 encodes as 0x7F, which the parser
-    /// otherwise turns into a Backspace key.
+    /// otherwise turns into a Backspace key, and a UTF-8 coordinate can be a
+    /// C1 control that swallowed the input after it.
     @Test(arguments: [
         "\u{1B}[MCVL",                 // X10 motion report
         "\u{1B}[M`+!\u{1B}[Ma+!",      // two X10 wheel notches
         "\u{1B}[M#\u{7F}!",            // X10 release at column 95
         "\u{1B}[M#\u{100}\u{80}",      // UTF-8 format, column and row past 95
+        "\u{1B}[M#\u{9B}!",            // UTF-8 format, column 123 is U+009B (C1 CSI)
     ])
     func legacyMouseReportsReachThePTYIntact(sequence: String) {
         let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
