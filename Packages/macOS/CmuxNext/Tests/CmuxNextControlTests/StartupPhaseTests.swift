@@ -166,21 +166,68 @@ import Testing
         #expect(work.startup.phase == .settled)
     }
 
-    @Test func theSchedulerHoldsBackgroundAndIdleEnqueuesUntilTheirPhase() {
+    /// A launching scheduler holds background posts out of its queue (visible and automation run),
+    /// queues them in post order at the reveal without running any inside the phase change, and
+    /// runs them on the next frame.
+    @Test func theSchedulerHoldsBackgroundPostsUntilTheReveal() {
+        let uptime = StartupUptime()
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), startup: startup) { _ in StartupFakeLink() }
+        let keeper = StartupLinkKeeper(on: work)
+        var ran: [String] = []
+        work.post(.background, owner: "favicons") { ran.append("background 1") }
+        work.post(.visible, owner: "sidebar.rows") { ran.append("visible") }
+        work.post(.automation, owner: "cli.request") { ran.append("automation") }
+        work.post(.background, owner: "favicons") { ran.append("background 2") }
+        #expect(work.postedCount(.background) == 0, "a held post is not in its class queue")
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(ran == ["visible", "automation"], "visible and automation run while launching")
+
+        startup.noteFirstFrame()
+        #expect(ran == ["visible", "automation"], "the reveal queues held posts; it never runs them inline")
+        #expect(work.postedCount(.background) == 2)
+        work.post(.background, owner: "favicons") { ran.append("background 3") }
+        uptime.advance(ms: 17)
+        work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(ran == ["visible", "automation", "background 1", "background 2", "background 3"])
+        keeper.stop()
+    }
+
+    /// Awaiting background work while launching is reported (a Debug assertion in the app); the
+    /// await still finishes once the reveal opens background.
+    @Test func awaitingABackgroundApplyWhileLaunchingIsReported() async {
+        let uptime = StartupUptime()
+        var reports: [StartupPhase.HeldAwait] = []
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger()) { reports.append($0) }
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), startup: startup) { _ in StartupFakeLink() }
+        let keeper = StartupLinkKeeper(on: work)
+        let value = Task { @MainActor in await work.apply(.background, owner: "favicons.load") { 42 } }
+        while reports.isEmpty { await Task.yield() }
+        #expect(reports.map(\.work) == ["background"])
+        #expect(reports.first?.owner == "favicons.load")
+        #expect(reports.first?.phase == .launching)
+        startup.noteFirstFrame()
+        uptime.advance(ms: 17)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(await value.value == 42)
+        #expect(reports.count == 1)
+        keeper.stop()
+    }
+
+    @Test func theSchedulerHoldsIdleEnqueuesUntilTheSettle() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
         let work = MainWorkScheduler.testing(startup: startup) { _ in StartupFakeLink() }
         var ran: [String] = []
-        work.whenStartupAdmitsIdle { ran.append("idle") }
-        work.whenStartupAdmits(.background) { ran.append("background") }
-        work.whenStartupAdmits(.automation) { ran.append("automation") }
-        work.whenStartupAdmits(.visible) { ran.append("visible") }
-        #expect(ran == ["automation", "visible"])
+        work.whenStartupAdmitsIdle { ran.append("idle 1") }
+        work.whenStartupAdmitsIdle { ran.append("idle 2") }
         startup.noteLaunch(.hidden)
-        #expect(ran == ["automation", "visible", "background"])
+        #expect(ran.isEmpty, "idle waits for the settle, not the reveal")
         startup.markDone(.firstSnapshot)
         startup.markDone(.restoreDone)
         startup.markDone(.visiblePageIdle)
-        #expect(ran == ["automation", "visible", "background", "idle"])
+        #expect(ran == ["idle 1", "idle 2"])
+        work.whenStartupAdmitsIdle { ran.append("idle 3") }
+        #expect(ran.last == "idle 3", "an idle enqueue after the settle runs at once")
     }
 
     /// A held background body that finishes the last reference does not run idle work before the
@@ -210,4 +257,25 @@ import Testing
 private final class StartupFakeLink: FrameLink {
     var isPaused = false
     func invalidate() {}
+}
+
+/// A frame-class client that keeps the scheduler's fake link up, so posts wait for hand-fired frames.
+@MainActor
+private final class StartupLinkKeeper {
+    private let client: FrameClient
+
+    init(on work: MainWorkScheduler) {
+        client = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        client.activate()
+    }
+
+    func stop() { client.deactivate() }
+}
+
+/// The budget's clock, moved by the test (`CLOCK_UPTIME_RAW` nanoseconds).
+@MainActor
+private final class StartupUptime {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in self.now } }
+    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
 }

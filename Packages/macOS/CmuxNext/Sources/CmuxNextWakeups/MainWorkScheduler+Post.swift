@@ -68,7 +68,8 @@ extension MainWorkScheduler {
     ///
     /// - Parameters:
     ///   - workClass: `visible` for screen updates no action of the person caused, `automation` for
-    ///     work an agent, the CLI or another process asked for, `background` for work nobody sees.
+    ///     work an agent, the CLI or another process asked for, `background` for work nobody sees
+    ///     (held while the app launches, until ``StartupPhase`` reveals it).
     ///   - owner: The task's owner in the board, the watchdog's records and signposts.
     ///   - file: The posting file (leave the default).
     ///   - line: The posting line (leave the default).
@@ -107,6 +108,7 @@ extension MainWorkScheduler {
     /// not attribute.
     public func apply<T: Sendable, E: Error>(_ workClass: BudgetedWorkClass, owner: String, file: StaticString = #fileID,
                                              line: UInt = #line, _ body: @escaping @MainActor () throws(E) -> T) async throws(E) -> T {
+        startup.checkAwait(workClass.workClass, owner: owner, file: file, line: line)
         let interned = taskOwner(owner)
         let result: Result<T, E> = await withCheckedContinuation { continuation in
             post(workClass, owner: interned, site: MainPostSite(file: file, line: line)) {
@@ -136,6 +138,7 @@ extension MainWorkScheduler {
     }
 
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
+        guard startup.admits(workClass.workClass) else { return holdForStartup(workClass, owner: owner, site: site, body) }
         let queue = classQueue(workClass)
         queue.append(owner: owner, site: site, body)
         if posting.turnQueued { return }
@@ -155,6 +158,7 @@ extension MainWorkScheduler {
     /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
     /// scheduler it runs now (in class order with anything else posted), not one more turn later.
     private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
+        guard startup.admits(workClass.workClass) else { return holdForStartup(workClass, owner: owner, site: site, body) }
         let queue = classQueue(workClass)
         queue.append(owner: owner, site: site, body)
         if posting.turnQueued { return }
@@ -163,6 +167,15 @@ extension MainWorkScheduler {
             return
         }
         runPostedTurn()
+    }
+
+    /// Holds a post of a class the launch has not opened yet: at the phase change it is posted, in
+    /// post order with the other held posts, and runs on a later turn, never inside the phase change.
+    private func holdForStartup(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite,
+                                _ body: @escaping @MainActor () -> Void) {
+        startup.whenReached(workClass.workClass.startupOpening) { [weak self] in
+            self?.post(workClass, owner: owner, site: site, body)
+        }
     }
 
     /// The turn after the first post on an idle scheduler: each class's queued work, in class

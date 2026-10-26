@@ -283,10 +283,7 @@ public final class StartupPhase {
 
 extension MainWorkClass {
     /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, background waits for the reveal, and any class below background (idle)
-    /// waits for the settle.
-    public var startupOpening: StartupPhase.Phase {
-        if self < .background { return .launching }
-        return self == .background ? .revealed : .settled
-    }
+    /// while launching, and background waits for the reveal. Idle work (not a class) waits for
+    /// the settle.
+    public var startupOpening: StartupPhase.Phase { self == .background ? .revealed : .launching }
 }

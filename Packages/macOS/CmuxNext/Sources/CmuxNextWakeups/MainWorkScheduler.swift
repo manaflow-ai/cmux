@@ -54,9 +54,10 @@ public final class MainWorkScheduler {
     ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
     ///     while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    ///   - startup: The launch's phases; the default is a launching phase whose reveal deadline
-    ///     starts now (the composition root builds the scheduler at launch).
-    public convenience init(budget: MainFrameBudget, startup: StartupPhase = StartupPhase()) {
+    ///   - startup: The launch's phases. The app's composition root passes a launching phase
+    ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
+    ///     wired; the default is settled, so a scheduler made after launch holds nothing.
+    public convenience init(budget: MainFrameBudget, startup: StartupPhase = .settled()) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), startup: startup,
                   renderPasses: meter)
@@ -93,14 +94,8 @@ public final class MainWorkScheduler {
                           startup: startup, renderPasses: nil)
     }
 
-    /// Runs `enqueue` now when startup admits `workClass`, else at the phase change that opens it,
-    /// after the enqueues held before it: the hold every `post` of a class takes, so held bodies
-    /// reach their class queue in post order. Input, frame, visible and automation never wait.
-    public func whenStartupAdmits(_ workClass: MainWorkClass, _ enqueue: @escaping @MainActor () -> Void) {
-        startup.whenReached(workClass.startupOpening, enqueue)
-    }
-
-    /// Runs `enqueue` now when startup has settled, else at the settle: the hold of idle posts.
+    /// Runs `enqueue` now when startup has settled, else at the settle, after the enqueues held
+    /// before it: the hold idle posts take (``post(_:owner:file:line:_:)`` holds background itself).
     public func whenStartupAdmitsIdle(_ enqueue: @escaping @MainActor () -> Void) {
         startup.whenReached(.settled, enqueue)
     }
