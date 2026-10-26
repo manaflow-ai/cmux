@@ -5,8 +5,9 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::io;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -211,7 +212,7 @@ fn a_blocked_thread_is_reported_within_its_deadline_plus_the_period() {
 }
 
 #[test]
-fn the_watcher_parks_over_spared_scopes_and_wakes_when_an_enclosing_scope_is_back() {
+fn the_watcher_parks_over_spared_scopes_and_the_enclosing_scope_stays_spared() {
     let config = Config { min_deadline: Duration::from_millis(50), ..Config::default() };
     let sink = Collect::new();
     let watch =
@@ -232,22 +233,44 @@ fn the_watcher_parks_over_spared_scopes_and_wakes_when_an_enclosing_scope_is_bac
     thread::sleep(Duration::from_millis(400));
     assert_eq!(watch.stats().wakes, parked, "0 wakes while only a spared scope is open");
 
-    // The wait ends: the request's scope (overdue by now) watches again and is reported.
+    // The wait ends: the request's scope (overdue by now) keeps the ignore until it closes.
     wait.close();
+    assert!(wait_until(Duration::from_secs(3), || watch.stats().parked));
+    thread::sleep(Duration::from_millis(200));
+    assert!(sink.hangs().is_empty(), "the enclosing scope of an allowed wait is spared");
+    drop(request);
+    assert!(sink.hangs().is_empty());
+}
+
+#[test]
+fn an_enclosing_scope_wakes_the_parked_watcher_when_a_reported_scope_closes() {
+    let config = Config { min_deadline: Duration::from_millis(50), ..Config::default() };
+    let sink = Collect::new();
+    let watch =
+        HangWatch::spawn(config, Arc::new(cmux_hang_watch::TraceClock), Box::new(sink.clone()))
+            .unwrap();
+    let guard = watch.register_thread(ThreadKind::Control, "mux-control-dispatch");
+
+    let request = guard.watch(Duration::from_millis(1_500));
+    let stuck = guard.watch(Duration::from_millis(50));
+    assert!(wait_until(Duration::from_secs(3), || sink.hangs().len() == 1));
+    // A thread stuck past its report gives the watcher nothing more to do.
+    assert!(wait_until(Duration::from_secs(3), || watch.stats().parked));
+    let parked = watch.stats().wakes;
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(watch.stats().wakes, parked, "0 wakes over a reported hang");
+
+    // The inner scope ends before the request's deadline: the request watches again.
+    stuck.close();
     assert!(
-        wait_until(Duration::from_secs(3), || sink.hangs().len() == 1),
+        wait_until(Duration::from_secs(3), || sink.hangs().len() == 2),
         "the enclosing scope is reported after the inner one closes: {:?}",
         watch.stats()
     );
-    assert_eq!(sink.hangs()[0].deadline_ms, 300);
-
-    // A thread stuck past its report gives the watcher nothing more to do.
-    assert!(wait_until(Duration::from_secs(3), || watch.stats().parked));
-    let stuck = watch.stats().wakes;
-    thread::sleep(Duration::from_millis(400));
-    assert_eq!(watch.stats().wakes, stuck, "0 wakes over a reported hang");
+    let deadlines: Vec<u64> = sink.hangs().iter().map(|hang| hang.deadline_ms).collect();
+    assert_eq!(deadlines, [50, 1_500]);
     drop(request);
-    assert_eq!(sink.hangs().len(), 1);
+    assert_eq!(sink.hangs().len(), 2);
 }
 
 #[test]
@@ -344,6 +367,88 @@ fn invalidate_active_spares_the_open_scopes_and_the_next_scope_watches_again() {
     assert_eq!(on_time(&watch, &clock).hangs, 0, "the invalidated scope stays spared");
     drop(request);
     assert_eq!(sink.hangs().len(), 1);
+}
+
+#[test]
+fn invalidate_active_in_a_nested_scope_spares_every_enclosing_scope_until_the_outermost_closes() {
+    let (watch, clock, sink) = manual();
+    let guard = watch.register_thread(ThreadKind::Control, "mux-control-dispatch");
+    let request = guard.watch(Duration::from_secs(1));
+    let helper = guard.watch(Duration::from_millis(100));
+    guard.invalidate_active();
+    helper.close();
+
+    clock.set_ms(3_000);
+    assert_eq!(on_time(&watch, &clock), Pass { open: 1, armed: 0, hangs: 0, late: false });
+    let follow_up = guard.watch(Duration::from_secs(1));
+    clock.set_ms(4_000);
+    assert_eq!(on_time(&watch, &clock).hangs, 1, "a scope opened after the wait watches");
+    follow_up.close();
+    clock.set_ms(9_000);
+    assert_eq!(on_time(&watch, &clock).hangs, 0, "the request stays spared");
+    drop(request);
+
+    let next = guard.watch(Duration::from_secs(1));
+    clock.set_ms(10_000);
+    assert_eq!(on_time(&watch, &clock).hangs, 1, "the ignore ends with the outermost scope");
+    drop(next);
+    let deadlines: Vec<u64> = sink.hangs().iter().map(|hang| hang.deadline_ms).collect();
+    assert_eq!(deadlines, [1_000, 1_000]);
+}
+
+#[test]
+fn a_scope_closed_out_of_order_leaves_no_stale_scope_on_the_slot() {
+    let (watch, clock, sink) = manual();
+    let guard = watch.register_thread(ThreadKind::Lane, "terminal-work");
+    let outer = guard.watch(Duration::from_secs(1));
+    let inner = guard.watch(Duration::from_secs(5));
+    let closed = panic::catch_unwind(AssertUnwindSafe(|| outer.close()));
+    assert_eq!(closed.is_err(), cfg!(debug_assertions), "a debug build refuses the order");
+    drop(inner);
+
+    clock.set_ms(2_000);
+    assert_eq!(on_time(&watch, &clock), Pass::default(), "both scopes are closed");
+    let next = guard.watch(Duration::from_secs(1));
+    clock.set_ms(3_000);
+    assert_eq!(on_time(&watch, &clock).hangs, 1);
+    drop(next);
+    assert_eq!(on_time(&watch, &clock).open, 0, "the next scope is top level again");
+    let deadlines: Vec<u64> = sink.hangs().iter().map(|hang| hang.deadline_ms).collect();
+    assert_eq!(deadlines, [1_000]);
+}
+
+#[test]
+fn a_report_racing_a_nested_open_and_close_is_recorded_once() {
+    const ROUNDS: u64 = 4_000;
+    let (watch, clock, sink) = manual();
+    let done = AtomicBool::new(false);
+    thread::scope(|threads| {
+        threads.spawn(|| {
+            while !done.load(Ordering::Relaxed) {
+                watch.check(clock.now());
+            }
+        });
+        let guard = watch.register_thread(ThreadKind::Lane, "terminal-work");
+        for round in 0..ROUNDS {
+            // Each round's enclosing scope has its own budget, so a second record shows.
+            let start = round * 100_000;
+            clock.set_ms(start);
+            let budget = round + 1;
+            let outer = guard.watch(Duration::from_millis(budget));
+            clock.set_ms(start + budget);
+            for _ in 0..64 {
+                drop(guard.watch(Duration::from_secs(1_000)));
+            }
+            drop(outer);
+        }
+        done.store(true, Ordering::Relaxed);
+    });
+
+    let mut deadlines: Vec<u64> = sink.hangs().iter().map(|hang| hang.deadline_ms).collect();
+    let recorded = deadlines.len();
+    deadlines.sort_unstable();
+    deadlines.dedup();
+    assert_eq!(deadlines.len(), recorded, "one record per overdue scope");
 }
 
 #[test]
@@ -481,6 +586,15 @@ fn the_process_watch_is_inert_before_init_and_watches_after() {
 
     let guard = cmux_hang_watch::register_thread(ThreadKind::Main, "main");
     assert!(guard.is_registered());
+    // A second process registration on the thread is refused (a debug build panics), so its
+    // guard can drop before or after the first and the thread's slot stays the first's.
+    let again = panic::catch_unwind(|| cmux_hang_watch::register_thread(ThreadKind::Main, "again"));
+    assert_eq!(again.is_err(), cfg!(debug_assertions));
+    if let Ok(again) = again {
+        assert!(!again.is_registered());
+        drop(again);
+    }
+    assert!(cmux_hang_watch::watch(Duration::from_secs(1)).is_watching());
     drop(cmux_hang_watch::watch(Duration::from_secs(5)));
     let before = allocations();
     for _ in 0..1_000 {

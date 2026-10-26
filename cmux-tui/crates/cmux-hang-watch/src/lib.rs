@@ -6,8 +6,11 @@
 //! `InvalidateActiveExpectations()`, for a wait the thread is allowed to make.
 //!
 //! - **Slots.** A chunked table of 64-byte slots. A slot's deadline, budget and flags are one
-//!   `AtomicU64` (Chrome's `HangWatchDeadline`), so opening or closing a scope is two atomic stores
-//!   and a fence: no lock, allocation or system call.
+//!   `AtomicU64` (Chrome's `HangWatchDeadline`), so opening a scope is one atomic swap and a fence,
+//!   and closing one a compare-exchange (and a fence when an enclosing scope comes back): no lock,
+//!   allocation or system call. Scopes close innermost first, as Chrome's `~WatchHangsInScope`
+//!   DCHECKs; a scope that closes out of order clears the slot (a debug build panics), so a stale
+//!   scope never comes back.
 //! - **Watcher rule.** While scopes open, the watcher wakes once per minimum deadline
 //!   ([`Config::min_deadline`]) and reports overdue scopes, so detection takes at most the scope's
 //!   deadline plus the minimum deadline. After one full period in which no scope opened and none is
@@ -48,8 +51,9 @@ pub const MAX_CHUNKS: usize = 64;
 /// Threads one process can register at once; a registration past this is inert and counted in
 /// [`Stats::overflow`].
 pub const MAX_SLOTS: usize = SLOTS_PER_CHUNK * MAX_CHUNKS;
-/// The watcher thread's name (plans/cmux-next/threading-model.md, "Hang watch").
-pub const THREAD_NAME: &str = "cmux-hang-watch";
+/// The watcher thread's name (plans/cmux-next/threading-model.md, "Hang watch" and the Rust thread
+/// names of p09-observability). It runs at utility QoS on macOS.
+pub const THREAD_NAME: &str = "mux-hang-watch";
 /// Bytes of a thread name a slot keeps (a longer name is cut at a character boundary).
 pub const NAME_BYTES: usize = 40;
 
@@ -261,12 +265,14 @@ pub struct Stats {
 
 // A slot's state word: 0 while no scope is open. Bits 0-39: the deadline in ms since the watch's
 // epoch (34 years); bits 40-59: the scope's deadline duration in ms (at least 1, so an open state
-// is never 0); bit 60: ignored (`invalidate_active`, or a late watcher); bit 61: reported.
+// is never 0); bit 60: ignored (`invalidate_active`); bit 61: reported. A late watcher ignores
+// through `Shared::ignore_through_ms` instead.
 const DEADLINE_MASK: u64 = (1 << 40) - 1;
 const BUDGET_SHIFT: u32 = 40;
 const BUDGET_MAX_MS: u64 = (1 << 20) - 1;
 const IGNORED: u64 = 1 << 60;
 const REPORTED: u64 = 1 << 61;
+const FLAGS: u64 = IGNORED | REPORTED;
 
 fn pack(deadline_ms: u64, budget_ms: u64) -> u64 {
     deadline_ms.min(DEADLINE_MASK) | (budget_ms << BUDGET_SHIFT)
@@ -350,30 +356,56 @@ impl Slot {
         String::from_utf8_lossy(&bytes[..end]).into_owned()
     }
 
+    /// Opens a scope: returns the word it wrote and the enclosing word. The swap keeps a `REPORTED`
+    /// bit the watcher sets on the enclosing word up to the open, so that scope is not reported twice.
     #[inline]
-    fn open(&self, shared: &Shared, deadline: Duration) -> u64 {
-        let previous = self.state.load(Ordering::Relaxed);
+    fn open(&self, shared: &Shared, deadline: Duration) -> (u64, u64) {
         let budget = budget_ms(deadline);
-        let deadline_ms = shared.now_ms().saturating_add(budget);
-        self.state.store(pack(deadline_ms, budget), Ordering::Release);
+        let opened = pack(shared.now_ms().saturating_add(budget), budget);
+        let previous = self.state.swap(opened, Ordering::AcqRel);
         shared.note_open();
-        previous
+        (opened, previous)
     }
 
+    /// Closes the scope that wrote `opened`, back to the enclosing word `previous`.
     #[inline]
-    fn close(&self, shared: &Shared, generation: u32, previous: u64) {
+    fn close(&self, shared: &Shared, generation: u32, opened: u64, previous: u64) {
         if self.generation.load(Ordering::Relaxed) != generation {
             return; // The guard went first; the slot is no longer this thread's.
         }
-        let closed = self.state.swap(previous, Ordering::Release);
+        let mut current = self.state.load(Ordering::Relaxed);
+        loop {
+            if current & !FLAGS != opened {
+                self.close_out_of_order(current);
+                return;
+            }
+            // Only the watcher writes the word meanwhile, and only to add `REPORTED`: the loop
+            // retries until the restored word carries every flag the closing word had.
+            let restored = shared.restored(current, previous);
+            match self.state.compare_exchange_weak(
+                current,
+                restored,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
         if previous != 0 {
             // The enclosing scope watches again: a watcher that parked while only a reported or
             // invalidated scope was open must see it.
-            if closed & REPORTED != 0 {
-                shared.inherit_report(self, previous);
-            }
             shared.note_open();
         }
+    }
+
+    /// A scope closed while a scope it encloses is still open (`current`), or after one did that
+    /// (0). Clearing the slot drops the stale scopes the open ones saved; their closes then find a
+    /// word that is not theirs and do nothing.
+    #[cold]
+    fn close_out_of_order(&self, current: u64) {
+        self.state.store(0, Ordering::Release);
+        debug_assert!(current == 0, "hang-watch scopes close innermost first");
     }
 
     fn invalidate(&self) {
@@ -436,13 +468,21 @@ impl Shared {
         }
     }
 
-    /// A reported scope closed back into `previous`: when `previous` is overdue too, it is the
-    /// same hang, so it keeps the report instead of making a second record.
-    #[cold]
-    fn inherit_report(&self, slot: &Slot, previous: u64) {
-        if deadline_of(previous) <= self.now_ms() {
-            slot.state.fetch_or(REPORTED, Ordering::Relaxed);
+    /// The word a scope that closes from `closing` puts back, `previous` being its enclosing word.
+    /// The ignore stays until the outermost scope closes (Chrome keeps
+    /// `kIgnoreCurrentWatchHangsInScope` through `SetDeadline(previous_deadline_)`, hang_watcher.cc).
+    /// A reported scope that closes into an overdue `previous` is the same hang, so `previous`
+    /// keeps the report instead of making a second record.
+    #[inline]
+    fn restored(&self, closing: u64, previous: u64) -> u64 {
+        if previous == 0 {
+            return 0;
         }
+        let mut restored = previous | (closing & IGNORED);
+        if closing & REPORTED != 0 && deadline_of(previous) <= self.now_ms() {
+            restored |= REPORTED;
+        }
+        restored
     }
 
     fn chunk(&self, index: usize) -> Option<&Chunk> {
@@ -618,6 +658,7 @@ impl Shared {
     }
 
     fn run(&self) {
+        run_at_utility_qos();
         let period = self.config.min_deadline.max(Duration::from_millis(1));
         let period_ns = duration_ns(period);
         while self.park() {
@@ -717,7 +758,15 @@ impl HangWatch {
         self.register(kind, name, false)
     }
 
-    fn register(&self, kind: ThreadKind, name: &str, current: bool) -> Guard<'_> {
+    fn register(&self, kind: ThreadKind, name: &str, process: bool) -> Guard<'_> {
+        // One process registration per thread (Chrome's `HangWatcher::RegisterThread` DCHECKs it):
+        // a second one would leave CURRENT on a slot that frees while the thread still uses it.
+        let registered_already =
+            process && CURRENT.try_with(|cell| !cell.get().is_null()).unwrap_or(false);
+        debug_assert!(!registered_already, "a thread registers with the process hang watch once");
+        if registered_already {
+            return Guard::inert();
+        }
         let shared: &Shared = &self.shared;
         let Some(slot) = shared.claim() else {
             shared.overflow.fetch_add(1, Ordering::Relaxed);
@@ -728,10 +777,11 @@ impl HangWatch {
         slot.set_name(name);
         let generation = slot.generation.fetch_add(1, Ordering::Release).wrapping_add(1);
         shared.registered.fetch_add(1, Ordering::Relaxed);
-        let previous_current =
-            if current { CURRENT.try_with(|cell| cell.replace(slot)).ok() } else { None };
+        if process {
+            let _ = CURRENT.try_with(|cell| cell.set(slot));
+        }
         Guard {
-            registered: Some(Registered { shared, slot, generation, previous_current }),
+            registered: Some(Registered { shared, slot, generation, process }),
             _thread_bound: PhantomData,
         }
     }
@@ -762,8 +812,8 @@ struct Registered<'a> {
     shared: &'a Shared,
     slot: &'a Slot,
     generation: u32,
-    /// The thread's process slot before this one, when this guard is the process registration.
-    previous_current: Option<*const Slot>,
+    /// This guard is the thread's process registration, the slot CURRENT points to.
+    process: bool,
 }
 
 /// A thread's registration. It belongs to the thread that registered (not `Send`) and frees the
@@ -792,7 +842,8 @@ impl<'a> Guard<'a> {
         }
     }
 
-    /// Stops blaming the open scopes of this thread ([`invalidate_active`]).
+    /// Stops blaming the open scopes of this thread, through the outermost one's close
+    /// ([`invalidate_active`]).
     pub fn invalidate_active(&self) {
         if let Some(registered) = &self.registered {
             registered.slot.invalidate();
@@ -803,10 +854,14 @@ impl<'a> Guard<'a> {
 impl Drop for Guard<'_> {
     fn drop(&mut self) {
         let Some(registered) = self.registered.take() else { return };
-        if let Some(previous) = registered.previous_current {
-            let _ = CURRENT.try_with(|cell| cell.set(previous));
-        }
         let slot = registered.slot;
+        if registered.process {
+            let _ = CURRENT.try_with(|cell| {
+                if ptr::eq(cell.get(), slot) {
+                    cell.set(ptr::null());
+                }
+            });
+        }
         slot.state.store(0, Ordering::Release);
         slot.generation.fetch_add(1, Ordering::Release);
         slot.in_use.store(false, Ordering::Release);
@@ -819,6 +874,8 @@ struct Open<'a> {
     shared: &'a Shared,
     slot: &'a Slot,
     generation: u32,
+    /// The word this scope wrote, with no flags.
+    opened: u64,
     previous: u64,
 }
 
@@ -835,9 +892,9 @@ impl<'a> Scope<'a> {
     #[inline]
     fn open(shared: &'a Shared, slot: &'a Slot, deadline: Duration) -> Scope<'a> {
         let generation = slot.generation.load(Ordering::Relaxed);
-        let previous = slot.open(shared, deadline);
+        let (opened, previous) = slot.open(shared, deadline);
         Scope {
-            open: Some(Open { shared, slot, generation, previous }),
+            open: Some(Open { shared, slot, generation, opened, previous }),
             _thread_bound: PhantomData,
         }
     }
@@ -851,7 +908,8 @@ impl<'a> Scope<'a> {
         self.open.is_some()
     }
 
-    /// Closes the scope now.
+    /// Closes the scope now. Scopes close innermost first: one that closes while a scope it
+    /// encloses is open clears the thread's slot (a debug build panics).
     pub fn close(self) {}
 }
 
@@ -859,7 +917,7 @@ impl Drop for Scope<'_> {
     #[inline]
     fn drop(&mut self) {
         if let Some(open) = self.open.take() {
-            open.slot.close(open.shared, open.generation, open.previous);
+            open.slot.close(open.shared, open.generation, open.opened, open.previous);
         }
     }
 }
@@ -945,7 +1003,8 @@ pub fn watch(deadline: Duration) -> Scope<'static> {
 }
 
 /// Stops blaming the calling thread's open scopes, before a wait it is allowed to make (a network or
-/// process wait). A scope that opens after this watches again.
+/// process wait): the innermost and every scope enclosing it, until the outermost one closes. A
+/// scope that opens after this watches again.
 pub fn invalidate_active() {
     let slot = CURRENT.try_with(Cell::get).unwrap_or(ptr::null());
     // SAFETY: as in `watch`.
@@ -958,6 +1017,17 @@ pub fn invalidate_active() {
 pub fn stats() -> Option<Stats> {
     PROCESS.get().map(HangWatch::stats)
 }
+
+/// The watcher's class (threading-model.md: utility). A macOS thread starts at its creator's class.
+/// Linux: the thread keeps its creator's nice value.
+#[cfg(target_vendor = "apple")]
+fn run_at_utility_qos() {
+    // SAFETY: sets the calling thread's own QoS class; no pointer arguments.
+    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn run_at_utility_qos() {}
 
 #[cfg(target_vendor = "apple")]
 fn native_thread_id() -> u64 {
