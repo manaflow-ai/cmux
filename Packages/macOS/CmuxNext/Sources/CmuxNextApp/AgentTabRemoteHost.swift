@@ -153,6 +153,10 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     func media(path: String) async throws -> Data { try await mapped { try await client.media(path: path) } }
 
+    func typing(_ on: Bool) async throws { _ = try await mapped { try await client.typing(on); return Data() } }
+
+    func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
+
     func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.
@@ -167,6 +171,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         case "agent-session-record": return .record(member("record"))
         case "agent-session-permission": return .permission(member("request"))
         case "agent-session-changed": return .changed(member("change"))
+        case "agent-session-presence": return .presence(member("presence"))
         default: return .closed(object["reason"] as? String ?? "closed")
         }
     }
