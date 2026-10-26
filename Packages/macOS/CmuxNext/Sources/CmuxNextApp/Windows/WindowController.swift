@@ -111,6 +111,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
+        focus.crashKeys = services.crashKeys
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()

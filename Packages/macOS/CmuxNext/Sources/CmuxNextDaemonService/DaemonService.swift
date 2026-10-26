@@ -93,12 +93,14 @@ public final class DaemonService {
     ///     its recorder (nil in a release build, which counts nothing).
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
     ///     attachment this service opens; nil (tests) watches nothing.
+    ///   - crashKeys: The app's crash keys, for the local daemon's service only: its store names its connection
+    ///     epoch there (``DaemonStore/init(waitDeadlines:causes:crashKeys:)``).
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler,
-                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil) {
+                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil, crashKeys: CrashKeySlots? = nil) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
         // Its keyed waits' timeouts share the main thread's one deadline timer.
-        store = DaemonStore(waitDeadlines: mainWork.wakeUps, causes: mainWork.causes)
+        store = DaemonStore(waitDeadlines: mainWork.wakeUps, causes: mainWork.causes, crashKeys: crashKeys)
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)

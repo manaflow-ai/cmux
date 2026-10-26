@@ -68,11 +68,13 @@ public final class CEFEngine: BrowserEngine {
     ///     nil (tests, fixtures): a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap). The
     ///     process-wide runtime hears the tap of the engine made last.
+    ///   - crashKeys: The app's crash keys: the process-wide runtime names Chromium's state there
+    ///     (``CmuxNextWakeups/CrashKeySlots/Key/cefState``); nil (tests) leaves it as it is.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
-                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
+                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -80,6 +82,7 @@ public final class CEFEngine: BrowserEngine {
         self.contextMenus = contextMenus
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         CEFRuntime.shared.attachInput(input)
+        if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
     }
 
     public var availability: BrowserEngineAvailability {

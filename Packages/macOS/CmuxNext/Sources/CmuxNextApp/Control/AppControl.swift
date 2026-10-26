@@ -22,7 +22,8 @@ import CmuxNextWakeups
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    let watchdog = MainThreadWatchdog()
+    /// The watchdog, and the app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
+    let watchdog = MainThreadWatchdog(), crashKeys = CrashKeySlots()
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -67,9 +68,8 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Other threads' and lanes' hang-watch scopes (the process's slot table) are scanned on the
-        // watchdog's thread; each overrun goes to debug.hangs thread_hangs.
-        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch)
+        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys).
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
