@@ -121,6 +121,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 
         init() {
             registry.bind("toggleSplitZoom", invoke: { [unowned self] in zooms.append($0) })
+            registry.bind("splitRight", invoke: { _ in })
         }
     }
 
@@ -165,5 +166,16 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, pinned: ["splitRight", "toggleSplitZoom"])
         #expect(toolbar.view.items.map(\.id) == ["splitRight", "toggleSplitZoom"])
         #expect(toolbar.view.items.map(\.lit) == [false, true])
+    }
+
+    /// A chat selected in a zoomed pane shows no zoom button but keeps its room: selecting it moves no tab.
+    @Test func aZoomedPaneKeepsTheIndicatorsRoomWhicheverTabIsSelected() {
+        let harness = Toolbar()
+        let toolbar = harness.toolbar
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
+        #expect(toolbar.view.reservedCount == 2)
+        toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
+        #expect(toolbar.view.items.isEmpty)
+        #expect(toolbar.view.reservedCount == 2, "the strip's width does not follow the selection")
     }
 }
