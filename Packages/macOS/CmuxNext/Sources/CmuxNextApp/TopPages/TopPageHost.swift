@@ -279,7 +279,3 @@ final class TopPageHost {
         if let key = keys.removeValue(forKey: route) { closed(route, key) }
     }
 }
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
-}

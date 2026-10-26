@@ -172,7 +172,7 @@ final class AppServices {
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
-    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, weak self] sources in
+    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, weak self] sources in
         PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) })
     }
     var palette: PaletteController { palettes.controller }
