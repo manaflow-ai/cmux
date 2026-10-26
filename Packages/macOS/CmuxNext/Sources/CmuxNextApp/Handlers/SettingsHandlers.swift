@@ -23,7 +23,7 @@ enum SettingsHandlers {
         registry.bind("reloadConfiguration", run: { _ in
             let settings = try requireSettings(context)
             // The Ghostty config too: terminal colors and the chrome theme follow it.
-            GhosttyRuntime.shared.reloadConfig()
+            GhosttyRuntime.shared.reloadConfigFromDisk()
             Task { await settings.reload() }
         })
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })

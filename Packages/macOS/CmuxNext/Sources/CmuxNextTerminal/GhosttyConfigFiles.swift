@@ -4,7 +4,9 @@ public import Foundation
 import GhosttyNextKit
 
 /// The user's Ghostty config files read into memory off the main thread, so the terminal runtime's
-/// first load reads no file on the main thread (`ghostty_config_load_string`; p08-startup-026).
+/// first load reads none of them on the main thread (`ghostty_config_load_string`; p08-startup-026).
+/// Not yet every read: `ghostty_config_finalize` still opens the theme file on the main thread, and
+/// libghostty resolves a relative path value against the disk as it loads it.
 ///
 /// The app reads them on a launch lane from the top of `main` (``prefetch(on:)``):
 /// Chrome's UI thread never blocks on a file (`base/threading/thread_restrictions.h`, `ScopedBlockingCall`),
@@ -68,8 +70,30 @@ public nonisolated struct GhosttyConfigFiles: Sendable, Equatable {
         }
     }
 
+    /// One path the read looked at and its ``Reader/Stamp`` just before the read (nil: nothing there).
+    public nonisolated struct Probe: Sendable, Equatable {
+        public let path: String
+        public let stamp: Reader.Stamp?
+    }
+
     /// The files in load order: the top-level files, then the includes.
     public let files: [File]
+    /// Every path the read looked at, missing default files and optional includes too, with its stamp:
+    /// ``changed(reader:)`` compares them again when the config files are watched.
+    public let probes: [Probe]
+
+    /// The files' paths, in load order.
+    public var paths: [String] { files.map(\.path) }
+
+    /// Whether a path the read looked at changed since (blocking: call it off the main thread). A file
+    /// written, replaced, made or removed between the read and the watch's start counts; the stamp is
+    /// taken before each read, so a write during the read counts too.
+    ///
+    /// - Parameter reader: The file system (tests pass their own).
+    /// - Returns: True when a load from the disk could differ from these files.
+    public func changed(reader: Reader = .disk) -> Bool {
+        probes.contains { reader.stamp($0.path) != $0.stamp }
+    }
 
     /// Starts reading the user's files on `work`'s files lane (the app's `main`); the app hands the result to
     /// the terminal runtime before its first load (``GhosttyRuntime/launchConfigFiles``), never waiting for it.
@@ -93,10 +117,15 @@ public nonisolated struct GhosttyConfigFiles: Sendable, Equatable {
     /// - Returns: The files; nil when the load must read the disk itself (see the type's discussion).
     public static func read(_ locations: Locations, reader: Reader = .disk) -> GhosttyConfigFiles? {
         var files: [File] = []
+        var probes: [Probe] = []
+        func entry(_ path: String) -> Reader.Entry {
+            probes.append(Probe(path: path, stamp: reader.stamp(path)))
+            return reader.entry(path)
+        }
         // `Config.loadFile` and `loadOptionalFile`: a missing default file is skipped, an empty one is an error.
         func top(_ path: String, optional: Bool) -> Bool {
             guard path.hasPrefix("/") else { return false }  // libghostty asserts an absolute path
-            switch reader.entry(path) {
+            switch entry(path) {
             case .missing: return optional
             case .file(let contents) where !contents.isEmpty:
                 files.append(File(path: path, contents: contents))
@@ -125,7 +154,7 @@ public nonisolated struct GhosttyConfigFiles: Sendable, Equatable {
             next += 1
             // libghostty reports a second include of one path as a cycle.
             guard included.insert(include.path).inserted, files.count < maximumFiles else { return nil }
-            switch reader.entry(include.path) {
+            switch entry(include.path) {
             case .missing where include.optional: continue
             case .file(let contents):
                 files.append(File(path: include.path, contents: contents))
@@ -134,7 +163,7 @@ public nonisolated struct GhosttyConfigFiles: Sendable, Equatable {
             default: return nil
             }
         }
-        return GhosttyConfigFiles(files: files)
+        return GhosttyConfigFiles(files: files, probes: probes)
     }
 
     /// Loads every file's bytes into `config` under its path, in order (no file is read).

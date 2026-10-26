@@ -44,8 +44,8 @@ public final class GhosttyRuntime {
 
     /// Messages from the last config load (unknown keys, bad values).
     public private(set) var configDiagnostics: [String] = []
-    /// The config files `main` read (``launchConfigFiles``), which every load uses until ``endLaunchConfig()``.
-    var launchFiles: GhosttyConfigFiles?
+    /// What the first config load read (``launchConfigFiles`` or the disk), until ``endLaunchConfig()``.
+    var launchConfig: LaunchConfig?
     /// The files the applied config was loaded from in memory (libghostty does not list them).
     var configMemoryFiles: [String] = []
 
@@ -96,7 +96,8 @@ public final class GhosttyRuntime {
             return
         }
         mark("ghostty_init")
-        launchFiles = Self.takeLaunchConfigFiles()  // never waits: an unfinished read leaves the disk read here
+        // Never waits: an unfinished read leaves the disk read here.
+        launchConfig = Self.takeLaunchConfigFiles().map(LaunchConfig.memory) ?? .disk
         guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity,
                                            files: launchFiles) else { return }
         mark(launchFiles == nil ? "config_load_disk" : "config_load")
@@ -169,6 +170,17 @@ public final class GhosttyRuntime {
     /// visual checks can run a tagged build under another theme.
     nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
+    /// This process's `CMUX_NEXT_GHOSTTY_CONFIG`; nil when it is not set or empty.
+    nonisolated static var environmentConfigOverride: String? {
+        ProcessInfo.processInfo.environment[configOverrideKey].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The disk path's top-level files in place of the default files: the
+    /// `CMUX_NEXT_GHOSTTY_CONFIG` file when it is set, else nil.
+    nonisolated static var environmentTopLevelFiles: [String]? {
+        environmentConfigOverride.map { [$0] }
+    }
+
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so
     /// it replaces their `theme`. Colors the config sets explicitly still
@@ -207,15 +219,18 @@ public final class GhosttyRuntime {
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
     /// workspace or terminal theme; see `themeConfig(named:)`). `files`
     /// (``GhosttyConfigFiles``) stand in for libghostty's reads of the user's files.
+    /// `topLevel`: the disk path's top-level files in place of the default
+    /// files (``loadUserFilesFromDisk(into:topLevel:)``).
     static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
-                           files: GhosttyConfigFiles? = nil) -> ghostty_config_t? {
+                           files: GhosttyConfigFiles? = nil,
+                           topLevel: [String]? = GhosttyRuntime.environmentTopLevelFiles) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let files { files.load(into: config) } else { loadUserFilesFromDisk(into: config) }
+        if let files { files.load(into: config) } else { loadUserFilesFromDisk(into: config, topLevel: topLevel) }
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }

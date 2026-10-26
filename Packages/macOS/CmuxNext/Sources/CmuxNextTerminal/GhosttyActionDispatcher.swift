@@ -24,7 +24,7 @@ enum GhosttyActionDispatcher {
                 // Surfaces with their own theme take it back.
                 runtime.onConfigChange?()
             } else {
-                runtime.reloadConfig()
+                runtime.reloadConfigFromDisk()  // the person asked: the files as they are now
             }
             return true
         case .openConfig:

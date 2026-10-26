@@ -24,15 +24,46 @@ nonisolated extension GhosttyConfigFiles {
             case failed
         }
 
+        /// What `stat` says of one path: its identity, size and modification time. A save in place, an
+        /// atomic rename over it, a delete or a new file each give another stamp.
+        public nonisolated struct Stamp: Sendable, Equatable {
+            public let device: Int64
+            public let inode: UInt64
+            public let size: Int64
+            public let modifiedSeconds: Int64
+            public let modifiedNanoseconds: Int64
+
+            public init(device: Int64, inode: UInt64, size: Int64, modifiedSeconds: Int64, modifiedNanoseconds: Int64) {
+                (self.device, self.inode, self.size) = (device, inode, size)
+                (self.modifiedSeconds, self.modifiedNanoseconds) = (modifiedSeconds, modifiedNanoseconds)
+            }
+        }
+
         let entry: @Sendable (String) -> Entry
         let resolve: @Sendable (String) -> Resolved
+        let stamp: @Sendable (String) -> Stamp?
 
-        public init(entry: @escaping @Sendable (String) -> Entry, resolve: @escaping @Sendable (String) -> Resolved) {
-            (self.entry, self.resolve) = (entry, resolve)
+        /// - Parameters:
+        ///   - entry: One path as open and stat see it.
+        ///   - resolve: A relative include's path resolved.
+        ///   - stamp: One path's ``Stamp``; nil when nothing is there. The default stamps nothing, so nothing
+        ///     reads as changed.
+        public init(entry: @escaping @Sendable (String) -> Entry, resolve: @escaping @Sendable (String) -> Resolved,
+                    stamp: @escaping @Sendable (String) -> Stamp? = { _ in nil }) {
+            (self.entry, self.resolve, self.stamp) = (entry, resolve, stamp)
         }
 
         /// The disk, through checked blocking calls.
-        public static let disk = Reader(entry: { diskEntry($0) }, resolve: { diskResolve($0) })
+        public static let disk = Reader(entry: { diskEntry($0) }, resolve: { diskResolve($0) }, stamp: { diskStamp($0) })
+
+        private static func diskStamp(_ path: String) -> Stamp? {
+            blockingCall(.fileIO) { () -> Stamp? in
+                var info = stat()
+                guard stat(path, &info) == 0 else { return nil }
+                return Stamp(device: Int64(info.st_dev), inode: UInt64(info.st_ino), size: Int64(info.st_size),
+                             modifiedSeconds: Int64(info.st_mtimespec.tv_sec), modifiedNanoseconds: Int64(info.st_mtimespec.tv_nsec))
+            }
+        }
 
         private static func diskEntry(_ path: String) -> Entry {
             blockingCall(.fileIO) { () -> Entry in

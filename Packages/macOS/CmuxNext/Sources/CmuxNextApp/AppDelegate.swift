@@ -176,8 +176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start(after: order.startup)  // the first window needs no Ghostty keybind or config watch
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        // At once: the user's Ghostty keybinds and unbinds route the first key press (in memory,
+        // from the loaded config); only the claims probe reads files, after the first agent page painted.
+        ghosttyKeybinds.start()
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload(runtime: .shared, work: launchReads.work)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.start(after: order.startup)
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.

@@ -24,12 +24,13 @@ extension GhosttyRuntime {
         }
     }
 
-    /// The user's files as libghostty reads them from the disk: the
-    /// `CMUX_NEXT_GHOSTTY_CONFIG` file, else the default files; then their
+    /// The user's files as libghostty reads them from the disk: `topLevel`
+    /// in order (the `CMUX_NEXT_GHOSTTY_CONFIG` file; tests pass theirs, so
+    /// no test writes the environment), else the default files; then their
     /// `config-file` includes.
-    static func loadUserFilesFromDisk(into config: ghostty_config_t) {
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
-            ghostty_config_load_file(config, path)
+    static func loadUserFilesFromDisk(into config: ghostty_config_t, topLevel: [String]? = GhosttyRuntime.environmentTopLevelFiles) {
+        if let topLevel {
+            for path in topLevel { ghostty_config_load_file(config, path) }
         } else {
             loadDefaultFiles(into: config)
         }
