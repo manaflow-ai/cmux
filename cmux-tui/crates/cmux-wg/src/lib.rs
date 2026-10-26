@@ -30,6 +30,7 @@
 //! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
+mod decrypted;
 mod device;
 mod error;
 /// Packet-path entry points for cmux-tui/fuzz.

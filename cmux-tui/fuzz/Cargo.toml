@@ -1,7 +1,9 @@
 # libFuzzer targets for cmux-tui decoders (plans/cmux-next/chrome-parity/p10-stability.md,
 # tasks 017-021). Its own workspace and lock, so the main cmux-tui Cargo.toml and
 # Cargo.lock never change for a fuzz target. Build and run with cargo-fuzz on the
-# nightly in rust-toolchain.toml; seeds are in corpus/<target>/.
+# nightly in rust-toolchain.toml; seeds are in corpus/<target>/. Task 018 created this
+# workspace; later batches (017, 019-021) add [[bin]] entries, dependencies and their lock
+# delta here and never add these files again (p10-stability.md, 017's landing order).
 [package]
 name = "cmux-tui-fuzz"
 version = "0.0.0"
@@ -124,6 +126,20 @@ bench = false
 [[bin]]
 name = "wg_config"
 path = "fuzz_targets/wg_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_mesh_packet"
+path = "fuzz_targets/wg_mesh_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_owner_session"
+path = "fuzz_targets/link_owner_session.rs"
 test = false
 doc = false
 bench = false
