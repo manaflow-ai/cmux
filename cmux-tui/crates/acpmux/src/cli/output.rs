@@ -737,7 +737,7 @@ async fn collect_once(
                         match opts.on_permission {
                             OnPermission::Wait => {
                                 let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                                eprintln!("permission needed: {title}  (acpmux session allow {id} | acpmux session deny {id})");
+                                eprintln!("permission needed: {title}  ({})", crate::question_answer::pending_hint(p.get("request").unwrap_or(&Value::Null), id));
                             }
                             mode => {
                                 denied += 1;
@@ -838,7 +838,11 @@ const TURN_REPLY_RECORDS: usize = 200_000;
 /// between that turn's start and its result. It pages back from the newest record until that
 /// turn's start, and is `None` when the log (its newest `TURN_REPLY_RECORDS`) holds no start of
 /// it: a history that does not reach the turn is not an empty reply.
-async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<String>> {
+pub(crate) async fn turn_reply(
+    client: &Arc<Client>,
+    id: &str,
+    turn: &str,
+) -> Result<Option<String>> {
     let started = |events: &[Value]| {
         events.iter().any(|e| {
             e.get("kind").and_then(Value::as_str) == Some("turn_started")
