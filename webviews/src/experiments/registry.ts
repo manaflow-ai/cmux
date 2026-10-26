@@ -17,6 +17,7 @@ import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouter
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -37,6 +38,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   trayPanelLook,
+  trayMotionLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

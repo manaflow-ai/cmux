@@ -117,7 +117,7 @@
   overflow: clip;
 }
 @media (min-height: 360px) {
-  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__fold > .acpmux-running-tray__finished) {
     min-height: calc(2 * var(--ds-control-row, 28px) + 2px + 2 * var(--cmux-hairline, 0.5px));
   }
 }

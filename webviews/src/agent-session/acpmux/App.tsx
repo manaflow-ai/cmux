@@ -6210,8 +6210,16 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
-  const trayNode =
-    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
+  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
+  // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
+  // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
+  // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
+  const trayChat = useRef(shownSessionId);
+  trayChat.current = shownSessionId;
+  const trayAbsentIn = useRef<string | undefined>(undefined);
+  const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
+  if (!hasTray) trayAbsentIn.current = shownSessionId;
+  const trayNode = hasTray ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
@@ -6233,6 +6241,8 @@ function AcpmuxPane() {
             stop={stopSubagent}
             stopProcess={stopProcess}
             placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
           />
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>

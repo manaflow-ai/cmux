@@ -39,8 +39,17 @@
 // (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on
 // the strip: "why is that even highlighted in the first place? you can click on it to go
 // somewhere? is that a command or a subagent?")
-import { memo, useId, useState } from "react";
+//
+// It moves with the transcript (Leo 2026-10-26: "Like why is this not animating and, like,
+// following along with the exact same things as everything else?"; trayMotion.tsx): it eases in as
+// a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
+// (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
+// turns the shared spinner, never a breathing dot.
+import { memo, useId, useState, type AnimationEvent } from "react";
+import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
+import { useFold } from "../conversation/fold";
+import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -53,6 +62,8 @@ import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { doingDetail, toolDetail } from "./trayDetail";
 import { trayPanelLook } from "./trayPanel.experiment";
+import { trayMotionLook } from "./trayMotion.experiment";
+import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
@@ -76,6 +87,8 @@ export const SubagentTray = memo(function SubagentTray({
   stop,
   stopProcess,
   placement = "tray",
+  shown,
+  enters = false,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -101,6 +114,11 @@ export const SubagentTray = memo(function SubagentTray({
   stopProcess?: (processId: string) => Promise<unknown>;
   /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
   placement?: SubagentTrayPlacement;
+  /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
+  /// goes while its chat still shows (trayMotion.tsx `useTrayMotion`); none, no entrance or exit.
+  shown?: { readonly current: string | undefined };
+  /// The tray appears in a chat that showed without it: it eases in.
+  enters?: boolean;
 }) {
   const t = useT();
   const listId = useId();
@@ -111,11 +129,23 @@ export const SubagentTray = memo(function SubagentTray({
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
-  if (items.length === 0 && finished.length === 0) return null;
+  const [motion] = useState(() => experimentArm(trayMotionLook));
+  const motionRef = useTrayMotion(shown, enters);
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
+  // The list opens and folds on the shared fold, its height only (no fade in), from the header's
+  // chevron or the list growing past TRAY_OPEN_MAX.
+  const fold = useFold(open, always, false);
+  const keys = [
+    ...items.map(itemKey),
+    ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
+  ];
+  // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
+  // drawn with, and lines a fold or View all brings back, are simply there.
+  const arrivals = useArrivals(keys, open ? keys : NO_KEYS);
+  if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
   const commands = items.length - subagents;
@@ -138,14 +168,34 @@ export const SubagentTray = memo(function SubagentTray({
       .join(" · ") || t("summary.subagents");
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
+  const arriving = (key: string) =>
+    arrivals.arrived.has(key)
+      ? {
+          "data-enter": "bottom" as const,
+          onAnimationEnd: (event: AnimationEvent<HTMLElement>) => {
+            if (event.target === event.currentTarget) arrivals.played(key);
+          },
+        }
+      : undefined;
   const cards = [
-    ...items.map((item) => <li key={itemKey(item)}>{line(item)}</li>),
+    ...items.map((item) => (
+      <li key={itemKey(item)} {...arriving(itemKey(item))}>
+        {line(item)}
+      </li>
+    )),
     ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item, index) => (
-      <li key={itemKey(item)} data-finished="" data-first-finished={index === 0 || undefined}>
+      <li
+        key={itemKey(item)}
+        data-finished=""
+        data-first-finished={index === 0 || undefined}
+        {...arriving(itemKey(item))}
+      >
         {line(item)}
       </li>
     )),
   ];
+  // The header's spinner is a running line's: it turns while anything under it runs.
+  const runs = running > 0 || commands > 0;
   // View all sits under the list, outside its scroller, so it never scrolls away either.
   const more = finished.length > TRAY_OPEN_MAX && (
     <button
@@ -162,24 +212,26 @@ export const SubagentTray = memo(function SubagentTray({
   );
   return (
     <section
+      ref={motionRef}
       className="acpmux-running-tray"
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
       data-look={look}
+      data-motion={motion}
     >
       {headed && (
         <button
           type="button"
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
-          aria-controls={open ? listId : undefined}
+          aria-controls={fold.present ? listId : undefined}
           onClick={() => setOpened(!open)}
         >
-          <span className="acpmux-lineage__icon" data-state="running">
-            <Icon name="agent.session" size={14} />
+          <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
+            {runs ? <Spinner size={14} loading /> : <Icon name="agent.session" size={14} />}
           </span>
-          <span className="acpmux-summary-text acpmux-running-tray__title">{title}</span>
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
           {starts.length > 0 && (
             <span className="acpmux-summary-meta acpmux-running-tray__time">
               {formatDuration(Math.max(0, now - Math.min(...starts)))}
@@ -188,12 +240,14 @@ export const SubagentTray = memo(function SubagentTray({
           <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
         </button>
       )}
-      {open && (
-        <ul id={listId} className="acpmux-running-tray__list">
-          {cards}
-        </ul>
+      {fold.present && (
+        <div ref={fold.ref} className="acpmux-running-tray__fold">
+          <ul id={listId} className="acpmux-running-tray__list">
+            {cards}
+          </ul>
+          {more}
+        </div>
       )}
-      {open && more}
     </section>
   );
 
@@ -211,6 +265,7 @@ export const SubagentTray = memo(function SubagentTray({
           }
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
+          working={subagentStatus(item.agent, waiting) === "running"}
           state={t(subagentStatusLabel(item.agent, waiting))}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
@@ -291,6 +346,7 @@ export const SubagentTray = memo(function SubagentTray({
         chevron
         icon="agent.chat"
         status={SESSION_STATUS[item.session.state]}
+        working={item.session.state === "running"}
         state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
@@ -299,6 +355,8 @@ export const SubagentTray = memo(function SubagentTray({
 });
 
 const NO_ITEMS: readonly TrayItem[] = [];
+const NO_KEYS: readonly string[] = [];
+const always = () => true;
 
 /// What a line says it does now is only for what still runs: an ended one never reads "Running …".
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
