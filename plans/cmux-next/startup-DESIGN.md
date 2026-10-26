@@ -292,7 +292,7 @@ Target <= 3 (cache, windows, keyRouter).
 |---|---|---|---|---|
 | Q1-1 | `_ = cloud` | onDemand once 020 splits out the auth; until then critical by reader, no gain | 020 (auth split assigned here) | Two readers run before the first frame: the `ManagedPolicyBridge.start` critical post reads `cloud.auth` (O20), and the `services.settings` `didSet` reads `cloud.hostReplica` (O45). Removing `_ = cloud` alone defers nothing. 020 makes `CloudAuth` its own `AppServices` member that `CloudService` takes by init, passes the bridge only that auth, and moves the host replica follow into the Cloud start post; then `startCloud` is the first reader. |
 | Q1-2 | `_ = feed` | onDemand | 020 | Built by its first reader. |
-| Q1-3 | `_ = rightSidebarSections` | onDemand; afterStartup `RightSidebar.prewarm` on main posts the icon build `RightSidebar.icons` on `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown; a panel shown before the build makes its own icons. |
+| Q1-3 | `_ = rightSidebarSections` | onDemand; afterStartup `RightSidebar.prewarm` on main posts the icon build `RightSidebar.icons` on `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. A panel built first (a window restored with it shown) posts the same build at afterFirstFrame and shows empty buttons until the images land; no main turn decodes a symbol. |
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |

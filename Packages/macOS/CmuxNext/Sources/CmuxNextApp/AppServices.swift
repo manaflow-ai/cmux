@@ -219,7 +219,7 @@ final class AppServices {
     /// The right sidebar's sections by mode (the file explorer adds Files and Find): built by the first panel, or by
     /// the afterStartup post of its icon build (`postLaterTabWarmups`).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
-        let sections = RightSidebarSections()
+        let sections = RightSidebarSections(startup: launchStartup)
         sections.registerAppSections()
         return sections
     }()
@@ -473,6 +473,8 @@ final class AppServices {
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
     let launchImageHold: LaunchImageHold
+    /// The launch's scheduler: the right sidebar's icon build is one of its cpu-lane posts. Nil in tests with no launch.
+    let launchStartup: StartupScheduler?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -498,12 +500,14 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
+    ///   makes the right sidebar's icons on main when its first panel is built.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
-         launchImageHold: LaunchImageHold = LaunchImageHold()) {
+         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -513,6 +517,7 @@ final class AppServices {
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
         hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
+        self.launchStartup = launchStartup
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
