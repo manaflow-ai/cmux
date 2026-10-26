@@ -39,8 +39,9 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         let span = monitor?.beginSpan(index, start: start)
         let read = input()
         let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: read.ageMilliseconds)
-        let commit = signposts ? signposter.begin(.actionCommit, message) : nil
-        let perform = signposts ? signposter.begin(.actionPerform, message) : nil
+        let entrypoint = read.entrypoint.tracePosition
+        let commit = signposts ? signposter.begin(.actionCommit, message, actionIndex: index, entrypoint: entrypoint) : nil
+        let perform = signposts ? signposter.begin(.actionPerform, message, actionIndex: index, entrypoint: entrypoint) : nil
         wakes.begin()
         let before = wakes.wakes
         let result = body()
@@ -72,8 +73,11 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     public func beginGate(_ id: ActionID, _ origin: ActionOrigin, input: () -> ActionRunInput) -> (@MainActor () -> Void)? {
         let signposter = Signposter.action
         guard signposter.isEnabled else { return nil }
-        let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: input().ageMilliseconds)
-        let gate = signposter.begin(.actionGate, message)
+        let read = input()
+        let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: read.ageMilliseconds)
+        // A gate has no run key (``ActionRunTiming/beginGate(_:_:input:)`` takes the id, and interning is
+        // bind-time only), so its record carries the entrypoint and index 0, "none interned".
+        let gate = signposter.begin(.actionGate, message, actionIndex: 0, entrypoint: read.entrypoint.tracePosition)
         return { [signposter] in signposter.end(.actionGate, gate) }
     }
 }

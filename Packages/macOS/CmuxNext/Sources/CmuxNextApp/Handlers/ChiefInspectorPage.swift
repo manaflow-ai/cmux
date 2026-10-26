@@ -55,7 +55,7 @@ final class ChiefInspectorPageService: InternalPageProvider {
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return PageWebView(descriptor: .chiefInspector, routes: routes) ?? NSView()
+        return services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) ?? NSView()
     }
 }
 

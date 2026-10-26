@@ -243,8 +243,9 @@ extension ScreenContentView {
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
     }
-    /// Divider hover from the pointer and the current frames (`ScreenDividers`).
-    func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
+    /// Divider hover from the pointer and the current frames (`ScreenDividers`); `event` is a
+    /// handle's enter or exit, read for its point.
+    func refreshDividerHover(at event: NSEvent? = nil) { ScreenDividers(screen: self).refreshHover(at: event) }
     /// Hosts this screen displays now: its panes', then those a zoom covers (their rings and
     /// dims stay as they were, under the zooming pane, until it lands).
     var displayedHosts: [PaneHostView] {

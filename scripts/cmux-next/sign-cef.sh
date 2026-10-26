@@ -5,7 +5,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework
 #   Contents/Frameworks/libcmux_cef_shim.dylib
 #   Contents/Frameworks/<product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
-#   Contents/Frameworks/<product> Chromium Host.app   (Debug builds only, prototype)
+#   Contents/MacOS/<product> Chromium Host            (Debug builds only, prototype)
 #
 # The GPU and Renderer helpers get com.apple.security.cs.allow-jit (V8 and
 # the GPU process need it under the hardened runtime); the others get no
@@ -63,11 +63,12 @@ for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; d
       codesign "${flags[@]}" "$helper" ;;
   esac
 done
-# The Chromium host app (embed-cef.sh, Debug builds): Chromium's browser
-# process, as the app itself is when it runs Chromium in process.
-# A Release bundle has no host app: the glob stays literal, and the `if` keeps
+# The Chromium host (embed-cef.sh, Debug builds): Chromium's browser process,
+# as the app itself is when it runs Chromium in process; a second executable in
+# Contents/MacOS, signed before the main bundle as nested code must be.
+# A Release bundle has no host: the glob stays literal, and the `if` keeps
 # that miss from becoming the script's exit status (a bare `[[ ]] &&` as the
 # loop's last command made sign-cef.sh exit 1 and failed Embed CEF).
-for host_app in "$frameworks"/*" Chromium Host.app"; do
-  if [[ -d "$host_app" ]]; then codesign "${flags[@]}" "$host_app"; fi
+for host_binary in "$app/Contents/MacOS/"*" Chromium Host"; do
+  if [[ -f "$host_binary" ]]; then codesign "${flags[@]}" "$host_binary"; fi
 done

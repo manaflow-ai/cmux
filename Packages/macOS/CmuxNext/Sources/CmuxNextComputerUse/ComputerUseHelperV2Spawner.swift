@@ -144,6 +144,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             while waitpid(pid, &status, 0) < 0, errno == EINTR {}
         }
         thread.name = "cua-helper-v2-reap"
+        thread.qualityOfService = .utility
         thread.start()
     }
 
@@ -171,6 +172,8 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
                 continuation.finish()
             }
             thread.name = "cua-helper-v2-stdout"
+            // Agent work: nobody at the keyboard waits for the helper's lines.
+            thread.qualityOfService = .utility
             thread.start()
         }
     }
