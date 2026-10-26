@@ -19,7 +19,7 @@ struct BrowserImportCorruptProfileTests {
         {"windows":[{"tabs":[{"index":-9223372036854775808,"entries":[{"url":"https://a.example/"},{"url":"https://b.example/"}]},
         {"index":9223372036854775807,"entries":[{"url":"https://c.example/"},{"url":"https://d.example/"}]}]}]}
         """#.utf8)
-        let tabs = FirefoxSessionReader().parse(MozLz4Fixture.file(json))
+        let tabs = FirefoxSessionReader().parse(MozLz4Fixture.file(json)).items
         #expect(tabs.map(\.url.absoluteString) == ["https://a.example/", "https://d.example/"])
     }
 
@@ -27,13 +27,40 @@ struct BrowserImportCorruptProfileTests {
         let json = Data(#"""
         {"history":[{"url":"https://a.example/","time_usec":1700000000000000,"visit_count":9223372036854775807},
         {"url":"https://a.example/","time_usec":1700000001000000,"visit_count":9223372036854775807},
-        {"url":"https://b.example/","time_usec":1e300,"visit_count":-5}]}
+        {"url":"https://c.example/","time_usec":1700000002000000,"visit_count":-5}]}
         """#.utf8)
         let history = try #require(ExportedHistory(json: json))
         let counts = Dictionary(uniqueKeysWithValues: history.entries.map { ($0.url.host() ?? "", $0.visitCount) })
         // A negative count reads as one visit (ExportedHistory's floor), the sum of two Int.max as the cap.
-        #expect(counts == ["a.example": ImportedHistoryEntry.maximumVisitCount, "b.example": 1])
-        #expect(history.entries.allSatisfy { $0.lastVisit.timeIntervalSince1970.isFinite && $0.lastVisit.timeIntervalSince1970 < 253_402_300_800 })
+        #expect(counts == ["a.example": ImportedHistoryEntry.maximumVisitCount, "c.example": 1])
+        #expect(history.skipped.total == 0)
+    }
+
+    /// Before: a time past year 9999 became a 1970 visit in an export, and vanished uncounted from a database.
+    @Test func historyRowsWithCorruptTimesAreSkippedAndCounted() throws {
+        let json = Data(#"""
+        {"history":[{"url":"https://a.example/","time_usec":1700000000000000},{"url":"https://b.example/","time_usec":1e300},
+        {"url":"https://c.example/","time_usec":-1e20},{"url":"https://d.example/"},{"url":"chrome://flags","time_usec":1700000000000000}]}
+        """#.utf8)
+        let history = try #require(ExportedHistory(json: json))
+        #expect(history.entries.map(\.url.absoluteString) == ["https://a.example/"])
+        #expect(history.skipped.badTime == 3 && history.skipped.notImportable == 1 && history.skipped.total == 4)
+
+        // Ten pages at Int64.max sort first under ORDER BY … DESC; they must not take the limit's places.
+        let root = FileManager.default.temporaryDirectory.appending(path: "chromium-history-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appending(path: "History")
+        let visit = Int64((ImportFuzzCases.now.timeIntervalSince1970 + 11_644_473_600) * 1_000_000)
+        let corrupt = (0..<10).map { "('https://bad\($0).example/', 'Bad', 1, 0, \(Int64.max), 0)" }
+        try SQLiteFixture.create(file, """
+            CREATE TABLE urls (id INTEGER PRIMARY KEY, url, title, visit_count, typed_count, last_visit_time, hidden);
+            INSERT INTO urls (url, title, visit_count, typed_count, last_visit_time, hidden) VALUES
+              \(corrupt.joined(separator: ", ")), ('https://good.example/', 'Good', 2, 0, \(visit), 0), ('about:blank', '', 1, 0, \(visit), 0);
+            """)
+        let read = try ChromiumHistoryReader().read(file, limit: 5)
+        #expect(read.items.map(\.url.absoluteString) == ["https://good.example/"])
+        #expect(read.skipped.badTime == 10 && read.skipped.notImportable == 1)
     }
 
     @Test func profileFoldersNumberedUpToIntMaxStillSort() throws {
@@ -56,16 +83,19 @@ struct BrowserImportCorruptProfileTests {
         "items":["p1",{"id":"p1","childrenIds":["l1"]},"l1",{"id":"l1","title":"List","data":{"list":{}},"childrenIds":["l1","l1","t1"]},
         "t1",{"id":"t1","data":{"tab":{"savedURL":"https://arc.net/"}}}]}]}}
         """#.utf8)
-        let bookmarks = try ArcSidebarReader().parse(json, profileDirectory: "Default")
-        #expect(bookmarks.map(\.folderPath) == [["Home", "List"]])
+        let read = try ArcSidebarReader().parse(json, profileDirectory: "Default")
+        #expect(read.items.map(\.folderPath) == [["Home", "List"]])
+        #expect(read.skipped.repeatedFolder == 2 && read.skipped.total == 2)
     }
 
-    /// Before: a 1 KB binary plist that names each folder twice from its parent was walked 2^31 times.
-    @Test func safariBookmarksThatShareFoldersStopAtTheNodeLimit() throws {
-        let bookmarks = try SafariBookmarksParser().parse(BinaryPlistFixture.doublingBookmarks(levels: 30))
-        #expect(!bookmarks.isEmpty)
-        #expect(bookmarks.count <= SafariBookmarksParser().maximumNodes)
-        #expect(bookmarks.allSatisfy { $0.url.absoluteString == "https://example.com/" })
+    /// Before: a 1 KB binary plist that names each folder twice from its parent was walked 2^31 times
+    /// (later capped at 2^20 entries, still ~500K duplicate bookmarks). Each folder is read once now.
+    @Test func safariBookmarksThatShareFoldersAreReadOnce() throws {
+        let read = try SafariBookmarksParser().parse(BinaryPlistFixture.doublingBookmarks(levels: 30))
+        // One chain of 31 folders down to the two leaves; the second mention at each of 30 levels is counted.
+        #expect(read.items.count == 2)
+        #expect(read.items.allSatisfy { $0.url.absoluteString == "https://example.com/" && $0.folderPath.count == 31 })
+        #expect(read.skipped.repeatedFolder == 30 && read.skipped.total == 30)
     }
 
     @Test func timesThatBaseTimeCannotHoldAreDropped() {
@@ -76,10 +106,13 @@ struct BrowserImportCorruptProfileTests {
         #expect(time.unix(.nan) == nil)
         #expect(time.unix(-1e20) == nil)
         #expect(time.chromium(13_300_000_000_000_000) != nil)
+        #expect(time.chromium(BrowserTime.lastChromium) != nil && time.chromium(BrowserTime.lastChromium + 1_000_000) == nil)
+        #expect(time.mozilla(BrowserTime.lastMozilla) != nil && time.mozilla(BrowserTime.lastMozilla + 1_000_000) == nil)
+        #expect(time.cocoa(Double(BrowserTime.lastCocoa)) != nil && time.cocoa(Double(BrowserTime.lastCocoa + 1)) == nil)
         // An expiry keeps its cookie persistent.
-        #expect(time.chromium(.max, clampingFuture: true) == BrowserTime.lastKept)
-        #expect(time.cocoa(.infinity, clampingFuture: true) == BrowserTime.lastKept)
-        #expect(time.cocoa(.nan, clampingFuture: true) == nil)
+        #expect(time.chromiumExpiry(.max) == BrowserTime.lastKept)
+        #expect(time.cocoaExpiry(.infinity) == BrowserTime.lastKept)
+        #expect(time.cocoaExpiry(.nan) == nil)
         #expect(FirefoxCookieReader().expiry(.max) == BrowserTime.lastKept)
     }
 }

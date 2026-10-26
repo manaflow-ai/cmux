@@ -68,6 +68,8 @@ struct ImportFuzzHome: Sendable {
         var damaged: Set<URL> = []
         /// What an undamaged import of this profile gives.
         var expected: ImportCounts
+        /// The entries an undamaged import leaves out and counts: bookmarks, history pages, open tabs.
+        var skipped: (bookmarks: Int, history: Int, openTabs: Int) = (0, 0, 0)
     }
 
     let home: URL
@@ -133,7 +135,9 @@ struct ImportFuzzHome: Sendable {
         #endif
         let source = BrowserSourceProfile(browser: .chrome, directoryName: "Default", displayName: "Person 1", path: path, availability: Self.all)
         return Profile(source: source, kinds: kinds, files: files,
-                       expected: ImportCounts(bookmarks: 3, history: 2, openTabs: 2, cookies: 2, passwords: passwords))
+                       expected: ImportCounts(bookmarks: 3, history: 2, openTabs: 2, cookies: 2, passwords: passwords),
+                       // chrome://flags, chrome://history and chrome://settings.
+                       skipped: (bookmarks: 1, history: 1, openTabs: 1))
     }
 
     private func firefox() throws -> Profile {
@@ -179,7 +183,9 @@ struct ImportFuzzHome: Sendable {
         let source = BrowserSourceProfile(browser: .firefox, directoryName: "Profiles/fuzz.default-release", displayName: "default-release",
                                           path: path, availability: Self.all)
         return Profile(source: source, kinds: kinds, files: files,
-                       expected: ImportCounts(bookmarks: 2, history: 2, openTabs: 2, cookies: 2, passwords: passwords))
+                       expected: ImportCounts(bookmarks: 2, history: 2, openTabs: 2, cookies: 2, passwords: passwords),
+                       // about:blank and a tab with no entries; the tag assignment is no bookmark, so no skip.
+                       skipped: (bookmarks: 0, history: 0, openTabs: 2))
     }
 
     private func safari() throws -> Profile {
@@ -245,6 +251,9 @@ struct ImportFuzzHome: Sendable {
             if profile.damaged.isEmpty {
                 try FuzzRun.check(batch.counts == profile.expected && batch.cookieError == nil && batch.passwordError == nil,
                                   "undamaged \(id) imported \(batch.counts), expected \(profile.expected); cookies \(String(describing: batch.cookieError)), passwords \(String(describing: batch.passwordError))")
+                // Every entry of the profile's files is imported or counted: the counts above plus these are all of them.
+                let skipped = (bookmarks: batch.skippedBookmarks.total, history: batch.skippedHistory.total, openTabs: batch.skippedOpenTabs.total)
+                try FuzzRun.check(skipped == profile.skipped, "undamaged \(id) skipped \(skipped), expected \(profile.skipped)")
             }
         }
     }

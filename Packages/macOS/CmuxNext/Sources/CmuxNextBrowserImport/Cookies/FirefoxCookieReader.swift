@@ -32,10 +32,10 @@ public struct FirefoxCookieReader {
     }
 
     /// `expiry` is seconds since 1970; Firefox 135+ writes milliseconds. A time past year
-    /// 9999 is kept as the last second of it (``BrowserTime/unix(_:clampingFuture:)``).
+    /// 9999 is kept as the last second of it (``BrowserTime/unixExpiry(_:)``).
     func expiry(_ raw: Int64) -> Date? {
         guard raw > 0 else { return nil }
-        return BrowserTime().unix(raw > 100_000_000_000 ? Double(raw) / 1000 : Double(raw), clampingFuture: true)
+        return BrowserTime().unixExpiry(raw > 100_000_000_000 ? Double(raw) / 1000 : Double(raw))
     }
 
     /// Firefox's `nsICookie.sameSite`: 0 none, 1 lax, 2 strict (256 is

@@ -41,21 +41,27 @@ public struct FirefoxSessionReader {
         return written == size ? Data(output) : nil
     }
 
-    public func parse(_ data: Data) -> [ImportedTab] {
+    /// The open tabs; a tab with no history entry or an address that is not importable is counted.
+    public func parse(_ data: Data) -> ImportRead<ImportedTab> {
         guard let json = decompress(data),
-              let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return [] }
-        var tabs: [ImportedTab] = []
+              let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return ImportRead() }
+        var read = ImportRead<ImportedTab>()
         for (windowIndex, window) in (root["windows"] as? [[String: Any]] ?? []).enumerated() {
-            for tab in window["tabs"] as? [[String: Any]] ?? [] {
-                let entries = tab["entries"] as? [[String: Any]] ?? []
-                guard !entries.isEmpty else { continue }
+            for element in window["tabs"] as? [Any] ?? [] {
+                guard let tab = element as? [String: Any], let entries = tab["entries"] as? [[String: Any]], !entries.isEmpty else {
+                    read.skipped.unsupported += 1
+                    continue
+                }
                 // `index` is 1-based; any other number (Int.min included) picks the nearest entry.
                 let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
-                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else { continue }
+                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else {
+                    read.skipped.notImportable += 1
+                    continue
+                }
                 let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                tabs.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
+                read.items.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
             }
         }
-        return tabs
+        return read
     }
 }

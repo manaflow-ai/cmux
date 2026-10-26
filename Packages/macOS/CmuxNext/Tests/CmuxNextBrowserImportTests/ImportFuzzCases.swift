@@ -114,12 +114,15 @@ struct ImportFuzzCases {
     // MARK: Sessions
 
     static func chromiumSession(_ data: Data) throws {
-        let tabs = ChromiumSessionReader().parse(data)
+        let read = ChromiumSessionReader().parse(data)
+        let tabs = read.items
         try ImportFuzzOracle.tabs(tabs)
         if data == ChromiumSessionFixture.sample {
             try FuzzRun.check(tabs.map(\.url.absoluteString) == ["https://example.com/", "https://news.example/a?b=c"]
                                   && tabs.map(\.pinned) == [true, false] && tabs.map(\.window) == [0, 0],
                               "the Chromium session seed read back as \(tabs.map(\.url))")
+            // chrome://settings is counted; the closed window's tab is not open, so it is no skip.
+            try FuzzRun.check(read.skipped.notImportable == 1 && read.skipped.total == 1, "the Chromium session seed skipped \(read.skipped)")
         }
     }
 
@@ -128,12 +131,22 @@ struct ImportFuzzCases {
         if let json = reader.decompress(data) {
             try FuzzRun.check(json.count <= reader.maximumSize, "a session store inflated to \(json.count) bytes")
         }
-        let tabs = reader.parse(data)
+        let read = reader.parse(data)
+        let tabs = read.items
         try ImportFuzzOracle.tabs(tabs)
+        // Every tab of the session is imported or counted.
+        if let json = reader.decompress(data), let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] {
+            let windows = root["windows"] as? [[String: Any]] ?? []
+            let count = windows.reduce(0) { $0 + (($1["tabs"] as? [Any])?.count ?? 0) }
+            try FuzzRun.check(tabs.count + read.skipped.total == count, "\(count) Firefox tabs gave \(tabs.count) and \(read.skipped.total) skipped")
+        }
         if data == MozLz4Fixture.sessionFile {
             try FuzzRun.check(tabs.map(\.url.absoluteString) == ["https://b.example/", "file:///tmp/x.html"]
                                   && tabs.map(\.window) == [0, 1] && tabs.map(\.pinned) == [true, false],
                               "the Firefox session seed read back as \(tabs.map(\.url))")
+            // about:blank is not importable; the tab with no entries is not read.
+            try FuzzRun.check(read.skipped.notImportable == 1 && read.skipped.unsupported == 1 && read.skipped.total == 2,
+                              "the Firefox session seed skipped \(read.skipped)")
         }
     }
 
@@ -153,31 +166,53 @@ struct ImportFuzzCases {
     // MARK: Bookmarks
 
     static func chromiumBookmarks(_ data: Data) throws {
-        guard let bookmarks = try? ChromiumBookmarksParser().parse(data) else { return }
+        guard let read = try? ChromiumBookmarksParser().parse(data) else { return }
+        let bookmarks = read.items
         try ImportFuzzOracle.bookmarks(bookmarks)
+        // The file is a tree: every entry under a root is a bookmark, a counted skip, or a folder opened.
+        if let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let roots = root["roots"] as? [String: Any] {
+            let entries = ["bookmark_bar", "other", "synced"].reduce(0) { $0 + chromiumEntries(roots[$1] as? [String: Any], depth: 0) }
+            try FuzzRun.check(bookmarks.count + read.skipped.total == entries,
+                              "\(entries) Chromium bookmark entries gave \(bookmarks.count) and \(read.skipped.total) skipped")
+        }
         if data == BookmarksFixture.chromium {
             try FuzzRun.check(bookmarks.map(\.folderPath) == [["Bookmarks Bar"], ["Bookmarks Bar", "Work"], ["synced"]]
                                   && bookmarks.first?.dateAdded != nil,
                               "the Chromium bookmarks seed read back as \(bookmarks.map(\.url))")
+            try FuzzRun.check(read.skipped.notImportable == 1 && read.skipped.total == 1, "the Chromium bookmarks seed skipped \(read.skipped)")
+        }
+    }
+
+    /// Entries under a Chromium folder that end as a bookmark or a skip: all but the folders opened;
+    /// a folder past the depth limit counts as one.
+    static func chromiumEntries(_ folder: [String: Any]?, depth: Int) -> Int {
+        guard let folder else { return 0 }
+        return (folder["children"] as? [Any] ?? []).reduce(0) { sum, element in
+            guard let child = element as? [String: Any], child["type"] as? String == "folder" else { return sum + 1 }
+            return sum + (depth + 1 < ImportSkipCounts.maximumDepth ? chromiumEntries(child, depth: depth + 1) : 1)
         }
     }
 
     static func arcSidebar(_ data: Data) throws {
-        guard let bookmarks = try? ArcSidebarReader().parse(data, profileDirectory: "Default") else { return }
+        guard let read = try? ArcSidebarReader().parse(data, profileDirectory: "Default") else { return }
+        let bookmarks = read.items
         try ImportFuzzOracle.bookmarks(bookmarks)
         if data == BookmarksFixture.arc {
             try FuzzRun.check(bookmarks.map(\.folderPath) == [["Favorites"], ["Home"], ["Home", "List"]],
                               "the Arc seed read back as \(bookmarks.map(\.folderPath))")
+            try FuzzRun.check(read.skipped.total == 0, "the Arc seed skipped \(read.skipped)")
         }
     }
 
     static func safariBookmarks(_ data: Data) throws {
-        guard let bookmarks = try? SafariBookmarksParser(maximumNodes: 4096).parse(data) else { return }
+        guard let read = try? SafariBookmarksParser(maximumNodes: 4096).parse(data) else { return }
+        let bookmarks = read.items
         try ImportFuzzOracle.bookmarks(bookmarks)
         try FuzzRun.check(bookmarks.count <= 4096, "\(bookmarks.count) Safari bookmarks past the node cap")
         if data == BookmarksFixture.safariXML || data == BookmarksFixture.safariBinary {
             try FuzzRun.check(bookmarks.map(\.folderPath) == [["Favorites"], ["Reading List"]],
                               "the Safari bookmarks seed read back as \(bookmarks.map(\.folderPath))")
+            try FuzzRun.check(read.skipped.total == 0, "the Safari bookmarks seed skipped \(read.skipped)")
         }
     }
 
@@ -186,9 +221,15 @@ struct ImportFuzzCases {
     static func exportedHistory(_ data: Data) throws {
         guard let history = ExportedHistory(json: data, limit: 64) else { return }
         try ImportFuzzOracle.history(history.entries, limit: 64)
+        // Rows of one URL merge into one entry, so pages and skips together are at most the rows.
+        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let rows = ((root?["history"] as? [[String: Any]]) ?? (root?["Browser History"] as? [[String: Any]]))?.count ?? 0
+        try FuzzRun.check(history.entries.count + history.skipped.total <= rows,
+                          "\(rows) exported rows gave \(history.entries.count) pages and \(history.skipped.total) skipped")
         if data == ExportedHistoryFixture.safari {
             try FuzzRun.check(history.entries.map(\.visitCount) == [5] && history.entries.first?.title == "A2",
                               "the Safari history seed read back as \(history.entries.map(\.visitCount))")
+            try FuzzRun.check(history.skipped.notImportable == 1 && history.skipped.total == 1, "the Safari history seed skipped \(history.skipped)")
         }
     }
 

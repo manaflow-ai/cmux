@@ -75,11 +75,16 @@ struct ImportFuzzDatabase {
 extension SQLiteFixture {
     /// The table's rows as SQLite reads them with every column decoded; nil when it cannot.
     static func rowCount(_ file: URL, table: String) -> Int? {
+        rowCount(file, query: "SELECT * FROM \(table)")
+    }
+
+    /// The rows `query` gives, every column decoded; nil when it cannot.
+    static func rowCount(_ file: URL, query: String) -> Int? {
         var db: OpaquePointer?
         defer { sqlite3_close(db) }
         guard sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return nil }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT * FROM \(table)", -1, &statement, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(statement) }
         var count = 0
         while true { // wakeup-allow: bounded by the table; ends at SQLITE_DONE or an error
@@ -241,14 +246,28 @@ struct ImportFuzzDatabases {
         let database = try ImportFuzzDatabase(directory.appending(path: "History"), schema: "CREATE TABLE urls (\(columns.joined(separator: ", ")));",
                                               inserts: inserts, table: "urls", droppedColumn: dropped, &rng)
         let limit = rng.int(in: -1...20)
-        let entries: [ImportedHistoryEntry]
+        let read: ImportRead<ImportedHistoryEntry>
         do {
-            entries = try ChromiumHistoryReader().read(database.file, limit: limit)
+            read = try ChromiumHistoryReader().read(database.file, limit: limit)
         } catch is SQLiteSnapshot.Failure {
             try FuzzRun.check(!database.intact, "an intact History database failed")
             return
         }
-        try ImportFuzzOracle.history(entries, limit: limit)
+        try ImportFuzzOracle.history(read.items, limit: limit)
+        let pages = "SELECT * FROM urls WHERE hidden = 0 AND visit_count > 0"
+        try accountsForPages(read, database.file, limit: limit, pages: pages,
+                             kept: pages + " AND \(ImportableURL.sqlFilter("url")) AND \(BrowserTime.sqlKept("last_visit_time", last: BrowserTime.lastChromium))",
+                             "History")
+    }
+
+    /// Every visited page is imported or counted by its skip reason; only pages past `limit` are
+    /// neither. `pages` selects every page the reader looks at, `kept` those it would import.
+    static func accountsForPages(_ read: ImportRead<ImportedHistoryEntry>, _ file: URL, limit: Int, pages: String, kept: String,
+                                 _ what: String) throws {
+        guard let all = SQLiteFixture.rowCount(file, query: pages), let wanted = SQLiteFixture.rowCount(file, query: kept) else { return }
+        let expected = all - wanted + min(wanted, max(0, limit))
+        try FuzzRun.check(read.items.count + read.skipped.total == expected,
+                          "\(what): \(all) pages, \(wanted) importable, limit \(limit): \(read.items.count) imported and \(read.skipped) skipped")
     }
 
     static func safariHistory(_ rng: inout FuzzRNG, in directory: URL) throws {
@@ -267,14 +286,20 @@ struct ImportFuzzDatabases {
         let database = try ImportFuzzDatabase(directory.appending(path: "History.db"), schema: schema, inserts: inserts, table: "history_items",
                                               droppedColumn: false, &rng)
         let limit = rng.int(in: 0...20)
-        let entries: [ImportedHistoryEntry]
+        let read: ImportRead<ImportedHistoryEntry>
         do {
-            entries = try SafariHistoryReader().read(database.file, limit: limit)
+            read = try SafariHistoryReader().read(database.file, limit: limit)
         } catch is SQLiteSnapshot.Failure {
             try FuzzRun.check(!database.intact, "an intact History.db failed")
             return
         }
-        try ImportFuzzOracle.history(entries, limit: limit)
+        try ImportFuzzOracle.history(read.items, limit: limit)
+        // Every item is a page, visited or not.
+        let kept = """
+            SELECT i.id, MAX(v.visit_time) AS last FROM history_items i JOIN history_visits v ON v.history_item = i.id
+            WHERE \(ImportableURL.sqlFilter("i.url")) GROUP BY i.id HAVING \(BrowserTime.sqlKept("last", last: BrowserTime.lastCocoa))
+            """
+        try accountsForPages(read, database.file, limit: limit, pages: "SELECT * FROM history_items", kept: kept, "History.db")
     }
 
     /// Bookmarks whose folders name any parent (themselves, each other, none), and history.
@@ -304,13 +329,27 @@ struct ImportFuzzDatabases {
         let database = try ImportFuzzDatabase(directory.appending(path: "places.sqlite"), schema: schema, inserts: inserts, table: "moz_bookmarks",
                                               droppedColumn: false, &rng)
         do {
-            try ImportFuzzOracle.bookmarks(try FirefoxPlacesReader().readBookmarks(database.file))
+            let read = try FirefoxPlacesReader().readBookmarks(database.file)
+            try ImportFuzzOracle.bookmarks(read.items)
+            // Every bookmark row is imported or counted, but a tag assignment (under the tags root) is
+            // neither: it is no bookmark. Only the fixture's own tags folder can make one.
+            if let rows = SQLiteFixture.rowCount(database.file, query: "SELECT * FROM moz_bookmarks WHERE type = 1") {
+                let accounted = read.items.count + read.skipped.total
+                let tags = inserts.contains { $0.contains("'tags________'") }
+                try FuzzRun.check(tags ? accounted <= rows : accounted == rows,
+                                  "\(rows) bookmark rows gave \(read.items.count) bookmarks and \(read.skipped) skipped")
+            }
         } catch is SQLiteSnapshot.Failure {
             try FuzzRun.check(!database.intact, "an intact places.sqlite gave no bookmarks")
         }
         let limit = rng.int(in: 0...20)
         do {
-            try ImportFuzzOracle.history(try FirefoxPlacesReader().readHistory(database.file, limit: limit), limit: limit)
+            let read = try FirefoxPlacesReader().readHistory(database.file, limit: limit)
+            try ImportFuzzOracle.history(read.items, limit: limit)
+            let pages = "SELECT * FROM moz_places WHERE hidden = 0 AND visit_count > 0"
+            try accountsForPages(read, database.file, limit: limit, pages: pages,
+                                 kept: pages + " AND \(ImportableURL.sqlFilter("url")) AND \(BrowserTime.sqlKept("last_visit_date", last: BrowserTime.lastMozilla))",
+                                 "places.sqlite")
         } catch is SQLiteSnapshot.Failure {
             try FuzzRun.check(!database.intact, "an intact places.sqlite gave no history")
         }
