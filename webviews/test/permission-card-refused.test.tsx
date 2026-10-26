@@ -406,3 +406,20 @@ test("an answer still out past the card's memory of taken answers keeps its ask,
   expect(replies).toHaveLength(2);
   await card.unmount();
 });
+
+test("an answer taken late, past the card's memory of taken answers, stays taken", async () => {
+  const card = await mount(ask("p0"));
+  await card.key("1");
+  for (let i = 1; i <= 40; i++) {
+    await card.render(ask(`p${i}`));
+    await card.key("1");
+    await card.settle(i, true);
+  }
+  // p0 is back and its answer, out all along, is taken now: it is not answered again.
+  await card.render(ask("p0"));
+  await card.settle(0, true);
+  await card.click(translate("permission.allowOnce"));
+  await card.key("3");
+  expect(card.sent.filter((s) => s.permissionId === "p0")).toHaveLength(1);
+  await card.unmount();
+});
