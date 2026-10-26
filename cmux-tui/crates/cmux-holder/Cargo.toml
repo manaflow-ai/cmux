@@ -26,3 +26,5 @@ libc.workspace = true
 [dev-dependencies]
 # The spawn-race test only: the holder binary stays std and libc.
 cmux-process.workspace = true
+# The child-QoS test reads a child's priority with its probe.
+cmux-threads.workspace = true
