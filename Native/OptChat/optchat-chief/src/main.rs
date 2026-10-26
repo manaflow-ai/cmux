@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use optchat_chief::cli::Flags;
+use optchat_chief::panic_log;
 use optchat_chief::paths::{Paths, mux_home};
 
 const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   run the Chief host (one per MUX_HOME)
@@ -50,6 +51,11 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    cmux_panic_log::install(
+        panic_log::log_path(&home(&Flags::parse(&args))),
+        panic_log::fields(args.first().map_or("", String::as_str)),
+        |_| false,
+    );
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {

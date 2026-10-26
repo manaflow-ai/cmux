@@ -4,6 +4,7 @@
 pub mod benchmark;
 mod git_refs;
 pub mod manifest;
+pub mod panic_log;
 pub mod protocol;
 pub mod server;
 mod session_git;

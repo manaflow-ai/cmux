@@ -118,6 +118,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "cmux-git",
+ "cmux-panic-log",
  "fs2",
  "futures-util",
  "notify",
@@ -140,6 +141,14 @@ dependencies = [
  "cmux-process",
  "cmux-threads",
  "libc",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]

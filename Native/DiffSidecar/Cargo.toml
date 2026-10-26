@@ -23,6 +23,8 @@ axum = { version = "0.8.9", features = ["ws"], optional = true }
 # The session host's git code (branch refs and the suggested base), shared so
 # the viewer never has a second git implementation.
 cmux-git = { path = "../../cmux-tui/crates/cmux-git" }
+# The panic log's line format and hook, shared with the cmux-tui daemons.
+cmux-panic-log = { path = "../../cmux-tui/crates/cmux-panic-log", default-features = false }
 futures-util = { version = "0.3.31", optional = true }
 fs2 = "0.4.3"
 notify = { version = "8.2.0", optional = true }

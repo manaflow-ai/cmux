@@ -21,6 +21,8 @@ base64 = "0.22"
 # with the cmux-tui daemon, by path only.
 cmux-terminal-iface = { path = "../../../cmux-tui/crates/cmux-terminal-iface" }
 getrandom = "0.3"
+# The panic log's line format and hook, shared with the cmux-tui daemons, by path only.
+cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

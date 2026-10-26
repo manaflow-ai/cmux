@@ -52,6 +52,36 @@ import Testing
         #expect(forwarder.forwardNew().isEmpty)
     }
 
+    /// cmux-cloud, optchat-chief and cmux-diff-sidecar write their logs where
+    /// their `panic_log.rs` puts them, and each groups under its own process.
+    @Test(arguments: [
+        (RustPanicSource.cloud, "panics.jsonl", "cmux-cloud"),
+        (RustPanicSource.optchatChief, "optchat/panics.jsonl", "optchat-chief"),
+        (RustPanicSource.diffSidecar, ".sidecar-panics.jsonl", "cmux-diff-sidecar"),
+    ])
+    func eachShippedBinaryHasItsOwnLogAndLabels(source: RustPanicSource, relativeLog: String, process: String) throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log: URL = switch process {
+        case "cmux-cloud": RustPanicSource.cloudLog(appDataDirectory: dir)
+        case "optchat-chief": RustPanicSource.optchatChiefLog(muxHome: dir)
+        default: RustPanicSource.diffSidecarLog(diffRoot: dir)
+        }
+        #expect(log.path == dir.appending(path: relativeLog).path)
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: log)
+        let forwarder = OwnerPanicForwarder(log: log, stateFile: dir.appending(path: "state.json"), sends: true,
+                                            source: source, capture: { _ in })
+        _ = forwarder.forwardNew()
+        try Self.append(Self.line(["process": process, "message": "boom", "location": "src/main.rs:1:1",
+                                   "thread": "main", "test": false]), to: log)
+        let sent = forwarder.forwardNew()
+        try #require(sent.count == 1)
+        #expect(sent[0].tags?["process"] == process)
+        #expect(sent[0].fingerprint == [source.fingerprintPrefix, "src/main.rs:1:1"])
+        #expect([RustPanicSource.owner, .acpmux].allSatisfy { $0.fingerprintPrefix != source.fingerprintPrefix })
+    }
+
     @Test func theOwnerSourceKeepsItsEarlierFingerprint() throws {
         let dir = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

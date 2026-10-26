@@ -53,6 +53,8 @@ sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
+# The panic log's line format and hook, shared with the cmux-tui daemons.
+cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log", default-features = false }
 
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this

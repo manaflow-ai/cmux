@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "benchmark")]
 use cmux_diff_sidecar::benchmark;
+use cmux_diff_sidecar::panic_log;
 use cmux_diff_sidecar::server::{self, ResourceScheme, ServerConfig};
 
 #[tokio::main]
@@ -29,6 +30,7 @@ async fn run() -> Result<(), String> {
             let root = root.ok_or_else(|| "serve requires --root".to_owned())?;
             let cmux_executable = cmux.ok_or_else(|| "serve requires --cmux".to_owned())?;
             let executable_path = std::env::current_exe().map_err(|error| error.to_string())?;
+            install_panic_log(&root, "serve").await?;
             server::run(ServerConfig {
                 root,
                 cmux_executable,
@@ -59,6 +61,7 @@ async fn run() -> Result<(), String> {
             let root = root.ok_or_else(|| "rpc requires --root".to_owned())?;
             let cmux_executable = cmux.ok_or_else(|| "rpc requires --cmux".to_owned())?;
             let executable_path = std::env::current_exe().map_err(|error| error.to_string())?;
+            install_panic_log(&root, "rpc").await?;
             if process_group_ready {
                 establish_rpc_process_group()?;
             }
@@ -99,6 +102,14 @@ async fn run() -> Result<(), String> {
         }
         _ => Err("usage: cmux-diff-sidecar <rpc|handshake>".to_owned()),
     }
+}
+
+/// The panic log goes into `root` only once the root is private.
+async fn install_panic_log(root: &Path, mode: &str) -> Result<(), String> {
+    server::validate_root(root).await?;
+    let log = panic_log::log_path(root);
+    cmux_panic_log::install(log, panic_log::fields(mode), |_| false);
+    Ok(())
 }
 
 fn establish_rpc_process_group() -> Result<(), String> {
