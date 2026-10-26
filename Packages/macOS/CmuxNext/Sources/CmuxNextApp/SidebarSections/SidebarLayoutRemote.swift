@@ -5,8 +5,9 @@ import Foundation
 
 /// The owner of the sidebar layout as the service reaches it: the home
 /// daemon's `sidebar-layout-v1` (or a fake in tests).
+/// Sendable: a main-actor object the service's off-main tasks call.
 @MainActor
-protocol SidebarLayoutRemote: AnyObject {
+protocol SidebarLayoutRemote: AnyObject, Sendable {
     /// The store serves the layout and the connection is up.
     var isAvailable: Bool { get }
     /// Changes when the owner's personal state changes (a refetch signal).

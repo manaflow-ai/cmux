@@ -18,6 +18,8 @@ import Testing
 /// - MainDeadline: a helper that does not answer is read again when the classed retry deadline fires, never before.
 /// - MainDeadline (userBlocking): hint mode's page query answers with what came by its deadline, once; a cancelled
 ///   query answers nothing.
+/// The person and automation classes (Open Chat, the DevTools relay's page-install wait) are in
+/// SidebarPermissionsHintsPersonAutomationTests.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct SidebarPermissionsHintsSchedulerSweepTests {
     // MARK: VisibleObservation (MachineSectionHostView)

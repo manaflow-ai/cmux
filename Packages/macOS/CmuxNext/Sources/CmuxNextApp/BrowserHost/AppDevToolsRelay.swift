@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHost
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The CEF raw DevTools relay for the browser host: an agent's first touch
@@ -75,19 +76,18 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
                 return nil
             }
             if let page = cache.existingBrowser(key)?.tab as? CEFTab, page.isAgentDriven { return page }
-            await nextPageInstall()
+            await Self.nextPageInstall(of: cache.pageInstalls, on: services.mainWork)
             installs += 1
         }
         return nil
     }
 
-    /// Resumes at the next page install anywhere in the app (`pageInstalls`),
+    /// Resumes at the next page install anywhere in the app (`installs`),
     /// or when the waiting task is cancelled (the provider's prepare deadline).
-    /// An agent's wait: its observation flushes as automation work.
-    private func nextPageInstall() async {
-        guard let services else { return }
-        let installs = services.cache.pageInstalls, seen = installs.revision
-        _ = await ControlConditionWait(on: services.mainWork, owner: "AppDevToolsRelay.pageInstall").until {
+    /// An agent's wait: its observation flushes as automation work on `mainWork`.
+    static func nextPageInstall(of installs: PageInstallCounter, on mainWork: MainWorkScheduler) async {
+        let seen = installs.revision
+        _ = await ControlConditionWait(on: mainWork, owner: "AppDevToolsRelay.pageInstall").until {
             installs.revision != seen
         }
     }

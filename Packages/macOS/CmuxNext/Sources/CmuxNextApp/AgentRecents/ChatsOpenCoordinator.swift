@@ -62,10 +62,36 @@ enum ChatOpenRoute: Equatable {
 /// New Tab cards.
 @MainActor
 final class ChatsOpenCoordinator {
-    private weak var services: AppServices?
+    /// Reads acpmux's plan for chat `key` (`chat_open`) off the main thread.
+    typealias PlanReader = @Sendable (_ key: String) async throws -> AcpmuxChatOpenPlan?
+    /// Creates the workspace `spawn` in window `window` (`WindowManager.createWorkspace`).
+    typealias WorkspaceCreator = @Sendable (_ spawn: WorkspaceSpawn, _ window: String?) async throws -> Void
 
-    init(services: AppServices) {
+    private weak var services: AppServices?
+    /// Nil: acpmux's own plan (`QuitAgents.environment`).
+    private let plans: PlanReader?
+    /// Nil: the app's windows create it.
+    private let creator: WorkspaceCreator?
+
+    /// The app's opener: acpmux's plans, the app's windows, and the agent panes' hooks into it.
+    convenience init(services: AppServices) {
+        self.init(services: services, plans: nil, create: nil)
+        installPaneHooks()
+    }
+
+    /// An opener on its own seams, with no agent pane hooks (tests).
+    ///
+    /// - Parameters:
+    ///   - services: The app's services.
+    ///   - plans: Where Open Chat reads a chat's plan; nil for acpmux.
+    ///   - create: How Open Chat creates its workspace; nil for the app's windows.
+    init(services: AppServices, plans: PlanReader?, create: WorkspaceCreator?) {
         self.services = services
+        self.plans = plans
+        self.creator = create
+    }
+
+    private func installPaneHooks() {
         // Choose Folder… in a pane whose chat has no folder (cx-nn3e.1): that pane's folder
         // sheet, then `chat_open` again with the pick.
         AgentPaneModel.chatFolderChooser = { [weak self] model, chat in
@@ -87,31 +113,41 @@ final class ChatsOpenCoordinator {
     /// Only (an All chats row's menu, `agentChat.view`, `cmux agent view`): a tab that shows the chat
     /// and follows the app that runs it, without running it, until Take Over.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
-        guard let services, let environment = QuitAgents.environment(services) else { return }
+        guard let services, let plans = self.plans ?? QuitAgents.environment(services).map(Self.acpmuxPlans) else { return }
         // A chat a tab already shows (its agent chat, else the terminal running it) is shown there,
         // never opened again in a new workspace that then asks to Fork or Open Anyway. Open in
         // Terminal and an explicit View Only still open their own tab.
         if !inTerminal, !watch, revealRunning(key) { return }
         // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
         let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
-        let mainWork = services.mainWork
-        // The person's click: acpmux's plan is read off main at userBlocking, and what it opens is the rest of
-        // their action, one userBlocking task (Chrome's PostTaskAndReply with kUserBlocking).
-        services.work.task(.userBlocking) { [weak self] in
-            let plan: Result<AcpmuxChatOpenPlan?, any Error>
-            do { plan = .success(try await environment.chatOpenPlan(key: key)) } catch { plan = .failure(error) }
-            await mainWork.apply(.userBlocking, owner: "ChatsOpen.dispatch") {
-                switch plan {
-                case .success(let plan?):
-                    self?.dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
-                case .success(nil):
-                    break
-                case .failure(let error):
-                    guard let services = self?.services else { return }
-                    services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
-                }
+        // acpmux's plan is read off main; what it opens is the rest of the run, one task of the run's class with its
+        // scopes (Chrome's PostTaskAndReply): userBlocking for the person's click, automation for an agent's or the
+        // CLI's `cmux agent view`, which without `focus` must not change the view.
+        services.registry.trackWork(owner: "ChatsOpen.dispatch", on: services.mainWork) {
+            try await plans(key)
+        } then: { [weak self] result in
+            switch result {
+            case .success(let plan?):
+                self?.dispatch(plan, key: key, inTerminal: inTerminal, watch: watch, replacing: page)
+            case .success(nil):
+                break
+            case .failure(let error):
+                guard let services = self?.services else { return nil }
+                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                return ActionWorkFailure("open chat", error)
             }
+            return nil
         }
+    }
+
+    /// acpmux's `chat_open` plan in `environment`.
+    private static func acpmuxPlans(_ environment: AcpmuxEnvironment) -> PlanReader {
+        { key in try await environment.chatOpenPlan(key: key) }
+    }
+
+    /// The app's windows' workspace create.
+    private static func creating(in windows: WindowManager) -> WorkspaceCreator {
+        { spawn, window in _ = try await windows.createWorkspace(spawn, into: window) }
     }
 
     /// Shows the tab that already shows chat `key`: the agent chat resuming it, else a live
@@ -126,8 +162,8 @@ final class ChatsOpenCoordinator {
         return services.revealAgentSession(harness: harness, session: session)
     }
 
-    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
-                          watch: Bool = false, replacing page: String? = nil) {
+    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, inTerminal: Bool = false, watch: Bool = false,
+                          replacing page: String? = nil) {
         guard let services else { return }
         let chat = services.chatsFeed?.chat(id: key)
         let title = chat?.title
@@ -191,10 +227,11 @@ final class ChatsOpenCoordinator {
         guard let services else { return }
         var spawn = spawn
         spawn.firstChat = seed
-        let windowID = services.windows.active?.state.id, windows = services.windows
+        let request = spawn, windowID = services.windows.active?.state.id
+        let create = creator ?? Self.creating(in: services.windows)
         // The create is awaited off main; its failure is the run's, in one task on main.
         services.registry.trackWork(owner: "ChatsOpen.createWorkspace", on: services.mainWork) {
-            _ = try await windows.createWorkspace(spawn, into: windowID)
+            try await create(request, windowID)
         } then: { result in
             guard case .failure(let error) = result else { return nil }
             return ActionWorkFailure("open chat", error)
@@ -212,7 +249,7 @@ final class ChatsOpenCoordinator {
             case .adopt(let adopt, let cwd, _): return .adopt(adopt, cwd: cwd ?? folder)
             case .needsFolder(let reason): return .needsFolder(reason)
             case .terminal, .readOnly:
-                dispatch(plan, key: key, environment: environment)
+                dispatch(plan, key: key)
                 return .opened
             }
         } catch {

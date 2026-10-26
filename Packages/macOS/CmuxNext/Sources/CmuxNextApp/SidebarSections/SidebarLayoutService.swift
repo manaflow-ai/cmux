@@ -142,22 +142,31 @@ final class SidebarLayoutService {
 
     private func dispatch(_ key: String, _ op: SidebarLayoutOp) {
         guard let remote else { return }
-        // task-owner: one sidebar_layout.update; settles its intent. The owner's call is main-actor (its daemon
-        // command runs off main); the intent already shows, so the settle is userVisible.
-        work.task(.userVisible) { @MainActor [weak self] in
-            do {
-                let confirmed = try await remote.update(op, key: key)
-                self?.settle(key, confirmed: confirmed)
-            } catch {
+        let mainWork = mainWork
+        // task-owner: one sidebar_layout.update, awaited off main (recipe R-hop). Its reply settles an edit that
+        // already shows: the rest of the person's action, one userBlocking task (p06-scheduler.md rule 2).
+        work.task(.userBlocking) { @concurrent [weak self] in
+            let reply: Result<SidebarLayoutDocument, any Error>
+            do { reply = .success(try await remote.update(op, key: key)) } catch { reply = .failure(error) }
+            await mainWork.apply(.userBlocking, owner: "SidebarLayout.settle") { [weak self] in
                 guard let self else { return }
-                if isDisconnect(error) {
-                    self.markInterrupted(key)
-                } else {
-                    self.settle(key, confirmed: nil)
-                    Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
-                    self.onRefused(RefusalStrings.describe(error))
-                }
+                self.settleReply(key, op, reply)
             }
+        }
+    }
+
+    /// The owner's reply to intent `key`: settled, kept first in the log for the reconnect (a disconnect), or
+    /// refused (settled with nothing, and the refusal shown).
+    private func settleReply(_ key: String, _ op: SidebarLayoutOp, _ reply: Result<SidebarLayoutDocument, any Error>) {
+        switch reply {
+        case .success(let confirmed):
+            settle(key, confirmed: confirmed)
+        case .failure(let error) where isDisconnect(error):
+            markInterrupted(key)
+        case .failure(let error):
+            settle(key, confirmed: nil)
+            Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
+            onRefused(RefusalStrings.describe(error))
         }
     }
 
@@ -189,14 +198,23 @@ final class SidebarLayoutService {
     /// Fetches the owner's layout.
     func refresh() {
         guard let remote else { return }
-        // task-owner: one sidebar_layout.get; the owner's call is main-actor (its daemon command runs off main).
-        work.task(.userVisible) { @MainActor [weak self] in
+        let mainWork = mainWork
+        // task-owner: one sidebar_layout.get, awaited off main (recipe R-hop); what it read shows in one visible task.
+        work.task(.userVisible) { @concurrent [weak self] in
             guard let confirmed = try? await remote.get() else { return }
-            self?.fetched = true
-            self?.adopt(confirmed)
-            self?.recompute()
-            self?.migrateIfNeeded()
+            await mainWork.apply(.visible, owner: "SidebarLayout.fetch") { [weak self] in
+                guard let self else { return }
+                self.adoptFetched(confirmed)
+            }
         }
+    }
+
+    /// The owner's layout, read: the mirror moves to it and the migrations plan against it.
+    private func adoptFetched(_ confirmed: SidebarLayoutDocument) {
+        fetched = true
+        adopt(confirmed)
+        recompute()
+        migrateIfNeeded()
     }
 
     /// A stored layout that still equals the window rail's default (Leo,
