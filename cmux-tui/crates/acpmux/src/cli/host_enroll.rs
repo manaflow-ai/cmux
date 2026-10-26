@@ -815,6 +815,13 @@ fn judge_daemon(host: &str, name: &str, probe: &Probe, want: Option<u16>) -> (Ve
         return (Verdict::Done(result), port);
     }
     let verdict = match listening {
+        // A daemon bound on another port than the peer's (run with
+        // `--listen` and `--token`, its config lacking one): refused before
+        // the config is written, as below.
+        Err(_) if bound.is_some_and(|b| b != port) => {
+            let b = bound.unwrap_or(port);
+            Verdict::Done(port_mismatch(host, name, "the daemon", b, port))
+        }
         Err(why) => Verdict::Repair(why),
         // Configured or running on another port than the peer's: refused
         // before any change (a stopped daemon's listener is kept too).

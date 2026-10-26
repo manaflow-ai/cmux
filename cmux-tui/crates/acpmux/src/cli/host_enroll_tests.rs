@@ -979,11 +979,20 @@ fn a_keyed_cmux_tui_daemon_on_an_ssh_host_names_remote_install() {
 /// port the written config names, except 47811: the restarted daemon moves
 /// to the free 46673 and saves it (`daemon.rs`, a taken configured port).
 fn two_daemon_host(ours: Option<u16>) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut> {
+    two_daemon_host_with(ours, true)
+}
+
+/// [`two_daemon_host`]; without `token` its config holds no listener at all
+/// (a daemon run with `--listen` and `--token`).
+fn two_daemon_host_with(
+    ours: Option<u16>,
+    token: bool,
+) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut> {
     let build = crate::hub::BUILD;
     let listen = RefCell::new(ours);
     let written = RefCell::new(None::<u16>);
     Fake::new(move |script, stdin| {
-        let config = |port: Option<u16>| match port {
+        let config = |port: Option<u16>| match port.filter(|_| token) {
             Some(p) => format!(r#"{{"websocket":{{"listen":"127.0.0.1:{p}","token":"t"}}}}"#),
             None => "{}".to_owned(),
         };
@@ -1073,5 +1082,17 @@ fn doctor_refuses_to_move_a_healthy_daemon_to_the_peers_port() {
             .contains("`acpmux host add box ssh://leo@box.tail:47921`"),
         "{results:?}"
     );
+    assert_read_only(&fake);
+}
+
+#[test]
+fn doctor_refuses_to_move_a_daemon_run_with_its_own_listener_and_token() {
+    // `acpmux daemon run --listen 127.0.0.1:47921 --token T`: bound there, no
+    // listener saved. The peer names 47811: refused before any write.
+    let fake = two_daemon_host_with(Some(47921), false);
+    let local = Local { harness_dir: None, home: None };
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {}).0;
+    assert_eq!(results[2].state, StepState::Fail, "{results:?}");
+    assert!(results[2].fix.as_deref().unwrap().contains("ssh://leo@box.tail:47921"), "{results:?}");
     assert_read_only(&fake);
 }
