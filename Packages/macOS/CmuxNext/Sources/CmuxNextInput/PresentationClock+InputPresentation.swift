@@ -7,8 +7,9 @@ extension PresentationClock: InputPresentationEstimating {
         if let window { holdForInput(window: window) } else { holdForInput(on: .app) }
     }
 
-    public func presentedNanos(commitEndNanos: UInt64, in window: NSWindow?) -> UInt64 {
-        if let window { return presented(commitEndNanos: commitEndNanos, window: window).nanos }
-        return presented(commitEndNanos: commitEndNanos, on: .app).nanos
+    public func presented(committedAt nanos: UInt64, in window: NSWindow?, _ resolve: @escaping Resolve) {
+        if let window { presented(commitEndNanos: nanos, window: window, resolve) } else {
+            presented(commitEndNanos: nanos, on: .app, resolve)
+        }
     }
 }

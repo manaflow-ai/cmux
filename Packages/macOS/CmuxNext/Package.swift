@@ -658,10 +658,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The input pipeline's AppKit side (p04-input section 3): InputLatencyTracker opens an input latency slot
-        // per tracked event and closes it at the turn's commit with a presented estimate (PresentationClock).
+        // per tracked event and closes it at the frame that shows it (the turn's commit for a view, the target's
+        // own frame for a terminal or a page) with a presented estimate (PresentationClock).
         .target(
             name: "CmuxNextInput",
             dependencies: [
+                "CmuxNextCompat",
                 "CmuxNextInputCore",
                 "CmuxNextSignposts",
                 "CmuxNextWakeups",
@@ -674,6 +676,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextInput",
                 "CmuxNextInputCore",
                 "CmuxNextSignposts",
+                "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: uiSwiftSettings

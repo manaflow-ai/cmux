@@ -218,12 +218,12 @@ public nonisolated struct Signposter: Sendable {
     ///
     /// - Parameters:
     ///   - name: A catalog name of this signposter's category.
-    ///   - message: The event's kind, target, entrypoint, presentation source and stage offsets.
+    ///   - message: The event's kind, target, entrypoint, presentation source, variable refresh and stage offsets.
     public func event(_ name: SignpostName, _ message: InputLatencySignpostMessage) {
         assert(name.category == category, "\(name) is not in category \(category)")
         signposter.emitEvent(
             name.staticName,
-            "kind=\(message.kind, privacy: .public) target=\(message.target, privacy: .public) entry=\(message.entrypoint, privacy: .public) source=\(message.presentationSource, privacy: .public) coalesced=\(message.coalescedCount, privacy: .public) frame=\(message.causedFrameUpdate ? 1 : 0, privacy: .public) gen_ns=\(message.generatedNanos, privacy: .public) last_gen_us=\(message.lastGeneratedMicros, privacy: .public) arrived_us=\(message.arrivedMainMicros, privacy: .public) dispatch_start_us=\(message.dispatchStartMicros, privacy: .public) ti_start_us=\(message.textInputStartMicros, privacy: .public) ti_end_us=\(message.textInputEndMicros, privacy: .public) dispatch_end_us=\(message.dispatchEndMicros, privacy: .public) commit_us=\(message.mainCommitMicros, privacy: .public) content_us=\(message.contentSubmittedMicros, privacy: .public) daemon_us=\(message.daemonReceivedMicros, privacy: .public) pty_us=\(message.ptyWrittenMicros, privacy: .public) echo_read_us=\(message.echoReadMicros, privacy: .public) echo_sent_us=\(message.echoSentMicros, privacy: .public) presented_us=\(message.presentedMicros, privacy: .public)"
+            "kind=\(message.kind, privacy: .public) target=\(message.target, privacy: .public) entry=\(message.entrypoint, privacy: .public) source=\(message.presentationSource, privacy: .public) vrr=\(message.variableRefresh ? 1 : 0, privacy: .public) coalesced=\(message.coalescedCount, privacy: .public) frame=\(message.causedFrameUpdate ? 1 : 0, privacy: .public) gen_ns=\(message.generatedNanos, privacy: .public) last_gen_us=\(message.lastGeneratedMicros, privacy: .public) arrived_us=\(message.arrivedMainMicros, privacy: .public) dispatch_start_us=\(message.dispatchStartMicros, privacy: .public) ti_start_us=\(message.textInputStartMicros, privacy: .public) ti_end_us=\(message.textInputEndMicros, privacy: .public) dispatch_end_us=\(message.dispatchEndMicros, privacy: .public) commit_us=\(message.mainCommitMicros, privacy: .public) content_us=\(message.contentSubmittedMicros, privacy: .public) daemon_us=\(message.daemonReceivedMicros, privacy: .public) pty_us=\(message.ptyWrittenMicros, privacy: .public) echo_read_us=\(message.echoReadMicros, privacy: .public) echo_sent_us=\(message.echoSentMicros, privacy: .public) presented_us=\(message.presentedMicros, privacy: .public)"
         )
     }
 
