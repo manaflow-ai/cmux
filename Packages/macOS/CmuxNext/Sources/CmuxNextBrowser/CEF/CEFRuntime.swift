@@ -233,12 +233,12 @@ final class CEFRuntime {
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode (with the host's widgets in cmux when `hostWidgets`).
+    /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, drops with `hostDrags`).
     /// Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on the queue
     /// adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false) {
-        if let hostSupervisor, hostStart == nil, state == .idle { adoptHost(hostSupervisor, showsWidgets: hostWidgets) }
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false) {
+        if let hostSupervisor, hostStart == nil, state == .idle { adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags) }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }

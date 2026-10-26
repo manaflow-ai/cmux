@@ -172,8 +172,9 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
 // stream"): those of Chrome's RenderWidgetHostNSViewHost pipe
 // (content/common/render_widget_host_ns_view.mojom) that change where input lands or that input
 // must reach first: focus (OnFirstResponderChanged), the active page and embedder activity
-// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged); IME (ImeSetComposition,
-// ImeCommitText) and edit commands (ExecuteEditCommand) join as tasks 043 and 047 add their ops.
+// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged), IME (ImeSetComposition,
+// ImeCommitText, ImeFinishComposingText, ImeCancelComposition: p04-input-064), so a commit never
+// passes the key that made it; edit commands (ExecuteEditCommand) join as task 047 adds them.
 // Each carries its control seq and the input seq it follows; input frames name the last one.
 bool IsOrderedOp(uint16_t op) {
   switch (op) {
@@ -182,6 +183,10 @@ bool IsOrderedOp(uint16_t op) {
     case kOpBrowserSetEmbedderActive:
     case kOpTabActivate:
     case kOpDevtoolsSetPlacement:
+    case kOpBrowserImeSetComposition:
+    case kOpBrowserImeCommitText:
+    case kOpBrowserImeFinishComposing:
+    case kOpBrowserImeCancelComposition:
       return true;
     default:
       return false;
