@@ -87,7 +87,9 @@ extension SidebarBridge {
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
                 let resource = daemon.store.stateResourceID(workspace: key)
-                command("set-workspace-metadata", on: daemon) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
+                // A store intent (#25657): the color stays through every live recompute until the reply settles it,
+                // and a refusal takes it back; without it the next recompute showed the old color until the echo.
+                command("set-workspace-metadata", on: daemon, intent: .setWorkspaceColor(key: key, color: color?.rawValue)) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's

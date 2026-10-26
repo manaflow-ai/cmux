@@ -26,6 +26,8 @@ public enum Intent: Sendable, Hashable {
     case setScreenPinned(screen: ScreenID, pinned: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
+    /// `workspace.update` / `set-workspace-metadata` with `color` (a palette name); nil clears it.
+    case setWorkspaceColor(key: WorkspaceKey, color: String?)
     /// `move-workspace`: to final daemon-order `index` (clamped).
     case moveWorkspace(key: WorkspaceKey, index: Int)
     /// `move-workspace-to-group` without an index: into `group` (nil
