@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
-/// the watchdog aggregate saved for the next launch, the outbox of reports not yet accepted, the
+/// the watchdog aggregate and the main-thread part saved for the next launch, the outbox of reports not yet accepted, the
 /// copy of the last report sent (View Hang Report), and the send log the daily cap reads.
 ///
 /// Tests pass a temporary folder.
@@ -38,6 +38,8 @@ public actor HangReportStore {
     /// The readable preview made when nothing was sent yet.
     public nonisolated var previewURL: URL { directory.appending(path: "preview-report.json") }
     private var pendingURL: URL { directory.appending(path: "pending.json") }
+    /// The main-thread part (``MainThreadReportLedger/Saved``) a quit saved for the next launch.
+    public nonisolated var pendingMainThreadURL: URL { directory.appending(path: "pending-main-thread.json") }
     private var sendLogURL: URL { directory.appending(path: "send-log.json") }
     private var outboxURL: URL { directory.appending(path: "outbox", directoryHint: .isDirectory) }
 
@@ -57,6 +59,13 @@ public actor HangReportStore {
     }
 
     private func removePending() { try? manager.removeItem(at: pendingURL) }
+
+    /// The main-thread part a quit saved, removed from disk (it joins the ledger's).
+    public func takePendingMainThread() -> MainThreadReportLedger.Saved? {
+        defer { try? manager.removeItem(at: pendingMainThreadURL) }
+        guard let data = try? Data(contentsOf: pendingMainThreadURL) else { return nil }
+        return try? JSONDecoder().decode(MainThreadReportLedger.Saved.self, from: data)
+    }
 
     // MARK: Outbox
 
@@ -115,6 +124,7 @@ public actor HangReportStore {
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
         removePending()
+        try? manager.removeItem(at: pendingMainThreadURL)
         try? manager.removeItem(at: outboxURL)
         try? manager.removeItem(at: previewURL)
     }

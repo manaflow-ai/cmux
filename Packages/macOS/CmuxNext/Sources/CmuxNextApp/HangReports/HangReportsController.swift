@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextHangReports
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
@@ -37,6 +38,9 @@ final class HangReportsController {
     /// Nil on a build that never sends (Release, RC, DEV without the opt-in, tests): nothing is
     /// built, read or subscribed there.
     let service: HangReportService?
+    /// Feeds the service's main-thread ledger the activation notices and input (nil where the
+    /// builder's wire schema does not carry active time).
+    private let activityFeed: MainThreadActivityFeed?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
     private let defaults: UserDefaults
@@ -48,15 +52,19 @@ final class HangReportsController {
     /// lets a later switch-on in the same launch get its confirm card.
     private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
 
-    init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
+    init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
+         activityFeed: MainThreadActivityFeed? = nil) {
         self.service = service
+        self.activityFeed = activityFeed
         self.managedDisables = managedDisables
         self.defaults = defaults
     }
 
     /// The controller for this launch: the service over this build's folder, the real transport,
-    /// classifier and dyld resolver, and the app's own envelope values.
+    /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
+    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
+                              watchdog: MainThreadWatchdog, input: any InputObserving,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -71,6 +79,10 @@ final class HangReportsController {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
                                         resolver: resolver)
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
+        let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: { [watchdog] in
+            MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
+                                              inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
+        }) : nil
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let service = HangReportService(
@@ -86,8 +98,13 @@ final class HangReportsController {
                 // A managed block, or this Mac's consent record removed, while cmux runs: the next
                 // trigger turns reports off and drops what was recorded. UserDefaults is
                 // thread-safe; the record is read in the app's own domain.
-                stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date }))
-        return HangReportsController(service: service, managedDisables: managedDisables)
+                stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
+                mainThread: mainThread))
+        let feed = mainThread.map {
+            MainThreadActivityFeed(ledger: $0, input: input, becameActive: NSApplication.didBecomeActiveNotification,
+                                   resignedActive: NSApplication.didResignActiveNotification, isActive: NSApp?.isActive ?? false)
+        }
+        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed)
     }
 
     /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.

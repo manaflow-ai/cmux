@@ -5,16 +5,17 @@
 /// only. A turn is Chromium's `kExecutionOnly` interval, input queueing the queue part of its
 /// `kQueueAndExecution` (content/browser/scheduler/responsiveness/calculator.h).
 extension HangReportBuilder {
-    /// What the app passes for a report: the active seconds since the last report and one read of
-    /// each histogram (`MainTurnHistogram.Snapshot.counts`, over `MainTurnHistogram.edgesNanos`).
+    /// What a report carries (``MainThreadReportLedger/take()``): the active seconds and each
+    /// histogram's counts since the last queued report (the cumulative `MainTurnHistogram` read minus
+    /// the read the last queued report ended at), over `MainTurnHistogram.edgesNanos`.
     public struct MainThreadInput: Sendable, Equatable {
-        /// ``ActiveTimeLedger/seconds(atNanos:)``.
+        /// ``ActiveTimeLedger/seconds(atNanos:)``: active seconds not yet sent.
         public var activeSeconds: Int
         /// The fine bucket edges in nanoseconds, increasing (`MainTurnHistogram.edgesNanos`).
         public var edgesNanos: [UInt64]
-        /// The main-turn counts: one per bucket, `edgesNanos.count + 1` of them.
+        /// The main-turn counts since the last queued report: one per bucket, `edgesNanos.count + 1`.
         public var turnCounts: [UInt64]
-        /// The input-queueing counts, in the same buckets.
+        /// The input-queueing counts since the last queued report, in the same buckets.
         public var inputQueueingCounts: [UInt64]
 
         /// Makes the value from its parts.
@@ -30,8 +31,8 @@ extension HangReportBuilder {
     static let maxMainThreadEdges = 1_024
 
     /// Sets `active_seconds` and appends the two histograms; at ``HangReport/maxIntervals`` they
-    /// stay and MetricKit's last intervals go. A histogram whose shape does not match its edges, or
-    /// that counted nothing, is left out.
+    /// stay and MetricKit's last intervals go, as in `HangReportService.fitted` at the body cap. A
+    /// histogram whose shape does not match its edges, or that counted nothing, is left out.
     static func addMainThread(_ input: MainThreadInput, to report: inout HangReport) {
         report.activeSeconds = min(max(0, input.activeSeconds), HangReport.maxActiveSeconds)
         let histograms = [(HangReport.mainTurnInterval, input.turnCounts),

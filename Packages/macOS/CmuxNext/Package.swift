@@ -1425,7 +1425,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextHangReportsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore",
+            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),

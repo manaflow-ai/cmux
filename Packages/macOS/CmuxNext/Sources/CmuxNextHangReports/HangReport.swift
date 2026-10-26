@@ -140,8 +140,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// Allowlisted signpost interval histograms, then (schema 3) the main-turn and input-queueing
     /// histograms in category ``mainThreadCategory``.
     public var intervals: [IntervalHistogram] = []
-    /// Seconds cmux was the active app since the last report, from the app's activation notices
-    /// (``ActiveTimeLedger``): the denominator of the hang and turn counts. Schema 3 only; nil, and
+    /// Seconds a person used cmux since the last report, from the app's activation notices and input
+    /// (``ActiveTimeLedger``, Chrome's rule): the denominator of the hang and turn counts. Schema 3 only; nil, and
     /// so absent from the JSON, in schema 2, in an older report and when the app passed none.
     public var activeSeconds: Int?
     /// The launches since the last report (`launchFirstFrame`, `launchStartupComplete`,
@@ -169,11 +169,11 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch
-    /// or input latency).
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch,
+    /// input latency or active second: active time without a hang is the rate's denominator).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency
+            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
     }
 
     /// Whether the report carries input latency rows or scroll jank counts.
