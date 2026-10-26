@@ -19,24 +19,27 @@ extension TerminalSurfaceTeardownCallbackLifetimeTests {
             cmux_test_ghostty_process_output_release()
             cmux_test_ghostty_process_output_blocking_reset()
         }
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
-            #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
-                "native routing must be retired after output drains and before free"
-            )
-            recorder.record(.nativeFree)
-        }
-        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
 
         surface?.remoteOutputLane.enqueue(Data("pending output".utf8), to: runtimeSurface)
         let started = await Task.detached {
             cmux_test_ghostty_process_output_wait_until_started()
         }.value
         try #require(started, "remote output did not reach the native parser")
-        if deinitOnly {
-            surface = nil
-        } else {
-            surface?.teardownSurface()
+        do {
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+                #expect(
+                    cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
+                    "native routing must be retired after output drains and before free"
+                )
+                recorder.record(.nativeFree)
+            }
+            defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+            if deinitOnly {
+                surface = nil
+            } else {
+                surface?.teardownSurface()
+            }
         }
 
         #expect(
@@ -57,17 +60,19 @@ extension TerminalSurfaceTeardownCallbackLifetimeTests {
         defer { runtimeSurface.deallocate() }
         defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
-            #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
-                "hibernation must retire native app routing before its isolated free"
-            )
-            recorder.record(.nativeFree)
-        }
-        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
-        cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
+        do {
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+                #expect(
+                    cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
+                    "hibernation must retire native app routing before its isolated free"
+                )
+                recorder.record(.nativeFree)
+            }
+            defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+            cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
 
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+            surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+        }
 
         #expect(
             !recorder.events.contains(.teeLeaseRelease),
