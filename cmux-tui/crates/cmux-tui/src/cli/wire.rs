@@ -131,14 +131,19 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     ) {
         return code;
     }
-    // An agent's terminal with no place goes beside its chat (beside.rs).
+    // An agent's terminal with no place goes beside its chat (beside.rs),
+    // when the app that places the chat owns this machine's daemon.
+    #[cfg(unix)]
+    let beside_route = caller_route
+        && plan.params.as_object().is_some_and(super::caller_place::machine_is_local)
+        && super::caller_place::app_owns(global, &socket_route);
     #[cfg(unix)]
     match super::beside::run_cli(
         global,
         &mut plan,
         &mut request,
         &mut reader,
-        caller_route,
+        beside_route,
         &key_report,
     ) {
         Ok(Some(reencoded)) => encoded = reencoded,

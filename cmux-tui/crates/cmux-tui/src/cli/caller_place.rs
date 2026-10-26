@@ -104,15 +104,15 @@ pub(super) fn apply(
     let caller = Caller::from_env(|key| std::env::var(key).ok());
     let parents = no_place_parents(&plan.operation, pass);
     let Some(params) = plan.params.as_object_mut() else { return Ok(false) };
-    // Another machine's daemon knows neither this terminal nor the app's ids.
-    let caller_route = caller_route
-        && params.get("machine").is_none_or(|machine| machine.as_str() == Some("current"));
+    let caller_route = caller_route && machine_is_local(params);
+    let app = app_owns(global, socket);
     let terminal_caller = caller_route && !caller.agent && caller.terminal.is_some();
     if pass == Pass::DaemonBrowser {
         if !terminal_caller || !fill_no_place(params, parents) {
             return Ok(false);
         }
-        let place = caller_place(global, reader, socket, &caller, params)?;
+        // A terminal the daemon no longer shows keeps the daemon's default.
+        let place = caller_place(reader, socket, &caller, params, app.then_some(global)).ok().flatten();
         caller_scope::apply(params, place.as_ref(), None);
         return Ok(true);
     }
@@ -124,9 +124,9 @@ pub(super) fn apply(
         caller_scope::apply(params, None, None);
         return Ok(true);
     }
-    if terminal_caller {
-        fill_no_place(params, parents);
-    }
+    // A place the command did not name: a caller the daemon no longer shows
+    // (a script that outlived its tab) keeps the daemon's default, as before.
+    let filled = terminal_caller && fill_no_place(params, parents);
     let wants_caller = caller_scope::wants_caller(params);
     let wants_focus = caller_scope::wants_focus(params);
     if !wants_caller && !wants_focus {
@@ -134,20 +134,37 @@ pub(super) fn apply(
     }
     let place = match outermost(params) {
         // `current` at the top is the caller's place: no answer, no guess.
-        Some(CURRENT) => caller_place(global, reader, socket, &caller, params)?,
+        Some(CURRENT) if !filled => caller_place(reader, socket, &caller, params, app.then_some(global))?,
+        // Below `focused` every level is the person's.
+        Some(FOCUSED) => None,
         // Under an id, `current` is the caller's only inside its own
         // place; a caller that cannot be found keeps the daemon's.
         Some(_) if wants_caller => {
-            caller_place(global, reader, socket, &caller, params).ok().flatten()
+            caller_place(reader, socket, &caller, params, app.then_some(global)).ok().flatten()
         }
         _ => None,
     };
-    let focus = if wants_focus { app_focus(global) } else { None };
+    let focus = if wants_focus && app { app_focus(global) } else { None };
     caller_scope::apply(params, place.as_ref(), focus.as_ref());
     Ok(true)
 }
 
 const CURRENT: &str = "current";
+const FOCUSED: &str = "focused";
+
+/// Whether the request goes to this machine's daemon: another machine's
+/// knows neither the caller's terminal nor the app's ids.
+pub(super) fn machine_is_local(params: &Map<String, Value>) -> bool {
+    params.get("machine").is_none_or(|machine| machine.as_str() == Some(CURRENT))
+}
+
+/// Whether the app this CLI reaches owns the request's daemon, so its
+/// `system.identify` and focus name that daemon's objects. A Cloud Chief
+/// turn reaches the person's Mac app through a relay while its daemon is
+/// the VM's: the Mac's ids mean nothing there.
+pub(super) fn app_owns(global: &GlobalArgs, socket: &SocketRoute<'_>) -> bool {
+    global.app_socket.is_some() || super::frontend_browser::app_daemon_is(socket.path)
+}
 
 /// The outermost structural selector `params` names.
 fn outermost(params: &Map<String, Value>) -> Option<&str> {
@@ -158,15 +175,18 @@ fn outermost(params: &Map<String, Value>) -> Option<&str> {
 
 /// The caller's own workspace, screen, pane and tab; `None` when the
 /// environment names no caller (a shell outside cmux), which keeps the
-/// daemon's `current`.
+/// daemon's `current`. `app` is the CLI's globals when the app it reaches
+/// owns the daemon ([`app_owns`]); an agent chat is placed only by that app.
 fn caller_place(
-    global: &GlobalArgs,
     reader: &mut Reader,
     socket: &SocketRoute<'_>,
     caller: &Caller,
     params: &Map<String, Value>,
+    app: Option<&GlobalArgs>,
 ) -> Result<Option<Value>, Failure> {
-    if caller.agent {
+    if caller.agent
+        && let Some(global) = app
+    {
         match app_identity(global) {
             Ok(identity) => {
                 let place = identity.get("caller").cloned().unwrap_or(Value::Null);

@@ -30,6 +30,8 @@ const OWN_TERMINAL: &str = "term_55555555555555555555555555555555";
 const FRONT_WS: &str = "ws_77777777777777777777777777777777";
 const FRONT_SCREEN: &str = "screen_66666666666666666666666666666666";
 const FRONT_PANE: &str = "pane_88888888888888888888888888888888";
+/// A terminal the daemon does not show.
+const STALE_TERMINAL: &str = "term_00000000000000000000000000000000";
 /// Another machine.
 const MACHINE: &str = "machine_99999999999999999999999999999999";
 const URL: &str = "http://127.0.0.1:8765/page.html";
@@ -171,6 +173,26 @@ fn a_shell_outside_cmux_keeps_the_daemons_current() {
 }
 
 #[test]
+fn a_cloud_chief_turn_keeps_its_vms_current_and_never_sends_the_macs_ids() {
+    // The relayed app places the Home chat in the Mac's topology; the VM's
+    // daemon has none of those ids.
+    let run = Run::new().app(App::Placed).cloud_chief_turn().cli(&["--json", "pane", "current", "split"]);
+    let split = run.mutation("pane.split");
+    assert_eq!(split["workspace"], "current", "{}", run.stderr());
+    assert_eq!(split["pane"], "current");
+    let run = Run::new().app(App::Placed).cloud_chief_turn().cli(&["--json", "tab", "create", "terminal"]);
+    let created = run.mutation("tab.create_terminal");
+    assert!(created.get("pane").is_none_or(Value::is_null), "{created} {}", run.stderr());
+}
+
+#[test]
+fn a_terminal_the_daemon_no_longer_shows_keeps_the_default_pane_for_a_new_tab() {
+    let run = Run::new().stale_terminal().cli(&["--json", "tab", "create", "terminal"]);
+    let created = run.mutation("tab.create_terminal");
+    assert_eq!(created["pane"], "current", "{}", run.stderr());
+}
+
+#[test]
 fn a_named_socket_keeps_its_own_current() {
     let run =
         Run::new().terminal().cli(&["--json", "--socket", SOCKET, "pane", "current", "split"]);
@@ -192,6 +214,11 @@ struct Run {
     app: Option<App>,
     terminal: bool,
     agent: bool,
+    /// The app is reached through `CMUX_SOCKET_PATH` (a relay) and does not
+    /// own the request's daemon.
+    relay: bool,
+    /// The caller's terminal id is one the daemon does not show.
+    stale: bool,
 }
 
 /// What the fake app's `system.identify` says about the caller.
@@ -241,7 +268,7 @@ impl Run {
         let dir = Path::new("/tmp")
             .join(format!("cmux-cplace-{}-{stamp}-{sequence}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        Self { dir, app: None, terminal: false, agent: false }
+        Self { dir, app: None, terminal: false, agent: false, relay: false, stale: false }
     }
 
     fn app(mut self, app: App) -> Self {
@@ -252,6 +279,20 @@ impl Run {
     /// The CLI runs in the caller's terminal (`CMUX_TUI_TERMINAL_ID`).
     fn terminal(mut self) -> Self {
         self.terminal = true;
+        self
+    }
+
+    /// A Cloud Chief turn: `CMUX_CALLER_HOME_CHAT`, the app over a relay.
+    fn cloud_chief_turn(mut self) -> Self {
+        self.relay = true;
+        self
+    }
+
+    /// The caller's terminal is gone from the daemon (a script that
+    /// outlived its tab).
+    fn stale_terminal(mut self) -> Self {
+        self.terminal = true;
+        self.stale = true;
         self
     }
 
@@ -268,8 +309,14 @@ impl Run {
         let done = Arc::new(AtomicBool::new(false));
         let app = self.app.map(|mode| fake_app(&app_socket, mode, done.clone()));
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
-        // A missing socket: the app is unreachable.
-        command.arg("--app-socket").arg(&app_socket);
+        if self.relay {
+            // The app socket comes from the environment, and nothing ties
+            // it to the daemon.
+            command.env("CMUX_SOCKET_PATH", &app_socket).env("CMUX_CALLER_HOME_CHAT", "1");
+        } else {
+            // A missing socket: the app is unreachable.
+            command.arg("--app-socket").arg(&app_socket);
+        }
         let socket = daemon_socket.display().to_string();
         command
             .args(args.iter().map(|arg| if *arg == SOCKET { socket.as_str() } else { arg }))
@@ -278,9 +325,13 @@ impl Run {
             .env_remove("CMUX_TUI_TERMINAL_ID")
             .env_remove("CMUX_AGENT_SESSION")
             .env_remove("CMUX_CALLER_HOME_CHAT")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .env("CMUX_CLI_NO_RETRY", "1");
         if self.terminal {
-            command.env("CMUX_TUI_TERMINAL_ID", OWN_TERMINAL);
+            let terminal = if self.stale { STALE_TERMINAL } else { OWN_TERMINAL };
+            command.env("CMUX_TUI_TERMINAL_ID", terminal);
         }
         if self.agent {
             command.env("CMUX_AGENT_SESSION", "01a17599");
