@@ -90,8 +90,8 @@ final class TerminalThemeSetting {
     var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
     /// The shuffle the background is, so a day, time zone or clock change re-picks its picture.
     private var shuffling: BackdropShuffle?
+    /// The day, time zone, clock and wake subscriptions.
     private var dayChanges: [EventSubscription] = []
-    private var wake: EventSubscription?
     static let backgroundReloadDelay = Duration.milliseconds(60)
     private var observation: ServiceObservation<Followed>?
 
@@ -127,14 +127,13 @@ final class TerminalThemeSetting {
         } apply: { [weak self] followed in
             self?.take(followed)
         }
-        // A time zone or clock change moves local midnight, which the armed timer cannot see.
-        dayChanges = [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
-            appEvents.subscribe(name, owner: "TerminalThemeSetting.dayChange") { [weak self] in self?.reshuffle() }
-        }
-        // The shuffle's turn is wall time on an uptime deadline, which stops while the Mac sleeps: a wake re-picks
-        // and re-arms, as Chromium's WallClockTimer re-arms on PowerMonitor's resume (base/timer/wall_clock_timer.h).
-        wake = workspaceEvents.subscribe(NSWorkspace.didWakeNotification, owner: "TerminalThemeSetting.wake") { [weak self] in
-            self?.reshuffle()
+        // A time zone or clock change moves local midnight, which the armed timer cannot see. The turn is wall time
+        // on an uptime deadline, which stops while the Mac sleeps: a wake re-picks and re-arms, as Chromium's
+        // WallClockTimer re-arms on PowerMonitor's resume (base/timer/wall_clock_timer.h).
+        let days: [Notification.Name] = [.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange]
+        let notices: [(AppEvents, Notification.Name)] = days.map { (appEvents, $0) } + [(workspaceEvents, NSWorkspace.didWakeNotification)]
+        dayChanges = notices.map { events, name in
+            events.subscribe(name, owner: "TerminalThemeSetting.dayChange") { [weak self] in self?.reshuffle() }
         }
     }
 
