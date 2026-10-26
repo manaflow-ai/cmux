@@ -23,7 +23,7 @@ final class ThreadStackSampler: @unchecked Sendable {
         self.maxFrames = maxFrames
         // SAFETY: a fresh allocation of maxFrames words, freed once in deinit; store writes only indices under
         // maxFrames and copy reads only the first min(count, maxFrames) of them.
-        buffer = unsafe .allocate(capacity: maxFrames)
+        buffer = unsafe UnsafeMutablePointer<UInt>.allocate(capacity: maxFrames)
     }
 
     deinit {
