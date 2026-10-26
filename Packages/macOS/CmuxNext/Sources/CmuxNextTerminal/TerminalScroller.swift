@@ -34,8 +34,11 @@ final class TerminalScroller: NSScrollView {
         verticalScrollElasticity = .none
         horizontalScrollElasticity = .none
         automaticallyAdjustsContentInsets = false
+        // A scroller drag moves the clip; it pushes each move here, in order.
+        let clip = ScrollClipView()
+        clip.onScroll = { [weak self] in self?.clipMoved() }
+        contentView = clip
         contentView.drawsBackground = false
-        contentView.postsBoundsChangedNotifications = true
         documentView = document
         let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
@@ -47,27 +50,11 @@ final class TerminalScroller: NSScrollView {
             self?.apply(SystemScrollers.nativeStyle)
             self?.onStyleChange?()
         }
-        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
-        clipObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
-        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
-    }
-
-    private var clipObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
-        }
     }
 
     /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.

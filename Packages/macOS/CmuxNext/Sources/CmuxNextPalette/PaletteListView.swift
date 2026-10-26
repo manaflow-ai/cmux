@@ -26,6 +26,10 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // Scrolling moves rows under a still pointer: the clip pushes each scroll (`boundsChanged`).
+        let clip = ScrollClipView()
+        clip.onScroll = { [weak self] in self?.boundsChanged() }
+        contentView = clip
         drawsBackground = false
         hasVerticalScroller = true
         SystemScrollers.follow(self)
@@ -46,18 +50,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.onMouseExited = { [weak self] in self?.onHover?(nil) }
         table.onClick = { [weak self] row in self?.activate(row: row) }
         documentView = table
-        contentView.postsBoundsChangedNotifications = true
-        // queue: .main runs inline for the clip view's post on main (scroll order kept).
-        boundsObserver = MainActorObservation(NSView.boundsDidChangeNotification, object: contentView) { [weak self] in
-            self?.boundsChanged()
-        }
         scrollFit = ScrollFitElasticity(scrollView: self)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    private var boundsObserver: MainActorObservation?
 
     // MARK: Updates from the model
 

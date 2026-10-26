@@ -255,6 +255,11 @@ public final class SidebarView: NSView {
         newButton.alphaValue = 0
         addSubview(newButton)
 
+        // The clip pushes its scrolls and resizes here (no clip-view notifications).
+        let clip = ScrollClipView()
+        clip.onScroll = { [weak self] in self?.clipBoundsChanged() }
+        clip.onResize = { [weak self] in self?.syncListSize() }
+        scrollView.contentView = clip
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
@@ -263,11 +268,7 @@ public final class SidebarView: NSView {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        scrollView.contentView.postsFrameChangedNotifications = true
         clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
-            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
-            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
             NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
         ]
         spacePaging.attach(list: scrollView, dots: profileBar)
