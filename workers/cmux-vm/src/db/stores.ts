@@ -92,6 +92,18 @@ export interface OwnershipStoreService {
   readonly findDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   /** Renames the tenant's live resource (null clears the name); false when there is none. Nothing but the display name changes. */
   readonly setDisplayName: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, displayName: string | null) => Effect.Effect<boolean, StoreError>;
+  /**
+   * Compare-and-set of the display name and labels of the tenant's live committed resource (cx-b4h.2, cx-b4h.9):
+   * applies only while the row still holds `expected`, so a decision taken on an older read (a label check) never
+   * overwrites a newer change. False when the row is gone or changed.
+   */
+  readonly updateMetadata: (
+    tenantId: TenantId,
+    kind: ResourceKind,
+    cmuxId: string,
+    expected: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> },
+    metadata: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> },
+  ) => Effect.Effect<boolean, StoreError>;
 }
 
 export interface AuditStoreService {
@@ -302,6 +314,17 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             Effect.flatMap(decodeRows(CountRow, "ownership.setDisplayName")),
             Effect.map((rows) => (rows[0]?.live ?? 0) > 0),
           ),
+      updateMetadata: (tenantId, kind, cmuxId, expected, metadata) =>
+        sql
+          .query(
+            "ownership.updateMetadata",
+            `UPDATE cmux_vm.resources SET display_name = $4, labels = $5::text::jsonb
+              WHERE tenant_id = $1 AND kind = $2 AND cmux_id = $3 AND deleted_at IS NULL AND committed
+                AND display_name IS NOT DISTINCT FROM $6 AND labels = $7::text::jsonb
+              RETURNING cmux_id`,
+            [tenantId, kind, cmuxId, metadata.displayName, JSON.stringify(metadata.labels), expected.displayName, JSON.stringify(expected.labels)],
+          )
+          .pipe(Effect.map((rows) => rows.length === 1)),
     };
 
     const audit: AuditStoreService = {

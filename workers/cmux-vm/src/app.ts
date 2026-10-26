@@ -73,7 +73,8 @@ type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKe
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 
-const UPLOAD_PATH = /^\/v1\/vms\/[^/]+\/files\/content$/u;
+/** Raw byte bodies: whole files and resumable upload chunks, each with its own limit in its handler. */
+const UPLOAD_PATH = /^\/v1\/vms\/[^/]+\/files\/(?:content|uploads\/[^/]+)$/u;
 
 const tooLarge = () =>
   Response.json(

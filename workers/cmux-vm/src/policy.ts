@@ -38,6 +38,8 @@ export interface TenantPolicyService {
   readonly rate: (rateClass: RateClass) => RateRule;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes: number;
+  /** Largest file a resumable upload may commit, in bytes (cx-b4h.2); each chunk is still at most maxUploadBytes. */
+  readonly maxResumableUploadBytes: number;
 }
 
 export class TenantPolicy extends Context.Tag("cmux-vm/TenantPolicy")<TenantPolicy, TenantPolicyService>() {}
@@ -56,6 +58,7 @@ export interface PolicyConfig {
   readonly maxSnapshots?: number;
   readonly ratePerMinute?: Partial<Record<RateClass, number>>;
   readonly maxUploadBytes?: number;
+  readonly maxResumableUploadBytes?: number;
 }
 
 /**
@@ -70,6 +73,8 @@ export const DEFAULT_MAX_SNAPSHOTS = 100;
 export const DEFAULT_RATE_PER_MINUTE: Readonly<Record<RateClass, number>> = { read: 600, write: 60, exec: 300, files: 300 };
 /** Workers accept request bodies up to 100 MB on most plans; stay under it. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 96 * 1024 * 1024;
+/** The provider's per-file ceiling for chunked uploads: 16 GiB. */
+export const DEFAULT_MAX_RESUMABLE_UPLOAD_BYTES = 16 * 1024 * 1024 * 1024;
 
 export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
   const listed = new Set(config.devTestTenantIds ?? []);
@@ -85,6 +90,7 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
     maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,
     rate: (rateClass) => ({ perMinute: config.ratePerMinute?.[rateClass] ?? DEFAULT_RATE_PER_MINUTE[rateClass] }),
     maxUploadBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
+    maxResumableUploadBytes: config.maxResumableUploadBytes ?? DEFAULT_MAX_RESUMABLE_UPLOAD_BYTES,
   };
 };
 

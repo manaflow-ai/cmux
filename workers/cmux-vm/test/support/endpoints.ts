@@ -7,7 +7,7 @@ import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
 
 export interface VmEndpointCase {
   readonly name: string;
-  readonly method: "GET" | "POST" | "PUT" | "DELETE";
+  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** The OpenAPI path template. */
   readonly template: string;
   readonly path: (vmId: string) => string;
@@ -60,6 +60,23 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/files/entries?path=%2Ftmp`,
     scope: "vm:files",
   },
+  // Provider parity (cx-b4h.2): update, exists, mkdir, remove and resumable uploads.
+  { name: "updateVm", method: "PATCH", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:write", json: { displayName: "renamed" } },
+  { name: "pathExists", method: "GET", template: "/v1/vms/{vmId}/files/exists", path: (id) => `/v1/vms/${id}/files/exists?path=%2Ftmp`, scope: "vm:files" },
+  { name: "makeDirectory", method: "POST", template: "/v1/vms/{vmId}/files/directories", path: (id) => `/v1/vms/${id}/files/directories`, scope: "vm:files", json: { path: "/tmp/new" } },
+  { name: "removePath", method: "DELETE", template: "/v1/vms/{vmId}/files", path: (id) => `/v1/vms/${id}/files?path=%2Ftmp%2Fnote.txt`, scope: "vm:files" },
+  { name: "beginFileUpload", method: "POST", template: "/v1/vms/{vmId}/files/uploads", path: (id) => `/v1/vms/${id}/files/uploads`, scope: "vm:files", json: { path: "/tmp/big.bin", size: 5 } },
+  { name: "getFileUpload", method: "GET", template: "/v1/vms/{vmId}/files/uploads/{uploadId}", path: (id) => `/v1/vms/${id}/files/uploads/upl_x`, scope: "vm:files" },
+  {
+    name: "uploadFileChunk",
+    method: "PUT",
+    template: "/v1/vms/{vmId}/files/uploads/{uploadId}",
+    path: (id) => `/v1/vms/${id}/files/uploads/upl_x?offset=0`,
+    scope: "vm:files",
+    bytes: new TextEncoder().encode("hello"),
+  },
+  { name: "commitFileUpload", method: "POST", template: "/v1/vms/{vmId}/files/uploads/{uploadId}/commit", path: (id) => `/v1/vms/${id}/files/uploads/upl_x/commit`, scope: "vm:files" },
+  { name: "abortFileUpload", method: "DELETE", template: "/v1/vms/{vmId}/files/uploads/{uploadId}", path: (id) => `/v1/vms/${id}/files/uploads/upl_x`, scope: "vm:files" },
   // Snapshots and terminals (slice S3a).
   {
     name: "createSnapshot",
@@ -115,6 +132,7 @@ export const SNAPSHOT_ENDPOINTS = [
   { name: "cancelSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/cancel", scope: "snapshot:write" },
   { name: "getSnapshot", method: "GET", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:read" },
   { name: "deleteSnapshot", method: "DELETE", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write" },
+  { name: "updateSnapshot", method: "PATCH", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write", json: { displayName: "renamed" } },
 ] as const;
 
 /** Endpoints that act on the tenant rather than one VM. */

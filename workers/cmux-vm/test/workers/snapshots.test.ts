@@ -774,7 +774,7 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     const { snapshotId, upstreamId } = h.s3a.addSnapshot(TENANT_A);
     const keyB = await h.addKey(TENANT_B, ALL_SCOPES);
 
-    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(keyB), { method: endpoint.method });
+    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(keyB), { method: endpoint.method, body: "json" in endpoint ? endpoint.json : undefined });
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ _tag: "NotFound", message: "Snapshot not found" });
@@ -787,7 +787,7 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     h.addMember(TENANT_B, "user_bob");
     const token = await h.sessionToken("user_bob");
 
-    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), { ...bearer(token), "x-cmux-team-id": TENANT_B }, { method: endpoint.method });
+    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), { ...bearer(token), "x-cmux-team-id": TENANT_B }, { method: endpoint.method, body: "json" in endpoint ? endpoint.json : undefined });
 
     expect(response.status).toBe(404);
     expect(h.upstreamRequests).toHaveLength(0);
@@ -797,8 +797,8 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     const { snapshotId } = h.s3a.addSnapshot(TENANT_A);
     const key = await h.addKey(TENANT_A, allScopesExcept(endpoint.scope));
 
-    const own = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(key), { method: endpoint.method });
-    const missing = await h.request(endpoint.template.replace("{snapshotId}", "snap_00000000000000000000000000"), bearer(key), { method: endpoint.method });
+    const own = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(key), { method: endpoint.method, body: "json" in endpoint ? endpoint.json : undefined });
+    const missing = await h.request(endpoint.template.replace("{snapshotId}", "snap_00000000000000000000000000"), bearer(key), { method: endpoint.method, body: "json" in endpoint ? endpoint.json : undefined });
 
     expect(own.status).toBe(403);
     expect(await own.json()).toMatchObject({ missingScope: endpoint.scope });
