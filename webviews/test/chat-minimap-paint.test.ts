@@ -33,7 +33,11 @@ function recorder() {
   const calls = { rects: 0, fills: 0 };
   const none = () => {};
   const ctx = {
-    ...{ setTransform: none, clearRect: none, beginPath: none, fillStyle: "", globalAlpha: 1 },
+    setTransform: none,
+    clearRect: none,
+    beginPath: none,
+    fillStyle: "",
+    globalAlpha: 1,
     rect: () => void (calls.rects += 1),
     fill: () => void (calls.fills += 1),
   } as unknown as MinimapContext;
@@ -89,7 +93,12 @@ function rects() {
   const all: { x: number; y: number; w: number; h: number }[] = [];
   const none = () => {};
   const ctx = {
-    ...{ setTransform: none, clearRect: none, beginPath: none, fill: none, fillStyle: "", globalAlpha: 1 },
+    setTransform: none,
+    clearRect: none,
+    beginPath: none,
+    fill: none,
+    fillStyle: "",
+    globalAlpha: 1,
     rect: (x: number, y: number, w: number, h: number) => void all.push({ x, y, w, h }),
   } as unknown as MinimapContext;
   return { ctx, all };
