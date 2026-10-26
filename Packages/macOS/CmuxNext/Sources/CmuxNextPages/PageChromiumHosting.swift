@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import CmuxNextWakeups
 public import Foundation
@@ -16,6 +17,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// The app's lanes: what a page answers that costs CPU by its size (a `Page.captureScreenshot` reply, megabytes
     /// of base64 image) is parsed and decoded on their `.cpu` lane, never on the main thread.
     var work: BackgroundWork { get }
+    /// The dialog center a page's own notices show in (its "Page unresponsive" card, ``PageChromiumEvent/unresponsive``):
+    /// the app's one center, or a test's headless one.
+    var dialogs: CmuxDialogCenter { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -127,6 +131,13 @@ public protocol PageChromiumPage: AnyObject {
     ///   whose answer is not synchronous, or a page Chromium still counts visible): the host closes
     ///   the page instead.
     func discard() -> Bool
+    /// Answers the page's hang (``PageChromiumEvent/unresponsive``), as Chrome's hung renderer dialog does
+    /// (chrome/browser/ui/views/hung_renderer_view.cc): wait restarts Chromium's hang timer, so the page reports
+    /// again if it still hangs; terminate ends its renderer, and the page reports ``PageChromiumEvent/crashed``.
+    /// Makes no call into the page and never waits. A page that is not unresponsive, or is closed, ignores it.
+    ///
+    /// - Parameter terminate: True ends the renderer, false waits.
+    func answerUnresponsive(terminate: Bool)
     /// Tears the page down. Idempotent.
     func close()
 }
@@ -172,6 +183,11 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case finished
     /// The page's render process ended.
     case crashed
+    /// The page's renderer stopped handling input for Chromium's hang delay
+    /// (`WebContentsDelegate::RendererUnresponsive`): Chromium waits for ``PageChromiumPage/answerUnresponsive(terminate:)``.
+    case unresponsive
+    /// The renderer handles input again, or the hang was answered (`WebContentsDelegate::RendererResponsive`).
+    case responsive
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended

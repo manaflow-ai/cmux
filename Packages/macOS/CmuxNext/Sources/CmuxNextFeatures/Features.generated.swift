@@ -942,6 +942,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A cmux page tab whose Chromium renderer stops answering shows the Page unresponsive card while the page shows: Wait restarts the hang timer and Exit page ends the renderer, which the crash recovery reloads.
+    public static let pageHangNotice = Feature(
+        index: 53,
+        name: "pageHangNotice",
+        owner: "PL-webui",
+        description: "A cmux page tab whose Chromium renderer stops answering shows the Page unresponsive card while the page shows: Wait restarts the hang timer and Exit page ends the renderer, which the crash recovery reloads.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
         index: 54,
@@ -1539,6 +1556,7 @@ nonisolated extension Feature {
         .newTabParksHidden,
         .occludedWindowDiscard,
         .overlayTopLayer,
+        .pageHangNotice,
         .pageLifecycle,
         .pageProcessGroups,
         .pageRendererAtFirstShow,
@@ -1628,6 +1646,7 @@ nonisolated extension Feature {
         .newTabParksHidden,
         .occludedWindowDiscard,
         .overlayTopLayer,
+        .pageHangNotice,
         .pageLifecycle,
         .pageProcessGroups,
         .pageRendererAtFirstShow,
