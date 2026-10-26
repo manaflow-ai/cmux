@@ -9808,6 +9808,16 @@ machines, and it is not the final shared machine registry.
 
 ## Agent CLI inventory
 
+`agent-inventory`, `agent-inventory-refresh` and `agent-inventory-watch` are in
+`sdk-schema.json` (family `agents`, local-admin), with the result types
+`AgentInventoryResult`, `AgentInventoryRefreshResult` and
+`AgentInventoryWatchResult`. The refresh has `background` priority: it waits on
+registries for seconds and must not delay control requests. `server/agent_inventory.rs`
+and `server/agent_inventory_watch.rs` decode them as their own `cmd`-tagged
+enums before the `Command` enum, so `scripts/handler_commands.py` checks their
+request fields, types and presence against the schema's like every other
+handler command. A row's `family` is the `AgentInventoryFamily` enum or null.
+
 `agent-inventory-v1` is advertised when the daemon has its own acpmux socket
 configured. A trusted native connection (the app's local, SSH or Cloud carrier)
 may send `{id, cmd:"agent-inventory"}`. WebSocket clients and the
@@ -9880,8 +9890,7 @@ and `checkedAt` remain cached, so `cached:true` remains accurate. A configuratio
 replacement refuses an answer from its former source.
 
 This carrier supports the existing proposed app operation
-`agent_cli.list {check_latest:true}`; it is not a separate generic SDK, CLI or
-MCP command. App/provider wiring still requires its own verification. Ordinary
+`agent_cli.list {check_latest:true}`; it is not a CLI or MCP command. App/provider wiring still requires its own verification. Ordinary
 reads and subscription invalidations stay cache-only and never request this
 refresh implicitly. Registry observations cannot complete an execution job.
 

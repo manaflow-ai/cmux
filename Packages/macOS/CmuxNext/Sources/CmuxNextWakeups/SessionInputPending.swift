@@ -167,6 +167,10 @@ public final class SessionInputPending: InputPendingSource {
         !scan(uptime: uptime, firstOnly: true).isEmpty
     }
 
+    public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
+        !pendingKinds(uptime: uptime).subtracting(.key).isEmpty
+    }
+
     /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's
     /// once-per-run-loop-turn publisher (InputPendingState, p04-input-021). Empty when the app is
     /// inactive. Safe next to the budget's checks: the only state a check keeps is when it first
