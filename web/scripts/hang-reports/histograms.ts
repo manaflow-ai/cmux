@@ -4,8 +4,10 @@
  *
  * Grouping. Buckets are summed per histogram name, app version and server
  * UTC day (`received_day`). A report's own `histograms[]` count under the
- * report's app version; each `sections[]` entry counts under its launch's
- * profile version, since an earlier launch may have run an older build.
+ * report's app version; each `launch_sections[]` entry counts under its
+ * launch's profile version, since an earlier launch may have run an older
+ * build. A section is counted once by its `id`: the client resends a section
+ * whose upload it did not see succeed.
  *
  * Percentiles. Nearest rank over the merged buckets, read as the bucket's
  * upper bound, as Chrome's histogram percentiles are (and as the client's
@@ -32,11 +34,17 @@ export type StoredFieldReport = {
     readonly schema?: number;
     readonly app?: { readonly version?: string };
     readonly histograms?: ReadonlyArray<StoredHistogram>;
-    readonly sections?: ReadonlyArray<{
-      readonly profile?: { readonly app?: { readonly version?: string } };
+    readonly launch_sections?: ReadonlyArray<{
+      readonly id?: string;
+      readonly profile?: { readonly version?: string };
       readonly histograms?: ReadonlyArray<StoredHistogram>;
     }>;
-    readonly dropped?: { readonly histograms?: number; readonly stability?: number; readonly blackbox?: number };
+    readonly dropped?: {
+      readonly histograms?: number;
+      readonly stability?: number;
+      readonly blackbox?: number;
+      readonly labels?: number;
+    };
   };
 };
 
@@ -61,7 +69,12 @@ export type MergedFieldHistogram = {
   readonly p99: PercentileValue | null;
 };
 
-export type DroppedTotals = { readonly histograms: number; readonly stability: number; readonly blackbox: number };
+export type DroppedTotals = {
+  readonly histograms: number;
+  readonly stability: number;
+  readonly blackbox: number;
+  readonly labels: number;
+};
 
 type Accumulator = {
   readonly name: string;
@@ -77,12 +90,16 @@ const UNKNOWN_VERSION = "unknown";
 /** Sum every schema 3 histogram by name, version and day, sorted by those keys. */
 export function mergeFieldHistograms(reports: ReadonlyArray<StoredFieldReport>): MergedFieldHistogram[] {
   const groups = new Map<string, Accumulator>();
+  const seenSections = new Set<string>();
   for (const report of reports) {
     if (report.payload.schema !== 3) continue;
     const reportVersion = report.payload.app?.version ?? report.appVersion ?? UNKNOWN_VERSION;
     addAll(groups, report, reportVersion, report.payload.histograms ?? []);
-    for (const section of report.payload.sections ?? []) {
-      addAll(groups, report, section.profile?.app?.version ?? UNKNOWN_VERSION, section.histograms ?? []);
+    for (const section of report.payload.launch_sections ?? []) {
+      const id = section.id?.toLowerCase();
+      if (id !== undefined && seenSections.has(id)) continue;
+      if (id !== undefined) seenSections.add(id);
+      addAll(groups, report, section.profile?.version ?? UNKNOWN_VERSION, section.histograms ?? []);
     }
   }
   return [...groups.values()].sort(compareGroups).map(summarize);
@@ -90,11 +107,12 @@ export function mergeFieldHistograms(reports: ReadonlyArray<StoredFieldReport>):
 
 /** The names, keys and records ingest dropped, summed. */
 export function droppedTotals(reports: ReadonlyArray<StoredFieldReport>): DroppedTotals {
-  const total = { histograms: 0, stability: 0, blackbox: 0 };
+  const total = { histograms: 0, stability: 0, blackbox: 0, labels: 0 };
   for (const report of reports) {
     total.histograms += report.payload.dropped?.histograms ?? 0;
     total.stability += report.payload.dropped?.stability ?? 0;
     total.blackbox += report.payload.dropped?.blackbox ?? 0;
+    total.labels += report.payload.dropped?.labels ?? 0;
   }
   return total;
 }

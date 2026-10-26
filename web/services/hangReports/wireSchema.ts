@@ -1,7 +1,35 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
-import { FIELD_NAME_PATTERN, isWellFormedHistogramName } from "./histogramCatalog";
+import {
+  APP_BUILD_PATTERN,
+  APP_VERSION_PATTERN,
+  CHANNELS,
+  Day,
+  MAX_COUNT,
+  MAX_DURATION_MS,
+  OS_VERSION_PATTERN,
+  Uuid,
+  boundedInt,
+  isUnique,
+  optionalArray,
+  optionalNullable,
+} from "./wirePrimitives";
+import {
+  BlackboxEvent,
+  BlockingDetail,
+  FieldHistograms,
+  InputLatencyEdges,
+  InputLatencyRow,
+  LaunchSections,
+  MAX_BLACKBOX_EVENTS,
+  MAX_INPUT_LATENCY_ROWS,
+  MainTask,
+  ScrollJank,
+  Stability,
+} from "./wireSchema3";
+
+export { UUID_PATTERN } from "./wirePrimitives";
 
 /**
  * Wire format schemas 2 and 3 of an opt-in cmux NEXT hang report. The bounds
@@ -10,10 +38,11 @@ import { FIELD_NAME_PATTERN, isWellFormedHistogramName } from "./histogramCatalo
  * review 1 and 2 privacy fixes (Data-volume and `..` image paths are "other",
  * no redirects, per-Mac consent). Schema 1 is refused (400, which the client
  * treats as final and drops from its outbox), so reports an older Nightly
- * queued under the old image rules are never stored. Schema 3 adds the field
- * data (``HangReportSchema3``). The Swift client encodes with JSONEncoder, which omits nil
- * optionals, so every nullable field accepts the key absent or `null`, and
- * every array and `metrics` may be absent (read as empty).
+ * queued under the old image rules are never stored. Schema 3 adds what the
+ * client's `HangReport.WireSchema.v3` carries (``HangReportSchema3``). The
+ * Swift client encodes with JSONEncoder, which omits nil optionals, so every
+ * nullable field accepts the key absent or `null`, and every array and
+ * `metrics` may be absent (read as empty).
  */
 
 export const HANG_REPORT_MAX_BYTES = 64 * 1024;
@@ -22,41 +51,19 @@ export const MAX_CPU_EXCEPTIONS = 5;
 export const MAX_FRAMES = 64;
 export const MAX_BUCKETS = 32;
 export const MAX_INTERVALS = 64;
-/** Field histograms per launch (the current one, and each section). */
-export const MAX_HISTOGRAMS = 32;
-/** Non-empty `[index, count]` pairs per field histogram. */
-export const MAX_HISTOGRAM_BUCKETS = 24;
-export const MAX_STABILITY_KEYS = 128;
-export const MAX_BLACKBOX_EVENTS = 512;
-/** Earlier launches folded into one report, each with its own profile. */
-export const MAX_SECTIONS = 8;
 /** Launch histograms per milestone: one per `LaunchTemperature`. */
 export const MAX_LAUNCH_HISTOGRAMS = 4;
 /** Completion reason counts: one per `LaunchCompletionReason`. */
 export const MAX_LAUNCH_REASONS = 6;
 
-const MAX_DURATION_MS = 86_400_000;
 const MAX_OFFSET = 2 ** 40;
-const MAX_COUNT = 1_000_000_000;
 const MAX_MS_PER_S = 1000;
 const MAX_CATALOG_VERSION = 65_535;
 /** The client's `HangReport.maxActiveSeconds`: 31 days. */
 const MAX_ACTIVE_SECONDS = 31 * 86_400;
-/** Chromium's `HistogramBase::Sample` is an int32; a cmux bucket index is far below it. */
-const MAX_BUCKET_KEY = 2 ** 31 - 1;
 
-export const UUID_PATTERN = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9 ._+()-]{1,64}$/;
 export const OTHER_IMAGE = "other";
-const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-// The Swift client sends `^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$` (or "0") for the
-// app version, app build and macOS version. The version also accepts the
-// release pipeline's "0.70.0-nightly.<run>" form, and the build a long numeric
-// run id ("2123456789012"), in case the client forwards them unchanged.
-const CLIENT_VERSION = String.raw`[0-9]{1,6}(?:\.[0-9]{1,6}){0,3}`;
-const APP_VERSION_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,6}(?:\\.\\d{1,6}){0,2}-[a-z]{1,16}(?:\\.\\d{1,20})?)$`);
-const APP_BUILD_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,20}(?:\\.\\d{1,6}){0,2})$`);
-const OS_VERSION_PATTERN = new RegExp(`^${CLIENT_VERSION}$`);
 // Closed sets, exactly what the client's HardwareClass can send: a free-text
 // chip (a name, a host) or an odd memory size is refused, never stored.
 const CHIP_PATTERN = /^(?:Apple M[0-9]{1,2}(?: (?:Pro|Max|Ultra))?|Intel|other)$/;
@@ -64,7 +71,8 @@ export const MEMORY_SIZES_GB = [4, 8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 
 const INTERVAL_NAME_PATTERN = /^[a-z0-9_.-]{1,48}$/;
 
 const COUNT_BUCKETS = ["0", "1", "2-5", "6-10", "11-30", "31-100", "101+"] as const;
-const CHANNELS = ["nightly", "dev", "rc", "release"] as const;
+/** The client's `CoarseCounts.waitLabels`: log2 milliseconds (schema 3's `userBlockingWaitP99Ms`). */
+const WAIT_BUCKETS = ["0-1", "1-2", "2-4", "4-8", "8-16", "16-32", "32-64", "64+"] as const;
 // The PL-arch signpost catalog raw values.
 const INTERVAL_CATEGORIES = ["action", "motion", "key", "switch", "create", "cef", "launch"] as const;
 // Schema 3 adds the main-thread turn and input-queueing histograms (`main.turn`, `main.input_queueing`).
@@ -74,22 +82,8 @@ const LAUNCH_TEMPERATURES = ["cold", "lukewarm", "warm", "undetermined"] as cons
 const LAUNCH_COMPLETION_REASONS = [
   "visiblePaneLoadedIdle", "visiblePaneTimedOut", "noVisiblePane", "noWindow", "daemonUnavailable", "failsafe",
 ] as const;
-// The trace ring roles' file stems (CmuxNextTrace TraceRing.Role.fileStem; trace.md "Record").
-export const BLACKBOX_PROCESSES = ["app", "daemon", "holder", "terminal-host", "acpmux", "chromium-host", "cli"] as const;
-// Chrome's JSON trace phases (base/trace_event/common/trace_event_common.h), as the ring stores them.
-export const BLACKBOX_PHASES = ["B", "E", "I", "b", "e", "s", "f", "C"] as const;
 
-const boundedInt = (max: number) => Schema.Number.pipe(Schema.int(), Schema.between(0, max));
 const msPerS = Schema.Number.pipe(Schema.finite(), Schema.between(0, MAX_MS_PER_S));
-const optionalNullable = <S extends Schema.Schema.Any>(schema: S) =>
-  Schema.optionalWith(Schema.NullOr(schema), { exact: true });
-const optionalArray = <A, I>(schema: Schema.Schema<A, I>, max: number) =>
-  Schema.optionalWith(Schema.Array(schema).pipe(Schema.maxItems(max)), {
-    exact: true,
-    default: (): ReadonlyArray<A> => [],
-  });
-
-const Uuid = Schema.String.pipe(Schema.pattern(UUID_PATTERN));
 const CountBucket = Schema.Literal(...COUNT_BUCKETS);
 
 const AppVersion = Schema.Struct({
@@ -118,13 +112,33 @@ const Bucket = Schema.Struct({
   count: boundedInt(MAX_COUNT),
 }).pipe(Schema.filter((bucket) => bucket.lowMs <= bucket.highMs, { message: () => "lowMs above highMs" }));
 
-const Hang = Schema.Struct({
-  source: Schema.Literal("metrickit", "watchdog"),
-  kind: Schema.Literal("hang", "stall"),
+const hangFields = {
   durationMs: boundedInt(MAX_DURATION_MS),
   cpuMs: optionalNullable(boundedInt(MAX_DURATION_MS)),
   frames: Frames,
+};
+
+const Hang = Schema.Struct({
+  source: Schema.Literal("metrickit", "watchdog"),
+  kind: Schema.Literal("hang", "stall"),
+  ...hangFields,
 });
+
+/**
+ * A schema 3 hang sample (the client's `HangSample`): also the blocking
+ * detector's call sites (`source` `detector`, `kind` `blocking`, no duration,
+ * a `blocking` object) and a watchdog hang's scheduled `task`. The pairing
+ * rules are the client's (HangReportServerRules.swift).
+ */
+const HangV3 = Schema.Struct({
+  source: Schema.Literal("metrickit", "watchdog", "detector"),
+  kind: Schema.Literal("hang", "stall", "blocking"),
+  ...hangFields,
+  blocking: optionalNullable(BlockingDetail),
+  task: optionalNullable(MainTask),
+}).pipe(Schema.filter(isPairedHang, {
+  message: () => "a blocking object goes with a detector sample of no duration; a task with a watchdog hang",
+}));
 
 const CpuException = Schema.Struct({
   cpuMs: boundedInt(MAX_DURATION_MS),
@@ -150,67 +164,12 @@ const intervalSchema = <C extends readonly [string, ...string[]]>(categories: C)
   hitchMsPerS: optionalNullable(msPerS),
 });
 
-// MARK: schema 3 field data
-
-/**
- * One field histogram since the last report: a catalog name and its non-empty
- * buckets as `[index, count]` pairs, ascending by index (the client's delta
- * shadow sends each sample once). For a `chromium.*` histogram the first
- * number is the bucket's minimum sample, since Chromium's bucket ranges are
- * its own (base/metrics/sample_vector.h `SampleCountIterator::Get`).
- */
-const Histogram = Schema.Struct({
-  name: Schema.String.pipe(Schema.filter(isWellFormedHistogramName, { message: () => "not a histogram name" })),
-  buckets: Schema.Array(Schema.Tuple(boundedInt(MAX_BUCKET_KEY), boundedInt(MAX_COUNT))).pipe(
-    Schema.maxItems(MAX_HISTOGRAM_BUCKETS),
-    Schema.filter(isStrictlyAscending, { message: () => "bucket indexes not strictly ascending" }),
-  ),
-});
-
-const Histograms = Schema.Array(Histogram).pipe(
-  Schema.maxItems(MAX_HISTOGRAMS),
-  Schema.filter((histograms) => isUnique(histograms.map((histogram) => histogram.name)), {
-    message: () => "a histogram name appears twice",
-  }),
-);
-
-/**
- * Stability counts since the last report (task p09-observability-109), flat:
- * `launch`, `active_seconds`, `unclean_exit.<exit>`,
- * `child_exit.<process kind>.<exit>` and `daemon_unresponsive.<class>`.
- */
-const Stability = Schema.Record({
-  key: Schema.String.pipe(Schema.pattern(FIELD_NAME_PATTERN)),
-  value: boundedInt(MAX_COUNT),
-}).pipe(Schema.filter((stability) => Object.keys(stability).length <= MAX_STABILITY_KEYS, {
-  message: () => "too many stability keys",
-}));
-
-const fieldDataFields = {
-  histograms: Schema.optionalWith(Histograms, { exact: true, default: (): ReadonlyArray<HangReportHistogram> => [] }),
-  stability: optionalNullable(Stability),
+const countFields = {
+  windows: CountBucket,
+  workspaces: CountBucket,
+  panes: CountBucket,
+  tabs: CountBucket,
 };
-
-/**
- * One black-box ring record (the client's `TraceBlackBoxUpload`): trace
- * clock nanoseconds since the report's oldest event, the ring's process, a
- * catalog signpost name, the phase and the two numeric arguments, each at
- * most 2^53 - 1 so JSON keeps them exact.
- */
-const BlackboxEvent = Schema.Struct({
-  t_ns: boundedInt(Number.MAX_SAFE_INTEGER),
-  process: Schema.Literal(...BLACKBOX_PROCESSES),
-  name: Schema.String.pipe(Schema.pattern(FIELD_NAME_PATTERN)),
-  phase: Schema.Literal(...BLACKBOX_PHASES),
-  arg0: boundedInt(Number.MAX_SAFE_INTEGER),
-  arg1: boundedInt(Number.MAX_SAFE_INTEGER),
-});
-
-/** An earlier launch's field data, with that launch's profile (task p09-observability-053). */
-const LaunchSection = Schema.Struct({
-  profile: Schema.Struct({ app: AppVersion, os: OsVersion }),
-  ...fieldDataFields,
-});
 
 const LaunchHistogram = Schema.Struct({
   temperature: Schema.Literal(...LAUNCH_TEMPERATURES),
@@ -256,7 +215,7 @@ export const HANG_REPORT_SCHEMA = 3;
 const reportFields = {
   reportId: Uuid,
   installId: Uuid,
-  day: Schema.String.pipe(Schema.pattern(DAY_PATTERN), Schema.filter(isCalendarDay, { message: () => "not a calendar day" })),
+  day: Day,
   app: AppVersion,
   os: OsVersion,
   hardware: Schema.Struct({
@@ -265,13 +224,6 @@ const reportFields = {
     cores: Schema.Number.pipe(Schema.int(), Schema.between(1, 1024)),
     memoryGB: Schema.Literal(...MEMORY_SIZES_GB),
   }),
-  counts: Schema.Struct({
-    windows: CountBucket,
-    workspaces: CountBucket,
-    panes: CountBucket,
-    tabs: CountBucket,
-  }),
-  hangs: optionalArray(Hang, MAX_HANGS),
   cpuExceptions: optionalArray(CpuException, MAX_CPU_EXCEPTIONS),
   stallHistogram: optionalArray(Bucket, MAX_BUCKETS),
   metrics: Schema.optionalWith(Metrics, { exact: true }),
@@ -281,36 +233,47 @@ const reportFields = {
 export const HangReportSchema2 = Schema.Struct({
   schema: Schema.Literal(2),
   ...reportFields,
+  counts: Schema.Struct(countFields),
+  hangs: optionalArray(Hang, MAX_HANGS),
   intervals: optionalArray(intervalSchema(INTERVAL_CATEGORIES), MAX_INTERVALS),
 });
 
 /**
- * Schema 3 of the hang report body (chrome-parity tasks p09-observability-063
- * and 064; plans/cmux-next/chrome-parity/p09-observability.md section 3D,
- * "Upload"): schema 2, the `main` interval category, and
- * - `catalog_version`: the client's histogram catalog version;
- * - `active_seconds`: the person's active time since the last report;
- * - `launches`: the launch milestone histograms;
- * - `histograms[]` and `stability{}`: the current launch's field data;
- * - `blackbox[]`: the merged ring tails at a hang;
- * - `sections[]`: each earlier launch's field data with its own profile.
+ * Schema 3 of the hang report body: every field the client's
+ * `HangReport.WireSchema.v3` writes:
+ * - `hangs[]` with detector samples and watchdog task attribution;
+ * - `counts.userBlockingWaitP99Ms`, the lanes' user-blocking wait bucket;
+ * - `active_seconds` and the `main` interval category;
+ * - `launches`, the launch milestone histograms;
+ * - `input_latency_bucket_edges_ms`, `input_latency[]` and `scroll_jank`;
+ * - `histograms[]`, `stability{}`, `blackbox[]` and `launch_sections[]`, the
+ *   field data (chrome-parity p09-observability-063 and 064;
+ *   plans/cmux-next/chrome-parity/p09-observability.md section 3D, "Upload");
+ * - `catalog_version`, optional: a client histogram catalog version.
  *
  * The client writes at most 48 KiB; the server keeps its 64 KiB cap. A
- * well-formed histogram name or stability key the server's catalog does not
- * know is dropped and counted at ingest (``normalizeFieldData``), not
- * refused; any other bad shape is a 400.
+ * well-formed name or label this server does not know is dropped and counted
+ * at ingest (``normalizeFieldData``), not refused; any other bad shape is a 400.
  */
 export const HangReportSchema3 = Schema.Struct({
   schema: Schema.Literal(3),
   ...reportFields,
+  counts: Schema.Struct({ ...countFields, userBlockingWaitP99Ms: optionalNullable(Schema.Literal(...WAIT_BUCKETS)) }),
+  hangs: optionalArray(HangV3, MAX_HANGS),
   intervals: optionalArray(intervalSchema(INTERVAL_CATEGORIES_V3), MAX_INTERVALS),
-  catalog_version: Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_CATALOG_VERSION)),
+  catalog_version: optionalNullable(Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_CATALOG_VERSION))),
   active_seconds: optionalNullable(boundedInt(MAX_ACTIVE_SECONDS)),
   launches: optionalNullable(Launches),
-  ...fieldDataFields,
+  input_latency_bucket_edges_ms: optionalNullable(InputLatencyEdges),
+  input_latency: optionalNullable(Schema.Array(InputLatencyRow).pipe(Schema.maxItems(MAX_INPUT_LATENCY_ROWS))),
+  scroll_jank: optionalNullable(ScrollJank),
+  histograms: Schema.optionalWith(FieldHistograms, { exact: true, default: () => [] }),
+  stability: optionalNullable(Stability),
   blackbox: optionalArray(BlackboxEvent, MAX_BLACKBOX_EVENTS),
-  sections: optionalArray(LaunchSection, MAX_SECTIONS),
-});
+  launch_sections: Schema.optionalWith(LaunchSections, { exact: true, default: () => [] }),
+}).pipe(Schema.filter(hasConsistentInputLatency, {
+  message: () => "input latency rows need the bucket edges, one bucket per edge and one over",
+}));
 
 export type HangReportV2 = Schema.Schema.Type<typeof HangReportSchema2>;
 export type HangReportV3 = Schema.Schema.Type<typeof HangReportSchema3>;
@@ -318,10 +281,7 @@ export type HangReportV3 = Schema.Schema.Type<typeof HangReportSchema3>;
 export type HangReport = HangReportV2 | HangReportV3;
 export type HangReportFrame = Schema.Schema.Type<typeof Frame>;
 export type HangReportBucket = Schema.Schema.Type<typeof Bucket>;
-export type HangReportHistogram = Schema.Schema.Type<typeof Histogram>;
-export type HangReportStability = Schema.Schema.Type<typeof Stability>;
-export type HangReportBlackboxEvent = Schema.Schema.Type<typeof BlackboxEvent>;
-export type HangReportLaunchSection = Schema.Schema.Type<typeof LaunchSection>;
+export type HangReportHangV3 = Schema.Schema.Type<typeof HangV3>;
 
 const strict = { onExcessProperty: "error", errors: "first" } as const;
 const decodeV2 = Schema.decodeUnknownEither(HangReportSchema2, strict);
@@ -338,17 +298,33 @@ export function decodeHangReport(body: unknown): HangReport | null {
   return Either.isRight(result) ? result.right : null;
 }
 
-function isUnique(values: ReadonlyArray<string>): boolean {
-  return new Set(values).size === values.length;
+/**
+ * The client's pairing (HangReportServerRules.swift): a detector sample is
+ * exactly a `blocking` kind, carries the `blocking` object and no duration;
+ * only a watchdog hang names its `task`.
+ */
+function isPairedHang(hang: {
+  readonly source: string;
+  readonly kind: string;
+  readonly durationMs: number;
+  readonly blocking?: unknown;
+  readonly task?: unknown;
+}): boolean {
+  const detector = hang.source === "detector";
+  if (detector !== (hang.kind === "blocking") || detector !== (hang.blocking != null)) return false;
+  if (detector && hang.durationMs !== 0) return false;
+  return hang.task == null || (hang.source === "watchdog" && hang.kind === "hang");
 }
 
-function isStrictlyAscending(pairs: ReadonlyArray<readonly [number, number]>): boolean {
-  return pairs.every((pair, index) => index === 0 || (pairs[index - 1]?.[0] ?? -1) < pair[0]);
-}
-
-function isCalendarDay(day: string): boolean {
-  const parsed = new Date(`${day}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
+/** The client writes the edges and the rows together, each row one count per edge plus one over the last. */
+function hasConsistentInputLatency(report: {
+  readonly input_latency_bucket_edges_ms?: ReadonlyArray<number> | null;
+  readonly input_latency?: ReadonlyArray<{ readonly buckets: ReadonlyArray<number> }> | null;
+}): boolean {
+  const edges = report.input_latency_bucket_edges_ms;
+  const rows = report.input_latency;
+  if (edges == null || rows == null) return edges == null && rows == null;
+  return rows.every((row) => row.buckets.length === edges.length + 1);
 }
 
 /** The UTC calendar day of an instant, as `YYYY-MM-DD`. */

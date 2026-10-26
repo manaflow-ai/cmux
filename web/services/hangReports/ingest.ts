@@ -25,7 +25,7 @@ export type ValidatedHangReport = {
 
 /**
  * Decode, bound-check and privacy-scan an untrusted body. Unknown histogram
- * names and stability keys are dropped and counted, not refused.
+ * names, stability keys and client labels are dropped and counted, not refused.
  */
 export function validateHangReport(body: unknown, now: Date): Effect.Effect<ValidatedHangReport, HangReportInvalid> {
   return Effect.gen(function* () {
@@ -53,9 +53,9 @@ function withoutVersions(report: HangReport): unknown {
   if (report.schema !== 3) return neutral;
   return {
     ...neutral,
-    sections: report.sections.map((section) => ({
+    launch_sections: report.launch_sections.map((section) => ({
       ...section,
-      profile: { app: { ...section.profile.app, ...NEUTRAL_APP }, os: NEUTRAL_OS },
+      profile: { ...section.profile, ...NEUTRAL_APP, os: NEUTRAL_OS.version },
     })),
   };
 }
@@ -78,9 +78,18 @@ export function hangReportRow({ report, dropped }: ValidatedHangReport, now: Dat
     chip: report.hardware.chip,
     cores: report.hardware.cores,
     memoryGb: report.hardware.memoryGB,
-    counts: { ...report.counts },
+    counts: storedCounts(report.counts),
     payload: (dropped ? { ...report, dropped } : report) as unknown as Record<string, unknown>,
   };
+}
+
+/** The `counts` column: every bucket label the report names (schema 3's lane wait only when present). */
+function storedCounts(counts: HangReport["counts"]): Record<string, string> {
+  const stored: Record<string, string> = {};
+  for (const [key, value] of Object.entries(counts)) {
+    if (typeof value === "string") stored[key] = value;
+  }
+  return stored;
 }
 
 /**

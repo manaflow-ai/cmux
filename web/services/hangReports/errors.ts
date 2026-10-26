@@ -5,6 +5,7 @@ export type HangReportInvalidReason =
   | "schema"
   | "day_out_of_range"
   | "histogram_bucket"
+  | "histogram_layout"
   | "leak_path"
   | "leak_email"
   | "leak_url"
@@ -13,7 +14,8 @@ export type HangReportInvalidReason =
 
 /**
  * The body is not a valid schema 2 or 3 report (HTTP 400; schema 1 included).
- * `histogram_bucket`: a catalog histogram holds a bucket its layout cannot.
+ * `histogram_bucket`: a catalog histogram holds a bucket its layout cannot;
+ * `histogram_layout`: a catalog histogram names another unit or ceiling than its layout.
  */
 export class HangReportInvalid extends Data.TaggedError("HangReportInvalid")<{
   readonly reason: HangReportInvalidReason;

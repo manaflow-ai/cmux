@@ -22,8 +22,8 @@ import { jsonResponse } from "../../../services/vms/routeHelpers";
 
 /*
  * Anonymous opt-in hang reports from cmux NEXT Nightly (schemas 2 and 3; schema 1 refused).
- * 204 when stored, also when schema 3 field data named a histogram or
- * stability key this server's catalog does not know (dropped and counted);
+ * 204 when stored, also when schema 3 named a histogram, stability key or
+ * client label this server does not know (dropped and counted);
  * 400 for a bad shape; 413 over 64 KiB.
  *
  * Privacy: this handler never reads a client address header

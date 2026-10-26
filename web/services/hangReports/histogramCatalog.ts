@@ -19,6 +19,8 @@ export const HISTOGRAM_CATALOG_VERSION = 1;
 
 /** The shape every cmux histogram name and stability key has. */
 export const FIELD_NAME_PATTERN = /^[a-z0-9_.]{1,64}$/;
+/** A Chromium histogram folded in under its UMA spelling (`chromium.EventLatency.KeyPressed.TotalLatency`). */
+const CHROMIUM_NAME_PATTERN = /^chromium\.[A-Za-z0-9_.]{1,55}$/;
 
 export type HistogramLayout =
   | { readonly kind: "logLinear"; readonly maximum: number }
@@ -27,7 +29,8 @@ export type HistogramLayout =
   /** Chromium's own buckets: a bucket pair's first number is the bucket's minimum sample. */
   | { readonly kind: "chromium" };
 
-export type HistogramUnit = "us" | "ms" | "kib" | "percent" | "count" | "enumeration" | "chromium";
+/** The wire unit names (the client's `HangReportBuilder.unitName`); `chromium` for Chromium's own layout. */
+export type HistogramUnit = "us" | "ms" | "kib" | "pct" | "count" | "enum" | "chromium";
 
 export type HistogramDefinition = {
   readonly name: string;
@@ -75,12 +78,12 @@ const CHROMIUM_HISTOGRAMS = [
   "PageLoad.PaintTiming.NavigationToFirstContentfulPaint",
 ] as const;
 
-const LAYOUT_BY_UNIT: Record<Exclude<HistogramUnit, "enumeration">, HistogramLayout> = {
+const LAYOUT_BY_UNIT: Record<Exclude<HistogramUnit, "enum">, HistogramLayout> = {
   us: { kind: "logLinear", maximum: 60_000_000 },
   ms: { kind: "logLinear", maximum: 3_600_000 },
   kib: { kind: "logLinear", maximum: 256 * 1024 * 1024 },
   count: { kind: "logLinear", maximum: 1_000_000 },
-  percent: { kind: "linear", maximum: 100 },
+  pct: { kind: "linear", maximum: 100 },
   chromium: { kind: "chromium" },
 };
 
@@ -90,12 +93,12 @@ function family(prefix: string, values: readonly string[], unit: HistogramUnit, 
 
 function definition(name: string, unit: HistogramUnit, layout?: HistogramLayout): HistogramDefinition {
   if (layout) return { name, unit, layout };
-  if (unit === "enumeration") throw new Error(`enumeration histogram ${name} needs its value count`);
+  if (unit === "enum") throw new Error(`enumeration histogram ${name} needs its value count`);
   return { name, unit, layout: LAYOUT_BY_UNIT[unit] };
 }
 
 function enumeration(name: string, valueCount: number): HistogramDefinition {
-  return definition(name, "enumeration", { kind: "enumeration", valueCount });
+  return definition(name, "enum", { kind: "enumeration", valueCount });
 }
 
 function catalogDefinitions(): HistogramDefinition[] {
@@ -104,7 +107,7 @@ function catalogDefinitions(): HistogramDefinition[] {
     ...family("key.echo_frame.", ECHO_ROUTES, "us"),
     ...family("input.frame.", INPUT_KINDS, "us"),
     definition("resize.frame", "us"),
-    ...family("smoothness.dropped_pct.", FRAME_SEQUENCES, "percent"),
+    ...family("smoothness.dropped_pct.", FRAME_SEQUENCES, "pct"),
     definition("frame.interval", "us"),
     definition("main.turn", "us"),
     definition("main.queue_delay", "us"),
@@ -120,7 +123,7 @@ function catalogDefinitions(): HistogramDefinition[] {
     ...family("memory.", PROCESS_KINDS, "kib", "_kib"),
     definition("memory.total_kib", "kib"),
     definition("memory.hidden_workspace_kib", "kib"),
-    ...family("cpu.", PROCESS_KINDS, "percent", "_pct"),
+    ...family("cpu.", PROCESS_KINDS, "pct", "_pct"),
     definition("disk.idle_write_kib_per_min", "kib"),
     definition("cef.pump", "us"),
     enumeration("cef.helper_exit", 256),
@@ -160,12 +163,27 @@ export function histogramDefinition(name: string): HistogramDefinition | null {
 }
 
 /**
- * Whether `name` may appear on the wire at all: a cmux name, or one of the
- * known Chromium names (whose UMA spelling has capitals). Anything else is a
- * bad shape, never stored or counted.
+ * Whether `name` may appear on the wire at all: a cmux name, or `chromium.`
+ * and a UMA-spelled name (with capitals). A well-formed name this catalog
+ * does not list (a newer client's) is dropped and counted at ingest; any
+ * other name is a bad shape, never stored or counted.
  */
 export function isWellFormedHistogramName(name: string): boolean {
-  return FIELD_NAME_PATTERN.test(name) || CATALOG.get(name)?.layout.kind === "chromium";
+  return FIELD_NAME_PATTERN.test(name) || CHROMIUM_NAME_PATTERN.test(name);
+}
+
+/**
+ * The `max` the client writes for a layout (`HangReportBuilder.ceiling`): the
+ * maximum of a log-linear or linear layout, an enumeration's value count;
+ * null for Chromium's own buckets.
+ */
+export function layoutCeiling(layout: HistogramLayout): number | null {
+  switch (layout.kind) {
+    case "logLinear":
+    case "linear": return layout.maximum;
+    case "enumeration": return layout.valueCount;
+    case "chromium": return null;
+  }
 }
 
 /** The bucket a log-linear value falls in (Histogram.swift `logLinearIndex`). */
@@ -229,19 +247,24 @@ export function isValidBucket(layout: HistogramLayout, index: number): boolean {
 }
 
 /**
- * The `stability{}` keys this server knows (chrome-parity task
- * p09-observability-109): counts since the last report, flat so an unknown
- * key is dropped the same way an unknown histogram name is.
+ * What one known `stability{}` key holds (the client's `HangReport.Stability`,
+ * chrome-parity task p09-observability-109): a count, a map of closed-set
+ * names to counts, or a map of maps.
  */
-const STABILITY_KEYS: ReadonlySet<string> = new Set([
-  "launch",
-  "active_seconds",
-  ...UNCLEAN_EXITS.map((exit) => `unclean_exit.${exit}`),
-  ...PROCESS_KINDS.flatMap((kind) => CHILD_EXITS.map((exit) => `child_exit.${kind}.${exit}`)),
-  ...METHOD_CLASSES.map((methodClass) => `daemon_unresponsive.${methodClass}`),
+export type StabilityShape =
+  | { readonly kind: "count" }
+  | { readonly kind: "map"; readonly keys: ReadonlySet<string> }
+  | { readonly kind: "nested"; readonly outer: ReadonlySet<string>; readonly inner: ReadonlySet<string> };
+
+const STABILITY_SHAPES: ReadonlyMap<string, StabilityShape> = new Map<string, StabilityShape>([
+  ["launch", { kind: "count" }],
+  ["active_seconds", { kind: "count" }],
+  ["unclean_exit", { kind: "map", keys: new Set(UNCLEAN_EXITS) }],
+  ["child_exit", { kind: "nested", outer: new Set(PROCESS_KINDS), inner: new Set(CHILD_EXITS) }],
+  ["daemon_unresponsive", { kind: "map", keys: new Set(METHOD_CLASSES) }],
 ]);
 
-/** Whether `key` is a `stability{}` key this server knows. */
-export function isKnownStabilityKey(key: string): boolean {
-  return STABILITY_KEYS.has(key);
+/** The shape of a `stability{}` key this server knows, or null. */
+export function stabilityShape(key: string): StabilityShape | null {
+  return STABILITY_SHAPES.get(key) ?? null;
 }

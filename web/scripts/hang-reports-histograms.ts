@@ -73,11 +73,11 @@ function formatPercentile(value: PercentileValue | null): string {
 function printText(reports: readonly StoredFieldReport[], merged: readonly MergedFieldHistogram[], options: Options): void {
   const dropped = droppedTotals(reports);
   console.log(`${reports.length} schema 3 reports, last ${options.days} days`);
-  console.log(`dropped at ingest: ${dropped.histograms} histograms, ${dropped.stability} stability keys, ${dropped.blackbox} black-box records`);
+  console.log(`dropped at ingest: ${dropped.histograms} histograms, ${dropped.stability} stability counts, ${dropped.blackbox} black-box records, ${dropped.labels} unknown labels`);
   console.log("");
   console.log(["name", "version", "day", "unit", "count", "installs", "p50", "p95", "p99"].join("\t"));
   for (const row of merged) {
-    const values = row.p50 === null && row.unit === "enumeration"
+    const values = row.p50 === null && row.unit === "enum"
       ? [row.buckets.map(([value, count]) => `${value}:${count}`).join(" "), "", ""]
       : [formatPercentile(row.p50), formatPercentile(row.p95), formatPercentile(row.p99)];
     console.log([row.name, row.version, row.day, row.unit ?? "?", row.count, row.installs, ...values].join("\t"));
