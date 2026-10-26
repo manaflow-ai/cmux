@@ -55,7 +55,8 @@ Sessions (--sessions):
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
                 every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
-  energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
+  energy-saver  tabs-static with `energy.saver: always` (and the default-off `energySaver` feature on: saver_launch,
+                which bench-typing's --energy-saver uses too), the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
                 one fetch the server holds (no wake while held); the bench answers it and the page POSTs
                 its count, page clock and visibilityState (any build, Release + CMUX_BENCH_HOOKS included)
@@ -2524,6 +2525,48 @@ ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "{method:'POST'})}).then(ask,function(){setTimeout(ask,1000)})}"
              "fetch('/loaded/anim',{method:'POST'}).then(ask)</script>")
 
+# The scroll page of bench-typing's chromium-page-scroll (D8, task 135): SCROLL_ROWS rows, nothing running until a
+# wheel event arrives. A wheel event (a passive listener: the compositor still scrolls, as for any page) starts one
+# rAF loop if none runs, and the loop runs until SCROLL_QUIET_MS pass with no wheel event. Each loop is one run of
+# the record, so a pause in the input longer than the quiet time starts a new run and is never a frame interval. Per
+# frame the run keeps the rAF time (the BeginMainFrame time, vsync aligned) and the time after that frame's
+# main-thread work (a MessageChannel message posted in the rAF callback, as acpmux perf.ts times a key's `paint`).
+# Both are main-frame times, not presentation times: the loop itself asks for a main frame every vsync, and a frame
+# that viz or the display compositor drops after its main frame is not seen. The read path is the animated page's: a
+# held GET of SCROLL_READ_PATH; once the bench reads (IdlePages.read_scroll) the page POSTs
+# SCROLL_FRAMES_PATH/<wheel events>/<scrolled px>/<rAF runs>/<after-frame runs> (ms from the record's first frame,
+# comma separated, runs separated by `;`, `-` for none), starts a new record and, with no loop running, scrolls back
+# to the top, so every gesture has the page's height to scroll.
+SCROLL_PATH = "/scroll"
+SCROLL_READ_PATH = "/scroll-read"
+SCROLL_FRAMES_PATH = "/scroll-frames"
+SCROLL_QUIET_MS = 50
+SCROLL_ROWS = 500
+SCROLL_PAGE_PX = SCROLL_ROWS * 96  # 88 px rows, their 8 px margins collapsed between rows
+SCROLL_PAGE = ("<!doctype html><meta charset='utf-8'><title>scroll</title>"
+               "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
+               ".r{height:88px;margin:8px 16px;padding:0 12px;border-radius:10px;background:#c9d4e8;line-height:88px}"
+               "</style><div id='rows'></div><script>const rows=document.getElementById('rows');"
+               f"for(let i=0;i<{SCROLL_ROWS};i++){{const d=document.createElement('div');d.className='r';"
+               "d.textContent='row '+i+' lorem ipsum dolor sit amet';rows.appendChild(d)}"
+               "let runs=[],posts=[],run=null,post=null,wheels=0,from=null,last=-1e9,looping=false;"
+               f"function tick(t){{if(run.length&&performance.now()-last>{SCROLL_QUIET_MS}){{looping=false;return}}"
+               "run.push(t);const into=post,channel=new MessageChannel();"
+               "channel.port1.onmessage=function(){into.push(performance.now());channel.port1.close()};"
+               "channel.port2.postMessage(0);requestAnimationFrame(tick)}"
+               "addEventListener('wheel',function(){wheels++;last=performance.now();if(from===null)from=scrollY;"
+               "if(!looping){looping=true;run=[];post=[];runs.push(run);posts.push(post);requestAnimationFrame(tick)}},"
+               "{passive:true});"
+               "function enc(list,t0){return list.length?list.map(function(times){"
+               "return times.map(function(t){return (t-t0).toFixed(2)}).join(',')}).join(';'):'-'}"
+               f"function ask(){{fetch('{SCROLL_READ_PATH}',{{cache:'no-store'}}).then(function(){{"
+               "const t0=runs.length&&runs[0].length?runs[0][0]:0,n=wheels,moved=from===null?0:Math.round(scrollY-from);"
+               "const fields=n+'/'+moved+'/'+enc(runs,t0)+'/'+enc(posts,t0);"
+               "runs=looping?[run]:[];posts=looping?[post]:[];wheels=0;from=null;if(!looping)scrollTo(0,0);"
+               f"return fetch('{SCROLL_FRAMES_PATH}/'+fields,{{method:'POST'}})}})"
+               ".then(ask,function(){setTimeout(ask,1000)})}"
+               "fetch('/loaded/scroll',{method:'POST'}).then(ask)</script>")
+
 
 def parse_anim_count(path):
     """{count, t_ms, visibility} from the page's ANIM_COUNT_PATH POST, or {"error": ...}."""
@@ -2534,52 +2577,103 @@ def parse_anim_count(path):
         return {"error": f"unreadable rAF count post {path[:80]}"}
 
 
+def parse_scroll_frames(path):
+    """{wheels, scrolled_px, runs_ms, post_runs_ms} from the scroll page's SCROLL_FRAMES_PATH POST, or
+    {"error": ...}. `runs_ms` holds one list per rAF loop (SCROLL_PAGE) of its frames' rAF times and `post_runs_ms`
+    the same frames' after-frame times, in ms from the record's first frame (no runs when no input came)."""
+    parts = path.split("?", 1)[0].removeprefix(SCROLL_FRAMES_PATH + "/").split("/")
+
+    def runs(field):
+        return [] if field == "-" else [[float(v) for v in run.split(",")] if run else [] for run in field.split(";")]
+    try:
+        if len(parts) != 4:
+            raise ValueError(f"{len(parts)} fields")
+        return {"wheels": int(parts[0]), "scrolled_px": int(parts[1]), "runs_ms": runs(parts[2]),
+                "post_runs_ms": runs(parts[3])}
+    except ValueError:
+        return {"error": f"unreadable scroll frames post {path[:80]}"}
+
+
+class HeldRead:
+    """One page's read path: the page keeps one GET of `read_path` open, the server holds it until the bench asks
+    (``read``), and the page then POSTs `post_path/<fields>` (parsed by `parse`) and asks again."""
+
+    def __init__(self, read_path, post_path, parse, what):
+        self.read_path, self.post_path, self.parse, self.what = read_path, post_path, parse, what
+        self._cond = threading.Condition()
+        self._asked = 0  # reads the bench asked for
+        self._answered = 0  # reads a held GET answered; a GET is held while this equals asked
+        self._posts = []  # the page's parsed posts, in order
+
+    def hold(self, closing):
+        """Holds the page's GET until the bench asks for a read or the server closes."""
+        with self._cond:
+            self._cond.wait_for(lambda: self._asked > self._answered or closing.is_set())
+            self._answered = self._asked
+
+    def posted(self, path):
+        with self._cond:
+            self._posts.append(self.parse(path))
+            self._cond.notify_all()
+
+    def read(self, seconds):
+        """The page's next post: answers its held read and waits for what it posts (a read asked before the page's
+        next GET arrives is answered by that GET); {"error": ...} when nothing comes in `seconds`."""
+        with self._cond:
+            posted = len(self._posts)
+            self._asked += 1
+            self._cond.notify_all()
+            if not self._cond.wait_for(lambda: len(self._posts) > posted, seconds):
+                return {"error": f"the page posted no {self.what} in {seconds:g} s (no held {self.read_path})"}
+            return self._posts[posted]
+
+    def wake(self):
+        with self._cond:
+            self._cond.notify_all()
+
+
 class IdlePages(tab_pages.TabPages):
-    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH and its read path."""
+    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH, bench-typing's scroll page at
+    SCROLL_PATH, and their read paths."""
 
     def __init__(self, *args, **kwargs):
-        self._anim = threading.Condition()
-        self._anim_asked = 0  # reads the bench asked for (read_anim)
-        self._anim_answered = 0  # reads a held ANIM_READ_PATH GET answered; a GET is held while this equals asked
-        self._anim_reads = []  # the page's parsed ANIM_COUNT_PATH posts, in order
+        self._held = {held.read_path: held for held in (
+            HeldRead(ANIM_READ_PATH, ANIM_COUNT_PATH, parse_anim_count, "rAF count"),
+            HeldRead(SCROLL_READ_PATH, SCROLL_FRAMES_PATH, parse_scroll_frames, "scroll frames"))}
         super().__init__(*args, **kwargs)
 
     def body(self, path):
         path = path.split("?", 1)[0]
         if path == ANIM_PATH:
             return ANIM_PAGE.encode()
-        if path == ANIM_READ_PATH:
-            with self._anim:
-                self._anim.wait_for(lambda: self._anim_asked > self._anim_answered or self.closing.is_set())
-                self._anim_answered = self._anim_asked
+        if path == SCROLL_PATH:
+            return SCROLL_PAGE.encode()
+        if path in self._held:
+            self._held[path].hold(self.closing)
             return b""
         return super().body(path)
 
     def report(self, path):
-        if path.startswith(ANIM_COUNT_PATH + "/"):
-            with self._anim:
-                self._anim_reads.append(parse_anim_count(path))
-                self._anim.notify_all()
-            return
+        for held in self._held.values():
+            if path.startswith(held.post_path + "/"):
+                held.posted(path)
+                return
         super().report(path)
 
     def read_anim(self, seconds=10):
-        """The animated page's {count, t_ms, visibility} now: answers the page's held read and waits for the count
-        it posts (a read asked before the page's next GET arrives is answered by that GET); {"error": ...} when none
-        comes in `seconds`."""
-        with self._anim:
-            posted = len(self._anim_reads)
-            self._anim_asked += 1
-            self._anim.notify_all()
-            if not self._anim.wait_for(lambda: len(self._anim_reads) > posted, seconds):
-                return {"error": f"the page posted no rAF count in {seconds:g} s (no held {ANIM_READ_PATH})"}
-            return self._anim_reads[posted]
+        """The animated page's {count, t_ms, visibility} now (HeldRead.read)."""
+        return self._held[ANIM_READ_PATH].read(seconds)
+
+    def read_scroll(self, seconds=10):
+        """The scroll page's {wheels, scrolled_px, runs_ms, post_runs_ms} since its last read (HeldRead.read); the
+        page then starts a new record."""
+        return self._held[SCROLL_READ_PATH].read(seconds)
 
     def close(self):
         """Ends the held reads with the other held loads."""
         super().close()
-        with self._anim:
-            self._anim.notify_all()
+        for held in self._held.values():
+            held.wake()
 
     def wait_loaded(self, key, seconds):
         """True once the page `key` reported /loaded/<key>, False after `seconds`."""
@@ -2689,12 +2783,26 @@ FREEZE_HIDDEN_TABS_S = 30
 FREEZE_GRACE_S = 15
 TABS_CONFIG = {"browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
+# The `energySaver` feature is default-off (schemas/features/features.d/energySaver.json) and the saver setting does
+# nothing while it is off (EnergyPolicyResolver.isEnabled), so a launch that asks for the saver turns the feature on
+# through CmuxNextFeatures' FeatureOverrides.enableVariable.
+ENERGY_FEATURE_ENV = {"CMUX_ENABLE_FEATURES": "energySaver"}
+
+
+def saver_launch(on):
+    """(cmux-next.json keys, environment) of a launch with the energy saver forced on (`energy.saver: always`) or
+    off (`off`). The feature is on in both, so two runs differ only in the setting (D8 compares them)."""
+    return {"energy": {"saver": "always" if on else "off"}}, dict(ENERGY_FEATURE_ENV)
+
+
+
 # The power sessions (p14-energy-096): one shown static Chromium tab and nothing else, in cmux and in the reference
 # browser, every owner of the window's power attributed; settled past Chromium's two minutes of post-load work.
 ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
 POWER_SESSION, CHROME_POWER_SESSION = "power-visible", "chrome-power-visible"
 POWER_SETTLE_S = 120
-# The sessions (the docstring describes each). Keys: config (adds to BASE_CONFIG: session_config), hide, minimize,
+# The sessions (the docstring describes each). Keys: config (adds to BASE_CONFIG: session_config), env (adds to the
+# launch environment: session_env), hide, minimize,
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
@@ -2709,8 +2817,9 @@ SESSIONS = {
     "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
                     "shown": True},
-    "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
-                     "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True, "shown": True},
+    "energy-saver": {"config": {**TABS_CONFIG, **saver_launch(True)[0]}, "env": saver_launch(True)[1],
+                     "tabs": {**TABS_STATIC, "shown": "anim"}, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
+                     "saver": True, "anim": True, "shown": True},
     # The references (run_chrome_static): the cmux session's pages in a Chromium, settled as long as it.
     CHROME_SESSION: {"chrome": True, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     POWER_SESSION: {"tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
@@ -2721,6 +2830,11 @@ SESSIONS = {
 def session_config(session):
     """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys on top."""
     return {**BASE_CONFIG, **(SESSIONS[session].get("config") or {})}
+
+
+def session_env(session, env):
+    """The launch environment of `session`: `env` with the session's own variables on top."""
+    return {**env, **(SESSIONS[session].get("env") or {})}
 
 
 def parse_sessions(text):
@@ -3200,7 +3314,7 @@ def main(argv=None):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
         folder = os.path.join(out, session)
-        app = BenchApp(opts.app, out=folder, env=env, config=session_config(session))
+        app = BenchApp(opts.app, out=folder, env=session_env(session, env), config=session_config(session))
         pages = IdlePages() if spec.get("tabs") else None
         try:
             sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
