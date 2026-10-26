@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextInput
 import CmuxNextWakeups
 import Observation
 import QuartzCore
@@ -23,6 +24,7 @@ public final class TabStripView: NSView {
     public static var preferredHeight: CGFloat { Metrics.tabStripHeight }
 
     public let model: TabStripModel
+    let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }
@@ -177,21 +179,19 @@ public final class TabStripView: NSView {
     var dragCompanions: Set<TabID> = []
     /// A multi-tab drop's order: it stays shown while the App lands it one move at a time.
     var multiReorderTarget: [TabID]?
-    private(set) lazy var selectionEscape = TabSelectionEscapeMonitor(strip: self)
-    /// Display index of the phantom gap shown for an external drag.
-    var dropPlaceholderIndex: Int?
-    /// Pointer of the external drag, in view coordinates, for edge autoscroll.
-    var phantomPoint: CGPoint?
-    private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
-    /// A dropped tab keeps the placeholder's geometry when it arrives.
-    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    private(set) lazy var selectionEscape = TabStripEscape.multiSelectionClear(strip: self)
+    var dropPlaceholderIndex: Int?  // display index of the phantom gap shown for an external drag
+    var phantomPoint: CGPoint?  // pointer of the external drag, in view coordinates, for edge autoscroll
+    private(set) lazy var escapeMonitor = TabStripEscape.dragCancel(strip: self)
+    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?  // a dropped tab keeps the placeholder's geometry
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none) {
+    public init(model: TabStripModel, background: Background = .none, input: InputEventTap) {
         self.model = model
+        inputTap = input
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never

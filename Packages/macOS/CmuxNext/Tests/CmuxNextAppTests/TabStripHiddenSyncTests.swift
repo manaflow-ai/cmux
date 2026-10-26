@@ -9,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized) struct TabStripHiddenSyncTests {
     @Test func aHiddenStripSyncsOnceWhenItShows() async {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         let parked = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 40))
         strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
         parked.addSubview(strip)

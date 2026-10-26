@@ -757,6 +757,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
+ "cmux-trace",
  "libc",
 ]
 
@@ -1131,6 +1132,7 @@ dependencies = [
 name = "cmux-tui-fuzz"
 version = "0.0.0"
 dependencies = [
+ "acpmux",
  "cmux-config",
  "cmux-link",
  "cmux-rd-proto",
@@ -1141,6 +1143,8 @@ dependencies = [
  "libfuzzer-sys",
  "serde",
  "serde_json",
+ "tokio",
+ "toml",
 ]
 
 [[package]]

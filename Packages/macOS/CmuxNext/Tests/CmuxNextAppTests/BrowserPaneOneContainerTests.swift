@@ -21,8 +21,8 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
+                                           reveal: LaunchReveal(deadline: .zero))
             pane.barOrder = .aboveToolbar
             pane.frame = window.contentLayoutRect
             window.contentView = pane

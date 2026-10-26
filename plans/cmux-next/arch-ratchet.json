@@ -597,6 +597,12 @@
       "row": "blocking_allow_escapes",
       "allow": 2,
       "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 17,
+      "why": "p07-memory-021: CmuxNextDesign WindowOcclusionChecker is the one app-wide adapter the rule asks for, a copy of Chrome's WebContentsOcclusionCheckerMac (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm), which observes the same names once per process: willMove, didMove, willStartLiveResize, didEndLiveResize, willClose, didChangeOcclusionState, didBecomeMain, didResignMain, the four fullscreen transitions, and NSWorkspace screensDidSleep/screensDidWake; plus didResize (a programmatic or tiling resize) and NSApplication didHide/didUnhide (Cmd-H orders every window out with no occlusion change of its own) (17 names, counted once each). One checker per app, made by AppServices.startHibernation only with the default-off occludedWindowDiscard feature; events from any window start a pass (an untracked window can cover a tracked one), it coalesces every event into one pass on a later main turn, and tells only the content cache which window went off screen or came back. It replaces polling occlusionState: AppKit does not report a window covered by another window of the same app."
     }
   ],
   "observer_wrappers": [

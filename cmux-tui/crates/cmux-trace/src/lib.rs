@@ -33,6 +33,7 @@ mod macros;
 mod map;
 pub mod names;
 mod ring;
+mod terminal;
 mod tracer;
 
 use std::cell::RefCell;
@@ -54,6 +55,7 @@ pub use macros::{
 };
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
+pub use terminal::terminal_hash;
 use tracer::RingId;
 pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
 
@@ -354,6 +356,12 @@ pub(crate) fn write_process(
 /// `trace.start` in this process ([`Tracer::start_recording`]).
 pub fn start_recording(categories: u64) -> Result<Status, TraceError> {
     PROCESS.get().ok_or(TraceError::NotInitialized)?.start_recording(categories)
+}
+
+/// Maps this process's recording ring ahead of its first `trace.start`
+/// ([`Tracer::prepare_recording`]): the ring's bytes. Blocking: call it off the main thread.
+pub fn prepare_recording() -> Result<u64, TraceError> {
+    Ok(PROCESS.get().ok_or(TraceError::NotInitialized)?.prepare_recording())
 }
 
 /// `trace.stop` in this process ([`Tracer::stop`]).
