@@ -103,14 +103,20 @@ nonisolated enum AcpmuxVersionHandoff {
             return false
         }
         let key = handOffKey(environment, bundled: bundled, pid: pid)
-        guard handedOff.withLock({ $0.insert(key).inserted }) else {
+        // The key is used up and Settings' daemon line marked restarting in one step, so a read
+        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:)``). The
+        // line says restarting until the lookup that starts the bundled one settles
+        // (AgentPaneHost.findOrStart), or until this handoff fails.
+        let inserted = handedOff.withLock { keys in
+            let inserted = keys.insert(key).inserted
+            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            return inserted
+        }
+        guard inserted else {
             logger.error("acpmux \(pid) at \(environment.socketPath, privacy: .public) still runs build \(status.build ?? "?", privacy: .public) after this app handed that socket off to \(bundled ?? "?", privacy: .public) once")
             return false
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
-        // Settings' daemon line says restarting until the lookup that starts the bundled one
-        // settles (AgentPaneHost.findOrStart), or until this handoff fails.
-        AcpmuxDaemonSummary.mark(home: environment.home, restarting: true)
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {

@@ -33,11 +33,13 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     ///   - running: its build; nil when it does not say.
     ///   - bundled: the bundled acpmux's build; nil when unknown.
     ///   - restarting: a handoff is stopping it, or the bundled daemon is starting.
-    ///   - replaced: it runs the executable of a bundle an update replaced.
-    ///   - handsOff: a lookup would hand it off (``AcpmuxVersionHandoff/handsOff(_:environment:bundled:)``).
-    /// A daemon of another build than the bundle's, or a replaced bundle's, is restarted at the
-    /// next lookup, so it is restarting too unless no lookup hands it off; a build either side
-    /// does not know is taken as up to date.
+    ///   - replaced: it runs another executable than the app's: a bundle an update replaced, or
+    ///     a stray `~/.local/bin/acpmux` (``AcpmuxStrayDaemon``).
+    ///   - handsOff: a lookup would hand it off or take it over
+    ///     (``AcpmuxVersionHandoff/handsOff(_:environment:bundled:)``, ``AcpmuxStrayDaemon/takesOver(_:environment:)``).
+    /// A daemon of another build than the bundle's, a replaced bundle's or a stray one is
+    /// restarted at the next lookup, so it is restarting too unless no lookup hands it off; a
+    /// build either side does not know is taken as up to date.
     public init(answered: Bool, running: String?, bundled: String?, restarting: Bool,
                 replaced: Bool = false, handsOff: Bool = true) {
         let stale = if let running, let bundled { running != bundled } else { false }
@@ -94,20 +96,26 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         return restartingHomes.withLock { $0.contains(path) }
     }
 
-    /// The daemon of `environment` now (one `--version` and one `_acpmux/status` call); a nil
-    /// `environment` (no acpmux) is not running.
+    /// How long the bundled acpmux may take to say its build: the card waits for this line.
+    static let versionBound: Duration = .seconds(2)
+
+    /// The daemon of `environment` now: one `--version` call (bounded, ``versionBound``) and one
+    /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
+    /// acpmux) is not running.
     @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
         guard let environment else { return Self(build: nil, state: .notRunning) }
-        let bundled = await AcpmuxVersionHandoff.bundledBuild(environment)
+        let bundled = await DaemonUpdatePolicy.bundledBuild(of: environment.executable, within: versionBound)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
-        // Read after the awaits: a handoff whose shutdown failed meanwhile cleared its mark and
-        // used up its once-per-socket handoff, so the daemon it kept is not the app's build.
-        let restarting = isRestarting(home: environment.home)
         guard let status, status.serves(home: environment.home) else {
-            return Self(answered: false, running: nil, bundled: bundled, restarting: restarting)
+            return Self(answered: false, running: nil, bundled: bundled, restarting: isRestarting(home: environment.home))
         }
+        // What a lookup would do first, then the mark: a handoff uses its key and sets the mark in
+        // one step, so a used key read here comes with its mark unless that handoff settled since
+        // (a failure clears it: the daemon it kept is not the app's build). Both after the awaits.
+        let stray = AcpmuxStrayDaemon.takesOver(status, environment: environment)
         let handoff = AcpmuxVersionHandoff.handsOff(status, environment: environment, bundled: bundled)
+        let restarting = isRestarting(home: environment.home)
         return Self(answered: true, running: status.build, bundled: bundled, restarting: restarting,
-                    replaced: handoff.replaced, handsOff: handoff.handsOff)
+                    replaced: handoff.replaced || stray.stray, handsOff: stray.takesOver || handoff.handsOff)
     }
 }

@@ -92,4 +92,36 @@ import Testing
         Summary.mark(home: environment.home, restarting: false)
         #expect(await Summary.current(environment).state == .notRunning)
     }
+
+    /// A bundled acpmux that never answers `--version` does not hold the card: the line comes
+    /// back within the version bound plus the status deadline.
+    @Test func aStalledVersionProbeIsBounded() async throws {
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("ads-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stall = directory.appendingPathComponent("acpmux")
+        try "#!/bin/sh\nexec /bin/sleep 60\n".write(to: stall, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stall.path)
+        let environment = AcpmuxEnvironment(executable: stall, home: directory,
+                                            socketPath: directory.appendingPathComponent("acpmux.sock").path,
+                                            daemonArguments: [], childEnvironment: [:])
+        let clock = ContinuousClock()
+        let started = clock.now
+        let summary = await Summary.current(environment)
+        #expect(clock.now - started < .seconds(10))
+        #expect(summary == Summary(build: nil, state: .notRunning))
+    }
+
+    /// A stray daemon (another executable than the app's) is classed like a replaced bundle:
+    /// restarting when a lookup takes it over, else not the app's build, whatever its build.
+    @Test func aStrayDaemonIsRestartingOrNotTheAppsBuild() {
+        #expect(Summary(answered: true, running: "abc", bundled: "abc", restarting: false, replaced: true, handsOff: true)
+            == Summary(build: "abc", state: .restarting))
+        #expect(Summary(answered: true, running: "abc", bundled: "abc", restarting: false, replaced: true, handsOff: false)
+            == Summary(build: "abc", state: .otherBuild))
+        // Nothing on the socket is never stray.
+        #expect(AcpmuxStrayDaemon.takesOver(Self.status(build: "abc", agentHosts: true), environment: Self.environment())
+            == (stray: false, takesOver: false))
+    }
 }
