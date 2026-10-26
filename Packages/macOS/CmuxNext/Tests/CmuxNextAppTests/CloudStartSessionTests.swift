@@ -197,6 +197,40 @@ struct CloudStartSessionTests {
         #expect(error is CancellationError, "a cancelled run's error: \(String(describing: error))")
     }
 
+    /// Closing the tab while its start is going on (the store cancels that start) says the tab
+    /// closed; an ended account says so; the run's own cancellation stays one.
+    @Test func closingTheTabDuringTheStartSaysSo() async throws {
+        let asked = CloudStartSession.Request(machineID: "vm-devbox", name: nil, agent: "codex", cwd: nil).asked(machine: "devbox")
+        let closed: () async throws -> AgentTabRemoteStart.Started = { throw CancellationError() }
+        func refusal(now: [String?], _ start: () async throws -> AgentTabRemoteStart.Started) async -> String? {
+            do {
+                _ = try await CloudStartSession.starting(name: "devbox", id: "vm-devbox", agent: "codex", account: Self.account, now: { now }, asked: asked, start)
+                return nil
+            } catch let refusal as CloudStartSession.AccountChanged {
+                return refusal.failure.message
+            } catch {
+                return "\(error)"
+            }
+        }
+        #expect(await refusal(now: Self.account, closed) == CloudStartSessionStrings.tabClosed("devbox", id: "vm-devbox", agent: "codex"))
+        #expect(await refusal(now: ["user-1", "team-2"], closed) == CloudStartSessionStrings.accountChanged(asked))
+        let started = try await CloudStartSession.starting(name: "devbox", id: "vm-devbox", agent: "codex", account: Self.account, now: { Self.account }, asked: asked) {
+            AgentTabRemoteStart.Started(surface: 2, session: "s-2")
+        }
+        #expect(started == AgentTabRemoteStart.Started(surface: 2, session: "s-2"))
+        let cancelled = Task { @MainActor () -> (any Error)? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try await CloudStartSession.starting(name: "devbox", id: "vm-devbox", agent: "codex", account: Self.account, now: { Self.account }, asked: asked, closed)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        let error = await cancelled.value
+        #expect(error is CancellationError, "a cancelled run's start: \(String(describing: error))")
+    }
+
     /// What a keyed start did on the machine, in order.
     nonisolated final class StartSteps: Sendable {
         let steps = Mutex([String]())

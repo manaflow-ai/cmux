@@ -206,8 +206,10 @@ struct CloudStartSession {
             case let remote as AgentTabRemoteHost:
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command
-                started = try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
-                    try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
+                started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
+                    try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
+                        try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
+                    }
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -236,6 +238,19 @@ struct CloudStartSession {
         do {
             return try await pending.value()
         } catch is CancellationError where !Task.isCancelled {
+            throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.tabClosed(name, id: id, agent: agent)))
+        }
+    }
+
+    /// The session's start on the machine. Closing the new chat's tab cancels its start
+    /// (``AgentTabStore``'s release of the tab): that says the tab closed. The run's own
+    /// cancellation stays one, and an ended account says so.
+    static func starting(name: String, id: String, agent: String, account: [String?], now: () -> [String?], asked: CloudStartSessionStrings.Asked,
+                         _ start: () async throws -> AgentTabRemoteStart.Started) async throws -> AgentTabRemoteStart.Started {
+        do {
+            return try await start()
+        } catch is CancellationError {
+            try check(account, now: now(), asked)
             throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.tabClosed(name, id: id, agent: agent)))
         }
     }
