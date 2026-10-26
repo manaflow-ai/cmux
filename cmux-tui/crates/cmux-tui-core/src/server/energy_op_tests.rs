@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::SurfaceOptions;
+use crate::server::energy_rule::{PowerFacts, SaverSetting};
 use crate::server::{
     BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink, disconnect_client,
     handle_connection_message,
@@ -16,6 +17,14 @@ use crate::server::{
 
 /// The control client id the unit tests set overrides as.
 const APP: u64 = 7;
+
+/// Turns the daemon's own reading on or off: `onBattery`, with the Mac on
+/// battery or plugged in. Returns whether the mode changed.
+fn set_reading(energy: &DaemonEnergy, saver: bool) -> bool {
+    let setting_changed = energy.set_setting(SaverSetting::OnBattery);
+    let facts = PowerFacts { on_battery: saver, ..PowerFacts::default() };
+    energy.set_facts(facts) || setting_changed
+}
 
 struct Caller {
     id: u64,
@@ -71,7 +80,10 @@ fn energy_set_round_trip_flips_the_mode_and_status_reads_it() {
     let status = app.call(&mux, json!({"id": 1, "cmd": STATUS}));
     assert_eq!(
         status["data"],
-        json!({"saver": false, "source": "daemon", "reason": null, "override": null, "reading": false}),
+        json!({
+            "saver": false, "source": "daemon", "reason": null, "override": null, "reading": false,
+            "setting": null, "offForNow": false,
+        }),
         "{status}"
     );
 
@@ -91,7 +103,10 @@ fn energy_set_round_trip_flips_the_mode_and_status_reads_it() {
     let status = app.call(&mux, json!({"id": 4, "cmd": STATUS}));
     assert_eq!(
         status["data"],
-        json!({"saver": true, "source": "app", "reason": "battery", "override": true, "reading": false}),
+        json!({
+            "saver": true, "source": "app", "reason": "battery", "override": true, "reading": false,
+            "setting": null, "offForNow": false,
+        }),
         "{status}"
     );
 
@@ -104,7 +119,7 @@ fn energy_set_round_trip_flips_the_mode_and_status_reads_it() {
 #[test]
 fn energy_override_wins_over_the_reading_until_cleared() {
     let energy = DaemonEnergy::default();
-    assert!(energy.set_reading(true));
+    assert!(set_reading(&energy, true));
     assert_eq!(energy.status().source, EnergySource::Daemon);
     assert!(energy.mode().is_saver());
 
@@ -112,8 +127,8 @@ fn energy_override_wins_over_the_reading_until_cleared() {
     assert!(!energy.status().saver);
     assert_eq!(energy.status().source, EnergySource::App);
     // The reading moves under the override without moving the mode.
-    assert!(!energy.set_reading(false));
-    assert!(!energy.set_reading(true));
+    assert!(!set_reading(&energy, false));
+    assert!(!set_reading(&energy, true));
     assert!(!energy.mode().is_saver());
 
     assert!(energy.set_override(APP, None, None));
@@ -122,9 +137,11 @@ fn energy_override_wins_over_the_reading_until_cleared() {
         EnergyStatus {
             saver: true,
             source: EnergySource::Daemon,
-            reason: None,
+            reason: Some(SaverReason::Setting),
             app_override: None,
             reading: true,
+            setting: Some(SaverSetting::OnBattery),
+            off_for_now: false,
         }
     );
     assert!(energy.mode().is_saver());
@@ -152,7 +169,7 @@ fn energy_racing_writers_leave_the_mode_on_the_last_inputs() {
                     if index % 2 == 0 {
                         energy.set_override(APP, Some(round % 2 == 0), Some(SaverReason::Setting));
                     } else {
-                        energy.set_reading(round % 3 == 0);
+                        set_reading(&energy, round % 3 == 0);
                     }
                 }
             })
@@ -167,7 +184,7 @@ fn energy_racing_writers_leave_the_mode_on_the_last_inputs() {
 #[test]
 fn energy_override_ends_with_the_client_that_set_it() {
     let energy = DaemonEnergy::default();
-    assert!(energy.set_reading(true));
+    assert!(set_reading(&energy, true));
     assert!(energy.set_override(APP, Some(false), None));
     // Another client leaving takes nothing.
     assert!(!energy.client_left(APP + 1));
@@ -183,7 +200,7 @@ fn energy_override_ends_with_the_client_that_set_it() {
     energy.set_override(APP + 1, Some(false), None);
     assert!(!energy.client_left(APP));
     assert_eq!(energy.status().app_override, Some(false));
-    // An id wider than the setter bits is matched by its low 56 bits.
+    // An id wider than the setter bits is matched by its low 48 bits.
     let far = APP | (1 << 60);
     energy.set_override(far, Some(false), None);
     assert!(!energy.client_left(far + 1));
@@ -195,7 +212,7 @@ fn energy_override_ends_with_the_client_that_set_it() {
 #[test]
 fn energy_app_override_is_gone_when_its_connection_closes() {
     let mux = Mux::new_for_test("energy-app-quit", SurfaceOptions::default());
-    mux.energy.set_reading(true);
+    set_reading(&mux.energy, true);
     let app = Caller::new(&mux, ClientTransport::Unix, true);
     let cli = Caller::new(&mux, ClientTransport::Unix, false);
     let set = app.call(&mux, json!({"id": 1, "cmd": SET, "saver": false}));
@@ -205,7 +222,10 @@ fn energy_app_override_is_gone_when_its_connection_closes() {
     let status = cli.call(&mux, json!({"id": 2, "cmd": STATUS}));
     assert_eq!(
         status["data"],
-        json!({"saver": true, "source": "daemon", "reason": null, "override": null, "reading": true}),
+        json!({
+            "saver": true, "source": "daemon", "reason": "setting", "override": null,
+            "reading": true, "setting": "onBattery", "offForNow": false,
+        }),
         "{status}"
     );
     assert!(mux.energy.mode().is_saver());
@@ -236,6 +256,7 @@ fn energy_set_needs_the_verified_app_and_well_formed_fields() {
         json!({"id": 7, "cmd": SET, "saver": false, "reason": "battery"}),
         json!({"id": 8, "cmd": SET, "saver": true, "reason": "sunny"}),
         json!({"id": 9, "cmd": SET, "saver": true, "extra": 1}),
+        json!({"id": 12, "cmd": SET, "saver": false, "offForNow": "yes"}),
         json!({"id": 10, "cmd": STATUS, "saver": true}),
     ] {
         assert_eq!(code(&app.call(&mux, bad.clone())), "energy.bad_request", "{bad}");
@@ -254,7 +275,9 @@ fn energy_lines_are_routed_and_the_capability_is_advertised() {
     }
     assert!(crate::server::routes::find("energy.").is_none());
     let mux = Mux::new_for_test("energy-capability", SurfaceOptions::default());
-    assert!(crate::server::identify_capabilities(&mux).contains(&CAPABILITY));
+    let capabilities = crate::server::identify_capabilities(&mux);
+    assert!(capabilities.contains(&CAPABILITY));
+    assert!(capabilities.contains(&RULE_CAPABILITY));
 }
 
 /// The daemon relays its mode to acpmux (p14-energy-034): the app's
@@ -308,4 +331,92 @@ fn energy_set_reaches_acpmux_on_the_chat_watch_connection() {
     assert!(disconnect_client(&mux, app.id, false));
     assert_eq!(next()["params"], json!({"saver": false}));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `offForNow` (energy-v2) rides `energy.set`, outlives the app's
+/// connection and holds the daemon's own reading off.
+#[test]
+fn energy_set_carries_turn_off_for_now_past_the_apps_connection() {
+    let mux = Mux::new_for_test("energy-off-for-now", SurfaceOptions::default());
+    set_reading(&mux.energy, true);
+    let app = Caller::new(&mux, ClientTransport::Unix, true);
+    let set = app.call(&mux, json!({"id": 1, "cmd": SET, "saver": false, "offForNow": true}));
+    assert_eq!(set["data"], json!({"changed": true, "saver": false}), "{set}");
+    assert!(disconnect_client(&mux, app.id, false));
+    let status = mux.energy.status();
+    assert!(status.off_for_now && !status.saver && !status.reading, "{status:?}");
+    assert_eq!(status.source, EnergySource::Daemon);
+    // A v1 line (no offForNow) leaves the hold as it is.
+    let again = Caller::new(&mux, ClientTransport::Unix, true);
+    again.call(&mux, json!({"id": 2, "cmd": SET, "saver": null}));
+    assert!(mux.energy.status().off_for_now);
+    let ended = again.call(&mux, json!({"id": 3, "cmd": SET, "saver": null, "offForNow": false}));
+    assert_eq!(ended["data"], json!({"changed": true, "saver": true}), "{ended}");
+}
+
+#[test]
+fn energy_inputs_survive_a_pack_round_trip() {
+    let facts = [
+        None,
+        Some(PowerFacts::default()),
+        Some(PowerFacts { on_battery: true, low_battery: true, low_power_mode: true, hot: true }),
+        Some(PowerFacts { on_battery: true, hot: true, ..PowerFacts::default() }),
+    ];
+    let overrides = [
+        (None, None),
+        (Some(false), None),
+        (Some(true), None),
+        (Some(true), Some(SaverReason::Thermal)),
+    ];
+    let settings = [None, Some(SaverSetting::Auto), Some(SaverSetting::Off)];
+    for facts in facts {
+        for (app_override, reason) in overrides {
+            for setting in settings {
+                for off_for_now in [false, true] {
+                    let inputs = Inputs { app_override, reason, setting, off_for_now, facts };
+                    let packed = inputs.pack();
+                    assert_eq!(packed & !INPUTS, 0, "{inputs:?} spills into the setter bits");
+                    assert_eq!(Inputs::unpack(packed | setter(APP)), inputs);
+                }
+            }
+        }
+    }
+}
+
+/// The daemon reads `energy.saver` from its settings owner at the first read
+/// and on each later change, as the app does.
+#[test]
+fn energy_setting_follows_the_settings_file() {
+    let dir = cmux_unix_socket::short_test_dir("energy-setting");
+    let config = dir.path().join("cmux-next.json");
+    std::fs::write(&config, r#"{"energy": {"saver": "off"}}"#).unwrap();
+    let mux = Mux::new_for_test("energy-setting", SurfaceOptions::default());
+    assert!(mux.start_settings_owner(crate::mux::settings::SettingsPaths {
+        config,
+        seed: None,
+        state_dir: Some(dir.path().to_path_buf()),
+        reader: Box::new(cmux_config::managed::FixedManagedReader::default()),
+        watch: false,
+    }));
+    assert_eq!(mux.energy.status().setting, Some(SaverSetting::Off));
+    mux.energy.set_facts(PowerFacts {
+        on_battery: true,
+        low_battery: true,
+        ..PowerFacts::default()
+    });
+    assert!(!mux.energy.mode().is_saver(), "off never turns on, even on a low battery");
+
+    let meta = || cmux_config::WriteMeta {
+        origin: cmux_config::Origin::App,
+        idempotency_key: None,
+        if_revision: None,
+    };
+    let target = || cmux_config::Target::Key(energy_rule::SETTING_KEY.into());
+    let set = cmux_config::Op::Set { target: target(), value: json!("always"), meta: meta() };
+    mux.settings_apply(set).unwrap();
+    assert_eq!(mux.energy.status().setting, Some(SaverSetting::Always));
+    assert!(mux.energy.mode().is_saver());
+    mux.settings_apply(cmux_config::Op::Reset { target: target(), meta: meta() }).unwrap();
+    assert_eq!(mux.energy.status().setting, Some(SaverSetting::Auto), "missing is auto");
+    assert_eq!(mux.energy.status().reason, Some(SaverReason::Battery));
 }

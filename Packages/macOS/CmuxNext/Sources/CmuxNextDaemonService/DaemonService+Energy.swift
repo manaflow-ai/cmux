@@ -4,43 +4,66 @@ public import CmuxNextWakeups
 /// `energy.set` (cmux-tui-core server/energy_op.rs, p14-energy-033): the app's Energy Saver, an
 /// override of the daemon's own reading that lasts as long as the connection that sent it. `reason`
 /// is the policy's ``EnergyPolicy/Reason`` and goes only with `saver: true`; nil is left out of the line.
+/// `offForNow` ("Turn Off for Now", ``ruleCapability`` only) outlives the connection: the daemon's own
+/// reading, which follows the app's rule from `energy.saver` and the Mac's power inputs
+/// (server/energy_rule.rs, p14-energy-137), keeps it until the Mac is plugged in.
 nonisolated struct EnergySetRequest: DaemonRequest, Equatable {
     typealias Response = EmptyResponse
     static let commandName: DaemonCommandName = "energy.set"
     /// The capability a daemon that answers `energy.set` advertises.
     static let capability = "energy-v1"
+    /// The capability a daemon that takes `offForNow` advertises.
+    static let ruleCapability = "energy-v2"
     static var requiredCapability: String? { capability }
     var saver: Bool
     var reason: String?
+    var offForNow: Bool?
+}
+
+/// What the app tells the local daemon of its Energy Saver: the saver, and "Turn Off for Now", which
+/// the daemon keeps after the app quits.
+nonisolated struct DaemonEnergyValue: Sendable, Equatable {
+    var saver: Bool
+    var offForNow: Bool
+
+    init(saver: Bool, offForNow: Bool = false) {
+        self.saver = saver
+        self.offForNow = offForNow
+    }
+
+    init(_ policy: EnergyPolicy) {
+        self.init(saver: policy.isSaver, offForNow: policy.isOffForNow)
+    }
 }
 
 /// What the local daemon has been told of Energy Saver, so the app sends `energy.set` only on an edge
-/// of `isSaver`: Chrome's `BatterySaverModeManager` tells each child process once per edge
-/// (content/child/child_thread_impl.cc `SetBatterySaverMode`). A policy change that keeps the saver
-/// (sleep, power source) is no edge; nor is the policy the app holds when it starts following.
+/// of the saver or of "Turn Off for Now" (``DaemonEnergyValue``): Chrome's `BatterySaverModeManager`
+/// tells each child process once per edge (content/child/child_thread_impl.cc `SetBatterySaverMode`).
+/// A policy change that keeps both (sleep, power source) is no edge; nor is the policy the app holds
+/// when it starts following.
 ///
 /// A new connection has been told nothing (the daemon drops the override of a connection that ended),
 /// so each connection is told the current value once.
 nonisolated struct DaemonEnergyEdges: Sendable, Equatable {
-    /// The app's saver as last seen.
-    private(set) var saver: Bool
+    /// The app's value as last seen.
+    private(set) var value: DaemonEnergyValue
     /// What this connection was told; nil until it is told, and while there is no connection.
-    private(set) var told: Bool?
+    private(set) var told: DaemonEnergyValue?
 
-    init(saver: Bool) {
-        self.saver = saver
+    init(_ value: DaemonEnergyValue) {
+        self.value = value
     }
 
-    /// The app's policy changed: the value to send, or nil when the saver did not flip for this
-    /// connection (or there is none).
-    mutating func observe(saver: Bool, connected: Bool) -> Bool? {
-        self.saver = saver
+    /// The app's policy changed: the value to send, or nil when nothing flipped for this connection
+    /// (or there is none).
+    mutating func observe(_ value: DaemonEnergyValue, connected: Bool) -> DaemonEnergyValue? {
+        self.value = value
         return connected ? pending() : nil
     }
 
-    /// A connection came up while the app's saver is `saver`: the value to tell it.
-    mutating func connected(saver: Bool) -> Bool? {
-        self.saver = saver
+    /// A connection came up while the app's value is `value`: the value to tell it.
+    mutating func connected(_ value: DaemonEnergyValue) -> DaemonEnergyValue? {
+        self.value = value
         told = nil
         return pending()
     }
@@ -50,10 +73,10 @@ nonisolated struct DaemonEnergyEdges: Sendable, Equatable {
         told = nil
     }
 
-    private mutating func pending() -> Bool? {
-        guard told != saver else { return nil }
-        told = saver
-        return saver
+    private mutating func pending() -> DaemonEnergyValue? {
+        guard told != value else { return nil }
+        told = value
+        return value
     }
 }
 
@@ -85,7 +108,7 @@ final class DaemonEnergyFollow {
     init(_ source: EnergyPolicySource, store: DaemonStore, on work: MainWorkScheduler, send: @escaping Send) {
         self.source = source
         self.store = store
-        edges = DaemonEnergyEdges(saver: source.policy.isSaver)
+        edges = DaemonEnergyEdges(DaemonEnergyValue(source.policy))
         let (stream, requests) = AsyncStream.makeStream(of: EnergySetRequest.self, bufferingPolicy: .bufferingNewest(1))
         self.requests = requests
         // task-owner: this follower; deinit finishes the stream, which ends the pump
@@ -114,21 +137,24 @@ final class DaemonEnergyFollow {
             return
         }
         guard let policy = source?.policy else { return }
-        tell(edges.connected(saver: policy.isSaver), reason: policy.reason)
+        tell(edges.connected(DaemonEnergyValue(policy)), reason: policy.reason)
     }
 
-    /// The app's policy changed: tells the daemon when the saver flipped.
+    /// The app's policy changed: tells the daemon when the saver or "Turn Off for Now" flipped.
     func changed() {
         guard let policy = source?.policy else { return }
-        tell(edges.observe(saver: policy.isSaver, connected: connection != nil), reason: policy.reason)
+        tell(edges.observe(DaemonEnergyValue(policy), connected: connection != nil), reason: policy.reason)
     }
 
-    /// Sends `saver` when there is one to send and the daemon serves `energy.set` (an older daemon
-    /// does not; it is skipped, not failed). The pump sends one at a time and keeps only the newest
-    /// unsent value, so an on and an off in quick succession reach the daemon in that order.
-    private func tell(_ saver: Bool?, reason: EnergyPolicy.Reason?) {
-        guard let saver, store?.supports(EnergySetRequest.capability) == true else { return }
-        requests.yield(EnergySetRequest(saver: saver, reason: saver ? reason?.rawValue : nil))
+    /// Sends `value` when there is one to send and the daemon serves `energy.set` (an older daemon
+    /// does not; it is skipped, not failed); `offForNow` goes only to a daemon that takes it. The pump
+    /// sends one at a time and keeps only the newest unsent value, so an on and an off in quick
+    /// succession reach the daemon in that order.
+    private func tell(_ value: DaemonEnergyValue?, reason: EnergyPolicy.Reason?) {
+        guard let value, let store, store.supports(EnergySetRequest.capability) else { return }
+        let offForNow = store.supports(EnergySetRequest.ruleCapability) ? value.offForNow : nil
+        requests.yield(EnergySetRequest(saver: value.saver, reason: value.saver ? reason?.rawValue : nil,
+                                        offForNow: offForNow))
     }
 }
 
