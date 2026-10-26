@@ -41,7 +41,8 @@ public struct OracleFacets: Sendable {
     public func changes(_ facet: OracleFacet) -> OracleFacetChanges? { providers[facet]?.changes }
 
     /// Whether `debug.oracle.wait_for` can wait on `facet`: a provider reads it on the main actor (its reads are
-    /// observed) or gives a change signal. A background facet without one would only be read once.
+    /// observed) or gives a change signal. A background facet without one would only be read once, and so would a
+    /// main-actor-then-background one: its main-actor part reads no observable state (the AX tree).
     public func signalsChanges(_ facet: OracleFacet) -> Bool {
         guard let provider = providers[facet] else { return false }
         if provider.changes != nil { return true }
@@ -88,6 +89,12 @@ public struct OracleFacets: Sendable {
                 }
             case .background(let read):
                 background.append(OracleCapture.Pending(facet: facet, read: read))
+            case .mainActorThenBackground(let read):
+                do throws(OracleFacetError) {
+                    background.append(OracleCapture.Pending(facet: facet, read: try read()))
+                } catch {
+                    throw OracleSnapshotError(facet: facet, error: error)
+                }
             }
         }
         return OracleCapture(values: values, background: background)

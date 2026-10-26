@@ -28,7 +28,15 @@ public enum OracleFacetCapture: Sendable {
     /// State owned off the main actor (daemon vt-state, a store actor). Runs after the main-actor
     /// turn, concurrently with the other background facets of the snapshot.
     case background(@Sendable () async throws(OracleFacetError) -> OracleValue)
+    /// Main-actor values first, then work on them off the main actor: the first closure reads in the snapshot's
+    /// main-actor turn, with the main-actor facets, and returns the rest of the read, which runs with the
+    /// background facets (the `ax` facet: the AX tree on main, its names' localization keys from the disk).
+    /// A wait cannot observe the main-actor part, so the facet signals changes only through ``OracleFacetProvider/changes``.
+    case mainActorThenBackground(@MainActor @Sendable () throws(OracleFacetError) -> OracleFacetFinish)
 }
+
+/// The off-main rest of a ``OracleFacetCapture/mainActorThenBackground(_:)`` read.
+public typealias OracleFacetFinish = @Sendable () async throws(OracleFacetError) -> OracleValue
 
 /// A provider given as its facet and capture, for a facet whose read fits in one closure.
 public struct OracleFacetSource: OracleFacetProvider {

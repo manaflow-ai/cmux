@@ -52,6 +52,8 @@ extension AppServices: OracleHost {
             },
             // The windows front to back, key and main, and each window's state and frame as screen fractions.
             windows.oracleWindowsFacet(events: appEvents),
+            // Each window's focusable and actionable AX elements, named by localization key.
+            WindowHintTargets.oracleAccessibilityFacet(windows: windows, work: work),
         ])
     }
 

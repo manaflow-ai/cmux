@@ -3,6 +3,10 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
+import CmuxNextOracle
+#endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
@@ -55,10 +59,7 @@ enum WindowHintTargets {
         while let next = stack.popLast(), visited < 5000, found.count < limit {
             visited += 1
             if let view = next as? NSView {
-                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
-                guard !(view is WKWebView) else { continue }
-                let name = NSStringFromClass(type(of: view))
-                guard !remoteViewNames.contains(where: name.contains) else { continue }
+                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01, !isRemote(view) else { continue }
             }
             guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
             // Only controls report enabled; custom rows and tabs leave it unset.
@@ -75,6 +76,13 @@ enum WindowHintTargets {
             stack.append(contentsOf: (element.accessibilityChildren() ?? []).reversed())
         }
         return Found(targets: found, pages: webViews(in: content), bounds: bounds)
+    }
+
+    /// A web view: its tree lives in its page process (WebKit's, Chromium's).
+    static func isRemote(_ view: NSView) -> Bool {
+        if view is WKWebView { return true }
+        let name = NSStringFromClass(type(of: view))
+        return remoteViewNames.contains(where: name.contains)
     }
 
     /// The shown web views under `view`, in subview order (the spare New
@@ -210,3 +218,111 @@ final class PageElement: Equatable {
         return true;
         """
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The oracle's `ax` facet's walk (p15-oracle-216, ``OracleAccessibilityFacet``): the shown tree hint mode walks,
+/// keeping each element a person can act on and the one with the keyboard focus.
+extension WindowHintTargets {
+    /// The roles kept besides the focused element: the controls hint mode labels, text areas and menu items.
+    static let oracleRoles = clickable.union([.textArea, .menuItem])
+    /// More elements than this in one window fails the snapshot rather than recording part of the tree.
+    static let oracleLimit = 50_000
+
+    /// The app's provider over `windows`' windows; the keys are read on `work`'s files lane.
+    static func oracleAccessibilityFacet(windows: WindowManager, work: BackgroundWork) -> OracleAccessibilityFacet {
+        OracleAccessibilityFacet { [weak windows] () throws(OracleFacetError) -> [OracleAccessibilityFacet.Window] in
+            guard let windows else { throw OracleFacetError("the window manager is gone") }
+            var read: [OracleAccessibilityFacet.Window] = []
+            for controller in windows.controllers {
+                guard let window = controller.window else { continue }
+                read.append(.init(id: ControlWindowInfo.publicID(forKey: controller.state.id), nodes: try oracleNodes(in: window)))
+            }
+            return read
+        } keys: { (names: Set<String>) async throws(OracleFacetError) -> [String: String] in
+            do {
+                return try await work.run(.userBlocking, mayBlock: .files) { try oracleLabelKeys(names) }
+            } catch let error as OracleFacetError {
+                throw error
+            } catch {
+                throw OracleFacetError("the string tables could not be read: \(error)")
+            }
+        }
+    }
+
+    /// The localization keys of `names` in the app's string tables: the main bundle's and those of the package
+    /// resource bundles in `resources` (where the app keeps them), each in the localization the bundle shows.
+    /// It reads the disk: never on the main thread.
+    nonisolated static func oracleLabelKeys(_ names: Set<String>, resources: URL? = Bundle.main.resourceURL) throws -> [String: String] {
+        var bundles = [Bundle.main]
+        if let resources {
+            let found = try FileManager.checked.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+            bundles += found.filter { $0.pathExtension == "bundle" }.compactMap { Bundle(url: $0) }
+        }
+        var tables: [OracleAccessibilityFacet.StringTable] = []
+        for bundle in bundles {
+            let urls = bundle.urls(forResourcesWithExtension: "strings", subdirectory: nil,
+                                   localization: bundle.preferredLocalizations.first) ?? []
+            for url in urls {
+                tables.append(.init(name: url.lastPathComponent, data: try Data(blockingContentsOf: url)))
+            }
+        }
+        return try OracleAccessibilityFacet.keys(for: names, in: tables)
+    }
+
+    /// `window`'s kept elements in preorder, then those of its sheet and its shown child windows (a panel over it),
+    /// each root's children at depth 0. A web view's subtree is its page's (the `webviews` facet); a focused web
+    /// view is kept as a leaf, so the focus stays in the tree.
+    static func oracleNodes(in window: NSWindow) throws(OracleFacetError) -> [OracleAccessibilityFacet.Node] {
+        var roots = [window]
+        if let sheet = window.attachedSheet { roots.append(sheet) }
+        roots += (window.childWindows ?? []).filter { $0.isVisible }
+        var nodes: [OracleAccessibilityFacet.Node] = []
+        var visited = 0
+        for root in roots {
+            let focus = oracleFocusedView(of: root)
+            var stack: [(Any, Int)] = (root.accessibilityChildren() ?? []).reversed().map { ($0, 0) }
+            while let item = stack.popLast() {
+                let (next, depth) = item
+                visited += 1
+                guard visited <= oracleLimit else {
+                    throw OracleFacetError("window \(window.windowNumber) has more than \(oracleLimit) accessibility elements")
+                }
+                let view = next as? NSView
+                // visibility-walk-allow: the AX read keeps only what shows, as an AX client sees it; no work is deferred
+                if let view, view.isHiddenOrHasHiddenAncestor || view.alphaValue <= 0.01 { continue }
+                guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
+                let remote = view.map { isRemote($0) } ?? false
+                // A page's focus is inside its view's subtree, which the walk leaves to the page.
+                let holdsFocus = view.map { remote ? focus?.isDescendant(of: $0) == true : $0 === focus } ?? false
+                let focused = holdsFocus || element.isAccessibilityFocused()
+                var childDepth = depth
+                if let role = element.accessibilityRole(),
+                   focused || (element.isAccessibilityElement() && !remote && oracleRoles.contains(role)) {
+                    nodes.append(OracleAccessibilityFacet.Node(
+                        role: role.rawValue, names: oracleNames(of: element),
+                        enabled: (element as? NSControl)?.isEnabled ?? element.isAccessibilityEnabled(), focused: focused, depth: depth))
+                    childDepth += 1
+                }
+                guard !remote else { continue }
+                // Children in reverse so the walk pops them in reading order.
+                stack.append(contentsOf: (element.accessibilityChildren() ?? []).reversed().map { ($0, childDepth) })
+            }
+        }
+        return nodes
+    }
+
+    /// The view with the keyboard focus: the first responder, or the text field a field editor edits for it.
+    private static func oracleFocusedView(of window: NSWindow) -> NSView? {
+        guard let responder = window.firstResponder as? NSView else { return nil }
+        if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSView { return field }
+        return responder
+    }
+
+    /// The texts that name `element`, in the order the facet tries them for a localization key.
+    private static func oracleNames(of element: NSAccessibilityProtocol) -> [String] {
+        let texts: [String?] = [element.accessibilityLabel(), element.accessibilityTitle(), element.accessibilityPlaceholderValue(),
+                                element.accessibilityHelp()]
+        return texts.compactMap { $0 }.filter { !$0.isEmpty }
+    }
+}
+#endif
