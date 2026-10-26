@@ -1543,7 +1543,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // FrameFuzzTests runs on FuzzRun (seeded replay, long mode).
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // The fixture schema's generated DaemonWireEvent, which WireEventSetTests decodes with.
+            plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
         ),
         // Input latency core (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I)): Chromium's
         // EventMetrics for cmux: event kinds, stages, the lock-free open-slot table any thread
