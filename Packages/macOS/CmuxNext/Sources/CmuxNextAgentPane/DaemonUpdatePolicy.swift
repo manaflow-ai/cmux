@@ -12,13 +12,13 @@ import os
 ///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build.
 ///   Never a move back: a target on a build of a later day, or on a build with local changes
 ///   (someone's own), is left alone;
-/// - a bounded wait for a quiet moment: a target is asked idle first, again with backoff (2
-///   minutes, doubling), and once it stayed busy for ``Dependencies/updateBusyAfter`` (10 minutes)
-///   it is updated mid-turn, since a machine where agents always work never has an idle moment;
-///   the restarted daemon resumes what it interrupted (Leo: "YOU'LL JUST HAVE TO ACCEPT IT BREAKING
-///   AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED"). One that answers busy also then
-///   (unreachable, another update running) keeps the backoff (at most 30 minutes apart) and is
-///   left for the next launch after 6 hours;
+/// - no wait for a quiet moment: a target is updated mid-turn from the first ask, since a machine
+///   where agents always work never has an idle moment, and the restarted daemon resumes what it
+///   interrupted (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE. IT JUST WONT. YOU'LL JUST HAVE TO
+///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
+///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
+///   again with backoff (2 minutes, doubling, at most 30 minutes apart) and is left for the next
+///   launch after 6 hours;
 /// - one target at a time across every source, urgent targets first;
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
@@ -43,9 +43,9 @@ public actor DaemonUpdatePolicy {
         public var clock: any Clock<Duration>
         public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
         /// A target busy for this long is updated mid-turn
-        /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero:
-        /// every update runs mid-turn from the first ask.
-        public var updateBusyAfter: Duration = .seconds(600)
+        /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero,
+        /// the default (Leo's order above): every update runs mid-turn from the first ask.
+        public var updateBusyAfter: Duration = .zero
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.
         public var giveUpAfter: Duration = .seconds(6 * 3600)
