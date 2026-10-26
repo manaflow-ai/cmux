@@ -68,12 +68,27 @@ class Stage:
     detail: str = ""
 
 
+def as_utc(when: dt.datetime) -> dt.datetime:
+    """Every time in this file is aware UTC.
+
+    An appcast pubDate may carry no zone and `fromisoformat` accepts a naive
+    string, and mixing one of those into `now - feed` raises TypeError. A
+    zoneless time is read as UTC, which is what both producers write.
+    """
+    return when.replace(tzinfo=dt.timezone.utc) if when.tzinfo is None else when.astimezone(dt.timezone.utc)
+
+
 def parse_time(value: str) -> dt.datetime:
-    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return as_utc(dt.datetime.fromisoformat(value.replace("Z", "+00:00")))
 
 
 def newest_item(feed_xml: str) -> dt.datetime | None:
-    dates = [email.utils.parsedate_to_datetime(m) for m in re.findall(r"<pubDate>([^<]+)</pubDate>", feed_xml)]
+    dates = []
+    for raw in re.findall(r"<pubDate>([^<]+)</pubDate>", feed_xml):
+        try:
+            dates.append(as_utc(email.utils.parsedate_to_datetime(raw)))
+        except (TypeError, ValueError):
+            continue  # one malformed item never hides the rest of the feed
     return max(dates) if dates else None
 
 
@@ -198,7 +213,7 @@ class GitHub:
         sha = self.ref_sha(branch)
         try:
             return sha, parse_time(self.call("GET", f"/commits/{sha}")["commit"]["committer"]["date"])
-        except (OSError, KeyError, TypeError, ValueError):
+        except (OSError, AttributeError, KeyError, TypeError, ValueError):
             return sha, None
 
     def dispatch(self, workflow: str, ref: str, inputs: dict[str, str] | None = None) -> None:
@@ -277,13 +292,23 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     03:27Z, 04:18Z and 04:23Z kept the guard quiet while the tip moved four
     hours ahead of the feed.
 
+    Two scheduled runs cannot race here: the workflow's concurrency group
+    `nightly-next-feed-watch` has `cancel-in-progress: false`, so one runs at
+    a time. A run that is already building the tip but started before the tip
+    landed can still make this dispatch a duplicate; the tick coalesces, and
+    the promotion ignores a request that does not move nightly-next forward.
+
     `tip_input` names the dispatch input that carries the commit, filled in
     from the tip this call resolved. Reading it here rather than in the
     caller's argument list keeps a `fresh` or `unchanged` answer free of API
     calls, and means the dispatched commit is exactly the one that was
     judged stale.
     """
-    if feed is None or (now - feed).total_seconds() < minutes * 60:
+    if feed is None:
+        # Not "fresh": we do not know. A build cannot fix an unreadable feed,
+        # so this still stands down, but it says so.
+        return "feed unknown, nothing dispatched"
+    if (now - feed).total_seconds() < minutes * 60:
         return "fresh"
     tip, tip_landed = gh.ref_commit(branch)
     if not tip or tip == published_sha:
@@ -339,7 +364,7 @@ def read_feeds(urls) -> tuple[dt.datetime | None, list[str]]:
     for url in urls:
         try:
             item = read_feed(url)
-        except OSError as error:
+        except (OSError, ValueError) as error:
             missing.append(f"{url}: {error}")
             continue
         if item is None:
@@ -407,11 +432,12 @@ def main(argv: list[str]) -> int:
     for note in missing:
         print(f"::warning::could not read {note}")
     if newest is None:
+        # The alarm needs a timestamp, but the classic guard does not: it
+        # watches a different feed and must still run.
         print("::warning::no cmux NEXT feed had a dated item")
-        return 0
     try:
         classic_newest = read_feed(args.classic_feed_url)
-    except OSError as error:
+    except (OSError, ValueError) as error:
         print(f"::warning::could not read classic feed {args.classic_feed_url}: {error}")
         classic_newest = None
     gh = GitHub(args.repo, token, args.dry_run)
@@ -429,6 +455,8 @@ def main(argv: list[str]) -> int:
         gh, now, feed=classic_newest, published_sha=published_commit_for_release(gh, "nightly"),
         branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"}))
 
+    if newest is None:
+        return 0
     try:
         oldest = oldest_waiting_push(gh, published_sha, newest)
         stage = assess(

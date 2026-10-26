@@ -227,6 +227,30 @@ class FeedTests(unittest.TestCase):
             self.assertEqual(watch.read_feeds(["a", "b"]), (behind, []))
             self.assertEqual(watch.read_feeds(["b", "a"]), (behind, []))
 
+    def test_a_zoneless_feed_date_is_read_as_utc(self):
+        """A pubDate with no zone used to blow up `now - feed` as naive vs aware."""
+        feed = "<rss><pubDate>Mon, 26 Oct 2026 01:16:50 -0000</pubDate>" \
+               "<pubDate>Sun, 25 Oct 2026 23:14:49 +0000</pubDate></rss>"
+        # RFC 2822 "-0000" means "zone unknown", and Python returns it naive.
+        newest = watch.newest_item(feed)
+        self.assertEqual(newest.tzinfo, dt.timezone.utc)
+        self.assertEqual(newest.isoformat(), "2026-10-26T01:16:50+00:00")
+        self.assertIsInstance((NOW - newest).total_seconds(), float)  # no naive/aware TypeError
+        self.assertEqual(watch.as_utc(dt.datetime(2026, 10, 26, 1, 0)).tzinfo, dt.timezone.utc)
+
+    def test_one_malformed_item_never_hides_the_rest_of_a_feed(self):
+        feed = "<rss><pubDate>not a date</pubDate><pubDate>Sun, 25 Oct 2026 23:14:49 +0000</pubDate></rss>"
+        self.assertEqual(watch.newest_item(feed).isoformat(), "2026-10-25T23:14:49+00:00")
+        self.assertIsNone(watch.newest_item("<rss><pubDate>not a date</pubDate></rss>"))
+
+    def test_a_feed_whose_dates_are_malformed_is_a_feed_fault_not_a_crash(self):
+        def read(url):
+            raise ValueError("unparseable pubDate")
+        with unittest.mock.patch.object(watch, "read_feed", read):
+            newest, missing = watch.read_feeds(["bad"])
+        self.assertIsNone(newest)
+        self.assertEqual(missing, ["bad: unparseable pubDate"])
+
     def test_an_unreadable_feed_is_named_and_never_hides_the_others(self):
         def read(url):
             if url == "gone":
@@ -283,6 +307,15 @@ class StarvationGuardTests(unittest.TestCase):
         return {"id": run_id, "status": "in_progress", "created_at": at(created_hours_ago),
                 "head_sha": head_sha or f"{run_id:040d}",
                 "html_url": f"https://github.com/o/r/actions/runs/{run_id}"}
+
+    def test_an_unreadable_feed_is_unknown_not_fresh(self):
+        """Saying "fresh" is how a 404 on the appcast stood the guard down."""
+        gh = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(gh, NOW, feed=None, published_sha="", branch="main",
+                                      workflow="nightly.yml", ref="main"),
+            "feed unknown, nothing dispatched")
+        self.assertEqual(gh.dispatched, [])
 
     def test_a_fresh_feed_dispatches_nothing(self):
         gh = self.Gh(self, [])
@@ -399,6 +432,26 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         self.assertEqual(calls, ["feat-cmux-next", "main"])
+
+    def test_the_classic_guard_runs_when_the_next_feeds_are_unreadable(self):
+        """Different feeds fail differently; one must not take the other down."""
+        seen = []
+
+        def read(url):
+            if url == watch.CLASSIC_FEED_URL:
+                return NEWEST
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+        def forbidden(self, method, path, body=None):
+            raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with unittest.mock.patch.object(watch, "read_feed", read), \
+                unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: seen.append(k.get("branch")) or "ok"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        self.assertEqual(seen, ["feat-cmux-next", "main"])
 
     def test_heal_reports_any_failure_without_raising(self):
         """A guard runs before the alarm, so nothing it raises may stop the check."""
