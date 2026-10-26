@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 20980,
+            "T1": 21940,
             "T2": 32040
           },
           "stories": {
@@ -18,7 +18,10 @@
               "agent-stream-webkit",
               "app-split",
               "blocking-hangs",
+              "browser-hibernation",
+              "browser-hibernation-webkit",
               "chat-anim",
+              "chromium-host",
               "command-pan",
               "crash-survival",
               "crash-survival-webkit",
@@ -49,6 +52,8 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "remote-browser-media",
+              "renderer-sharing",
               "sidebar",
               "sidebar-doc",
               "sidebar-drag",
@@ -185,7 +190,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 10510
+            "T1": 10930
           },
           "stories": {
             "T0": [
@@ -196,6 +201,8 @@
               "agent-engine-webkit",
               "app-split",
               "blocking-hangs",
+              "browser-hibernation",
+              "browser-hibernation-webkit",
               "command-pan",
               "daemon-ops",
               "home-perf",
@@ -224,7 +231,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 10470
+            "T1": 11010
           },
           "stories": {
             "T0": [
@@ -237,6 +244,7 @@
               "agent-stream",
               "agent-stream-webkit",
               "chat-anim",
+              "chromium-host",
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
@@ -255,6 +263,8 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "remote-browser-media",
+              "renderer-sharing",
               "sidebar",
               "sidebar-mirror-rebuild",
               "sidebar-stress",
