@@ -112,6 +112,59 @@ import Testing
         #expect(controller.drawnState == .idle, "a still character has no done row to play")
     }
 
+    /// The red channel of an image's top-left pixel.
+    static func red(_ image: CGImage?) -> UInt8? {
+        guard let image else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 1 - image.height, width: image.width, height: image.height))
+        return pixel[0]
+    }
+
+    /// Still, a once-only row stands on its frame 0 (`cmux-avatar/1`), not on its last.
+    @Test func aStillOnceOnlyRowStandsOnFrameZero() throws {
+        // Each column of the sheet is its own shade of red: column c is 20 * (c + 1).
+        let context = CGContext(data: nil, width: 64, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for column in 0..<8 {
+            context.setFillColor(red: CGFloat(20 * (column + 1)) / 255, green: 0, blue: 0, alpha: 1)
+            context.fill(CGRect(x: column * 8, y: 0, width: 8, height: 16))
+        }
+        let json = #"{"format":"cmux-avatar/1","frame":{"width":8,"height":8},"states":{"idle":{"row":0,"frames":8},"error":{"row":1,"frames":8,"loop":false}}}"#
+        let sprite = try #require(ChiefPetSprite(sheet: context.makeImage()!, json: Data(json.utf8)))
+        let drawn = ChiefPetSpriteLayer()
+        drawn.show(sprite, state: .error, facingRight: true, moving: false)
+        #expect(!drawn.isMoving)
+        #expect((Self.red(drawn.layer.contents.map { $0 as! CGImage }) ?? 255) < 40, "frame 0 (red 20), not the last frame")
+        drawn.show(sprite, state: .error, facingRight: true, moving: true)
+        #expect(drawn.isMoving)
+        let steps = try #require(drawn.layer.animation(forKey: ChiefPetSpriteLayer.animationKey) as? CAKeyframeAnimation)
+        #expect(steps.repeatCount == 0, "one pass")
+        #expect((Self.red(drawn.layer.contents.map { $0 as! CGImage }) ?? 0) > 140, "after its pass it holds the last frame (red 160)")
+    }
+
+    /// The person's upload covers an animated character; without it the character draws again.
+    @Test func anUploadCoversTheAnimatedCharacter() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ChiefPetSpriteTests-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let rep = NSBitmapImageRep(cgImage: Self.sheet(columns: 1, rows: 1))
+        try #require(rep.representation(using: .png, properties: [:])).write(to: file)
+        let clip = try #require(ChiefPetClip(file: file))
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        let mochi = try #require(ChiefPetMascot.mochi.sprite)
+        panel.pet.animate(mochi, state: .working, facingRight: true, moving: true)
+        #expect(panel.pet.sprite.isMoving)
+        panel.pet.play(clip)
+        #expect(panel.pet.sprite.layer.isHidden)
+        #expect(!panel.pet.sprite.isMoving)
+        panel.pet.animate(mochi, state: .working, facingRight: true, moving: true)
+        #expect(panel.pet.sprite.layer.isHidden, "the upload stays on top")
+        panel.pet.play(nil)
+        panel.pet.animate(mochi, state: .working, facingRight: true, moving: true)
+        #expect(!panel.pet.sprite.layer.isHidden)
+    }
+
     /// The pet faces the side of its screen it sits on.
     @Test func facesTheSideItIsDockedToward() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
