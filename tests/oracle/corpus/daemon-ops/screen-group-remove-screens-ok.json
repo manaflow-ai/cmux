@@ -94,7 +94,17 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the fixture group's screen leaves it"
+    },
+    {
+      "id": "ungrouped",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/screen_group_id",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
