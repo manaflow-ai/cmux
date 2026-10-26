@@ -78,7 +78,7 @@ type ModelChoice = {
   /** The provider the row lands ("OpenRouter"), for a harness that routes to several. */
   provider?: string;
   /** Raw catalog rows represented by this grouped model, for search-height reservation. */
-  searchRows?: number;
+  searchRows?: number;\n  /** Whether any original row was curated as a latest model. */\n  curated?: boolean;
   /** A bracketed note the model's name carried ("New"). */
   tag?: string;
 };
@@ -120,6 +120,7 @@ function quickSections(
         ...(tag ? { tag } : {}),
         ...(provider ? { provider } : {}),
         ...(count > offers.length ? { searchRows: count } : {}),
+        ...(offers.some((offer) => latestIds.has(offer.model.id)) ? { curated: true } : {}),
         ...(visible.length > 1
           ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) }
           : {}),
@@ -127,7 +128,7 @@ function quickSections(
     })
     .filter((choice): choice is ModelChoice => choice !== undefined);
   // A model is a top one when any provider's row of it is.
-  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
+  const top = all.filter((choice) => choice.curated || (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
   const runs = all.find((choice) => choice.id === model);
   const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);

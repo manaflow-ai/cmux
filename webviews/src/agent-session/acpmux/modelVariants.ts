@@ -84,7 +84,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const named = owners.get(row.key) ?? new Set<string>();
     const by = row.model.id.split("/")[0]!.toLowerCase();
     const owner = row.owner ?? (named.size <= 1 ? ([...named][0] ?? "") : named.has(by) ? by : undefined);
-    return owner === undefined ? undefined : `${row.key}\u0000${owner}`;
+    return row.key + "\u0000" + (owner === undefined ? "provider:" + by : owner);
   };
   const groups: ModelGroup<T>[] = [];
   const byIdentity = new Map<string, ModelGroup<T>>();
@@ -95,8 +95,9 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const joined = id === undefined ? undefined : byIdentity.get(id);
     if (joined) {
       joined.count += 1;
+      const providerId = row.model.id.split("/")[0]!.toLowerCase();
       const duplicateIndex = joined.offers.findIndex(
-        (each) => each.provider.trim().toLowerCase() === (provider ?? "").trim().toLowerCase(),
+        (each) => each.model.id.split("/")[0]!.toLowerCase() === providerId,
       );
       if (duplicateIndex < 0) {
         joined.offers.push(offer);
