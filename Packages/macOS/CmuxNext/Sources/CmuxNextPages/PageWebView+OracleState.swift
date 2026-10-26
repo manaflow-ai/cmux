@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextCompat
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The host half of the page call behind the refactor oracle's `webviews` facet (p15-oracle-215,
@@ -21,12 +22,17 @@ extension PageRouter {
     public func oracleState(within deadline: Duration,
                             clock: any Clock<Duration>) async throws(PageError) -> PageWebView.OracleStateAnswer {
         do {
-            return .state(try await callPage(Self.oracleStateOp, params: .object([:]), within: deadline, clock: clock))
+            // The call leaves the router when the limit cancels it (``callPage(_:params:)``).
+            let state = try await Deadline(deadline, clock: clock).run(Self.oracleStateOp) { @MainActor [self] in
+                try await callPage(Self.oracleStateOp, params: .object([:]))
+            }
+            return .state(state)
+        } catch is Deadline.Exceeded {
+            return .timedOut
         } catch let error as PageError {
             switch error.code {
             case PageError.unknownOp(Self.oracleStateOp).code: return .unserved
             case PageError.closed.code: return .gone
-            case PageError.timedOut(Self.oracleStateOp).code: return .timedOut
             default: throw error
             }
         } catch {
@@ -65,11 +71,19 @@ extension PageWebView {
     }
 }
 
-/// Says "a page's oracle reading may have changed" to every subscriber: a page posted
-/// ``PageRouter/oracleStateChangedOp``, a page's document started or finished loading, or a page opened or closed
-/// (``PageRegistry/oracleChanges``). `debug.oracle.wait_for` on the `webviews` facet subscribes, so a wait on a
-/// draft or a route wakes at the page's own change point, never by a poll. Each subscriber buffers at most one
-/// pending signal: it only says "read again".
+extension WebUIHost {
+    /// Signals ``oracleChanges`` when `page` posts ``PageRouter/oracleStateChangedOp`` or its document starts or
+    /// finishes loading. The host hooks each page it opens; the `webviews` facet hooks each page it asks, so a page
+    /// made outside the host (a pooled Settings page) is hooked too. Hooking twice is one hook.
+    public func observeOracleState(of page: PageWebView) {
+        let feed = oracleChanges
+        page.router.oracleStateChanged = { feed.signal() }
+    }
+}
+
+/// Says "a page's oracle reading may have changed" to every subscriber (``WebUIHost/oracleChanges``).
+/// `debug.oracle.wait_for` on the `webviews` facet subscribes, so a wait on a draft or a route wakes at the page's
+/// own change point, never by a poll. Each subscriber buffers at most one pending signal: it only says "read again".
 public nonisolated final class PageOracleChangeFeed: Sendable {
     private nonisolated struct State {
         var next = 0

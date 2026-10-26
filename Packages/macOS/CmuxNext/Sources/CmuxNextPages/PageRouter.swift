@@ -1,5 +1,4 @@
 public import CmuxNextSettings
-import CmuxNextWakeups
 public import Foundation
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
@@ -49,8 +48,8 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
-    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): its view
-    /// tells the registry, whose feed wakes `debug.oracle.wait_for` on the `webviews` facet.
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
+    /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
     public var oracleStateChanged: (@MainActor () -> Void)?
     #endif
 
@@ -314,36 +313,27 @@ public final class PageRouter {
     // MARK: Host to page
 
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
-    /// past the hold, after a thaw, so a frozen page answers it.
+    /// past the hold, after a thaw, so a frozen page answers it. A cancelled caller stops waiting
+    /// (`CancellationError`) and its call leaves the router, so a deadline that cancels the call
+    /// (`Deadline`, `PageCallDeadline`) keeps no continuation for a page that never replies; a late
+    /// reply resolves nothing.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
-        try await callPage(op, params: params) { _ in }
-    }
-
-    /// ``callPage(_:params:)`` that fails with ``PageError/timedOut(_:)`` when no reply comes by
-    /// `deadline`: a document with no receive hook, a handler that never settles or a hung content
-    /// process never replies, and only a close or reload would end the wait. The timed-out call
-    /// leaves ``pendingCalls`` at once; a late reply finds nothing to resolve.
-    public func callPage(_ op: String, params: JSONValue, within deadline: Duration,
-                         clock: any Clock<Duration>) async throws -> JSONValue {
-        let timer = DemandTimer(owner: "PageRouter.callPage", clock: clock)
-        defer { timer.cancel() }
-        return try await callPage(op, params: params) { id in
-            timer.schedule(after: deadline) { @MainActor [weak self] in
-                self?.pendingCalls.removeValue(forKey: id)?.resume(throwing: PageError.timedOut(op))
-            }
-        }
-    }
-
-    /// Sends call `op` and waits for its reply; `started` runs with the call's id once it is pending.
-    private func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingCalls[id] = continuation
-            started(id)
-            send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                // Cancelled before it started: the cancel handler found nothing to fail.
+                guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
+                pendingCalls[id] = continuation
+                send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+            }
+        } onCancel: {
+            // task-owner: one hop onto the main actor to fail the call; ends when it ran
+            Task { @MainActor [weak self] in
+                self?.pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
+            }
         }
     }
 

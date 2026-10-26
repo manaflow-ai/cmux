@@ -337,9 +337,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The `webviews` facet's wait (p15-oracle-215) wakes when the page says its reading changed or it loads.
-        let oracleChanges = registry.oracleChanges
-        router.oracleStateChanged = { oracleChanges.signal() }
         noteCensusVisibility(false) // in no window yet (`debug.webui`)
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;

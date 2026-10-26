@@ -186,6 +186,8 @@ extension AppServices {
                         clock: any Clock<Duration> = ContinuousClock()) async throws(OracleFacetError) -> OracleWebviewsFacet.Reading {
         let asked = Self.oracleReachable(webUI.registry.pages(), places: oraclePagePlaces(), spare: newTabSpares.spare?.view)
             .map { $0.page }
+        // A wait on this facet wakes when an asked page changes, also one made outside the page host.
+        for page in asked { webUI.observeOracleState(of: page) }
         let answers = await Self.oracleAnswers(asked, within: deadline, clock: clock)
         // Placed after every answer, in one turn with a fresh place map: no await falls between the map and its
         // lookups, and `asked` holds every page, so no view's identifier is reused meanwhile. A page that left every
@@ -234,11 +236,13 @@ extension AppServices {
             for page in pages {
                 let id = ObjectIdentifier(page)
                 group.addTask { @MainActor in
+                    let answer: Result<PageWebView.OracleStateAnswer?, PageError>
                     do throws(PageError) {
-                        return (id, .success(try await page.oracleState(within: deadline, clock: clock)))
+                        answer = .success(try await page.oracleState(within: deadline, clock: clock))
                     } catch {
-                        return (id, .failure(error))
+                        answer = .failure(error)
                     }
+                    return (id, answer)
                 }
             }
             var answers: [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] = [:]

@@ -17,32 +17,15 @@ public final class PageRegistry {
     private let ownViews: NSHashTable<PageWebView>?
     private var ownSerials: [ObjectIdentifier: UInt64] = [:]
     private var ownNextSerial: UInt64 = 0
-    #if DEBUG || CMUX_BENCH_HOOKS
-    private static let processWideOracleChanges = PageOracleChangeFeed()
-    private let ownOracleChanges: PageOracleChangeFeed?
-    #endif
 
     /// An empty registry.
     public init() {
         ownViews = .weakObjects()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        ownOracleChanges = PageOracleChangeFeed()
-        #endif
     }
 
     private init(processWide: Void) {
         ownViews = nil
-        #if DEBUG || CMUX_BENCH_HOOKS
-        ownOracleChanges = nil
-        #endif
     }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// Signals when a listed page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215):
-    /// a page opened or closed here, its document started or finished loading, or it posted
-    /// ``PageRouter/oracleStateChangedOp``.
-    public var oracleChanges: PageOracleChangeFeed { ownOracleChanges ?? Self.processWideOracleChanges }
-    #endif
 
     /// The registry of views made outside a ``WebUIHost`` and of the app's host, until
     /// p13-webui-010. Each read is a new handle on the same process-wide stores.
@@ -71,18 +54,12 @@ public final class PageRegistry {
             let live = Set(views.allObjects.map(ObjectIdentifier.init))
             order = order.filter { live.contains($0.key) }
         }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        oracleChanges.signal()
-        #endif
     }
 
     /// Stops listing `view` (it closed).
     func remove(_ view: PageWebView) {
         liveViews.remove(view)
         order[ObjectIdentifier(view)] = nil
-        #if DEBUG || CMUX_BENCH_HOOKS
-        oracleChanges.signal()
-        #endif
     }
 
     /// A stable number for a live view, in creation order (the `instance` of `debug.page`).
