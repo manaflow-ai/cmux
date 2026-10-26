@@ -75,6 +75,12 @@ public final class ChromiumHostPageView: NSView {
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
     /// from the event handler: a sink must write or queue, never wait.
     var sink: ((ChromiumHostFrame) -> Void)?
+    /// Where composition, commit and edit-command ops go (``InputTarget/view``
+    /// only): the ordered stream, after the key frames sent before them
+    /// (ChromiumHostPageView+TextInput.swift).
+    var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
+    /// The page's text input: the state the host pushed and the input method's marked text.
+    var textInput = ChromiumHostTextInput()
     private var tracking: NSTrackingArea?
     #endif
 
@@ -301,6 +307,7 @@ extension ChromiumHostPageView {
 
     public override func resignFirstResponder() -> Bool {
         sink?(ChromiumHostFrame(.focus, v: [0]))
+        textInputDidResign()
         return true
     }
 
@@ -319,15 +326,20 @@ extension ChromiumHostPageView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        guard !textInputMouseDown(event) else { return }
         mouse(event, phase: 1, button: 0)
     }
     public override func mouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 0) }
     public override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        guard !textInputMouseDown(event) else { return }
         mouse(event, phase: 1, button: 2)
     }
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
-    public override func otherMouseDown(with event: NSEvent) { mouse(event, phase: 1, button: 1) }
+    public override func otherMouseDown(with event: NSEvent) {
+        guard !textInputMouseDown(event) else { return }
+        mouse(event, phase: 1, button: 1)
+    }
     public override func otherMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 1) }
     public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
@@ -359,18 +371,19 @@ extension ChromiumHostPageView {
 
     // MARK: Keys
 
-    public override func keyDown(with event: NSEvent) { key(event, phase: 0) }
-    public override func keyUp(with event: NSEvent) { key(event, phase: 1) }
-    public override func flagsChanged(with event: NSEvent) { key(event, phase: 2) }
+    /// The input method sees a key down first (ChromiumHostPageView+TextInput.swift).
+    public override func keyDown(with event: NSEvent) { textInputKeyDown(event, key: keyFrame(event, phase: 0)) }
+    public override func keyUp(with event: NSEvent) { sink?(keyFrame(event, phase: 1)) }
+    public override func flagsChanged(with event: NSEvent) { sink?(keyFrame(event, phase: 2)) }
 
-    private func key(_ event: NSEvent, phase: Int32) {
+    func keyFrame(_ event: NSEvent, phase: Int32) -> ChromiumHostFrame {
         var frame = ChromiumHostFrame(.key, v: [phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)],
                                       flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
         if event.type != .flagsChanged {
             frame.ch = event.characters?.utf16.first ?? 0
             frame.unmod = event.charactersIgnoringModifiers?.utf16.first ?? 0
         }
-        sink?(frame)
+        return frame
     }
 
     // MARK: Edit menu
