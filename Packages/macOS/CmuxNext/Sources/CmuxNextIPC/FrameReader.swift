@@ -228,12 +228,12 @@ public struct FrameReader: Sendable {
         var decoder = Unicode.UTF8()
         var iterator = line.makeIterator()
         var validUpTo = 0
-        while true {
-            switch decoder.decode(&iterator) {
-            case let .scalarValue(scalar): validUpTo += Unicode.UTF8.width(scalar)
-            case .emptyInput: return
-            case .error: throw .invalidUTF8(validUpTo: validUpTo)
-            }
+        var result = decoder.decode(&iterator)
+        // Ends: each step consumes at least one byte of the finite line.
+        while case let .scalarValue(scalar) = result {
+            validUpTo += Unicode.UTF8.width(scalar)
+            result = decoder.decode(&iterator)
         }
+        if case .error = result { throw .invalidUTF8(validUpTo: validUpTo) }
     }
 }
