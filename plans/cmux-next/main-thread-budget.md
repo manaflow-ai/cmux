@@ -463,4 +463,5 @@ as key latency), `automation-typing-bench.py --input real` (task 230) and `bench
 and after), light and STRESS, on a GUI host with the input grant that passes `bench_launch.py check`, at 120 Hz
 (`--vdisplay=120`). The program's targets are the spec's section 5 done checks (key to frame p50 <= 8.3 ms and
 p99 <= 16.7 ms during the storm; every run-loop turn p99 <= 4 ms). Results: perf-lead.md section 5. The pilot's
-numbers (task 205) and the test phase (task 160) are recorded there with sha and host.
+numbers (task 205) and the test phase (task 160, "p06 scheduler test phase": before and after per done check, and
+the instrument each check needs) are recorded there with sha and host.

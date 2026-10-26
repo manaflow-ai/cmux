@@ -335,3 +335,49 @@ plans/cmux-next/perf-lead.md` fails when a group does not sum to its target or t
 |  | wire | doorbell to the host's UI thread dispatch (`hop_us`) | 0.6 ms | p95 1.96 ms (prototype, sandbox off, 2026-10-25) |
 |  | chromium_host | host UI thread dispatch to the renderer's input queue | 0.2 ms | not measured |
 | Processes in the heavy session (done check 13) | app 1, daemon 1, holder 1, vt_worker <= 4 (+1 per extra trust class), terminal_host 0, chromium_host 1 | | | 392 processes, 172 terminal hosts |
+
+### p06 scheduler test phase (task p06-scheduler-160)
+
+Status 2026-10-27: the fleet runs are not done, and no fleet number here is invented. Before sha: `772cdfc45ac`
+(the merge-base of perf/chrome-parity and feat-cmux-next, where the p06 queues were cut). After sha: the program head.
+At `bd61faade91` (perf/chrome-parity) task 034 and most of the program are in, but tasks 347 (queue close-out),
+223 (ordered drain by cause) and 227 (visibility-scoped frontend subscription) are not. An after run there gives an
+interim number, not the program's. Rows 11 and 12 are static counts, taken at both shas with git (no host).
+
+How to run. Make one `cmux-ci build cmux --ref SHA` per sha. Run the benches from a checkout at the after sha against
+both builds, so that before and after use the same harness; an instrument that the base app does not have gives no
+before number. Hosts: macOS 27 on aws-m4pro-1..4 and macOS 26 on aws-m4pro-5..9, each with `--vdisplay=120` (a
+VDISPLAY-FALLBACK voids a frame number). Run before and after of one row on the same host. macOS 14 and 15:
+`scripts/cmux-next/os-matrix.sh --build JOB --os 14,15`, function only. Every result records sha, host, OS, refresh
+rate and repeat count.
+
+| Done check | Command (light and STRESS unless noted) | Instrument at `bd61faade91` | Before | After |
+|---|---|---|---|---|
+| 1 key to frame | `sidebar-churn-typing.py --input real`; `automation-typing-bench.py --input real`; a `script-storm-bench.py` or `bench_cli_storm.py` storm in parallel | churn bench `--input real`: yes; automation bench `--input real`: no (task 230, not landed) | not run | not run |
+| 2 automation isolation | the check 1 sessions: storm p99 minus idle p99, same session and host | yes, from check 1 | not run | not run |
+| 3 `debug.main_budget` in the STRESS storm | `cli-storm-session.py` reads it after a reset | turns, `unattributed_share`, `yielded_to_input_response`, `input_response_cap_hits`, owners with `posted_from`: yes (008, 009, 206); `input_response_pass.applies` and `late_person_applies`: no (follow-up Q12-c) | not run | not run |
+| 4 hidden-workspace storm | `script-storm-bench.py --hidden 50`, 1000 CLI ops | `--hidden` and `hidden_workspace_layouts`: yes (150, 229); hidden mailbox events: no (227) | not run | not run |
+| 5 observers per event | `sidebar-stress-bench.py`, 400 workspaces | `debug.observations` and `row_maps_per_change`: yes (029, 152) | not run | not run |
+| 6 idle | `bench_idle.py --scenarios mixed-hidden`, 60 s, window visible and app hidden | `mixed-hidden` and `main_wakeups_per_s`: yes; daemon thread wakeups: no (228) | not run | not run |
+| 7 launch | `bench_launch.py` cold, warm and `open -g` | `launch.order_ok` and `launch.revealed`: yes (007) | not run | not run |
+| 8 every-action sweep | `every-action-sweep.py` STRESS at 120 Hz, 3 repeats | the sweep, and `task_class` in stall records: yes (009, 203) | not run | not run |
+| 9 daemon | `cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA --arg=storm=64` (10 request clients and 64 automation clients) | `debug.daemon_locks`: yes (226). The base script has no `storm`: run the after sha's script against the base daemon | not run | not run |
+| 10 switch and theme | `bench_tab_switch.py` with 12 panes at 400 workspaces; a theme toggle at 50 workspaces | `bench_tab_switch.py` has `--tabs` and `--workspaces` only, no pane layout; no theme-toggle bench; `appearance_applies`: no (215) | not run | not run |
+| 11 ratchet counts | `python3 scripts/cmux-next/p06_queue.py --rev SHA --json`, hits added over the 47 WORK.tsv groups | yes | `772cdfc45ac`: 2788 hits, 47 of 47 groups open. Q1 472, Q1b 772 (heuristic), Q1c 53, Q2 285, Q3 58, Q4 257, Q5 213, Q6 261, Q7 66, Q8 85, Q10 22, Q11 137, QA 157 | `bd61faade91` (interim): 1382 hits, 105 settled, 28 of 47 groups open. Q1 213, Q1b 435, Q1c 23, Q2 119, Q3 11, Q4 106, Q5 124, Q6 175, Q7 12, Q8 41, Q10 8, Q11 42, QA 90. Task 347 is not in; 42 hits in 15 files at the cut are in no group (`--residual`) |
+| 12 budgeted clients | `git grep -c -E 'FrameBatcher\(owner: "[^"]+"' SHA -- Packages/macOS/CmuxNext/Sources` | yes. The section 6 Q9 query ends in `\)` and matches 0 at head, because each constructor now also takes a scheduler or a class | 3 | 6 (interim): SidebarRows (visible), ContentPresentation (visible), Control.frames (automation), DaemonStore.drain, ContentPresentation.nextFrame, NewTabPage.close |
+| 13 unit suites | fleet `swift test --filter <suite>` for each suite in the "Test phase" lines of p06-scheduler.md section 8, macOS 26 and 27, Tart 14 and 15; cmux-tui `cmux-tui-rust-check.sh test <name>` | the suites of the landed tasks exist; 223, 227 and 347 add theirs | not run | not run |
+| 14 hang soak | 30 min STRESS with `bench_cli_storm.py`; `debug.hangs` | `task_owner` and `task_class` per record (203), `stall.render_starved` (004), `debug.main_budget` `top_unattributed_turns`: yes | not run | not run |
+
+Follow-up tasks (misses found while the runs were prepared):
+
+- Q12-a: give `perf-10x-daemon.sh` a request-client count, so that the 64 clients of done check 9 are one argument.
+  Today `storm` counts automation clients only.
+- Q12-b: give `bench_tab_switch.py` a pane layout (`--panes 12`), and add a theme-toggle bench at 50 workspaces that
+  reads `appearance_applies` (with task 215). Done check 10 has no command until then.
+- Q12-c: add `input_response_pass.applies` and `late_person_applies` to `debug.main_budget` (done check 3).
+- Q12-d: change the Q9 query in p06-scheduler.md section 6 to the row 12 query. It reads 0 at head.
+- Q12-e: split WORK.tsv rows 300, 306, 307, 324 and 342 (over 70 hits at the cut), and give the 15 files with no row
+  a row (`p06_queue.py` plan problems; task 347).
+- Q12 owners: from the after run's `debug.main_budget owners` (each owner over 1 ms p99 with no class), its
+  `top_unattributed_turns`, and its hang records with no `task_owner`, one task each. None yet, because the after
+  run is not done.
