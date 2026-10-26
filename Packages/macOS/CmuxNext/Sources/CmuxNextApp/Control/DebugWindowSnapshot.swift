@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -123,8 +124,7 @@ enum DebugWindowSnapshot {
             for webView in webViews where base.method == .appkit {
                 do {
                     let image = try await webView.takeSnapshot(configuration: nil)
-                    var proposedRect = NSRect.zero
-                    guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+                    guard let cgImage = image.bestCGImage else {
                         failed += 1
                         continue
                     }

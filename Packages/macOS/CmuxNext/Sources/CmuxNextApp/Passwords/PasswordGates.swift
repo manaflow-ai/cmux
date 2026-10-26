@@ -15,7 +15,9 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
+        // SAFETY: the error pointer is a local live for the call; LocalAuthentication stores at most one
+        // autoreleased NSError through it and keeps no reference to the pointer.
+        guard unsafe context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             // The reply runs on a LocalAuthentication queue, never the main actor.
             context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in

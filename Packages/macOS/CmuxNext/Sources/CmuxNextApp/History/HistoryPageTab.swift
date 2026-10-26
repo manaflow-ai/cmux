@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextHistory
 import CmuxNextIcons
 import CmuxNextPages
@@ -76,7 +77,7 @@ final class HistoryPageTab: BrowserTab {
     func snapshot() async throws -> CGImage {
         // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
         if let webPage {
-            guard let image = await webPage.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            guard let image = await webPage.snapshot()?.bestCGImage else {
                 throw BrowserTabError.snapshotUnavailable
             }
             return image
