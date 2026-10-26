@@ -38,7 +38,6 @@ import CmuxTerminalCore
         "\u{1B}[1;5A",            // Ctrl+Up
         "\u{1B}[Z",               // Shift+Tab
         "\u{1B}[3;5~",            // Ctrl+Forward Delete
-        "\u{1B}[200~hi\u{1B}[201~", // bracketed paste
     ])
     func encodedKeySequencesReachThePTYIntact(sequence: String) {
         let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
@@ -63,26 +62,45 @@ import CmuxTerminalCore
         #expect(rawBytes(in: events) == Data(sequence.utf8))
     }
 
-    /// A bracketed paste's body reaches the program as pasted: LF stays LF and
-    /// Tab stays a character, not Return and a Tab key.
+    /// A viewing Mac's bracketed paste reaches the host's paste encoder
+    /// without its markers, so LF, CRLF and Tab are framed for the host
+    /// program's paste mode as in a local paste, not typed as Return or Tab.
     @Test(arguments: [
-        "\u{1B}[200~a\nb\tc\u{1B}[201~",
-        "\u{1B}[200~line one\r\nline two",   // paste continuing in the next write
+        ("\u{1B}[200~a\nb\tc\u{1B}[201~", "a\nb\tc"),
+        ("\u{1B}[200~one\r\ntwo\u{1B}[201~", "one\r\ntwo"),
+        ("\u{1B}[200~no end marker\n", "no end marker\n"),
     ])
-    func bracketedPasteBodyStaysRaw(sequence: String) {
+    func bracketedPasteGoesToThePasteEncoder(sequence: String, body: String) {
         let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
-        #expect(!containsKeyOrTerminalBytes(events), "\(events)")
-        #expect(rawBytes(in: events) == Data(sequence.utf8))
+        #expect(pastedTexts(in: events) == [Data(body.utf8)], "\(events)")
+        #expect(events.count == 1, "\(events)")
     }
 
     @Test func inputAfterABracketedPasteIsParsedAgain() {
-        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[200~x\u{1B}[201~\t")
-        #expect(rawBytes(in: events) == Data("\u{1B}[200~x\u{1B}[201~".utf8))
+        let events = TerminalSurface.parsedSocketInputEvents(for: "a\u{1B}[200~x\u{1B}[201~\t")
+        #expect(rawBytes(in: events) == Data("a".utf8))
+        #expect(pastedTexts(in: events) == [Data("x".utf8)])
         guard case .key(let key) = events.last else {
             Issue.record("Expected the Tab key after the paste: \(events)")
             return
         }
         #expect(key.label == "tab")
+    }
+
+    /// Each `ESC ]` without a terminator is Escape then text; after the first
+    /// failed scan the rest skip the scan to the end of the text.
+    @Test func manyUnterminatedStringControlsStayKeysAndText() {
+        let text = String(repeating: "\u{1B}]x", count: 4_000)
+        let events = TerminalSurface.parsedSocketInputEvents(for: text)
+        #expect(terminalBytePayloads(in: events).isEmpty)
+        #expect(events.filter { if case .key = $0 { true } else { false } }.count == 4_000)
+        #expect(rawBytes(in: events) == Data(String(repeating: "]x", count: 4_000).utf8))
+    }
+
+    /// A DCS without a terminator does not rule out an OSC ended by BEL.
+    @Test func unterminatedDCSStillLetsALaterOSCEndAtBEL() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}Pq\u{1B}]0;t\u{07}")
+        #expect(terminalBytePayloads(in: events) == [Data("\u{1B}]0;t\u{07}".utf8)])
     }
 
     @Test func bareEscapeStaysTheEscapeKey() {
@@ -118,6 +136,10 @@ import CmuxTerminalCore
 
     private func terminalBytePayloads(in events: [ParsedSocketInput]) -> [Data] {
         events.compactMap { if case .terminalBytes(let data) = $0 { data } else { nil } }
+    }
+
+    private func pastedTexts(in events: [ParsedSocketInput]) -> [Data] {
+        events.compactMap { if case .pastedText(let data) = $0 { data } else { nil } }
     }
 
     private func rawBytes(in events: [ParsedSocketInput]) -> Data {
