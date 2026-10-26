@@ -1798,6 +1798,11 @@ lane = "manual"
 reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_display_links."
 
 [[test]]
+path = "tests/test_check_concurrency_workspace_opens.py"
+lane = "manual"
+reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_workspace_opens."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
