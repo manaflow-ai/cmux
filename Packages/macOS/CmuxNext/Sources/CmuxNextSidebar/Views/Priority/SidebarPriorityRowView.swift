@@ -17,6 +17,8 @@ final class SidebarPriorityRowView: NSView {
     private var dragging = false
     private var pressCancelled = false
     private var lastWindowPoint: NSPoint?
+    enum MoveDirection { case earlier, later }
+    var onMove: ((MoveDirection) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -253,6 +255,23 @@ final class SidebarPriorityRowView: NSView {
         pressCancelled = true
         pressStart = nil
         dragging = false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard flags == [.control, .option] else { return super.keyDown(with: event) }
+        switch event.specialKey {
+        case .upArrow?: onMove?(.earlier)
+        case .downArrow?: onMove?(.later)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions = super.accessibilityCustomActions() ?? []
+        actions.append(NSAccessibilityCustomAction(name: "Move Earlier") { [weak self] in self?.onMove?(.earlier); return self != nil })
+        actions.append(NSAccessibilityCustomAction(name: "Move Later") { [weak self] in self?.onMove?(.later); return self != nil })
+        return actions
     }
 
     override func accessibilityPerformPress() -> Bool {
