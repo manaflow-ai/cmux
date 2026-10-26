@@ -85,6 +85,11 @@
       "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
       "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
       "owner": "p09-observability"
+    },
+    "main-turn": {
+      "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
+      "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
+      "owner": "Performance Lead"
     }
   }
 }

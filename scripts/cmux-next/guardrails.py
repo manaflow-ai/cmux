@@ -3,11 +3,12 @@
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
-Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
-edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
-extensions, read in every Sources and Tests file that extends it: generic_signature_context) or the comment
-that escaped them (a deleted or reworded `// <rule>-allow:` line).
+Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
+the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules), plus unchanged lines that
+become debt because the push changed the line that gives them their context (`struct` -> `class` around a
+static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a type made generic
+around the classes in its extensions, read in every Sources and Tests file that extends it:
+generic_signature_context) or the comment that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
@@ -75,6 +76,7 @@ import importlib.util
 import itertools
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -82,7 +84,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, NamedTuple
 
 HERE = Path(__file__).resolve().parent
@@ -585,8 +587,14 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS), so its blobs are read
-    while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS), so
+    its blobs are read while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    return in_swift_scope(path) or in_wakeup_ext_specs(path)
+
+
+def in_swift_scope(path: str) -> bool:
+    """PATH is in SWIFT_SOURCES, SWIFT_TESTS or SHIPPED_BUILD_SPECS: the files every rule but wakeup-ext, the
+    generic-type context and the perf-hot warning read."""
     return ((path.startswith((SOURCES, TESTS)) and path.endswith(".swift")) or path.startswith(".github/workflows/")
             or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
             or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
@@ -1861,6 +1869,368 @@ RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
 
 
+# ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
+# Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
+# Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
+# check-concurrency.sh already refuses wakeups in CmuxNext Sources before the push, so they are not repeated here.
+# The rules, the masking, the Rust test-item reading and the closed escape vocabulary are wakeup-audit.py's (one
+# definition; its --strict run is the full-tree audit of the program's test phase). Like Chromium's PRESUBMIT.py
+# banned-function checks (CheckNoBannedFunctions reads only ChangedContents()), it judges what the push adds.
+WAKEUP_AUDIT = "wakeup-audit.py"
+IDLE_BUDGET = "scripts/cmux-next/idle-budget.json"
+SHARED_PACKAGES = "Packages/Shared/"
+UPDATER = "Packages/macOS/CmuxUpdater/"
+RUST_CRATES = "cmux-tui/crates/"
+WEB_SOURCES = "webviews/src/"
+# wakeup-audit's cxx roots (CXX_ROOTS): the CEF shim and the Chromium host it splits out.
+CXX_SOURCES = (PACKAGE_ROOT + "CEFShim/src/", PACKAGE_ROOT + "ChromiumHost/src/")
+WAKEUP_EXT_SPECS = (f":(glob){SHARED_PACKAGES}*/Sources/**/*.swift", f":(glob){UPDATER}Sources/**/*.swift",
+                    f":(glob){RUST_CRATES}*/src/**/*.rs", f":(glob){WEB_SOURCES}**/*.ts",
+                    f":(glob){WEB_SOURCES}**/*.tsx", f":(glob){WEB_SOURCES}**/*.css", *CXX_SOURCES, IDLE_BUDGET)
+# The statuses wakeup-audit --strict fails on (`escaped` passes; the shim's `blocking` loops are reported, never open).
+WAKEUP_OPEN = frozenset({"hit", "bad-escape", "no-reason", "periodic-unlisted"})
+
+
+def in_wakeup_ext_specs(path: str) -> bool:
+    """PATH is in one of WAKEUP_EXT_SPECS (in_diff_scope's test for them)."""
+    parts = path.split("/")
+    return ((path.startswith(SHARED_PACKAGES) and parts[3:4] == ["Sources"] and path.endswith(".swift"))
+            or (path.startswith(UPDATER + "Sources/") and path.endswith(".swift"))
+            or (path.startswith(RUST_CRATES) and parts[3:4] == ["src"] and path.endswith(".rs"))
+            or (path.startswith(WEB_SOURCES) and path.endswith((".ts", ".tsx", ".css")))
+            or path.startswith(CXX_SOURCES) or path == IDLE_BUDGET)
+
+
+RUST_ROOT = re.compile(r"^cmux-tui/crates/[^/]+/src/(?:lib\.rs|main\.rs|bin/[^/]+\.rs|bin/[^/]+/main\.rs)$")
+PACKAGE_PATH = re.compile(r'^\s*\.package\(\s*path:\s*"([^"]+)"', re.MULTILINE)
+
+
+@dataclass
+class WakeupContext:
+    """What the wakeup-ext rule reads beside a push's files: its revisions and, at each one, the package manifest
+    (which packages the app links) and idle-budget.json (the owners a `periodic` escape may name; None: absent)."""
+    repo: Path
+    base: str
+    head: str
+    manifests: dict[str, str]
+    budgets: dict[str, str | None]
+
+
+@dataclass
+class WakeupHit(Added):
+    """An added wakeup: CAUSE names the wakeup-audit rule, the hit's shape and a bad escape (format_report prints
+    it)."""
+    cause: str = ""
+
+
+def wakeup_audit():
+    """wakeup-audit.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    name = "cmux_next_wakeup_audit"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return sys.modules[name]
+
+
+class ChecksRoot:
+    """A repository root for wakeup-audit's `root / "scripts/cmux-next/<file>"` reads: the file beside this one, so
+    the hook's reviewed snapshot of check-concurrency.sh defines the Swift rules, not the pushing checkout's."""
+
+    def __truediv__(self, relative: str) -> Path:
+        return HERE / Path(relative).name
+
+
+@functools.cache
+def wakeup_rules(lang: str) -> tuple:
+    """wakeup-audit's rules for LANG (cxx: none until wakeup-audit has CXX_RULES, p14-energy-113)."""
+    wa = wakeup_audit()
+    if lang == "swift-shared":
+        return tuple(wa.swift_wakeup_rules(ChecksRoot()))
+    return tuple({"rust": wa.RUST_RULES, "web": wa.WEB_RULES, "cxx": getattr(wa, "CXX_RULES", ())}[lang])
+
+
+class BudgetText:
+    """idle-budget.json at one revision, as the Path wakeup-audit's periodic_owners() reads (TEXT None: absent)."""
+
+    def __init__(self, text: str | None):
+        self.text = text
+
+    def exists(self) -> bool:
+        return self.text is not None
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        return self.text or ""
+
+
+def budget_owners(text: str | None) -> tuple[set[str], list[str]]:
+    """wakeup-audit's periodic_owners() of idle-budget.json TEXT: (the owners, the entries that break its limits)."""
+    try:
+        return wakeup_audit().periodic_owners(BudgetText(text))
+    except (ValueError, TypeError, AttributeError) as error:  # not JSON, or not the shape the audit reads
+        return set(), [f"{IDLE_BUDGET} is not the allowed_periodic list wakeup-audit reads ({error})"]
+
+
+def budget_hits(context: WakeupContext, head_problems: list[str], base_problems: list[str]) -> list[Added]:
+    """A refusal for each limit HEAD's idle-budget.json breaks that BASE's did not (at most PERIODIC_MAX entries,
+    period_s >= PERIODIC_MIN_S, an owner and a why on each)."""
+    lines = (context.budgets[context.head] or "").split("\n")
+    number = next((i + 1 for i, line in enumerate(lines) if '"allowed_periodic"' in line), 1)
+    return [WakeupHit(IDLE_BUDGET, number, problem, "wakeup-audit periodic_owners: the idle budget's own limits")
+            for problem in head_problems if problem not in base_problems]
+
+
+def linked_packages(manifest: str) -> frozenset[str]:
+    """The Packages/Shared and Packages/macOS package folders CmuxNext's Package.swift (MANIFEST) links by path."""
+    found = (posixpath.normpath(posixpath.join(PACKAGE_ROOT, m.group(1))) for m in PACKAGE_PATH.finditer(manifest))
+    return frozenset(p for p in found if p.startswith((SHARED_PACKAGES, "Packages/macOS/")))
+
+
+def wakeup_lang(path: str, linked: frozenset[str]) -> str | None:
+    """wakeup-audit's language of PATH when its `sources()` read it, else None."""
+    wa = wakeup_audit()
+    parts = path.split("/")
+    if path.endswith(".swift") and "/".join(parts[:3]) in linked and parts[3:4] == ["Sources"]:
+        return None if wa.SHARED_SKIP_DIRS & set(parts[4:-1]) else "swift-shared"
+    if path.startswith(RUST_CRATES) and parts[3:4] == ["src"] and path.endswith(".rs"):
+        return "rust"
+    if path.startswith(WEB_SOURCES) and path.endswith((".ts", ".tsx", ".css")):
+        return None if wa.WEB_SKIP_DIRS & set(parts[2:-1]) or wa.WEB_SKIP_FILE.search(parts[-1]) else "web"
+    cxx_roots = tuple(root.rstrip("/") + "/" for root in getattr(wa, "CXX_ROOTS", {}).values())
+    if path.startswith(cxx_roots) and path.endswith(getattr(wa, "CXX_SUFFIXES", ())) and wakeup_rules("cxx"):
+        return "cxx"
+    return None
+
+
+def tree_path(tree: frozenset[str]) -> type:
+    """A path type whose `exists()` and `resolve()` answer from TREE (one revision's file list), so wakeup-audit's
+    `mod x;` resolution reads the pushed revision, not the pushing checkout's disk."""
+
+    class TreePath(PurePosixPath):
+        def exists(self) -> bool:
+            return str(self) in tree
+
+        def resolve(self) -> "TreePath":
+            return TreePath(posixpath.normpath(str(self)))
+
+    return TreePath
+
+
+def rust_declarers(repo: Path, rev: str, crates: list[str], files: list[str]) -> set[str]:
+    """Files at REV that may declare one of FILES as a module: a `mod <name>;` in the file's folder or above it, or
+    a `#[path]` that names its file. rust_test_only() reads which of them do."""
+    folders: dict[str, set[str]] = {}
+    tails = set()
+    for f in files:
+        folder, base = posixpath.split(f)
+        stem = posixpath.basename(folder) if base == "mod.rs" else base.removesuffix(".rs")
+        if re.fullmatch(r"\w+", stem):  # only `#[path]` can name a file that is no identifier
+            folders.setdefault(stem, set()).add(posixpath.dirname(folder) if base == "mod.rs" else folder)
+        tails.add(re.sub(r"[.+]", r"\\\g<0>", f"{stem}/mod.rs" if base == "mod.rs" else base))
+    by_name, by_path = run_both(
+        repo, ["grep", "-l", "-E", r"(^|[^[:alnum:]_])mod[[:space:]]+(" + "|".join(sorted(folders) or ["$^"])
+               + r")[[:space:]]*;",
+               rev, "--", *crates],
+        ["grep", "-l", "-E", r'path[[:space:]]*=[[:space:]]*"([^"]*/)?(' + "|".join(sorted(tails)) + r')"', rev, "--",
+         *crates])
+
+    def listed(out: str) -> set[str]:
+        return {line.split(":", 1)[1] for line in out.splitlines() if ":" in line}
+
+    # `mod name;` declares <the declaring file's folder or its stem's folder>[/<inline modules>]/name.rs.
+    wanted = {d for ds in folders.values() for d in ds}
+    near = {p for p in listed(by_name)
+            if any(d == posixpath.dirname(p) or d.startswith(posixpath.dirname(p) + "/") for d in wanted)}
+    return near | listed(by_path)
+
+
+def rust_tree(repo: Path, rev: str, crates: list[str]) -> frozenset[str]:
+    """The files of CRATES at REV."""
+    return frozenset(git(repo, "ls-tree", "-r", "--name-only", rev, "--", *crates, check=False).split("\n"))
+
+
+def rust_test_only(repo: Path, rev: str, files: list[str]) -> set[str]:
+    """FILES (crate src files) that only tests compile at REV: declared inside a test-only item, or by a file that
+    only tests compile (wakeup-audit's rust_test_files over their declaring files, up to the crate root)."""
+    wa = wakeup_audit()
+    crates = sorted({"/".join(f.split("/")[:4]) for f in files})
+    tree = rust_tree(repo, rev, crates)
+    TreePath = tree_path(tree)
+    modules: dict = {}
+    looked: set[str] = set()
+    todo = sorted(f for f in files if f in tree and not RUST_ROOT.match(f))
+    while todo:
+        looked.update(todo)
+        wanted = {TreePath(f) for f in todo}
+        candidates = sorted(p for p in rust_declarers(repo, rev, crates, todo) if TreePath(p) not in modules)
+        declarers = []
+        for (_, path), raw in blobs(repo, [(rev, p) for p in candidates]).items():
+            mods = modules[TreePath(path)] = wa.rust_modules(wa.mask(raw, "rust"), raw, TreePath(path))
+            if any(child in wanted for child, _ in mods.children):
+                declarers.append(path)
+        todo = sorted(p for p in declarers if p not in looked and not RUST_ROOT.match(p))
+    tests = wa.rust_test_files(modules)
+    return {f for f in files if TreePath(f) in tests}
+
+
+def rust_flipped(context: WakeupContext, changes: list[FileChange]) -> set[str]:
+    """Module files whose test-only state the `mod x;` declarations of CHANGES (crate src files) may change: each
+    child declared test-only on one side only (`#[cfg(test)]` dropped or added, the declaration deleted), and every
+    module file below one (wakeup-audit's rust_test_files reads a test-only file's children as test-only too)."""
+    if not changes:
+        return set()
+    wa = wakeup_audit()
+    head, base = context.head, context.base
+    crates = sorted({"/".join(c.path.split("/")[:4]) for c in changes})
+    trees = {rev: tree_path(rust_tree(context.repo, rev, crates)) for rev in (head, base)}
+
+    def children(rev: str, path: str, raw: str) -> list:
+        return wa.rust_modules(wa.mask(raw, "rust"), raw, trees[rev](path)).children if "mod" in raw else []
+
+    flipped: set[str] = set()
+    for change in changes:
+        tested = [{str(child) for child, in_test in children(rev, change.path, "\n".join(lines)) if in_test}
+                  for rev, lines in ((head, change.head_lines), (base, change.base_lines))]
+        flipped |= tested[0] ^ tested[1]
+    todo = sorted(flipped)
+    while todo:
+        texts = blobs(context.repo, [(rev, p) for p in todo for rev in (head, base)])
+        todo = sorted({str(child) for (rev, p), raw in texts.items() for child, _ in children(rev, p, raw)} - flipped)
+        flipped.update(todo)
+    return flipped
+
+
+PERIODIC_ESCAPE = re.compile(r"wakeup-allow:\s*periodic\s+(\S+)")
+
+
+def wakeup_context_files(context: WakeupContext, changed: dict[str, FileChange], linked: dict[str, frozenset[str]],
+                         lost_owners: set[str]) -> dict[str, FileChange]:
+    """The unchanged files whose wakeups the push opens by changing what gives them their context: the module files a
+    changed `mod` declaration takes out of (or puts into) test-only code, the Sources of a package only HEAD links,
+    and the files whose `periodic` escape names an owner the push takes off idle-budget.json."""
+    head, base, repo = context.head, context.base, context.repo
+    paths = rust_flipped(context, [c for c in changed.values() if wakeup_lang(c.path, frozenset()) == "rust"])
+    if newly := sorted(linked[head] - linked[base]):
+        listed = git(repo, "ls-tree", "-r", "--name-only", head, "--", *(f"{p}/Sources" for p in newly), check=False)
+        paths |= {p for p in listed.split("\n") if p and wakeup_lang(p, linked[head])}
+    if lost_owners:
+        out = git(repo, "grep", "-I", "-E", r"wakeup-allow:[[:space:]]*periodic", head, "--", *WAKEUP_EXT_SPECS,
+                  check=False)
+        for line in out.splitlines():  # <rev>:<path>:<text>
+            _, path, text = (line.split(":", 2) + ["", ""])[:3]
+            if any(m.group(1).rstrip(".,;:") in lost_owners for m in PERIODIC_ESCAPE.finditer(text)):
+                paths.add(path)
+    paths = sorted(p for p in paths - set(changed) if wakeup_lang(p, linked[head] | linked[base]))
+    texts = blobs(repo, [(rev, p) for p in paths for rev in (head, base)])
+    return {p: FileChange(p, texts.get((head, p), "").split("\n"), base_lines=texts.get((base, p), "").split("\n"))
+            for p in paths}
+
+
+def open_wakeups(lang: str, path: str, text: str, owners: set[str], repo: Path) -> list:
+    """wakeup-audit's hits in TEXT that --strict fails on: an unescaped hit, an escape word outside the vocabulary,
+    an escape with no reason, a `periodic` owner idle-budget.json does not list."""
+    if not text:
+        return []
+    wa = wakeup_audit()
+    code, skip = None, []
+    if lang == "rust":
+        code = wa.mask(text, "rust")
+        # The file's own test items; its `mod x;` children are rust_test_only()'s, so no tree is needed here.
+        skip = wa.rust_modules(code, text, tree_path(frozenset())(path)).test_ranges
+    hits = wa.audit_file(repo, lang, "", repo / path, list(wakeup_rules(lang)), owners, skip, text, code)
+    return [h for h in hits if h.status in WAKEUP_OPEN]
+
+
+def opened(hit, pairs: dict[int, int], other: dict[tuple[int, str], str]) -> bool:
+    """HIT, on a line the push did not change, is the push's: the other side (OTHER: {(line, rule): shape}; PAIRS:
+    this side's 0-based lines to the other's) has no open hit of its rule on that line, or only a one-shot where HIT
+    loops (the push put a loop around it or took its loop's event away)."""
+    shape = other.get((pairs.get(hit.line - 1, -2) + 1, hit.rule))
+    return shape is None or (hit.shape == "loop" and shape != "loop")
+
+
+def wakeup_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Wakeups the push opens, per file, wakeup-audit rule and shape (resolve(): a count ratchet, moves between files
+    free), so a removed one-shot `thread::sleep` pays for neither a `recv_timeout` nor a polling loop."""
+    if not changes:
+        return []
+    context: WakeupContext = changes[0].memo["wakeup"]
+    head, base = context.head, context.base
+    linked = {rev: linked_packages(context.manifests[rev]) for rev in (head, base)}
+    (head_owners, head_problems), (base_owners, base_problems) = (budget_owners(context.budgets[rev])
+                                                                  for rev in (head, base))
+    # An owner counts once the base lists it: a push cannot approve its own interval in idle-budget.json.
+    owners = {head: head_owners & base_owners, base: base_owners}
+    files = {c.path: c for c in changes}
+    files.update(wakeup_context_files(context, files, linked, base_owners - owners[head]))
+    sides = []
+    for change in files.values():
+        # A package the app links on one side only is judged on that side only.
+        langs = {rev: wakeup_lang(change.path, linked[rev]) for rev in (head, base)}
+        if any(langs.values()):
+            sides.append((change, {rev: open_wakeups(langs[rev], change.path, "\n".join(lines), owners[rev],
+                                                     context.repo) if langs[rev] else []
+                                   for rev, lines in ((head, change.head_lines), (base, change.base_lines))}))
+    # Which module files only tests compile is read only for the files with hits (it greps the crates' trees).
+    rust = sorted(change.path for change, hits in sides
+                  if wakeup_lang(change.path, frozenset()) == "rust" and any(hits.values()))
+    test_only = {rev: rust_test_only(context.repo, rev, rust) if rust else set() for rev in (head, base)}
+    groups: dict[tuple[str, str], list[tuple[list[Added], list[Added]]]] = {}
+    order = {}
+    for index, (change, hits) in enumerate(sides):
+        order[change.path] = index
+        head_hits = [] if change.path in test_only[head] else hits[head]
+        base_hits = [] if change.path in test_only[base] else hits[base]
+        to_base = unchanged_pairs(change)
+        to_head = {b: h for h, b in to_base.items()}
+        head_open = {(h.line, h.rule): h.shape for h in head_hits}
+        base_open = {(h.line, h.rule): h.shape for h in base_hits}
+        added = {a.number for a in change.added}
+        removed = {r.number for r in change.removed}
+        # A changed line's hit is the push's; an unchanged line's only when the push opened or closed it there (an
+        # escape deleted or written, a `#[cfg(test)]` removed or added, a loop put around it).
+        head_debt = [h for h in head_hits if h.line in added or opened(h, to_base, base_open)]
+        base_debt = [h for h in base_hits if h.line in removed or opened(h, to_head, head_open)]
+        for key in sorted({(h.rule, h.shape) for h in head_debt + base_debt}):
+            groups.setdefault(key, []).append(
+                (wakeup_debt(change.path, [h for h in head_debt if (h.rule, h.shape) == key], change.head_lines),
+                 wakeup_debt(change.path, [h for h in base_debt if (h.rule, h.shape) == key], change.base_lines)))
+    found = sorted((hit for group in groups.values() for hit in resolve(group)),
+                   key=lambda hit: (order[hit.path], hit.number))
+    return budget_hits(context, head_problems, base_problems) + found
+
+
+def wakeup_debt(path: str, hits: list, lines: list[str]) -> list[WakeupHit]:
+    return [WakeupHit(path, h.line, lines[h.line - 1],
+                      f"wakeup-audit {h.rule}, {h.shape}" + (f"; {h.status} `{h.escape}`" if h.status != "hit" else ""))
+            for h in hits]
+
+
+RULES += (
+    Rule("wakeup-ext", "An idle wakeup (timer, sleep, timed wait, spin loop, interval, infinite animation) in an "
+         "app-linked Shared package, CmuxUpdater, a cmux-tui crate's src, webviews/src or the CEF shim",
+         "a timer or a poll wakes the process while the person does nothing: idle wakeups cost battery and keep cmux "
+         "above Chrome's (perf-lead.md item 6, plans/cmux-next/chrome-parity/p14-energy.md); the rules and the "
+         "escape vocabulary are scripts/cmux-next/wakeup-audit.py's",
+         "wait for the event (a read, a channel recv, NOTE_EXIT / pidfd, FSEvents, a push from the host, visibility), "
+         "a one-shot deadline for a timeout, Backoff after a failure, MaintenanceClock for maintenance; bound an "
+         "animation or gate it on visibility and the motion setting; test-only code (`#[cfg(test)]`, *.test.ts) is "
+         "not judged",
+         "// wakeup-allow: <deadline|backoff|bounded|cli-only|fixture|debug|periodic> <reason> (`periodic <owner>` "
+         "only for an owner in idle-budget.json allowed_periodic)",
+         wakeup_ext,
+         # The manifest and the budget: a push that changes which packages the app links, or which owners a
+         # `periodic` escape may name, changes what the unchanged files' wakeups are.
+         scope=(SHARED_PACKAGES, UPDATER, RUST_CRATES, WEB_SOURCES, *CXX_SOURCES, MANIFEST, IDLE_BUDGET)),
+)
+# ---------------------------------------------------------------- end of wakeup-ext
+
+
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
 # detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
@@ -2912,7 +3282,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -2925,7 +3295,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
-                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
+                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -2949,22 +3320,28 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
-    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
-    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
+    # wakeup-ext's own files (Shared, crates, webviews, the CEF shim) stay out of the Swift readings below.
+    swift = {p: changes[p] for p in paths if in_swift_scope(p)}
+    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in swift])
+    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in swift])
     head_targets = swift_scope.package_targets(texts.get((head, MANIFEST), ""))
     base_targets = swift_scope.package_targets(texts.get((base, MANIFEST), ""))
     try:
         # Classes in extensions of a type whose generic signature the push changes, in files it does not change.
-        context_files, causes = generic_signature_context(repo, head, changes, head_types, base_types)
+        context_files, causes = generic_signature_context(repo, head, swift, head_types, base_types)
     except Exception as error:  # fail open for this reading only: the rules still judge the push's own files
         context_files, causes = [], {}
         warnings.append(("guardrails", check_failure("generic-signature context", error)))
-    for change in [changes[p] for p in paths] + context_files:
+    for change in list(swift.values()) + context_files:
         change.head_types, change.base_types = head_types, base_types
         change.head_main = main_by_default(change.path, head_targets)
         change.base_main = main_by_default(change.path, base_targets)
     files = [changes[p] for p in paths]
-    moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
+    wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
+                           {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
+    for change in files:
+        change.memo["wakeup"] = wakeup
+    moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     found = []
     for rule in RULES:
         # The unchanged context files hold no added or removed line: only their touched context can add debt.
@@ -2983,7 +3360,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     except json.JSONDecodeError:
         benches = {}
     try:
-        warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+        warnings += [("perf-hot", w) for w in perf_hot_warnings(swift, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
     if (head, OWNERS) in texts:
