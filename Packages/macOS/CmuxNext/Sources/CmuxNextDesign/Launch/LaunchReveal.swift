@@ -22,25 +22,35 @@ public import CmuxNextDesignTokens
 /// profile's sidebar has no saved rows to wait for), and hold containers,
 /// not views that animate their own alpha.
 /// The regions are app-wide and cover the first launch: once a region is
-/// ready, windows opened later show it at once.
+/// ready, windows opened later show it at once. The app makes one at its
+/// composition root (`AppDelegate`) and passes it by init; there is no
+/// shared instance.
 @MainActor
 @Observable
 public final class LaunchReveal {
-    public static let shared = LaunchReveal()
-
     /// Regions whose data has arrived. Only grows.
     public private(set) var ready: Set<LaunchRegion> = []
     @ObservationIgnored private var held: [LaunchRegion: NSHashTable<NSView>] = [:]
     @ObservationIgnored private var waiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
     @ObservationIgnored private let deadlineTimer: DemandTimer
     @ObservationIgnored private let deadline: Duration
+    @ObservationIgnored private let onRevealed: @MainActor () -> Void
 
-    /// - Parameter deadline: How long after the first `hold` every region
-    ///   shows anyway.
-    public init(clock: any Clock<Duration> = ContinuousClock(), deadline: Duration = .milliseconds(1500)) {
+    /// - Parameters:
+    ///   - deadline: How long after the first `hold` every region shows anyway.
+    ///   - onRevealed: Runs once, in the turn the last region became ready (its data landed, or
+    ///     the deadline passed): the launch window shows everything. The app ends its startup
+    ///     phase's `launching` here (`StartupPhase.noteFirstFrame()`), as Chrome's first paint
+    ///     does (`chrome/browser/after_startup_task_utils.cc`).
+    public init(clock: any Clock<Duration> = ContinuousClock(), deadline: Duration = .milliseconds(1500),
+                onRevealed: @escaping @MainActor () -> Void = {}) {
         deadlineTimer = DemandTimer(owner: "launch.reveal-deadline", clock: clock)
         self.deadline = deadline
+        self.onRevealed = onRevealed
     }
+
+    /// Whether every region is ready: the launch is revealed.
+    public var isRevealed: Bool { ready.count == LaunchRegion.allCases.count }
 
     public func isReady(_ region: LaunchRegion) -> Bool { ready.contains(region) }
 
@@ -75,6 +85,10 @@ public final class LaunchReveal {
             if let layer = view.layer, layer.presentation() != nil { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
+        // `ready` only grows, so this holds after exactly one insertion.
+        guard isRevealed else { return }
+        deadlineTimer.cancel()
+        onRevealed()
     }
 
     /// `view` has its data before its region (a terminal's frame from the last quit): it shows at

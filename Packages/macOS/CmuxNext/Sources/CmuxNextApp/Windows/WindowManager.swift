@@ -84,6 +84,9 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
+    /// Runs once, when the launch's session restore finished (the saved windows are back, the
+    /// launch window adopted or closed): the startup phase's restore reference.
+    var onRestored: (() -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -249,10 +252,27 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        let restoredHook = onRestored
+        onRestored = nil
+        restoredHook?()
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+    }
+
+    /// Runs `idle` once the front window's focused browser page is not loading (at once when it is
+    /// not, or when no browser page is in front): the startup phase's visible-page reference.
+    func whenVisiblePageIdle(_ idle: @escaping @MainActor () -> Void) {
+        guard let controller = active, let pane = controller.focus.state.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
+              entry.tab.state.isLoading else { return idle() }
+        let tab = entry.tab
+        // task-owner: ends at the page's first load-idle or when the page goes; one that never stops loading leaves the settle to the 10 s failsafe
+        Task {
+            for await loading in ObservationStream({ [weak tab] in tab?.state.isLoading ?? false }) where !loading { break }
+            idle()
+        }
     }
 
     /// The launch window takes the frontmost saved window's identity and
