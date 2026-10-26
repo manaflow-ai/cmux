@@ -897,7 +897,8 @@ export function devboxParkDaemonCommand(): string {
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
-    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    // cmux-machine-health's files are per machine too (a derive clone's pass may have written them).
+    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named ${TEMPLATE_RUN_DIR}/machine-health.json ${TEMPLATE_RUN_DIR}/machine-health-state.json`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
     "! grep -qi ':0539 ' /proc/net/tcp6",
@@ -1529,14 +1530,15 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * `baked` and `current` when a main sync brings a new ladder. The desktop
  * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
- * wait), so `current` is their digest.
+ * wait), and again with the cmux-machine-health install (the bake steps and
+ * the boot script's HOUSEKEEPING_TIMERS), so `current` is their digest.
  */
 export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "575e883ec36e321ff92b63e79fbc339a6c0b877510be882304acfbca402cf17e",
+    current: "c7f978ae71238b86f6907678de05fc212323f91b69a948eea42af71ac5d04bf2",
   },
 ] as const;
 
@@ -1613,6 +1615,42 @@ export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
 }
+
+/**
+ * cmux-machine-health on the devbox (images/cmux-vm/machine-health, installed
+ * with cmux-vm-image/machine-health.ts). A clone resumes with its monotonic
+ * clock jumped by the snapshot's age, so a timer running at the snapshot fires
+ * in the clone's first second, beside the daemon start. Its timer is one of
+ * cmux-devbox-boot's HOUSEKEEPING_TIMERS instead: enabled, so it starts at a
+ * cold boot; stopped while parked; started HOUSEKEEPING_DELAY after a clone
+ * binds. The bake's last step before the settle removes the bake pass's files
+ * (a clone has no health file until its own first pass) and proves all of it.
+ */
+export const DEVBOX_MACHINE_HEALTH_PARKED_COMMAND = [
+  "rm -f /run/cmux/machine-health.json /run/cmux/machine-health-state.json",
+  'test "$(systemctl is-enabled cmux-machine-health.timer)" = enabled',
+  "! systemctl is-active --quiet cmux-machine-health.timer",
+  "grep -q '^HOUSEKEEPING_TIMERS=.* cmux-machine-health\\.timer' /usr/local/bin/cmux-devbox-boot",
+  "echo machine-health-parked",
+].join(" && ");
+
+/** On a clone right after resume: no pass ran yet (`timer=inactive health=absent`) and the re-arm is pending (`rearm=active`). */
+export const DEVBOX_MACHINE_HEALTH_RESUME_COMMAND =
+  "echo timer=$(systemctl is-active cmux-machine-health.timer); echo health=$(test -e /run/cmux/machine-health.json && echo present || echo absent); echo rearm=$(systemctl is-active cmux-housekeeping-rearm.timer)";
+
+/** Problems in DEVBOX_MACHINE_HEALTH_RESUME_COMMAND's output; none on a clone that resumed parked. */
+export function devboxMachineHealthResumeProblems(stdout: string): string[] {
+  const kv = new Map(stdout.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()] as const));
+  const problems: string[] = [];
+  if (kv.get("timer") !== "inactive") problems.push(`machine-health timer at resume: ${kv.get("timer") || "no answer"} (want inactive until the re-arm)`);
+  if (kv.get("health") !== "absent") problems.push(`machine-health file at resume: ${kv.get("health") || "no answer"} (want absent: the bake's pass rode into the snapshot)`);
+  if (kv.get("rearm") !== "active") problems.push(`housekeeping re-arm at resume: ${kv.get("rearm") || "no answer"} (want active)`);
+  return problems;
+}
+
+/** Before the smoke on a clone: start the timer as the re-arm would, so the smoke need not wait out HOUSEKEEPING_DELAY. */
+export const DEVBOX_MACHINE_HEALTH_START_COMMAND =
+  "systemctl is-active --quiet cmux-machine-health.timer || systemctl start cmux-machine-health.timer";
 
 /**
  * The devbox daemon unit: cmux-devbox-boot supervises the cmux-tui daemon

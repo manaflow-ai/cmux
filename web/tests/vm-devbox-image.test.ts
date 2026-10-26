@@ -31,6 +31,10 @@ import {
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
+  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
+  DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+  DEVBOX_MACHINE_HEALTH_START_COMMAND,
+  devboxMachineHealthResumeProblems,
   devboxSourceDigest,
   devboxSourceManifest,
   normalizedBakeScript,
@@ -45,6 +49,7 @@ import {
   DEVBOX_WORK_USER,
   devboxWorkUserSetupCommand,
 } from "../services/vms/images/workUser";
+import { machineHealthBakeCommand, machineHealthSmokeCommand } from "../scripts/cmux-vm-image/machine-health";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -1607,5 +1612,70 @@ describe("devbox terminfo overlay", () => {
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
     expect(dockerfile).toContain("xterm-ghostty; do");
     expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO_DIRS=/etc/terminfo:");
+  });
+});
+
+describe("devbox cmux-machine-health", () => {
+  const bake = readScript("build-devbox-freestyle.ts");
+  const at = (label: string) => {
+    const i = bake.indexOf(`await step("${label}"`);
+    expect({ label, found: i > 0 }).toEqual({ label, found: true });
+    return i;
+  };
+  const stepsAfter = (i: number) => bake.slice(i).match(/await step\("[^"]+"/g) ?? [];
+
+  test("the bake installs it after the daemon park with a check-only pass", () => {
+    const install = at("machine-health");
+    expect(install).toBeGreaterThan(at("cmux-tui-daemon-park"));
+    expect(bake).toContain('await step("machine-health", machineHealthBakeCommand());');
+    // The script and the hygiene command are written just before the install step.
+    expect(bake.lastIndexOf("machineHealthFiles()", install)).toBeGreaterThan(at("cmux-tui-daemon-park"));
+    expect(machineHealthBakeCommand()).toContain("install --no-start");
+    expect(machineHealthBakeCommand()).toContain("cmux-machine-health run --check-only");
+    expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.service");
+    expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.timer");
+  });
+
+  test("the timer is parked after clean, right before the settle, and never started during the bake", () => {
+    const parked = at("machine-health-parked");
+    expect(parked).toBeGreaterThan(at("clean"));
+    expect(stepsAfter(parked)).toEqual(['await step("machine-health-parked"', 'await step("settle-before-snapshot"']);
+    // A running timer at the snapshot would fire in a clone's first second; the clone's re-arm starts it.
+    expect(bake).not.toContain("MACHINE_HEALTH_ARM_COMMAND");
+    expect(bake).not.toContain("systemctl start cmux-machine-health");
+    expect(DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).toContain("rm -f /run/cmux/machine-health.json /run/cmux/machine-health-state.json");
+    expect(DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).toContain("! systemctl is-active --quiet cmux-machine-health.timer");
+    expect(/^HOUSEKEEPING_TIMERS="[^"\n]* cmux-machine-health\.timer"$/m.test(devboxBoot)).toBe(true);
+    // A derive clone parks again before its own snapshot; its pass's files go with the rest.
+    expect(devboxParkDaemonCommand()).toContain("/run/cmux/machine-health.json /run/cmux/machine-health-state.json");
+  });
+
+  test("the hygiene default reaches the work user's home", () => {
+    // cmux-machine-health runs cmux-machine-hygiene for /home/NAME accounts with uid 1000..59999.
+    expect(DEVBOX_WORK_HOME).toBe(`/home/${DEVBOX_WORK_USER}`);
+    expect(DEVBOX_WORK_UID).toBeGreaterThanOrEqual(1000);
+    expect(DEVBOX_WORK_UID).toBeLessThan(60000);
+  });
+
+  test("verify checks the resume state and runs the smoke", () => {
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("exec(DEVBOX_MACHINE_HEALTH_RESUME_COMMAND, 30_000)");
+    expect(verify).toContain("machineHealthSmokeCommand(DEVBOX_WORK_USER)");
+    expect(verify).toContain("machineHealthSmokeProblems(healthSmoke.output)");
+    expect(verify).toContain("&& idleOk && healthOk && cloneIdentityOk");
+    expect(devboxMachineHealthResumeProblems("timer=inactive\nhealth=absent\nrearm=active\n")).toEqual([]);
+    expect(devboxMachineHealthResumeProblems("timer=active\nhealth=present\nrearm=inactive")).toHaveLength(3);
+    expect(devboxMachineHealthResumeProblems("")).toHaveLength(3);
+  });
+
+  test("every command parses", async () => {
+    for (const command of [
+      machineHealthBakeCommand(),
+      DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
+      DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+      `${DEVBOX_MACHINE_HEALTH_START_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`,
+    ]) {
+      expect((await runChild("bash", ["-n"], { input: command })).status).toBe(0);
+    }
   });
 });
