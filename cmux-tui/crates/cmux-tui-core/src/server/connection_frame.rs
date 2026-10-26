@@ -6,6 +6,7 @@
 mod machine_catalog;
 
 use super::*;
+use crate::event_cause::{EventCause, EventCauseScope};
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -55,7 +56,11 @@ pub(super) fn handle_connection_frame_at(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
-    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
+    // Every event this frame sets off, here or on a thread it hands work
+    // to, carries the connection's cause (crate::event_cause).
+    let (remote, cause) = mux.frame_client(client);
+    let _cause = EventCauseScope::enter(cause);
+    if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,
             client,
@@ -84,6 +89,12 @@ pub(super) fn handle_connection_frame_at(
             Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
             Err(_) => stage(FrameStage::PageRouter),
         }
+        // An envelope's `origin` claim may only narrow the cause, as it
+        // only narrows the origin; the origin gate still checks the claim.
+        let _claimed =
+            request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
+                EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+            });
         let arrival = RequestArrival::parsed_now(arrived);
         let mut span = match &request {
             Ok(envelope) => RequestSpan::open_method(
@@ -456,3 +467,7 @@ pub(super) fn zeroize_string(value: &mut str) {
     // place immediately after dispatch.
     value.zeroize();
 }
+
+#[cfg(test)]
+#[path = "event_cause_tests.rs"]
+mod event_cause_tests;

@@ -173,6 +173,10 @@ impl ConnectionSurfaceScheduler {
             _ => "create",
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
+        // The pool job is the request's: its launch, and the commits it
+        // runs (each under its own request's cause), keep the cause the
+        // dispatcher captured.
+        let cause = pending.cause;
         let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
             mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
         });
@@ -188,6 +192,7 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let _cause = crate::event_cause::EventCauseScope::enter(cause);
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));

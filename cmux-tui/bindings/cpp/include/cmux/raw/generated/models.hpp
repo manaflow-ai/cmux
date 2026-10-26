@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675";
+inline constexpr std::string_view kProtocolIrSha256 = "88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -96,6 +96,7 @@ struct DeclarativeLayout;
 struct DetachClientTarget;
 enum class DetachReason;
 struct EmptyResult;
+enum class EventCause;
 struct ExportLayoutResult;
 struct ExportedPane;
 struct FocusDirectionResult;
@@ -817,9 +818,15 @@ enum class AgentState {
     unknown,
 };
 
+enum class EventCause {
+    frontend,
+    automation,
+};
+
 struct AgentChangedEvent {
     Field<std::string> agent{};
     Field<std::string> agent_session_id{};
+    std::optional<EventCause> cause{};
     Field<std::string> last_prompt{};
     std::optional<std::string> session{};
     std::optional<std::uint64_t> since_ms{};
@@ -996,6 +1003,7 @@ enum class AgentPresenceActivity {
 struct AgentPresenceChangedEvent {
     std::optional<AgentPresenceActivity> activity{};
     std::optional<std::string> agent{};
+    std::optional<EventCause> cause{};
     std::optional<std::uint64_t> line{};
     std::optional<std::string> path{};
     std::optional<std::string> session{};
@@ -1353,6 +1361,7 @@ struct Base64 {
 };
 
 struct BellEvent {
+    std::optional<EventCause> cause{};
     Id surface{};
     friend bool operator==(const BellEvent&, const BellEvent&) = default;
 };
@@ -1418,6 +1427,7 @@ struct BookmarkImportNode {
 struct BookmarksChangedEvent {
     std::uint64_t bookmarks_revision{};
     std::string browser_profile_id{};
+    std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
 };
 
@@ -1642,6 +1652,7 @@ enum class ChiefChangedEventChange {
 };
 
 struct ChiefChangedEvent {
+    std::optional<EventCause> cause{};
     ChiefChangedEventChange change{};
     std::string chief{};
     friend bool operator==(const ChiefChangedEvent&, const ChiefChangedEvent&) = default;
@@ -1822,6 +1833,7 @@ enum class ClientAttachedEventTransport {
 };
 
 struct ClientAttachedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t client{};
     std::optional<std::string> kind{};
     std::optional<std::string> name{};
@@ -1830,6 +1842,7 @@ struct ClientAttachedEvent {
 };
 
 struct ClientChangedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t client{};
     std::optional<std::string> kind{};
     std::optional<std::string> name{};
@@ -1837,6 +1850,7 @@ struct ClientChangedEvent {
 };
 
 struct ClientDetachedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t client{};
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
 };
@@ -1879,6 +1893,7 @@ struct ClientInfo {
 };
 
 struct ClientListInvalidatedEvent {
+    std::optional<EventCause> cause{};
     friend bool operator==(const ClientListInvalidatedEvent&, const ClientListInvalidatedEvent&) = default;
 };
 
@@ -2069,6 +2084,7 @@ struct CloudAttachmentUploadResult {
 
 struct CloudConversationChangedEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::optional<JsonValue> change{};
     std::string conversation{};
     std::uint64_t rev{};
@@ -2086,6 +2102,7 @@ struct CloudConversationHistoryRequest {
 
 struct CloudConversationLiveEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::string conversation{};
     std::optional<JsonValue> frame{};
     friend bool operator==(const CloudConversationLiveEvent&, const CloudConversationLiveEvent&) = default;
@@ -2106,6 +2123,7 @@ struct CloudConversationOpRequest {
 
 struct CloudConversationResyncedEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::string conversation{};
     std::optional<JsonValue> messages{};
     std::uint64_t rev{};
@@ -2116,6 +2134,7 @@ struct CloudConversationResyncedEvent {
 
 struct CloudConversationRunChangedEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::string conversation{};
     std::optional<JsonValue> run{};
     std::vector<JsonValue> steps{};
@@ -2159,6 +2178,7 @@ struct CloudConversationThreadRequest {
 
 struct CloudConversationTypingEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::string conversation{};
     bool on{};
     std::string participant{};
@@ -2182,6 +2202,7 @@ struct CloudHostReplicaClearRequest {
 };
 
 struct CloudHostReplicaNeededEvent {
+    std::optional<EventCause> cause{};
     Field<std::uint64_t> expires_at{};
     std::string reason{};
     friend bool operator==(const CloudHostReplicaNeededEvent&, const CloudHostReplicaNeededEvent&) = default;
@@ -2202,6 +2223,7 @@ struct CloudHostReplicaStatusRequest {
 
 struct CloudInboxChangedEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::optional<JsonValue> entries{};
     std::uint64_t seq{};
     std::string transaction{};
@@ -2223,6 +2245,7 @@ struct CloudInboxOpRequest {
 
 struct CloudInboxResetEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::uint64_t seq{};
     friend bool operator==(const CloudInboxResetEvent&, const CloudInboxResetEvent&) = default;
 };
@@ -2243,6 +2266,7 @@ struct CloudMuxAckRequest {
 
 struct CloudMuxResyncedEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::optional<JsonValue> pending{};
     std::uint64_t seq{};
     friend bool operator==(const CloudMuxResyncedEvent&, const CloudMuxResyncedEvent&) = default;
@@ -2258,6 +2282,7 @@ struct CloudMuxUnsubscribeRequest {
 
 struct CloudMuxWakeEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     std::uint64_t seq{};
     std::optional<JsonValue> wakes{};
     friend bool operator==(const CloudMuxWakeEvent&, const CloudMuxWakeEvent&) = default;
@@ -2282,6 +2307,7 @@ struct CloudSessionClearRequest {
 };
 
 struct CloudSessionNeededEvent {
+    std::optional<EventCause> cause{};
     Field<std::uint64_t> expires_at{};
     std::string reason{};
     friend bool operator==(const CloudSessionNeededEvent&, const CloudSessionNeededEvent&) = default;
@@ -2302,6 +2328,7 @@ struct CloudSessionStatusRequest {
 
 struct CloudSubscriptionStateEvent {
     std::optional<std::string> account{};
+    std::optional<EventCause> cause{};
     Field<std::string> conversation{};
     Field<std::string> reason{};
     std::string scope{};
@@ -2354,6 +2381,7 @@ struct ColumnPin {
 };
 
 struct ConfigReloadRequestedEvent {
+    std::optional<EventCause> cause{};
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
 
@@ -2573,6 +2601,7 @@ struct ConversationChange {
 };
 
 struct ConversationChangedEvent {
+    std::optional<EventCause> cause{};
     std::optional<JsonValue> change{};
     std::string conversation{};
     std::uint64_t rev{};
@@ -2595,6 +2624,7 @@ struct ConversationCreateResult {
 };
 
 struct ConversationDraftEvent {
+    std::optional<EventCause> cause{};
     std::string conversation{};
     JsonValue item{};
     std::string participant{};
@@ -2675,6 +2705,7 @@ struct ConversationImportResult {
 };
 
 struct ConversationInboxChangedEvent {
+    std::optional<EventCause> cause{};
     std::string conversation{};
     bool marked_unread{};
     std::string participant{};
@@ -2723,6 +2754,7 @@ struct ConversationListResult {
 };
 
 struct ConversationLiveEvent {
+    std::optional<EventCause> cause{};
     std::string conversation{};
     std::optional<JsonValue> frame{};
     friend bool operator==(const ConversationLiveEvent&, const ConversationLiveEvent&) = default;
@@ -2777,6 +2809,7 @@ struct ConversationRunAppendResult {
 };
 
 struct ConversationRunChangedEvent {
+    std::optional<EventCause> cause{};
     std::string conversation{};
     std::optional<JsonValue> run{};
     std::vector<JsonValue> steps{};
@@ -2871,6 +2904,7 @@ struct ConversationThreadResult {
 };
 
 struct ConversationTypingEvent {
+    std::optional<EventCause> cause{};
     std::string conversation{};
     bool on{};
     std::string participant{};
@@ -3163,6 +3197,7 @@ struct DetachedEvent {
 };
 
 struct EmptyEvent {
+    std::optional<EventCause> cause{};
     friend bool operator==(const EmptyEvent&, const EmptyEvent&) = default;
 };
 
@@ -3341,6 +3376,7 @@ struct FrontendProjection {
 };
 
 struct FrontendProjectionChangedEvent {
+    std::optional<EventCause> cause{};
     std::string frontend{};
     std::string mutation_id{};
     std::string origin{};
@@ -3493,6 +3529,7 @@ enum class GraphicsStatusEventKind {
 
 struct GraphicsStatusEvent {
     std::optional<std::uint16_t> attempts{};
+    std::optional<EventCause> cause{};
     std::optional<std::uint16_t> cell_height{};
     std::optional<std::uint16_t> cell_width{};
     std::optional<std::string> error{};
@@ -3524,6 +3561,7 @@ struct GuestUrlSubscribeResult {
 };
 
 struct HistoryChangedEvent {
+    std::optional<EventCause> cause{};
     std::vector<std::string> kinds{};
     std::uint64_t revision{};
     friend bool operator==(const HistoryChangedEvent&, const HistoryChangedEvent&) = default;
@@ -3728,6 +3766,7 @@ enum class KeybindingsChangedEventOrigin {
 };
 
 struct KeybindingsChangedEvent {
+    std::optional<EventCause> cause{};
     KeybindingsChangedEventOrigin origin{};
     std::uint64_t revision{};
     friend bool operator==(const KeybindingsChangedEvent&, const KeybindingsChangedEvent&) = default;
@@ -3754,6 +3793,7 @@ struct KittyImageAlias {
 
 struct LayoutChangedEvent {
     std::optional<Id> active_pane{};
+    std::optional<EventCause> cause{};
     std::optional<Layout> layout{};
     Id screen{};
     std::optional<std::string> transaction{};
@@ -4058,6 +4098,7 @@ struct MachineUsage {
 };
 
 struct MachineUsageChangedEvent {
+    std::optional<EventCause> cause{};
     std::optional<MachineUsage> usage{};
     friend bool operator==(const MachineUsageChangedEvent&, const MachineUsageChangedEvent&) = default;
 };
@@ -4486,6 +4527,7 @@ struct NoteSizeActivityResult {
 
 struct NotificationEvent {
     std::string body{};
+    std::optional<EventCause> cause{};
     std::optional<bool> desktop{};
     NotificationLevel level{};
     Id notification{};
@@ -4543,6 +4585,7 @@ struct PageCredentialRequest {
 };
 
 struct PairingRequestedEvent {
+    std::optional<EventCause> cause{};
     std::string code{};
     std::uint64_t expires_in{};
     std::string peer{};
@@ -4551,6 +4594,7 @@ struct PairingRequestedEvent {
 };
 
 struct PairingResolvedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t request{};
     friend bool operator==(const PairingResolvedEvent&, const PairingResolvedEvent&) = default;
 };
@@ -4613,6 +4657,7 @@ struct ParkTabsRequest {
 
 struct ParticipantAvatarChangedEvent {
     std::optional<JsonValue> avatar{};
+    std::optional<EventCause> cause{};
     std::string participant{};
     friend bool operator==(const ParticipantAvatarChangedEvent&, const ParticipantAvatarChangedEvent&) = default;
 };
@@ -4636,6 +4681,7 @@ struct PasteImageResult {
 };
 
 struct PersonalChangedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t personal_revision{};
     friend bool operator==(const PersonalChangedEvent&, const PersonalChangedEvent&) = default;
 };
@@ -4674,6 +4720,7 @@ struct ProcessInfoResult {
 };
 
 struct ProgramStatusChangedEvent {
+    std::optional<EventCause> cause{};
     std::optional<ShownProgramStatus> program_status{};
     Id surface{};
     friend bool operator==(const ProgramStatusChangedEvent&, const ProgramStatusChangedEvent&) = default;
@@ -5169,6 +5216,7 @@ struct ScreenRenamedEvent {
 
 struct ScrollChangedEvent {
     bool at_bottom{};
+    std::optional<EventCause> cause{};
     std::uint64_t offset{};
     Id surface{};
     friend bool operator==(const ScrollChangedEvent&, const ScrollChangedEvent&) = default;
@@ -5666,6 +5714,7 @@ enum class SettingsChangedEventOrigin {
 };
 
 struct SettingsChangedEvent {
+    std::optional<EventCause> cause{};
     std::vector<std::string> keys{};
     SettingsChangedEventOrigin origin{};
     std::uint64_t revision{};
@@ -5703,6 +5752,7 @@ struct SidebarPluginResult {
 };
 
 struct SizeStateEvent {
+    std::optional<EventCause> cause{};
     std::optional<std::string> self_participant{};
     SizeState state{};
     Id surface{};
@@ -5758,6 +5808,7 @@ struct SplitRequest {
 };
 
 struct StatusEvent {
+    std::optional<EventCause> cause{};
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
 };
@@ -5778,16 +5829,19 @@ struct SubscribeRequest {
 };
 
 struct SurfaceExitedEvent {
+    std::optional<EventCause> cause{};
     Id surface{};
     friend bool operator==(const SurfaceExitedEvent&, const SurfaceExitedEvent&) = default;
 };
 
 struct SurfaceOutputEvent {
+    std::optional<EventCause> cause{};
     Id surface{};
     friend bool operator==(const SurfaceOutputEvent&, const SurfaceOutputEvent&) = default;
 };
 
 struct SurfaceResizeFailedEvent {
+    std::optional<EventCause> cause{};
     std::uint16_t cols{};
     std::string error{};
     std::optional<std::uint64_t> reservation_id{};
@@ -5798,6 +5852,7 @@ struct SurfaceResizeFailedEvent {
 };
 
 struct SurfaceResizedEvent {
+    std::optional<EventCause> cause{};
     std::uint16_t cols{};
     std::optional<std::uint64_t> reservation_id{};
     std::uint16_t rows{};
@@ -6075,6 +6130,7 @@ struct TerminalReadRangeResult {
 };
 
 struct TerminalReapedEvent {
+    std::optional<EventCause> cause{};
     std::uint64_t grace_ms{};
     std::optional<std::string> terminal{};
     std::string terminal_id{};
@@ -6082,6 +6138,7 @@ struct TerminalReapedEvent {
 };
 
 struct TerminalRegistryChangedEvent {
+    std::optional<EventCause> cause{};
     std::string generation{};
     std::string registry_id{};
     std::uint64_t terminal_revision{};
@@ -6140,6 +6197,7 @@ struct TerminalResumeCommandResult {
 };
 
 struct TitleChangedEvent {
+    std::optional<EventCause> cause{};
     Id surface{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
@@ -6198,6 +6256,7 @@ struct Tree {
 };
 
 struct TreeChangedEvent {
+    std::optional<EventCause> cause{};
     friend bool operator==(const TreeChangedEvent&, const TreeChangedEvent&) = default;
 };
 
@@ -6411,6 +6470,7 @@ struct WaitForResult {
 };
 
 struct WindowTitleRequestedEvent {
+    std::optional<EventCause> cause{};
     std::string title{};
     friend bool operator==(const WindowTitleRequestedEvent&, const WindowTitleRequestedEvent&) = default;
 };
@@ -6990,6 +7050,12 @@ template <>
 struct Codec<EmptyResult> {
     static Result<Json> encode(const EmptyResult& value);
     static Result<EmptyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<EventCause> {
+    static Result<Json> encode(const EventCause& value);
+    static Result<EventCause> decode(const Json& value);
 };
 
 template <>

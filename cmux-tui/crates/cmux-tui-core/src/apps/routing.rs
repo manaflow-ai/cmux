@@ -13,7 +13,9 @@ use serde_json::{Value, json};
 
 use super::mirror::Origin;
 use super::supervisor::OpRouter;
+use crate::event_cause::EventCauseScope;
 use crate::mux::Mux;
+use crate::request_origin::RequestOrigin;
 use crate::{Actor, MuxEvent, resource_router};
 
 use super::envelope::error;
@@ -38,13 +40,16 @@ impl OpRouter for MuxRouter {
         idempotency_key: Option<String>,
         _origin: Origin,
     ) -> Result<Value, Value> {
+        // The supervisor calls in on its own threads: what an app's op sets
+        // off is automation, as its origin below is `app` (crate::event_cause).
+        let _cause = EventCauseScope::enter(RequestOrigin::App.event_cause());
         let mux = self
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
         // An app's call has origin app (request-origin.md): gate A2 refuses
         // the operations that need the user.
-        crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
+        crate::request_origin::require_origin(op, RequestOrigin::App)
             .map_err(|e| json!({ "code": e.code, "message": e.message, "details": e.details, "retryable": e.retryable }))?;
         let message = request(op, params, idempotency_key)?;
         let parsed = resource_router::parse_resource_request_as(
@@ -113,6 +118,10 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
         _ => &[],
     }
 }
+
+#[cfg(test)]
+#[path = "routing_event_cause_tests.rs"]
+mod event_cause_tests;
 
 #[cfg(test)]
 mod tests {
