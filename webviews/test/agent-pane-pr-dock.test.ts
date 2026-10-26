@@ -252,14 +252,15 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       expect(await page.evaluate(() => document.documentElement.dataset.prDock)).toBeUndefined();
       expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(0);
       // Includes the merged PR, exactly as Changes does.
-      expect(await dock.locator(".acpmux-pr-dock__count").innerText()).toBe("4 PRs");
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
       const panel = page.locator("aside.acpmux-chat-inspector");
       const toggle = page.locator("button.acpmux-chat-inspector-toggle");
       if (await panel.isVisible()) await toggle.click();
       await panel.waitFor({ state: "detached" });
-      await dock.locator(".acpmux-pr-dock__count").click();
-      const changes = panel.locator('[data-section="changes"]');
-      await changes.locator('a[href*="/pull/41"], button').first().waitFor();
+      await dock.locator(".acpmux-pr-dock__count").first().click();
+      const changes = panel.locator('section[data-section="changes"]');
+      await changes.getByText("Add retry to the uploader", { exact: true }).waitFor();
+      expect(await changes.getAttribute("data-revealed")).not.toBeNull();
       expect(await changes.innerText()).toContain("Add retry to the uploader");
       expect(await changes.locator(".acpmux-chat-inspector-section__value").innerText()).toBe("4");
       await toggle.click();
@@ -271,7 +272,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
       await dock.locator(".acpmux-pr-dock__dismiss").first().click();
       expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(3);
-      expect(await dock.locator(".acpmux-pr-dock__count").innerText()).toBe("4 PRs");
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
     } finally {
       await page.close();
     }

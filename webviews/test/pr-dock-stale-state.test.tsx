@@ -178,3 +178,31 @@ test("the default dock is a compact count that opens Session Info changes", asyn
   act(() => oneRoot.unmount());
   delete dom.window.document.documentElement.dataset.prDock;
 });
+
+test("the compact count follows Changes for touched PRs and verified mentions arriving in replies", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
+  const rows = [{ kind: "activity", id: "touch", version: 1, items: [tool("read", "gh pr view 61 -R acme/uploader")] }];
+  const root = createRoot(container());
+  const render = (text: string) =>
+    root.render(
+      <PullRequestDock
+        rows={[...rows, { kind: "assistant", id: "reply", text }] as never}
+        repository="acme/uploader"
+        sessionId="mentions"
+        onOpenChanges={() => undefined}
+      />,
+    );
+  setHeaderState({ pullRequest: live("https://github.com/acme/uploader/pull/62", 62, "open") });
+  await act(async () => render("Working on the follow-up"));
+  const count = () => dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent;
+  expect(count()).toBe("1 PR");
+  await act(async () => render("See #62 for details"));
+  expect(count()).toBe("2 PRs");
+  await act(async () => render("See #62 for details. Still working."));
+  expect(count()).toBe("2 PRs");
+  await act(async () => setHeaderState({ pullRequest: null }));
+  expect(count()).toBe("1 PR");
+  act(() => root.unmount());
+});

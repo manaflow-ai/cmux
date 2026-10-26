@@ -8507,6 +8507,7 @@ function AcpmuxPane() {
         <PullRequestDock
           key={snapshot.sessionId}
           rows={snapshot.rows}
+          repository={githubRepository ?? undefined}
           sessionId={snapshot.sessionId}
           onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
         />

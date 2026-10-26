@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and pull request titles), not shipped UI.
 // The chat's pull requests above the composer (PullRequestDock.tsx, cx-ncc.81): compare the quiet
 // count line, no dock, a single-row treatment and the legacy full bars. Every version keeps the PR
-// actions reachable through the Changes section or an individual link.
+// count opens Changes; its adjacent disclosure retains hover cards and dismissal.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -27,7 +27,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/summary/PullRequestDock.tsx"],
   variants: {
     "compact-count": {
-      note: "Recommended: one quiet PR count opens Session Info's Changes section.",
+      note: "Recommended: one quiet PR count opens Changes; its disclosure keeps hover cards and dismissal.",
       documentAttributes: { "pr-dock": "compact" },
       native: inspector,
       snapshot: chat([

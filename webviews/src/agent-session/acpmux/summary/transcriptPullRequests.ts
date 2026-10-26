@@ -202,6 +202,25 @@ function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
   return findings;
 }
 
+// Cache each row's semantic fingerprint too. A streaming reply with unchanged PR references
+// must not invalidate the dock's transcript aggregation just because its row version changed.
+const fingerprints = new WeakMap<AcpmuxRow, string>();
+export function transcriptPullRequestKey(rows: readonly AcpmuxRow[], replies = false): string {
+  return rows
+    .flatMap((row, index) => {
+      const findings = rowFindings(row, replies);
+      if (findings.length === 0) return [];
+      let fingerprint = fingerprints.get(row);
+      if (fingerprint === undefined) {
+        fingerprint = JSON.stringify(findings);
+        fingerprints.set(row, fingerprint);
+      }
+      // Keep the position: touched ordering uses the transcript row index.
+      return [`${index}:${fingerprint}`];
+    })
+    .join("\n");
+}
+
 export type TranscriptPullRequestOptions = {
   /// The chat folder's GitHub repository (`owner/name`), for a bare number.
   folder?: string;
