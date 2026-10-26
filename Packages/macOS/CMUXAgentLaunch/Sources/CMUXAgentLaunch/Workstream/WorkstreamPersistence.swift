@@ -618,7 +618,7 @@ public actor WorkstreamPersistence {
     /// Collapses journal mutations to the newest row for each event UUID.
     private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
         var seen = Set<UUID>()
-        return pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed()
+        return Array(pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed())
     }
 
     private func fileSize() throws -> UInt64 {

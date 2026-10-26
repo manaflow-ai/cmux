@@ -343,7 +343,7 @@ public final class WorkstreamStore {
     /// Keeps the newest journal row for each event UUID while preserving page order.
     private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
         var seen = Set<UUID>()
-        return pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed()
+        return Array(pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed())
     }
 
     private func bumpRevision() {
