@@ -4,7 +4,10 @@
 Finds the tagged app and every process of its process model, by executable path and owner, never by name:
 
   app              the app's own process (`<bundle>/Contents/MacOS/<exe>`)
-  daemon           `<bundle>/Contents/Resources/bin/cmux-tui` (not a host or holder command line)
+  daemon           `<bundle>/Contents/Resources/bin/cmux-tui` or `bin/cmux` (cmux-tui is a symlink to cmux, and
+                   proc_pidpath reads the resolved file) running the owner's argv (`--headless --session
+                   cmux-app[-<tag>]`, local_owner.rs spawn_detached_owner, or `server run`): not a host, holder or
+                   VT worker, not the Chief daemon (`--session cmux-chief`), not a CLI call or `link serve`
   holder           `cmux-holder` (a host-exe copy) or the built-in `__holder`, owned by this tag
   vt_worker        `cmux-vt-worker` (or `__vt-worker`), owned by this tag or under its daemon or holder
   terminal_host    `__terminal-host`, owned by this tag (`--owner <bundle>:<tag>@<daemon pid>`) or under its daemon
@@ -16,7 +19,8 @@ Finds the tagged app and every process of its process model, by executable path 
 
 Hosts and the holder are not children of the app (they leave the daemon's session and outlive restarts), so
 they are matched by the owner argument the daemon gives them (terminal_host_runtime/unix/host_session.rs,
-`host_owner_args`): `:<tag>@` for a tagged build, else `@<daemon pid>`.
+`host_owner_args`): `:<tag>@` for a tagged build, else `@<daemon pid>`. The bundle matches in both spellings
+(`/tmp/...` and `/private/tmp/...`): the app runs from the real path, its daemons keep the one they were given.
 
 Per role: processes, threads, a thread-name histogram (digits folded to `<n>`, so `surface-12-reader` and
 `surface-13-reader` are one name), thread QoS, RSS, phys_footprint (Chrome's private footprint on macOS,
@@ -24,9 +28,12 @@ services/resource_coordinator/public/cpp/memory_instrumentation/os_metrics_mac.c
 process's private resident pages plus each shared anonymous VM object (terminal rings, shared memory) once
 across all roles, keyed by its VM object id, as Chrome's memory-infra counts a shared memory segment once
 (base/memory/shared_memory_tracker.cc). File-backed shared pages (code, the dyld cache) are the system's and
-not counted. `per_hidden_terminal_mb` is that unique memory per hidden terminal: the growth over a
-`--baseline` census of the same build (all roles), or without one the terminal roles only (holder, VT
-workers, terminal hosts); `per_hidden_terminal_basis` says which.
+not counted. Memory is known only when every counted process was read: a missing footprint or region walk
+(`--no-regions`, a walk that failed) makes the sums null, never a partial number; `memory` in the report says
+which pids lack what. `per_hidden_terminal_mb` is the growth of all roles' unique memory over a baseline census
+of the same build, per added hidden terminal (`--baseline`, or for `--session heavy` a census taken before the
+session is built). With no baseline it is null; `terminal_roles_unique_mb` is then only the holder's, VT
+workers' and terminal hosts' memory, not a per-terminal figure.
 
 Thread QoS on macOS comes from proc_pidinfo(PROC_PIDTHREADINFO): the thread's base priority, which each QoS
 class sets (osfmk/kern/thread_policy.c, thread_qos_policy_params: user-interactive 46-47, user-initiated 37,
@@ -45,16 +52,24 @@ Usage:
   process-model-census.py --pid P                             any process and its descendants (role app)
   process-model-census.py --from DIR                          a canned or dumped census (--dump DIR writes one)
 
-A census directory (`--from`, `--dump`): ps.txt (`ps -axww -o pid=,ppid=,rss=,args=`), threads.txt
+A census directory (`--from`, `--dump`): ps.txt (`ps -axww -o pid=,ppid=,rss=,args=`), exe.txt
+(`pid<TAB>executable path`, what proc_pidpath or /proc/<pid>/exe read; it classifies before argv), threads.txt
 (`pid<TAB>qos<TAB>name`), memory.txt (`pid<TAB>footprint_kb<TAB>private_kb<TAB>obj:kb,obj:kb` for shared
-anonymous objects), samples.txt (`tick<TAB>pid<TAB>ppid<TAB>threads<TAB>args`), session.json
-({bundle, tag, app_pid, terminals, hidden_terminals}). Only ps.txt is required.
+anonymous objects; private_kb `-` when the region walk did not run), samples.txt
+(`tick<TAB>pid<TAB>ppid<TAB>threads<TAB>args`), session.json ({bundle, tag, app_pid, terminals,
+hidden_terminals, regions, build}). Only ps.txt is required.
 
-`--check-thread-doc` lists each observed cmux thread name that the doc's "Registered threads and queues"
-section does not list (the guardrails.py `thread-doc` rule's matching: `<x>` in a label is a wildcard), and
-each name whose QoS differs from the one the doc writes after it (`label` (user-initiated)). Every named
+`--check-thread-doc` lists each observed cmux thread name that the doc does not list, in its "Registered threads
+and queues" section or in the first cell of its owner table (`| Thread / queue | ... | QoS | ...`, where the
+Rust daemon's threads are), with the guardrails.py `thread-doc` rule's matching (`<x>` in a label is a
+wildcard; a `-fanout` after a label and a `+` extends it), and each name whose QoS differs from the doc's: the QoS
+written after a section label (`label` (user-initiated)), or the row's QoS cell when it names one class
+(`not set` names none). Every named
 thread of the Rust processes is cmux's; in the app and the Chromium Host only names that start with `cmux` or
 `com.cmux` are (the rest are AppKit's and Chromium's). Exit 1 when any is found.
+
+Exit status: 0, 1 when `--check-thread-doc` finds an unlisted name or a QoS mismatch, 2 when the census cannot
+run (no app, a session that did not build, a socket that does not answer).
 
 Runs on the fleet (`cmux-ci run`), never in CI. Stdlib only; macOS through libproc (ctypes), Linux through /proc.
 """
@@ -78,11 +93,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 THREAD_DOC = os.path.join(ROOT, "plans/cmux-next/threading-model.md")
 THREAD_DOC_SECTION = "## Registered threads and queues"
+THREAD_DOC_TABLE = "thread / queue"  # the owner table's first header cell
 ROLES = ("app", "daemon", "holder", "vt_worker", "terminal_host", "chromium_host", "chromium_helper", "other")
 CMUX_ROLES = ROLES  # what totals count; `children` (shells, agents) never
 TERMINAL_ROLES = ("holder", "vt_worker", "terminal_host")
 RUST_ROLES = ("daemon", "holder", "vt_worker", "terminal_host")
 HOST_ARG, HOLDER_ARG, VT_WORKER_ARG, OWNER_FLAG = "__terminal-host", "__holder", "__vt-worker", "--owner"
+TERMINAL_ARGS = {HOST_ARG, HOLDER_ARG, VT_WORKER_ARG}
+CHIEF_SESSION = "cmux-chief"
+# macOS links /tmp, /var and /etc into /private; proc_pidpath returns the /private spelling.
+PRIVATE_ROOTS = ("/tmp/", "/var/", "/etc/")
 QOS_NAMES = ("user-interactive", "user-initiated", "default", "utility", "background")
 BURST_CALLS, BURST_PARALLEL = 200, 50
 MB = 1024.0
@@ -140,6 +160,13 @@ def read_dir(path):
         raise CensusError(f"{path} has no ps.txt")
     procs = parse_ps(ps)
     by_pid = {p.pid: p for p in procs}
+    exes = {}
+    for line in (text("exe.txt") or "").splitlines():
+        pid, _, exe = line.partition("\t")
+        if pid.strip().isdigit() and exe:
+            exes[int(pid)] = exe
+    for p in procs:
+        p.exe = exes.get(p.pid)
     threads = text("threads.txt")
     if threads is not None:
         for p in procs:
@@ -159,7 +186,8 @@ def read_dir(path):
         proc = by_pid.get(int(parts[0]))
         if proc is None:
             continue
-        proc.footprint_kb, proc.private_kb = int(parts[1]), int(parts[2])
+        proc.footprint_kb = int(parts[1])
+        proc.private_kb = None if parts[2].strip() == "-" else int(parts[2])
         for item in (parts[3] if len(parts) > 3 else "").split(","):
             if ":" in item:
                 obj, kb = item.rsplit(":", 1)
@@ -171,7 +199,7 @@ def read_dir(path):
         if len(parts) < 4 or not parts[0].strip().isdigit():
             continue
         tick = int(parts[0])
-        proc = Proc(int(parts[1]), int(parts[2]), 0, parts[4] if len(parts) > 4 else "")
+        proc = Proc(int(parts[1]), int(parts[2]), 0, parts[4] if len(parts) > 4 else "", exes.get(int(parts[1])))
         proc.thread_count = int(parts[3])
         samples.setdefault(tick, []).append(proc)
     return procs, session, list(samples.values())
@@ -182,6 +210,10 @@ def write_dir(path, procs, session, samples):
     with open(os.path.join(path, "ps.txt"), "w", encoding="utf-8") as handle:
         for p in procs:
             handle.write(f"{p.pid} {p.ppid} {p.rss_kb or 0} {p.args}\n")
+    exes = {p.pid: p.exe for table in [procs] + list(samples or []) for p in table if p.exe}
+    with open(os.path.join(path, "exe.txt"), "w", encoding="utf-8") as handle:
+        for pid, exe in sorted(exes.items()):
+            handle.write(f"{pid}\t{exe}\n")
     with open(os.path.join(path, "threads.txt"), "w", encoding="utf-8") as handle:
         for p in procs:
             for name, qos in p.threads or []:
@@ -190,7 +222,8 @@ def write_dir(path, procs, session, samples):
         for p in procs:
             if p.footprint_kb is not None:
                 shared = ",".join(f"{obj}:{kb}" for obj, kb in sorted(p.shared.items()))
-                handle.write(f"{p.pid}\t{p.footprint_kb}\t{p.private_kb or 0}\t{shared}\n")
+                private = "-" if p.private_kb is None else p.private_kb
+                handle.write(f"{p.pid}\t{p.footprint_kb}\t{private}\t{shared}\n")
     if samples:
         with open(os.path.join(path, "samples.txt"), "w", encoding="utf-8") as handle:
             for tick, table in enumerate(samples):
@@ -425,7 +458,11 @@ class Linux:
         fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
         kb = lambda key: int(fields.get(key, "0 kB").split()[0])  # noqa: E731 - one status field in KiB
         proc.footprint_kb = kb("RssAnon") + kb("VmSwap")
-        rollup = self._read(f"/proc/{proc.pid}/smaps_rollup") or ""
+        if not regions:
+            return
+        rollup = self._read(f"/proc/{proc.pid}/smaps_rollup")
+        if rollup is None:
+            return  # not readable: the region state stays unknown, as a failed walk on macOS
         private = 0
         for line in rollup.splitlines():
             if line.startswith(("Private_Clean:", "Private_Dirty:")):
@@ -467,20 +504,64 @@ class Target:
             return None
         return "".join(c if c.isalnum() and c.isascii() or c in "._-" else "_" for c in self.tag[:96])
 
+    def app_session(self):
+        """The app daemon's session for the tag (DaemonLauncher.sessionName), or None for an untagged build."""
+        if not self.tag:
+            return None
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        cleaned = "".join(c if c in allowed else "-" for c in self.tag).strip("-.")
+        return f"cmux-app-{cleaned}" if cleaned else None
+
+    def roots(self):
+        """The bundle path in each spelling a process may run it from: as given, and with or without the
+        `/private` prefix macOS resolves /tmp, /var and /etc to."""
+        if not self.bundle:
+            return []
+        roots = [self.bundle]
+        if self.bundle.startswith("/private/") and self.bundle[len("/private"):].startswith(PRIVATE_ROOTS):
+            roots.append(self.bundle[len("/private"):])
+        elif self.bundle.startswith(PRIVATE_ROOTS):
+            roots.append("/private" + self.bundle)
+        return roots
+
+    def in_bundle(self, path):
+        return bool(path) and any(path.startswith(root + "/") for root in self.roots())
+
 
 def owner_of(args):
-    tokens = args.split()
+    return flag_value(args.split(), OWNER_FLAG)
+
+
+def flag_value(tokens, flag):
     for index, token in enumerate(tokens):
-        if token == OWNER_FLAG and index + 1 < len(tokens):
+        if token == flag and index + 1 < len(tokens):
             return tokens[index + 1]
-        if token.startswith(OWNER_FLAG + "="):
-            return token[len(OWNER_FLAG) + 1:]
+        if token.startswith(flag + "="):
+            return token[len(flag) + 1:]
     return None
 
 
 def runs(command, name):
     """`command` runs the executable `name` (its path ends in it), before any argument."""
     return re.search(r"(^|/)" + re.escape(name) + r"(\s|$)", command) is not None
+
+
+def is_daemon_argv(tokens, target):
+    """The app daemon's argv: the owner `cmux-tui --headless --session S ...` (local_owner.rs
+    spawn_detached_owner) or `server run`, in the app's session; not a host, holder or VT worker, not the Chief
+    daemon, not a CLI call (`cmux --app-socket ...`) or the cloud link (`link serve`)."""
+    if TERMINAL_ARGS & set(tokens):
+        return False
+    owner = "--headless" in tokens or any(a == "server" and b == "run" for a, b in zip(tokens, tokens[1:]))
+    if not owner:
+        return False
+    session = flag_value(tokens, "--session")
+    if session is None:
+        return True
+    if session == CHIEF_SESSION or session.startswith(CHIEF_SESSION + "-"):
+        return False
+    expected = target.app_session()
+    return expected is None or session == expected
 
 
 def classify(procs, target):
@@ -491,18 +572,19 @@ def classify(procs, target):
     roles = {}
     app_pid = target.app_pid
     if bundle:
-        main = re.compile(re.escape(bundle) + r"/Contents/MacOS/(?![^/]* Chromium Host(\s|$))[^/]+")
-        host = re.compile(re.escape(bundle) + r"/Contents/MacOS/[^/]* Chromium Host(\s|$)")
-        helper = re.compile(re.escape(bundle) + r"/Contents/Frameworks/[^/]* Helper[^/]*\.app/Contents/MacOS/")
-        daemon = re.compile(re.escape(bundle) + r"/Contents/Resources/bin/cmux-tui(\s|$)")
+        root = "(?:" + "|".join(re.escape(r) for r in target.roots()) + ")"
+        main = re.compile(root + r"/Contents/MacOS/(?![^/]* Chromium Host(\s|$))[^/]+")
+        host = re.compile(root + r"/Contents/MacOS/[^/]* Chromium Host(\s|$)")
+        helper = re.compile(root + r"/Contents/Frameworks/[^/]* Helper[^/]*\.app/Contents/MacOS/")
+        # bin/cmux-tui is a symlink to bin/cmux: proc_pidpath reads `cmux`, argv[0] keeps `cmux-tui`.
+        daemon = re.compile(root + r"/Contents/Resources/bin/cmux(-tui)?(\s|$)")
         for p in procs:
             command = p.command
-            tokens = p.args.split()
             if host.match(command):
                 roles[p.pid] = "chromium_host"
             elif helper.match(command):
                 roles[p.pid] = "chromium_helper"
-            elif daemon.match(command) and not {HOST_ARG, HOLDER_ARG, VT_WORKER_ARG} & set(tokens):
+            elif (daemon.match(command) or daemon.match(p.args)) and is_daemon_argv(p.args.split(), target):
                 roles[p.pid] = "daemon"
             elif app_pid is None and main.match(command):
                 app_pid = p.pid
@@ -544,7 +626,7 @@ def classify(procs, target):
         if p.pid in roles:
             continue
         if under(p, by_pid, cmux):
-            roles[p.pid] = "other" if bundle and p.command.startswith(bundle + "/") else "children"
+            roles[p.pid] = "other" if target.in_bundle(p.command) else "children"
     return roles, Target(bundle, target.tag, app_pid)
 
 
@@ -564,7 +646,7 @@ def foreign_hosts(procs, roles):
     """Hosts, holders and VT workers the census did not count (another tag's or an older build's)."""
     count = 0
     for p in procs:
-        if p.pid not in roles and ({HOST_ARG, HOLDER_ARG, VT_WORKER_ARG} & set(p.args.split())
+        if p.pid not in roles and (TERMINAL_ARGS & set(p.args.split())
                                     or runs(p.command, "cmux-holder") or runs(p.command, "cmux-vt-worker")):
             count += 1
     return count
@@ -600,18 +682,34 @@ def peaks_of(samples, target):
     return peaks
 
 
+def unique_kb(members):
+    """Private resident KiB of `members` plus each shared anonymous object once, or None when the region walk of
+    any member did not run (a partial sum would read as a measurement)."""
+    if any(p.private_kb is None for p in members):
+        return None
+    shared = {}
+    for p in members:
+        for obj, kb in p.shared.items():
+            shared[obj] = max(shared.get(obj, 0), kb)
+    return sum(p.private_kb for p in members) + sum(shared.values())
+
+
+def footprint_kb(members):
+    if any(p.footprint_kb is None for p in members):
+        return None
+    return sum(p.footprint_kb for p in members)
+
+
 def census(procs, target, session=None, samples=None, baseline=None, sampling=None):
     session = session or {}
     roles, target = classify(procs, target)
     peaks = peaks_of(samples or [], target)
     by_name = collections.OrderedDict()
     report_roles = {}
-    unique_shared = {}
     for role in CMUX_ROLES + ("children",):
         members = [p for p in procs if roles.get(p.pid) == role]
         names = collections.Counter()
         qos = collections.Counter()
-        shared = {}
         for p in members:
             for name, level in p.threads or []:
                 names[fold(name)] += 1
@@ -622,12 +720,9 @@ def census(procs, target, session=None, samples=None, baseline=None, sampling=No
                     entry["count"] += 1
                     entry["roles"][role] += 1
                     entry["qos"][level] += 1
-            for obj, kb in p.shared.items():
-                shared[obj] = max(shared.get(obj, 0), kb)
-                if role != "children":
-                    unique_shared[obj] = max(unique_shared.get(obj, 0), kb)
         threads = sum(p.nthreads() or 0 for p in members)
-        known = [p for p in members if p.footprint_kb is not None]
+        unique = unique_kb(members)
+        private = None if unique is None else sum(p.private_kb for p in members)
         peak_threads, peak_processes = peaks.get(role, (0, 0))
         report_roles[role] = {
             "processes": len(members),
@@ -635,38 +730,34 @@ def census(procs, target, session=None, samples=None, baseline=None, sampling=No
             "peak_threads": max(threads, peak_threads),
             "peak_processes": max(len(members), peak_processes),
             "rss_mb": mb(sum(p.rss_kb or 0 for p in members)),
-            "footprint_mb": mb(sum(p.footprint_kb for p in known)) if known else None,
-            "private_mb": mb(sum(p.private_kb or 0 for p in known)) if known else None,
-            "shared_mb": mb(sum(shared.values())) if known else None,
-            "unique_mb": mb(sum(p.private_kb or 0 for p in known) + sum(shared.values())) if known else None,
+            "footprint_mb": mb(footprint_kb(members)),
+            "private_mb": mb(private),
+            "shared_mb": mb(None if unique is None else unique - private),
+            "unique_mb": mb(unique),
             "threads_by_qos": dict(sorted(qos.items())),
             "threads_by_name": dict(names.most_common()),
             "pids": sorted(p.pid for p in members),
         }
     children = report_roles.pop("children")
     cmux = [p for p in procs if roles.get(p.pid) in CMUX_ROLES]
-    memory_known = any(p.footprint_kb is not None for p in cmux)
-    unique_kb = sum(p.private_kb or 0 for p in cmux) + sum(unique_shared.values()) if memory_known else None
-    terminal_unique_kb = None
-    if memory_known:
-        terminal_shared = {}
-        for p in cmux:
-            if roles[p.pid] in TERMINAL_ROLES:
-                for obj, kb in p.shared.items():
-                    terminal_shared[obj] = max(terminal_shared.get(obj, 0), kb)
-        terminal_unique_kb = (sum(p.private_kb or 0 for p in cmux if roles[p.pid] in TERMINAL_ROLES)
-                              + sum(terminal_shared.values()))
+    total_unique = unique_kb(cmux)
+    terminal_unique = unique_kb([p for p in cmux if roles[p.pid] in TERMINAL_ROLES])
     hidden = session.get("hidden_terminals")
-    per_hidden, basis = None, None
-    if baseline and unique_kb is not None and hidden is not None:
+    per_hidden, basis = None, "no baseline census: pass --baseline (--session heavy takes one before it builds)"
+    if baseline:
         base_hidden = (baseline.get("session") or {}).get("hidden_terminals")
         base_unique = (baseline.get("totals") or {}).get("unique_mb")
-        if base_hidden is not None and base_unique is not None and hidden > base_hidden:
-            per_hidden = round((unique_kb / MB - base_unique) / (hidden - base_hidden), 2)
+        if total_unique is None or base_unique is None:
+            basis = "unknown: the memory of this census or of its baseline was not read in full"
+        elif hidden is None or base_hidden is None:
+            basis = "unknown: the hidden terminal count of this census or of its baseline is not known"
+        elif hidden <= base_hidden:
+            basis = f"unknown: {hidden} hidden terminals, not more than the baseline's {base_hidden}"
+        else:
+            per_hidden = round((total_unique / MB - base_unique) / (hidden - base_hidden), 2)
             basis = f"all roles, growth over the baseline ({base_hidden} hidden terminals)"
-    if per_hidden is None and terminal_unique_kb is not None and hidden:
-        per_hidden = round(terminal_unique_kb / MB / hidden, 2)
-        basis = "terminal roles only (holder, VT workers, terminal hosts); pass --baseline for all roles"
+    footprint_missing = sorted(p.pid for p in cmux if p.footprint_kb is None)
+    regions_missing = sorted(p.pid for p in cmux if p.private_kb is None)
     per_object = collections.Counter()
     for p in cmux:
         if roles[p.pid] in RUST_ROLES:
@@ -680,21 +771,25 @@ def census(procs, target, session=None, samples=None, baseline=None, sampling=No
         "host": session.get("host") or platform.node(),
         "os": session.get("os") or f"{platform.system()} {platform.release()}",
         "bundle": target.bundle, "tag": target.tag, "app_pid": target.app_pid,
-        "session": {k: session.get(k) for k in ("shape", "terminals", "hidden_terminals", "workspaces") if k in session},
+        "session": {k: session.get(k) for k in ("shape", "terminals", "hidden_terminals", "workspaces", "build")
+                    if k in session},
         "roles": report_roles,
         "children": {"processes": children["processes"], "threads": children["threads"], "rss_mb": children["rss_mb"]},
         "threads_by_name": threads_by_name,
         "per_object_threads": dict(per_object.most_common()),
         "per_hidden_terminal_mb": per_hidden,
         "per_hidden_terminal_basis": basis,
+        "terminal_roles_unique_mb": mb(terminal_unique),
+        "memory": {"regions": session.get("regions"), "footprint_missing_pids": footprint_missing[:32],
+                   "regions_missing_pids": regions_missing[:32]},
         "totals": {
             "processes": len(cmux),
             "threads": sum(r["threads"] for r in report_roles.values()),
             "cmux_threads_excluding_helpers": sum(r["threads"] for k, r in report_roles.items() if k != "chromium_helper"),
             "rss_mb": mb(sum(p.rss_kb or 0 for p in cmux)),
-            "footprint_mb": mb(sum(p.footprint_kb or 0 for p in cmux)) if memory_known else None,
-            "unique_mb": mb(unique_kb),
-            "shared_objects": len(unique_shared),
+            "footprint_mb": mb(footprint_kb(cmux)),
+            "unique_mb": mb(total_unique),
+            "shared_objects": len({obj for p in cmux for obj in p.shared}),
         },
         "foreign_hosts": foreign_hosts(procs, roles),
         "sampling": sampling,
@@ -703,24 +798,72 @@ def census(procs, target, session=None, samples=None, baseline=None, sampling=No
 
 # ------------------------------------------------------------------ the thread doc
 
-def doc_labels(text):
-    """[(pattern, qos or None)] for the labels in the doc's "Registered threads and queues" section, matched as
-    guardrails.py `doc_labels` matches them (`<x>` is a wildcard; a placeholder alone lists nothing), each with
-    the QoS written right after it in parentheses."""
-    start = text.find(THREAD_DOC_SECTION)
-    if start < 0:
-        raise CensusError(f"the thread doc has no \"{THREAD_DOC_SECTION[3:]}\" section")
-    end = text.find("\n## ", start + len(THREAD_DOC_SECTION))
-    section = text[start:end if end >= 0 else len(text)]
+def label_pattern(token):
+    """The label as guardrails.py `doc_labels` matches it (`<x>` is a wildcard), or None for a placeholder alone."""
+    if len(re.sub(r"<[^>]*>", "", token).strip(" .-_")) < 3:
+        return None
+    return re.compile("^" + ".+".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$")
+
+
+def table_qos(cell):
+    """The QoS class an owner-table QoS cell names, when it names exactly one (`user-interactive (system)`);
+    None for `not set`, several classes or another word."""
+    text = re.sub(r"\([^)]*\)", "", cell).strip()
+    return text if text in QOS_NAMES else None
+
+
+def table_labels(text):
+    """[(pattern, qos or None)] for the backticked labels in the first cell of each owner-table row (the table
+    whose header starts `| Thread / queue |`), with the row's QoS. A label that starts with `-` or `.` after
+    another and a `+` extends it (`mux-session-journal-writer` (+ `-fanout`)); after a `/` it replaces the last
+    part (`acpmux-socket-read` / `-write` is `acpmux-socket-write`)."""
     labels = []
-    for match in re.finditer(r"`([^`\n]+)`(\s*\(([a-z-]+))?", section):
-        token = match.group(1)
-        if len(re.sub(r"<[^>]*>", "", token).strip(" .-_")) < 3:
+    qos_column = None
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            qos_column = None
             continue
-        pattern = re.compile("^" + ".+".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$")
-        qos = match.group(3) if match.group(3) in QOS_NAMES else None
-        labels.append((pattern, qos))
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells and cells[0].lower() == THREAD_DOC_TABLE:
+            lowered = [cell.lower() for cell in cells]
+            qos_column = lowered.index("qos") if "qos" in lowered else -1
+            continue
+        if qos_column is None or set(line.strip()) <= set("|-: "):
+            continue
+        qos = table_qos(cells[qos_column]) if 0 <= qos_column < len(cells) else None
+        previous, after = None, 0
+        for match in re.finditer(r"`([^`\n]+)`", cells[0]):
+            token, joint = match.group(1), cells[0][after:match.start()].strip(" (")
+            after = match.end()
+            if previous and token[0] in "-." and joint == "+":
+                token = previous + token
+            elif previous and token[0] in "-." and joint == "/":
+                token = previous.rsplit(token[0], 1)[0] + token
+            else:
+                previous = token
+            pattern = label_pattern(token)
+            if pattern is not None:
+                labels.append((pattern, qos))
     return labels
+
+
+def doc_labels(text):
+    """[(pattern, qos or None)] for the labels the thread doc lists: its "Registered threads and queues" section
+    (the app's Swift labels), each with the QoS written right after it in parentheses, and its owner table (the
+    Rust processes' threads too), each with its row's QoS."""
+    labels = []
+    start = text.find(THREAD_DOC_SECTION)
+    if start >= 0:
+        end = text.find("\n## ", start + len(THREAD_DOC_SECTION))
+        section = text[start:end if end >= 0 else len(text)]
+        for match in re.finditer(r"`([^`\n]+)`(\s*\(([a-z-]+))?", section):
+            pattern = label_pattern(match.group(1))
+            if pattern is not None:
+                labels.append((pattern, match.group(3) if match.group(3) in QOS_NAMES else None))
+    table = table_labels(text)
+    if start < 0 and not table:
+        raise CensusError(f"the thread doc has no \"{THREAD_DOC_SECTION[3:]}\" section and no owner table")
+    return labels + table
 
 
 def check_thread_doc(procs, roles, text):
@@ -779,17 +922,24 @@ def candidates(procs, target):
 
 
 def live_snapshot(source, target, regions=True):
+    """(processes, target, regions state). A process that ended while it was read leaves the census; a region walk
+    that fails stops the walk for the rest (the layout it reads is wrong for this OS), and the state says so."""
     procs = source.table()
     members, roles, target = candidates(procs, target)
+    state = "read" if regions else "skipped (--no-regions)"
+    alive = []
     for p in members:
         try:
             source.fill(p, regions=regions and roles[p.pid] != "children")
         except CensusError as error:
             print(f"census: memory of pid {p.pid}: {error}", file=sys.stderr)
+            state = f"failed at pid {p.pid}: {error}"
             regions = False
         except OSError:
-            pass  # the process ended while it was read: its row stays, with no threads or memory
-    return members, target
+            continue  # the process ended while it was read
+        if p.thread_count is not None:
+            alive.append(p)
+    return alive, target, state
 
 
 def sample(source, target, interval_ms, action, tail_s=1.0):
@@ -890,11 +1040,16 @@ def daemon_restart(bundle, tag, timeout_s=60.0):
 
 
 def session_counts(socket_path):
+    """{terminals, hidden_terminals} of the app's session (snapshot.get, with debug.screens for each window's shown
+    screen; an app without debug.screens leaves a workspace of several screens unknown)."""
     stress = load_stress()
-    reply = stress.socket_rpc(socket_path)("snapshot.get", timeout=30)
+    rpc = stress.socket_rpc(socket_path)
+    reply = rpc("snapshot.get", timeout=30)
     if not isinstance(reply, dict) or reply.get("error"):
         raise CensusError(f"snapshot.get on {socket_path}: {reply}")
-    return stress.terminal_counts(reply.get("topology") or {})
+    screens = rpc("debug.screens", timeout=30)
+    screens = screens if isinstance(screens, dict) and not screens.get("error") else None
+    return stress.terminal_counts(reply.get("topology") or {}, screens)
 
 
 def build_session(shape, socket_path):
@@ -905,8 +1060,19 @@ def build_session(shape, socket_path):
             return builder.build_heavy()
         workspace, panes = builder.build_light()
         return {"workspace": workspace, "panes": panes}
+    except RuntimeError as error:  # StressShapeError, or a tab that did not appear (add_tab)
+        raise CensusError(f"the {shape} session did not build: {error}") from error
     finally:
         builder.close()
+
+
+def pre_session_census(source, target, session, socket_path, regions):
+    """The census of the app before the heavy session is built: the baseline its growth per hidden terminal is
+    taken over (the same build, the same roles)."""
+    before = dict(session)
+    before.update(session_counts(socket_path))
+    procs, target, before["regions"] = live_snapshot(source, target, regions=regions)
+    return census(procs, target, before)
 
 
 # ------------------------------------------------------------------ output
@@ -926,7 +1092,12 @@ def text_report(report, threads=False, by_name=False):
     session = report.get("session") or {}
     if session.get("terminals") is not None:
         lines.append(f"terminals {session.get('terminals')}, hidden {session.get('hidden_terminals')}; "
-                     f"per hidden terminal {report['per_hidden_terminal_mb']} MB ({report['per_hidden_terminal_basis']})")
+                     f"per hidden terminal {report['per_hidden_terminal_mb']} MB ({report['per_hidden_terminal_basis']}); "
+                     f"terminal roles {report['terminal_roles_unique_mb']} MB")
+    memory = report.get("memory") or {}
+    if memory.get("regions_missing_pids") or memory.get("footprint_missing_pids"):
+        lines.append(f"memory not read in full (regions: {memory.get('regions')}): no region walk for pids "
+                     f"{memory.get('regions_missing_pids')}, no footprint for {memory.get('footprint_missing_pids')}")
     if report["per_object_threads"]:
         lines.append("per-object threads: " + ", ".join(f"{n} x{c}" for n, c in report["per_object_threads"].items()))
     if report.get("foreign_hosts"):
@@ -995,6 +1166,7 @@ def main(argv=None):
     if opts.during == "agent-burst" and not (opts.app or opts.tag):
         parser.error("--during agent-burst needs --app or --tag")
     app = None
+    baseline, baseline_source = None, "a census before the session was built"
     try:
         samples, sampling = [], None
         if opts.source:
@@ -1009,7 +1181,8 @@ def main(argv=None):
                 os.makedirs(out, exist_ok=True)
                 app = stress.load_activation_app()(os.path.abspath(opts.app), out, 50)
                 app.launch()
-                target = Target(os.path.abspath(opts.app), app.tag, app.process.pid)
+                # The real path: proc_pidpath names every process by it (/private/tmp, symlinks resolved).
+                target = Target(os.path.realpath(opts.app), app.tag, app.process.pid)
                 socket_path = opts.socket or app.socket
             elif opts.tag:
                 target = find_app(source.table(), opts.tag)
@@ -1022,6 +1195,10 @@ def main(argv=None):
             if opts.session:
                 if not socket_path:
                     raise CensusError("--session needs the app's debug socket (--socket)")
+                if opts.session == "heavy" and not opts.baseline:
+                    if opts.app:
+                        time.sleep(opts.settle)  # test script: the launched app settles before the baseline
+                    baseline = pre_session_census(source, target, session, socket_path, not opts.no_regions)
                 session["build"] = build_session(opts.session, socket_path)
                 session["shape"] = opts.session
                 time.sleep(opts.settle)  # test script: the session settles before it is counted
@@ -1034,15 +1211,19 @@ def main(argv=None):
                     if opts.during == "agent-burst" else (lambda: daemon_restart(target.bundle, target.tag))
                 samples, sampling = sample(source, target, opts.sample_ms, action)
                 sampling["during"] = opts.during
-            procs, target = live_snapshot(source, target, regions=not opts.no_regions)
+            procs, target, session["regions"] = live_snapshot(source, target, regions=not opts.no_regions)
             session.update({"bundle": target.bundle, "tag": target.tag, "app_pid": target.app_pid})
         if opts.hidden_terminals is not None:
             session["hidden_terminals"] = opts.hidden_terminals
-        baseline = None
         if opts.baseline:
             with open(opts.baseline, encoding="utf-8") as handle:
                 baseline = json.load(handle)
+            baseline_source = opts.baseline
         report = census(procs, target, session, samples, baseline, sampling)
+        if baseline:
+            report["baseline"] = {"source": baseline_source,
+                                  "hidden_terminals": (baseline.get("session") or {}).get("hidden_terminals"),
+                                  "unique_mb": (baseline.get("totals") or {}).get("unique_mb")}
         failed = False
         if opts.check_thread_doc:
             with open(opts.check_thread_doc, encoding="utf-8") as handle:

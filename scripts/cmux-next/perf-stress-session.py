@@ -356,7 +356,10 @@ class Stress:
             self.add_tab(workspace, pane, "terminal")
         self.show(made[-1]["id"])
         topology = self.topology()
-        summary = {"shape": "heavy", "workspaces": len(topology.get("workspaces") or []), **terminal_counts(topology),
+        screens = self.rpc("debug.screens")
+        screens = screens if isinstance(screens, dict) and not screens.get("error") else None
+        summary = {"shape": "heavy", "workspaces": len(topology.get("workspaces") or []),
+                   **terminal_counts(topology, screens),
                    "chromium_unavailable": cef_problems(self.rpc("debug.cef"), self.web_dev_config)[:4],
                    "refusals": self.refusals[:10], "build_s": round(time.monotonic() - start, 1)}
         problems = []
@@ -620,21 +623,44 @@ class Stress:
                 "pane_problems": pane_problems[:6], "background_chromium": background, "chromium_unavailable": unavailable[:4]}
 
 
-def terminal_counts(topology):
-    """{terminals, hidden_terminals} of a `snapshot.get` topology: a terminal shows when it is the selected tab of
-    a pane in a workspace a window shows; every other terminal is hidden."""
-    shown = {w.get("workspace") for w in topology.get("windows") or []}
+def terminal_counts(topology, screens=None):
+    """{terminals, hidden_terminals} of a `snapshot.get` topology. A terminal shows when it is the selected tab
+    (`selected_tab`) of a pane on the shown screen of a workspace a visible window shows: the window's
+    `active_screen` in `screens` (the `debug.screens` reply), else the workspace's first screen as the app falls
+    back (AppBrowserHostTabs); a zoomed screen shows only its zoomed pane; dock panes are drawn with the screen.
+    Every other terminal is hidden. `hidden_terminals` is None when a shown workspace has several screens and
+    `screens` is not given (which one shows is then unknown)."""
+    active = {w.get("window"): w.get("active_screen") for w in (screens or {}).get("windows") or []}
+    shown = {}  # workspace id -> the active screen of the window that shows it (None: its first screen)
+    for window in topology.get("windows") or []:
+        if window.get("workspace") and window.get("visible", True):
+            shown[window["workspace"]] = active.get(window.get("key"))
     terminals = hidden = 0
+    unknown = False
     for workspace in topology.get("workspaces") or []:
-        for screen in workspace.get("screens") or []:
+        all_screens = workspace.get("screens") or []
+        ids = {workspace.get("id"), workspace.get("key")} - {None}
+        shown_id = next((i for i in ids if i in shown), None)
+        visible_screen = None
+        if shown_id is not None and all_screens:
+            wanted = shown[shown_id]
+            visible_screen = next((s for s in all_screens if wanted and s.get("id") == wanted), None)
+            if visible_screen is None:
+                if len(all_screens) > 1 and screens is None:
+                    unknown = True
+                visible_screen = all_screens[0]
+        for screen in all_screens:
+            zoomed = screen.get("zoomed_pane")
             for pane in screen.get("panes") or []:
+                pane_shows = screen is visible_screen and (not zoomed or pane.get("id") == zoomed)
                 for tab in pane.get("tabs") or []:
                     if tab.get("kind") != "terminal":
                         continue
                     terminals += 1
-                    if workspace.get("id") not in shown or not tab.get("selected"):
+                    selected = tab.get("id") is not None and tab.get("id") == pane.get("selected_tab")
+                    if not (pane_shows and selected):
                         hidden += 1
-    return {"terminals": terminals, "hidden_terminals": hidden}
+    return {"terminals": terminals, "hidden_terminals": None if unknown else hidden}
 
 
 def topology_kinds(asked, fallback):
