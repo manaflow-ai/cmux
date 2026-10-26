@@ -42,6 +42,11 @@ public final class WebUIHost {
     /// and runs the critical urgent discard pass over tabs, chats and pages (`BrowserHibernation`) on a
     /// later frame, so the cheapest memory, nothing a person made, goes first.
     private var preloadMemory: SpareMemoryConsumer?
+    /// The crash budgets of the pages that share a renderer (p13-webui.md 3.C). A page opened while
+    /// ``lifecycle`` is set uses them and loads after a crash it had while hidden when it shows
+    /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once. The
+    /// composition root sets them with the lifecycle: Chromium's grouping and how to read a renderer.
+    package var crashGroups = PageCrashGroups()
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
     /// `hoverFrameInput`): each page this host opens gets it for its popup's rows
     /// (``PageWebView/popupHoverFrameInput``). Nil: each move hovers at once.
@@ -106,6 +111,9 @@ public final class WebUIHost {
                                      processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
+        if lifecycle != nil { view.crash.groups = crashGroups }
+        // The view joined processGroups (PageWebView(request:...) passes them on these terms).
+        view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -114,8 +122,8 @@ public final class WebUIHost {
         return view
     }
 
-    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists. Safe to
-    /// call twice and for a view this host did not open (it is only closed).
+    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists and its own
+    /// crash budget. Safe to call twice and for a view this host did not open (it is only closed).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
@@ -123,6 +131,7 @@ public final class WebUIHost {
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
+        crashGroups.forget(ObjectIdentifier(view))
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
