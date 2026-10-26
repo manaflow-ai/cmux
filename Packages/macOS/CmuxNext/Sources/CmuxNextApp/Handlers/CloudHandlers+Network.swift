@@ -84,10 +84,13 @@ extension CloudHandlers {
         let registry = "tools/lane-vm-enroll \(name) \(machineID) --address \(address) --apply"
         let keyFlag = invocation["sshKey"]?.stringValue == nil ? "" : " --ssh-key '\(keyPath)'"
         let rerun = "cmux cloud enroll-machine --target machine:\(machineID) --name \(name)\(keyFlag)"
-        // A slow run (acpmux's install can take minutes) answers this and goes on; the rerun answers what is done.
+        // A slow run (acpmux's install can take minutes) answers this, with `pending: true`, and goes
+        // on; the rerun answers what is done. The step lists are `steps_done` and `steps_pending`
+        // so they never meet that flag.
         let pending: [String: ActionResultValue] = [
             "machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
             "status": .string("enrolling"), "rerun_command": .string(rerun), "registry_command": .string(registry),
+            "steps_done": .array([]), "steps_pending": .array(["ssh-key", "ssh-config", "acpmux-peer", "fleet-registry"].map(ActionResultValue.string)),
         ]
         result("enroll Cloud machine", context, pendingAfter: .seconds(30), pending: pending) {
             let text = try? await work.run(.userBlocking, mayBlock: .files) { try String(blockingContentsOf: URL(fileURLWithPath: keyPath), encoding: .utf8) }
@@ -114,7 +117,8 @@ extension CloudHandlers {
                 left.append(.string("acpmux-peer: after the include, run \(rerun)"))
             }
             return ["machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
-                    "done": .array(done), "pending": .array(left + [.string("fleet-registry")]), "registry_command": .string(registry)]
+                    "steps_done": .array(done), "steps_pending": .array(left + [.string("fleet-registry")]), "registry_command": .string(registry),
+                    "rerun_command": .string(rerun)]
         }
     }
 

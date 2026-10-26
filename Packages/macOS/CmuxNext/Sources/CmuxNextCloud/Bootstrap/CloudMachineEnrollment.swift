@@ -57,19 +57,23 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     /// prints the host key. The exec may run as root or as that user, so the key file is edited
     /// as `cmux` either way (`as_u`), and root work goes through `root` (sudo when not root).
     public var authorizeCommand: String {
-        let line = shellQuoted("\(publicKey) cmux-enroll:\(name)")
-        let blob = shellQuoted(String(publicKey.dropFirst("ssh-ed25519 ".count)))
-        // A key already there is a whole `ssh-ed25519 <blob>` pair, not a substring of another line;
-        // a file without a final newline gets one before the new key.
-        let edit = #"umask 077; mkdir -p "$HOME/.ssh"; f="$HOME/.ssh/authorized_keys"; touch "$f"; if ! awk -v k=\#(blob) '{ for (i = 1; i < NF; i++) if ($i == "ssh-ed25519" && $(i + 1) == k) found = 1 } END { exit !found }' "$f"; then [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f"; printf '%s\n' \#(line) >> "$f"; fi; chmod 600 "$f""#
-        return [
+        [
             "set -eu", "u=cmux",
             #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#,
             #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#,
-            #"as_u env HOME="$(getent passwd "$u" | cut -d: -f6)" sh -c \#(shellQuoted(edit))"#,
+            #"as_u env HOME="$(getent passwd "$u" | cut -d: -f6)" sh -c \#(shellQuoted(keyEdit))"#,
             "root systemctl enable --now ssh >/dev/null 2>&1 || root systemctl start ssh",
             "cat /etc/ssh/ssh_host_ed25519_key.pub",
         ].joined(separator: "; ")
+    }
+
+    /// What runs as `cmux` in ``authorizeCommand``: `set -eu`, so a key file it cannot append to
+    /// fails the enrollment. A key already there is a whole `ssh-ed25519 <blob>` pair, not a
+    /// substring of another line; a file without a final newline gets one before the new key.
+    public var keyEdit: String {
+        let line = shellQuoted("\(publicKey) cmux-enroll:\(name)")
+        let blob = shellQuoted(String(publicKey.dropFirst("ssh-ed25519 ".count)))
+        return #"set -eu; umask 077; mkdir -p "$HOME/.ssh"; f="$HOME/.ssh/authorized_keys"; touch "$f"; if ! awk -v k=\#(blob) '{ for (i = 1; i < NF; i++) if ($i == "ssh-ed25519" && $(i + 1) == k) found = 1 } END { exit !found }' "$f"; then [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f"; printf '%s\n' \#(line) >> "$f"; fi; chmod 600 "$f""#
     }
 
     /// A path ssh_config and the `ProxyCommand` shell read as just that path: absolute, and only
@@ -96,19 +100,23 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// `config` with this machine's block replaced (or appended), every other line kept. A begin
-    /// marker with no end marker after it (a hand edit) removes nothing.
-    public func upserting(_ block: String, into config: String) -> String {
-        var kept: [Substring] = [], held: [Substring]?
+    /// The cmux file's markers for this machine do not pair up (a hand edit): nothing is guessed.
+    public struct MarkersDamaged: Error, Equatable { public var path: String }
+
+    /// `config` with this machine's block replaced (or appended), every other line kept. Throws
+    /// ``MarkersDamaged`` when a begin marker has no end marker after it, or an end has no begin.
+    public func upserting(_ block: String, into config: String) throws -> String {
+        var kept: [Substring] = [], inside = false
         for line in config.split(separator: "\n", omittingEmptySubsequences: false) {
-            if held == nil, line.hasPrefix(Self.begin(name) + " ") || line == Self.begin(name) { held = [line]; continue }
-            if held != nil {
-                if line == Self.end(name) { held = nil } else { held?.append(line) }
+            let begins = line.hasPrefix(Self.begin(name) + " ") || line == Self.begin(name), ends = line == Self.end(name)
+            if begins || ends {
+                guard begins != inside else { throw MarkersDamaged(path: "") }
+                inside = begins
                 continue
             }
-            kept.append(line)
+            if !inside { kept.append(line) }
         }
-        kept += held ?? []
+        guard !inside else { throw MarkersDamaged(path: "") }
         var text = kept.joined(separator: "\n")
         while text.hasSuffix("\n\n") { text.removeLast() }
         if !text.isEmpty, !text.hasSuffix("\n") { text += "\n" }
@@ -126,8 +134,10 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     public static func including(_ include: String, in config: String) -> String {
         let line = "Include \(configQuoted(include))"
         for raw in config.split(separator: "\n") {
-            let text = raw.trimmingCharacters(in: .whitespaces), word = text.split(separator: " ").first?.lowercased()
+            let text = raw.trimmingCharacters(in: .whitespaces)
             if text == line { return config }
+            // ssh's keyword: up to the first blank, tab or `=` (`Host=x`, `Host\tx`), any case.
+            let word = text.prefix { $0 != " " && $0 != "\t" && $0 != "=" }.lowercased()
             if word == "host" || word == "match" { break }
         }
         return "# cmux Cloud machines (cmux cloud enroll-machine)\n\(line)\n\n" + config
@@ -154,21 +164,41 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         }
         let read = Self.readIfPresent
         try Self.write(pinning(hostKey, into: try read(known)), to: known)
-        try Self.write(upserting(hostBlock(cli: cli, hubLink: hubLink, knownHosts: known.path, identityFile: identityFile), into: try read(config)), to: config)
+        let block = hostBlock(cli: cli, hubLink: hubLink, knownHosts: known.path, identityFile: identityFile)
+        do { try Self.write(try upserting(block, into: try read(config)), to: config) } catch is MarkersDamaged { throw MarkersDamaged(path: config.path) }
         var done = ["ssh-config", "known-hosts"], pending: [String] = []
-        let main = ssh.appendingPathComponent("config"), before = try read(main)
-        let after = Self.including(config.path, in: before)
-        if after != before {
-            let isLink = { (try? FileManager.checked.destinationOfSymbolicLink(atPath: main.path)) != nil }
-            if isLink() {
-                pending.append("ssh-config-include: add `Include \(Self.configQuoted(config.path))` at the top of \(main.path)")
-            } else {
-                // Changed or made a symlink since the read (a dotfiles tool, an editor): never written over.
-                try Self.write(after, to: main, unless: { try !isLink() && read(main) == before })
-                done.append("ssh-config-include")
-            }
+        let main = ssh.appendingPathComponent("config")
+        if try Self.include(config.path, in: main) { done.append("ssh-config-include") } else {
+            pending.append("ssh-config-include: add `Include \(Self.configQuoted(config.path))` at the top of \(main.path)")
         }
         return (done, pending)
+    }
+
+    /// Puts the include first in the person's `~/.ssh/config`, editing the file in place through a
+    /// descriptor opened with `O_NOFOLLOW`: a symlink (a dotfiles checkout) is never followed or
+    /// replaced, and the file keeps its inode and mode. True when it is there (now or already);
+    /// false for a symlink, which the person edits. A file that changed between the read and the
+    /// write (same descriptor, read again) throws ``ConfigChanged``.
+    static func include(_ include: String, in main: URL) throws -> Bool {
+        let fd = open(main.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if fd < 0, errno == ELOOP { return false }
+        guard fd >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        let readAll = { () throws -> String in
+            try handle.seek(toOffset: 0)
+            guard let text = String(data: try handle.blockingReadToEnd() ?? Data(), encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSFilePathErrorKey: main.path])
+            }
+            return text
+        }
+        let before = try readAll(), after = including(include, in: before)
+        guard after != before else { return true }
+        guard try readAll() == before else { throw ConfigChanged(path: main.path) }
+        try handle.seek(toOffset: 0)
+        try handle.blockingWrite(contentsOf: Data(after.utf8))
+        try handle.truncate(atOffset: UInt64(after.utf8.count))
+        try handle.synchronize()
+        return true
     }
 
     /// The file's text; "" when it does not exist. A file that exists but cannot be read as UTF-8
@@ -184,16 +214,11 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     /// The person's ssh config changed while enroll-machine was writing it.
     public struct ConfigChanged: Error, Equatable { public var path: String }
 
-    /// Owner-only, through a temporary file renamed over the old one; `unchanged` is asked right
-    /// before the rename.
-    static func write(_ text: String, to url: URL, unless unchanged: () throws -> Bool = { true }) throws {
+    /// A file of cmux's own folder, owner-only, through a temporary file renamed over the old one.
+    static func write(_ text: String, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).cmux-\(UUID().uuidString.prefix(8))")
         guard FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
-        }
-        guard try unchanged() else {
-            try? FileManager.checked.removeItem(at: temporary)
-            throw ConfigChanged(path: url.path)
         }
         guard rename(temporary.path, url.path) == 0 else {
             try? FileManager.checked.removeItem(at: temporary)

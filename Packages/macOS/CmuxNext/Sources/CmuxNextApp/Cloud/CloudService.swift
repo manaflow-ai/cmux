@@ -220,8 +220,6 @@ final class CloudService {
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
-                    // `ssh lane-vm-N` (cloud enroll-machine) dials through the hub's stable link.
-                    await self.startHubForSSHRoutes()
                 } else {
                     self.dropAllMachines()
                     // The session ended (signed out here or elsewhere, or
@@ -274,7 +272,6 @@ final class CloudService {
                 await hub?.resume()
                 await installSignedIn()
                 await refresh()
-                await startHubForSSHRoutes()
             }
         }
     }
@@ -353,6 +350,7 @@ final class CloudService {
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
+            await startHubForSSHRoutes()
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = String(describing: error)
@@ -486,7 +484,11 @@ final class CloudService {
 
     /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
     /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
+    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
+    /// that failed to start (offline at launch) or to restart gets another try; a running hub
+    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
     func startHubForSSHRoutes() async {
+        guard unavailableReason == nil, auth.isSignedIn else { return }
         guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
         do { _ = try await hub.socketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
     }

@@ -184,8 +184,14 @@ public actor CloudTunnelHub {
             if self.child === child { self.child = nil }
             throw CancellationError()
         }
+        do {
+            try pointHubLink(at: ready)
+        } catch {
+            child.terminate()
+            if self.child === child { self.child = nil }
+            throw error
+        }
         phase = .running(socket: ready)
-        try pointHubLink(at: ready)
         watch(child, generation: generation)
         logger.info("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
         return ready

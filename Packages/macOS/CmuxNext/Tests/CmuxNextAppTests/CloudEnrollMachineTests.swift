@@ -33,11 +33,12 @@ struct CloudEnrollMachineTests {
     }
 
     @Test func theMachineSideAuthorizesTheKeyOnceAndPrintsTheHostKey() {
-        let command = Self.enrollment.authorizeCommand
-        #expect(command.contains("awk -v k='AAAAC3NzaC1lZDI1NTE5AAAAIE37Tl/9rijUPR8Dvy6OrvbHfOcb5zbYWEs2QJqEehL2'"), "a rerun matches the whole key, not a substring")
-        #expect(command.contains(#"[ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f""#), "a file without a final newline gets one first")
+        let command = Self.enrollment.authorizeCommand, edit = Self.enrollment.keyEdit
+        #expect(edit.hasPrefix("set -eu; "), "a key file it cannot append to fails the run")
+        #expect(edit.contains("awk -v k='AAAAC3NzaC1lZDI1NTE5AAAAIE37Tl/9rijUPR8Dvy6OrvbHfOcb5zbYWEs2QJqEehL2'"), "a rerun matches the whole key, not a substring")
+        #expect(edit.contains(#"[ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f""#), "a file without a final newline gets one first")
         #expect(command.contains(#"as_u env HOME="#), "the key goes to the cmux user's file whichever account the exec uses")
-        #expect(command.contains("'\(Self.key) cmux-enroll:lane-vm-1'"))
+        #expect(edit.contains("'\(Self.key) cmux-enroll:lane-vm-1'"))
         #expect(command.hasSuffix("cat /etc/ssh/ssh_host_ed25519_key.pub"))
     }
 
@@ -51,10 +52,10 @@ struct CloudEnrollMachineTests {
         #expect(block.contains("  IdentityFile /Users/me/.ssh/id_ed25519\n  IdentitiesOnly yes\n"))
     }
 
-    @Test func aRerunReplacesOnlyThisMachinesBlockAndHostKey() {
+    @Test func aRerunReplacesOnlyThisMachinesBlockAndHostKey() throws {
         let other = "Host other\n  HostName 1.2.3.4\n"
-        let first = Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nOLD\n# <<< cmux machine lane-vm-1\n", into: other)
-        let second = Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n", into: first)
+        let first = try Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nOLD\n# <<< cmux machine lane-vm-1\n", into: other)
+        let second = try Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n", into: first)
         #expect(second == other + "# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n")
         let known = Self.enrollment.pinning(Self.hostKey, into: "10.0.0.7 ssh-ed25519 OLD\n10.0.0.8 ssh-ed25519 KEEP\n")
         #expect(known == "10.0.0.8 ssh-ed25519 KEEP\n10.0.0.7 \(Self.hostKey)\n")
@@ -87,10 +88,19 @@ struct CloudEnrollMachineTests {
         #expect(try Data(contentsOf: ssh.appendingPathComponent("config")) == bytes)
     }
 
-    @Test func aBeginMarkerWithNoEndRemovesNothing() {
-        let damaged = "# >>> cmux machine lane-vm-1 vm-1\nHost lane-vm-1\nHost precious\n  HostName 1.2.3.4\n"
-        let fixed = Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n", into: damaged)
-        #expect(fixed.contains("Host precious\n  HostName 1.2.3.4\n"))
+    @Test func damagedMarkersAreRefusedNotGuessed() {
+        let block = "# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n"
+        for damaged in ["# >>> cmux machine lane-vm-1 vm-1\nHost precious\n", "Host precious\n# <<< cmux machine lane-vm-1\n",
+                        "# >>> cmux machine lane-vm-1 vm-1\n# >>> cmux machine lane-vm-1 vm-1\n# <<< cmux machine lane-vm-1\n"] {
+            #expect(throws: CloudMachineEnrollment.MarkersDamaged.self) { try Self.enrollment.upserting(block, into: damaged) }
+        }
+    }
+
+    @Test func aHostWrittenWithATabOrAnEqualsSignEndsTheTop() {
+        for host in ["Host\tother", "Host=other", "HOST other", "match all"] {
+            let config = "\(host)\n  Include /Users/me/.ssh/cmux-cloud/config\n"
+            #expect(CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: config).hasPrefix("# cmux Cloud machines"), "\(host)")
+        }
     }
 
     @Test func anIncludeWithASpaceIsQuoted() {
@@ -139,6 +149,21 @@ struct CloudEnrollMachineTests {
         #expect(cmux.components(separatedBy: "Host lane-vm-1").count == 2, "one block after two runs")
         let mode = try FileManager.default.attributesOfItem(atPath: ssh.appendingPathComponent("cmux-cloud/known_hosts").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
+    }
+
+    @Test func theIncludeEditKeepsTheFilesInodeAndMode() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = home.appendingPathComponent(".ssh", isDirectory: true), main = ssh.appendingPathComponent("config")
+        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        try "Host mine\n".write(to: main, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: main.path)
+        let inode = try FileManager.default.attributesOfItem(atPath: main.path)[.systemFileNumber] as? Int
+        _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
+        let after = try FileManager.default.attributesOfItem(atPath: main.path)
+        #expect(after[.systemFileNumber] as? Int == inode, "edited in place, not replaced")
+        #expect(after[.posixPermissions] as? Int == 0o644)
+        #expect(try String(contentsOf: main, encoding: .utf8).hasSuffix("Host mine\n"))
     }
 
     @Test func aSymlinkedSSHConfigIsLeftForThePerson() throws {
