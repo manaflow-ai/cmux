@@ -307,13 +307,15 @@ extension PageWebView {
     }
 
     /// Whether pages keep drawing in an occluded window: automation launches only
-    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
+    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`), never with
+    /// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (``WindowDrawPolicy/drawsOccludedWindows(_:)``: an energy
+    /// bench measures the user's draw).
     /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
     /// so a live check can prove the user path (a covered window that comes back redraws).
     nonisolated public static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
         // The one automation rule for every window surface (terminals, pages).
-        return WindowDrawPolicy.isAutomationLaunch(environment)
+        return WindowDrawPolicy.drawsOccludedWindows(environment)
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged

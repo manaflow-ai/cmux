@@ -623,8 +623,13 @@ object{
   slow_requests?:object{
     threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
     spawn_failures:uint64, watchdog_wakeups:uint64,
-    recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64,
-      duration_ms:uint64|null}>
+    recent:array<object{
+      method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
+      duration_ms:uint64|null,
+      stack:array<object{image:string|null,image_id:string|null,offset:uint64,
+        symbol:string|null}>,
+      stack_truncated:boolean, stack_error:string|null
+    }>
   },
   request_latency_us?:object{
     topology:histogram, terminal_io:histogram, create:histogram,
@@ -721,6 +726,27 @@ instants `daemon.request.parsed`, `daemon.request.dispatched`,
 its own reply, has no `handled`. A worker's reply is the async slice
 `daemon.request.async` (arg0 the method id), with the instants
 `daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+
+`stack` is the stack of the thread that ran the request, captured when the
+watchdog first saw it running past the threshold (macOS suspends the thread,
+Linux interrupts it with SIGURG; under a millisecond). Frames are innermost
+first: the interrupted pc, then return addresses along the frame pointers,
+at most 32. `image` is the file name of the image that holds the frame,
+`image_id` that image's build id (the Mach-O LC_UUID as `dwarfdump --uuid`
+prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex; null when it has
+none), which picks the matching build's symbols, `offset` the address minus
+the image's load address, for offline symbolication (`addr2line -f -e IMAGE
+OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
+0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
+null. `stack_truncated` is true when `stack` holds only the interrupted pc
+because the daemon was built without frame pointers (a Linux build without
+`-C force-frame-pointers=yes`); a thread stopped inside code linked in
+without frame pointers (a libc, the precompiled std) can still lose or add
+a frame there. `stack` is empty when `stack_error` names
+why: `run-ended` (the request ended before the watchdog stopped its thread,
+including one first seen after it ended), `unsupported` (no capture on this
+OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
+(the thread did not answer the signal in 50 ms).
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

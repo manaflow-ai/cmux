@@ -25,7 +25,7 @@ pub use resource_projection::{
 mod owner_panic_log;
 pub use owner_panic_log::owner_panic_log_path;
 mod slow_requests;
-pub use slow_requests::{SlowRequest, SlowRequestsSnapshot};
+pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod requests;
 pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
 mod write_path;

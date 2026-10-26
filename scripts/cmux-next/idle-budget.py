@@ -74,6 +74,21 @@ rows.
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
+Shipping measurement mode (always on; plans/cmux-next/chrome-parity/p14-energy.md, task 100): every cmux session
+launches with bench_launch.shipping_env (CMUX_NEXT_BENCH_SHIPPING_DRAW=1: occluded windows stop drawing as in a
+user's launch; CMUX_NEXT_DEV_SENTRY=1 and CMUX_NEXT_DEV_HANG_REPORTS=1: Sentry and hang reports run;
+CMUX_NEXT_ISOLATED_LAUNCH=1 instead of CMUX_NEXT_NO_ACTIVATE: the app may activate, at the bench's fixed window
+frame), with `diagnostics.hangReports` on and the tag's hang report consent record written
+(bench_launch.seed_hang_report_consent), and activates the app once before the settle. The bundle's build config
+(debug, bench-hooks, release) is read first. `--gate` refuses a Debug build (exit 2): its code and its draw are not
+what users run. `--shipping-draw off` keeps the automation draw of occluded windows for an on/off comparison; only a
+Debug build has that draw, so it is refused (exit 2) on any other build. Each session records build_config,
+sentry_started (a SentryCrash thread runs in the app), hang_reports (debug.shipping_mode: available, setting,
+decision, enabled; `on` when the app sends), draws_when_occluded (the app's WindowDrawPolicy.drawsWhenOccluded and
+PageWebView.rendersWhenCovered from debug.shipping_mode, with the launch env's prediction as a cross-check:
+IDLE-BUDGET-DRAW-MISMATCH) and activated. `--gate` refuses a session that was not activated, ran without Sentry or
+without hang reports.
+
 Budget: scripts/cmux-next/idle-budget.json, schema v2 (its _doc): per process kind with per-session overrides,
 sums (app+daemon, tree), ratios to another session of the run and to chrome-static (judged once every session
 is measured, whatever the --sessions order), xbench rows (--xbench), allowed_periodic (wakeup-audit.py) and
@@ -512,9 +527,10 @@ def window_facts(entry):
 
 
 def refusals(entry):
-    """[(what, why)] that refuse a session's window under --gate: its saver state is not the one it asked for, or
-    its animated page's rAF rate (D7's number) could not be read."""
-    out = []
+    """[(what, why)] that refuse a session's window under --gate: it did not run the shipping configuration
+    (``shipping_refusals``), its saver state is not the one it asked for, or its animated page's rAF rate (D7's
+    number) could not be read."""
+    out = shipping_refusals(entry)
     if entry["saver"]["mismatch"]:
         out.append(("saver", entry["saver"]["mismatch"]))
     if "error" in (entry.get("anim") or {}):
@@ -1176,7 +1192,10 @@ def build_stress(app, static=False):
 # Both keep-awake settings off (D11): their shipping default is pluggedIn, and a session that asks for keep-awake
 # names them in its budget `settings`.
 KEEP_AWAKE_OFF = {"sessions": {"keepAwake": "off"}, "phone": {"keepAwake": "off"}}
-BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}, **KEEP_AWAKE_OFF}  # BenchApp's default, keep-awake off
+# The shipping measurement mode's hang reports (HangReportsSetting.path); with the tag's consent record they send.
+HANG_REPORTS_ON = {"diagnostics": {"hangReports": True}}
+# BenchApp's default, keep-awake off, hang reports on.
+BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}, **KEEP_AWAKE_OFF, **HANG_REPORTS_ON}
 # Hidden Chromium tabs freeze this long after they hide (BrowserHibernationSetting's default, set explicitly so the
 # settle below is known to outlast it); the tab sessions settle at least FREEZE_GRACE_S past it.
 FREEZE_HIDDEN_TABS_S = 30
@@ -1433,6 +1452,95 @@ def minimize(app):
     raise SessionShapeError(f"the window is not minimized after 10 s: {window_state(app)}")
 
 
+def bundle_build_config(app):
+    """The bundle's build config as bench_launch reads it: `debug`, `bench-hooks` or `release`."""
+    import bench_launch
+    app = os.path.realpath(app).rstrip("/")
+    return bench_launch.bundle_kind(app, bench_launch.main_binary(app))
+
+
+def gate_refusal(build_config, gate, shipping_draw="on"):
+    """Why this run is refused before any launch, or None: under `--gate` a Debug build is not the code or the draw
+    users run; `--shipping-draw off` on another build would measure the same draw twice (only a Debug automation
+    launch draws occluded windows, WindowDrawPolicy.drawsOccludedWindows)."""
+    if gate and build_config == "debug":
+        return ("--gate refuses a Debug build: measure a Release build with CMUX_BENCH_HOOKS "
+                "(its code, occlusion draw and Sentry are what users run)")
+    if shipping_draw == "off" and build_config != "debug":
+        return (f"--shipping-draw off has no effect on a {build_config} build: only a Debug build draws occluded "
+                "windows in an automation launch, so the on/off comparison is a Debug-only diagnostic")
+    return None
+
+
+def launch_env(shipping_draw=True):
+    """BenchApp's `env` of every cmux session: the shipping measurement mode (bench_launch.shipping_env)."""
+    import bench_launch
+    return bench_launch.shipping_env(draw=shipping_draw)
+
+
+def predicted_draws_when_occluded(build_config, env):
+    """What WindowDrawPolicy.drawsOccludedWindows should say for this build and launch env: only a Debug build
+    draws occluded windows, in an automation launch without CMUX_NEXT_BENCH_SHIPPING_DRAW=1. Only a cross-check of
+    the app's own answer (debug.shipping_mode), never the recorded value."""
+    if build_config != "debug" or env.get("CMUX_NEXT_BENCH_SHIPPING_DRAW") == "1":
+        return False
+    return env.get("CMUX_NEXT_NO_ACTIVATE") == "1" or env.get("CMUX_NEXT_SOCKET_MODE") == "automation"
+
+
+SENTRY_THREAD_PREFIX = "SentryCrash"  # Sentry's Mach exception handler threads (crash-ends-app-gate.py PRIMARY)
+SHIPPING_FIELDS = ("build_config", "sentry_started", "hang_reports", "draws_when_occluded", "activated")
+
+
+def shipping_fields(build_config, env, thread_names, mode, activation):
+    """The five shipping-mode fields of a session, read from the app: `mode` is its debug.shipping_mode reply ({}
+    when it did not answer: every value unknown). draws_when_occluded is the app's answer (null when unknown) with
+    the launch env's prediction beside it."""
+    mode = mode or {}
+    hang = mode.get("hang_reports") if isinstance(mode.get("hang_reports"), dict) else {}
+    draws = mode.get("draws_when_occluded")
+    pages = mode.get("pages_render_when_covered")
+    return {
+        "build_config": build_config,
+        "sentry_started": any(name.startswith(SENTRY_THREAD_PREFIX) for name in thread_names),
+        "hang_reports": {"available": hang.get("available"), "setting": hang.get("setting"),
+                         "decision": hang.get("decision"), "enabled": hang.get("enabled"),
+                         "on": hang.get("available") is True and hang.get("enabled") is True},
+        "draws_when_occluded": {"windows": draws if isinstance(draws, bool) else None,
+                                "pages": pages if isinstance(pages, bool) else None,
+                                "predicted": predicted_draws_when_occluded(build_config, env)},
+        "activated": dict(activation),
+    }
+
+
+def draw_mismatch(fields):
+    """A line when the app's draw answer differs from the launch env's prediction (the Swift rule changed, or a
+    key the prediction does not know), else None. An unknown answer is no mismatch; the record shows it as null."""
+    draw = fields["draws_when_occluded"]
+    wrong = {name: draw[name] for name in ("windows", "pages")
+             if draw[name] is not None and draw[name] != draw["predicted"]}
+    if not wrong:
+        return None
+    return (f"the app says {', '.join(f'{name} draw occluded={value}' for name, value in wrong.items())}, "
+            f"the launch env predicts {draw['predicted']}")
+
+
+def shipping_refusals(entry):
+    """[(what, why)] for a session that did not run the shipping configuration it is judged as: not activated,
+    Sentry not started, hang reports not on (not available, setting off, no consent, or not enabled)."""
+    out = []
+    activated = entry.get("activated") or {}
+    if activated.get("activated") is not True:
+        out.append(("activated", f"the app was not activated: {activated.get('error') or 'not recorded'}"))
+    if entry.get("sentry_started") is not True:
+        out.append(("sentry", "no SentryCrash thread runs in the app (CMUX_NEXT_DEV_SENTRY=1 not honored, or "
+                              "telemetry off)"))
+    hang = entry.get("hang_reports") or {}
+    if hang.get("on") is not True:
+        out.append(("hang_reports", "hang reports do not run: " + json.dumps(
+            {key: hang.get(key) for key in ("available", "setting", "decision", "enabled")})))
+    return out
+
+
 def fresh_session(app):
     """Starts the session from empty: ends the tag's leftover daemons (TagTeardown: exact PIDs of this app
     bundle) and removes the tag's saved terminal session, as bench_pane_scale.py does. A bench host's tag
@@ -1488,7 +1596,7 @@ def coalition_line(coalition):
             f"{coalition['gpu_ms_per_s']} GPU ms/s, {coalition['cpu_pct']} % CPU")
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", help='a tagged "cmux DEV <tag>.app" (not running)')
     parser.add_argument("--xbench", metavar="RESULTS_JSON",
@@ -1502,7 +1610,10 @@ def main():
     parser.add_argument("--budget", default=BUDGET_FILE)
     parser.add_argument("--gate", action="store_true",
                         help="exit 1 when a value is over its budget, a session's saver state is not the one it asked "
-                        "for, or chrome-static failed or is no equal reference")
+                        "for, or chrome-static failed or is no equal reference; exit 2 at once on a Debug build")
+    parser.add_argument("--shipping-draw", choices=("on", "off"), default="on",
+                        help="off: keep the automation draw of occluded windows, to compare with the shipping draw "
+                        "(a Debug build only: refused on another build, which has no such draw)")
     parser.add_argument("--sample", type=float, default=10,
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
     parser.add_argument("--chrome-app", default=CHROME_APP,
@@ -1515,7 +1626,7 @@ def main():
                         help="seconds the reference browser's template profile runs before its first clone")
     parser.add_argument("--chrome-helper-cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"),
                         help="xbench's benchhelper cache")
-    opts, _unknown = parser.parse_known_args()
+    opts, _unknown = parser.parse_known_args(argv)
     budget = load_budget(opts.budget)
     if opts.xbench:
         with open(opts.xbench) as handle:
@@ -1529,12 +1640,20 @@ def main():
     if not opts.app:
         parser.error("--app is required (or --xbench RESULTS_JSON)")
     sessions = parse_sessions(opts.sessions)
+    build_config = bundle_build_config(opts.app)
+    refusal = gate_refusal(build_config, opts.gate, opts.shipping_draw)
+    if refusal:
+        print(f"IDLE-BUDGET-REFUSED build_config={build_config}: {refusal}", flush=True)
+        sys.exit(2)
+    import bench_launch
     from bench_launch import BenchApp
+    env = launch_env(shipping_draw=opts.shipping_draw == "on")
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
     print("IDLE-BUDGET-MACHINE " + json.dumps(machine), flush=True)
-    report = {"machine": machine, "app": opts.app, "settle_s": opts.settle, "measure_s": opts.measure, "sessions": {}}
+    report = {"machine": machine, "app": opts.app, "build_config": build_config, "shipping_draw": opts.shipping_draw,
+              "settle_s": opts.settle, "measure_s": opts.measure, "sessions": {}}
     all_overs = []
     refused = []
     markdown = []
@@ -1543,16 +1662,22 @@ def main():
         if spec.get("chrome"):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
-        app = BenchApp(opts.app, out=os.path.join(out, session), config=session_config(session))
+        app = BenchApp(opts.app, out=os.path.join(out, session), env=env, config=session_config(session))
         pages = IdlePages() if spec.get("tabs") else None
         try:
             entry = {"fresh_session": fresh_session(app)}
             report["sessions"][session] = entry
+            consent = bench_launch.seed_hang_report_consent(app.app)
+            if consent:
+                print(f"IDLE-BUDGET-NO-HANG-CONSENT {session}: {consent}", flush=True)
             app.launch()
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             if spec.get("tabs"):
                 entry["tabs"] = build_tabs(app, pages, spec["tabs"])
+            activation = app.activate()  # once, before the settle (and before a hide or minimize): users run an active app
+            if not activation["activated"]:
+                print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
             if spec.get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
@@ -1562,6 +1687,13 @@ def main():
             entry["settle_s"] = settle
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
             instance = procs.Instance(app.app, app.process.pid)
+            names = [name for _cpu, name in threads(app.process.pid).values()]
+            entry.update(shipping_fields(build_config, app.launched_env or {}, names,
+                                         read_rpc(app, "debug.shipping_mode"), activation))
+            print(f"IDLE-BUDGET-MODE {session} " + json.dumps({k: entry[k] for k in SHIPPING_FIELDS}), flush=True)
+            mismatch = draw_mismatch(entry)
+            if mismatch:
+                print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
                              attribute=spec.get("power", False))

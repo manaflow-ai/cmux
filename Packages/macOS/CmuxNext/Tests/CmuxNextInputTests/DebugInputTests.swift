@@ -1,5 +1,6 @@
 import CmuxNextControl
-@testable import CmuxNextInput
+import CmuxNextInput
+@testable import CmuxNextInputDiagnostics
 import CmuxNextInputCore
 import CmuxNextSettings
 import Foundation

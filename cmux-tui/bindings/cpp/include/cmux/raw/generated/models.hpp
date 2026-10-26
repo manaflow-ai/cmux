@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
+inline constexpr std::string_view kProtocolIrSha256 = "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -168,6 +168,7 @@ struct ServerStatsRequestPathSite;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsSlowRequest;
+struct ServerStatsSlowRequestFrame;
 struct ServerStatsSlowRequests;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
@@ -4940,11 +4941,22 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsSlowRequestFrame {
+    std::optional<std::string> image{};
+    std::optional<std::string> image_id{};
+    std::uint64_t offset{};
+    std::optional<std::string> symbol{};
+    friend bool operator==(const ServerStatsSlowRequestFrame&, const ServerStatsSlowRequestFrame&) = default;
+};
+
 struct ServerStatsSlowRequest {
     std::uint64_t busy_ms{};
     std::uint64_t client{};
     std::optional<std::uint64_t> duration_ms{};
     std::string method{};
+    std::vector<ServerStatsSlowRequestFrame> stack{};
+    std::optional<std::string> stack_error{};
+    bool stack_truncated{};
     std::uint64_t started_ms{};
     friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
 };
@@ -6958,6 +6970,12 @@ template <>
 struct Codec<ServerStatsSlowRequest> {
     static Result<Json> encode(const ServerStatsSlowRequest& value);
     static Result<ServerStatsSlowRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsSlowRequestFrame> {
+    static Result<Json> encode(const ServerStatsSlowRequestFrame& value);
+    static Result<ServerStatsSlowRequestFrame> decode(const Json& value);
 };
 
 template <>
