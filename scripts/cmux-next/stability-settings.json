@@ -1,0 +1,19 @@
+{
+  "$comment": "p10 Package.swift settings (plans/cmux-next/chrome-parity/p10-stability.md C.5). Add a row {task, package, target, setting, reason}; package is a closure directory or \"*\", target a Swift target or \"*\". Never edit a closure Package.swift for these settings: scripts/cmux-next/apply-stability-settings.py --commit lands every row in one commit, then compile-check that commit on the fleet.",
+  "rows": [
+    {
+      "task": "p10-stability-039",
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebar",
+      "setting": ".swiftLanguageMode(.v6)",
+      "reason": "Swift 6 language mode for the conversation list: every concurrency diagnostic fixed (main-actor protocols, values across the render threads); it replaces the target's .swiftLanguageMode(.v5)."
+    },
+    {
+      "task": "p10-stability-039",
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebarTests",
+      "setting": ".swiftLanguageMode(.v6)",
+      "reason": "Swift 6 language mode for the list's tests (main-actor suites; SidebarConcurrencyTests); it replaces the target's .swiftLanguageMode(.v5)."
+    }
+  ]
+}

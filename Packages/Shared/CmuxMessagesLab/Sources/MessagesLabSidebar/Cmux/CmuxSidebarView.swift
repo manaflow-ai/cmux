@@ -160,8 +160,8 @@ public final class CmuxSidebarView: NSView {
     public private(set) var pinnedOrder: [String] = []
 
     public override init(frame: NSRect) {
-        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle.
-        SidebarLocalization.bundle = .module
+        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle
+        // (`MessagesLabLocalization.bundle`, a constant).
         super.init(frame: frame)
         link.owner = self
         controller.availableFilters = Self.filters(filterSources)
@@ -335,10 +335,10 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
     }
 }
 
-/// The controller's data source, delegate and search provider (it holds them weakly).
+/// The controller's data source, delegate and search provider (it holds them weakly). The
+/// protocols are main-actor, as the controller that calls them.
 @MainActor
-private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
-    @preconcurrency SidebarPinPlacing {
+private final class SidebarLink: SidebarDataSource, SidebarDelegate, SidebarSearchProvider, SidebarPinPlacing {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {

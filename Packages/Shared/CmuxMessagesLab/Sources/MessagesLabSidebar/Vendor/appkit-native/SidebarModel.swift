@@ -1,4 +1,5 @@
 import AppKit
+import os // cmux: OSAllocatedUnfairLock (SidebarSearchRequest)
 
 // The seam for cmux-next (appkit-native/SIDEBAR.md): a SidebarController shows a
 // SidebarDataSource's snapshot and reports through a SidebarDelegate. No global state: every
@@ -6,12 +7,14 @@ import AppKit
 
 /// Supplies the list. Called on the main thread; the snapshot is a value, so search reads it
 /// on a background queue.
+@MainActor // cmux: Swift 6, the list calls its owner on the main actor only
 protocol SidebarDataSource: AnyObject {
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot
 }
 
 /// What the list asks its owner to do. The owner changes its data and calls
 /// `SidebarController.reloadData()`; the list never changes the data itself.
+@MainActor // cmux: Swift 6
 protocol SidebarDelegate: AnyObject {
     /// The selection changed (click, keyboard, search). Called once per change, in the same
     /// main-thread turn that moved the highlight.
@@ -84,22 +87,26 @@ struct SidebarSearchSection: Equatable {
 /// v1.1: one query to a `SidebarSearchProvider`. Answer once, from any thread, with
 /// `complete(_:)`. The next keystroke cancels it (`isCancelled` turns true and a later answer
 /// is dropped), so a long search should check `isCancelled` and stop.
-final class SidebarSearchRequest: @unchecked Sendable {
+final class SidebarSearchRequest: Sendable { // cmux: checked Sendable (Swift 6), its state under one lock
+    typealias Handler = @Sendable (SidebarSearchSection?) -> Void
+    private struct State { var cancelled = false; var handler: Handler? }
     let query: String
-    private let lock = NSLock()
-    private var cancelled = false
-    private var handler: ((SidebarSearchSection?) -> Void)?
-    init(query: String, handler: @escaping (SidebarSearchSection?) -> Void) { self.query = query; self.handler = handler }
-    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
-    func cancel() { lock.lock(); cancelled = true; handler = nil; lock.unlock() }
+    private let state: OSAllocatedUnfairLock<State>
+    init(query: String, handler: @escaping Handler) { self.query = query; state = OSAllocatedUnfairLock(initialState: State(handler: handler)) }
+    var isCancelled: Bool { state.withLock { $0.cancelled } }
+    func cancel() { state.withLock { $0.cancelled = true; $0.handler = nil } }
     /// The section for this query (nil or no results: no section). Any thread; once.
     func complete(_ section: SidebarSearchSection?) {
-        lock.lock(); let h = cancelled ? nil : handler; handler = nil; lock.unlock()
+        let h = state.withLock { s -> Handler? in
+            defer { s.handler = nil }
+            return s.cancelled ? nil : s.handler
+        }
         h?(section)
     }
 }
 
 /// v1.1: extra search results from the host (`SidebarController.searchProvider`).
+@MainActor // cmux: Swift 6
 protocol SidebarSearchProvider: AnyObject {
     /// A new non-empty query (main thread). Answer through `request.complete(_:)`.
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest)
@@ -130,15 +137,12 @@ extension SidebarDelegate {
 /// `SidebarLocalizable.xcstrings` (stable `sidebar.*` keys, an English comment per key). A host
 /// copies that file into its resources and points `bundle` at them (a Swift package:
 /// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
+/// cmux: fixed, this package's own bundle and table (read by the row renderers on every core).
 enum SidebarLocalization {
-    /// The one MessagesLab bundle (MessagesLabLocalization.bundle): setting it here sets it for
-    /// every MessagesLab string (transcript, markdown, menus), not only the sidebar.
-    static var bundle: Bundle {
-        get { MessagesLabLocalization.bundle }
-        set { MessagesLabLocalization.bundle = newValue }
-    }
+    /// The one MessagesLab bundle (MessagesLabLocalization.bundle).
+    static var bundle: Bundle { MessagesLabLocalization.bundle }
     /// The catalog's table name (its file name without the extension).
-    static var table = "SidebarLocalizable"
+    static let table = "SidebarLocalizable"
     /// The string for `key` in the user's preferred language; `english` if the key is missing.
     static func string(_ key: String, _ english: String) -> String {
         bundle.localizedString(forKey: key, value: english, table: table)
@@ -148,10 +152,7 @@ enum SidebarLocalization {
 /// The sidebar's user-facing strings (SidebarLocalizable.xcstrings, through SidebarLocalization).
 enum SidebarStrings {
     /// v1: the table name; v1.1 forwards it to `SidebarLocalization.table`.
-    static var table: String {
-        get { SidebarLocalization.table }
-        set { SidebarLocalization.table = newValue }
-    }
+    static var table: String { SidebarLocalization.table } // cmux: fixed (SidebarLocalization)
     private static func s(_ key: String, _ english: String) -> String { SidebarLocalization.string(key, english) }
 
     static var search: String { s("sidebar.search", "Search") }

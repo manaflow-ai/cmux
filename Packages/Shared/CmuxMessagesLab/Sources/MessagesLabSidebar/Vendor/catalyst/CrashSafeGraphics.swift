@@ -7,11 +7,12 @@ import os
 // resolves, so the fallbacks do not run in practice.
 
 /// The named color spaces MessagesLab draws in.
+/// cmux: computed (a CGColorSpace is not Sendable, Swift 6); a named space is the system's one instance.
 enum LabColorSpace {
     /// sRGB (device RGB if the name does not resolve).
-    static let sRGB: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    static var sRGB: CGColorSpace { CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB() }
     /// Display P3 (device RGB if the name does not resolve).
-    static let displayP3: CGColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
+    static var displayP3: CGColorSpace { CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() }
 }
 
 /// The system UI font of a kind and size; the system font by name if Core Text
