@@ -66,7 +66,17 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
+        report.launches = Self.launches(watchdog.launches)
         return report
+    }
+
+    /// The launches, rebuilt through ``LaunchAggregate/merge(_:)`` (closed-set temperatures and
+    /// reasons, bounded counts and buckets, at most one histogram per temperature), so a pending
+    /// file edited on disk sends nothing else; nil when no launch was recorded.
+    static func launches(_ recorded: LaunchAggregate) -> LaunchAggregate? {
+        var launches = LaunchAggregate()
+        launches.merge(recorded)
+        return launches.isEmpty ? nil : launches
     }
 
     /// Frames of a watchdog sample (return addresses, innermost first).

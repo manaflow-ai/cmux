@@ -1,6 +1,7 @@
 public import Foundation
 
-/// One opt-in hang report, wire schema 2 (plans/cmux-next/hang-reports-DESIGN.md section 4).
+/// One opt-in hang report, wire schema 3 (plans/cmux-next/hang-reports-DESIGN.md section 4, plus
+/// ``launches``).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
 /// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
@@ -14,8 +15,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// The wire schema this type writes. 2 has the same fields as 1; it marks a report built with
     /// review 1 and 2's privacy fixes (Data-volume and `..` image paths are `other`, no redirects,
     /// per-Mac consent), and the server refuses schema 1, so a report an older NIGHTLY queued is
-    /// refused (and dropped from its outbox) once the endpoint opens.
-    public static let schemaVersion = 2
+    /// refused (and dropped from its outbox) once the endpoint opens. 3 adds ``launches``, the
+    /// launch histograms by temperature and the completion reason counts.
+    public static let schemaVersion = 3
     /// The most hangs and stalls one report carries.
     public static let maxHangs = 20
     /// The most CPU exceptions one report carries.
@@ -107,6 +109,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var metrics = Metrics()
     /// Allowlisted signpost interval histograms.
     public var intervals: [IntervalHistogram] = []
+    /// The launches since the last report (`launchFirstFrame`, `launchStartupComplete`,
+    /// `launchLiveContent` by temperature, and `completionReasons`); nil, and so absent from the
+    /// JSON, when no launch was recorded.
+    public var launches: LaunchAggregate?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -120,10 +126,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric or interval).
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval or launch).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty
+            && intervals.isEmpty && (launches?.isEmpty ?? true)
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.
