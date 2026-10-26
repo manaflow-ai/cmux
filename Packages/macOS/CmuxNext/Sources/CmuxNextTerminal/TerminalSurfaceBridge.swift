@@ -23,6 +23,8 @@ nonisolated final class SurfaceBridge: Sendable {
     @MainActor var fontScale: Double?
     /// True once Ghostty reported any font size change (a zoom, a reset or a set).
     @MainActor var fontScaleChanged = false
+    /// The surface's state actions waiting for its window's frame (``actionMailbox``); made with the first.
+    @MainActor private var mailbox: GhosttyActionMailbox?
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
@@ -50,6 +52,25 @@ nonisolated final class SurfaceBridge: Sendable {
             guard let view else { return }
             input.predictions.written(bytes, by: view)
         }
+    }
+
+    /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its view's
+    /// window, to the view that shows it then.
+    @MainActor var actionMailbox: GhosttyActionMailbox {
+        if let mailbox { return mailbox }
+        let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
+            self?.view.map { FrameScheduler.forView($0) } ?? .app
+        }, apply: { [weak self] action in
+            _ = self?.view?.applyAction(action)
+        })
+        mailbox = made
+        return made
+    }
+
+    /// Applies the surface's waiting state actions now: a discrete action, clipboard request or close
+    /// of this surface runs after them, in the order Ghostty sent them.
+    @MainActor func flushActions() {
+        mailbox?.flush()
     }
 
     /// `raw` must be a surface's userdata (TerminalSurfaceView.bridge) or nil.
