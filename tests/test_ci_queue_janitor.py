@@ -2698,5 +2698,43 @@ class BlacksmithLegTests(unittest.TestCase):
                 self.assertTrue(decision.candidate.app_actor or action == "skip")
 
 
+class InFlightRunListingTests(unittest.TestCase):
+    """A status-filtered runs page can come back short before the last one (2026-10-26: 99, then 85, of 182)."""
+
+    def listing(self, pages, *, total=True):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, body=None):
+            query = urllib.parse.parse_qs(path.split("?", 1)[1])
+            status, page = query["status"][0], int(query["page"][0])
+            asked.append((status, page))
+            batch = pages.get(status, {}).get(page, [])
+            count = sum(len(rows) for rows in pages.get(status, {}).values())
+            return {"workflow_runs": batch, **({"total_count": count} if total else {})}
+
+        github.request = request
+        return {run["id"] for run in github.in_flight_runs()}, asked
+
+    def test_a_short_first_page_does_not_hide_the_older_queued_runs(self):
+        queued = {1: [{"id": index} for index in range(99)], 2: [{"id": 1000 + index} for index in range(85)]}
+        ids, asked = self.listing({"queued": queued})
+        self.assertEqual(len(ids), 184)
+        self.assertIn(1084, ids)
+        self.assertIn(("queued", 3), asked)
+
+    def test_only_an_empty_page_or_the_page_cap_ends_a_status(self):
+        # A page repeating rows reaches total_count by row count while run 3 is still unread.
+        ids, asked = self.listing({"queued": {1: [{"id": 1}, {"id": 2}], 2: [{"id": 2}, {"id": 3}]}})
+        self.assertEqual(ids, {1, 2, 3})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2, 3])
+        ids, asked = self.listing({"queued": {1: [{"id": 1}], 3: [{"id": 3}]}}, total=False)
+        self.assertEqual(ids, {1})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2])
+        pages = {page: [{"id": page * 1000 + index} for index in range(100)] for page in range(1, 5)}
+        ids, asked = self.listing({"queued": pages})
+        self.assertEqual(len(ids), 100 * janitor.MAX_RUN_PAGES)
+
+
 if __name__ == "__main__":
     unittest.main()
