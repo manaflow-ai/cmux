@@ -77,4 +77,33 @@ import Testing
         #expect(styles == [.legacy], "a released subscription still re-styled the scrollers")
         withExtendedLifetime(owner) {}
     }
+
+    /// PointerHover's key observer: a become-key refreshes the new key window, and a resign refreshes the window
+    /// that last became key (the notice names no window through the app's events), in the notice's own turn.
+    @Test func aResignRefreshesTheWindowThatLastBecameKey() {
+        _ = NSApplication.shared
+        let center = NotificationCenter()
+        let windows = (0..<2).map { _ in
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 30), styleMask: [.titled], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            return window
+        }
+        var key: NSWindow?
+        var refreshed: [NSWindow?] = []
+        let observer = KeyWindowObserver(events: AppEvents(center: center), keyWindow: { key }) { refreshed.append($0) }
+        key = windows[0]
+        center.post(name: NSWindow.didBecomeKeyNotification, object: windows[0])
+        key = windows[1]
+        center.post(name: NSWindow.didBecomeKeyNotification, object: windows[1])
+        key = nil
+        center.post(name: NSWindow.didResignKeyNotification, object: windows[1])
+        #expect(refreshed.count == 3, "a key notice did not refresh in its own turn: \(refreshed.count) refreshes")
+        #expect(refreshed.first.flatMap { $0 } === windows[0])
+        #expect(refreshed.dropFirst().first.flatMap { $0 } === windows[1])
+        #expect(refreshed.last.flatMap { $0 } === windows[1], "the resign refreshed another window than the one that was key")
+        // A second resign with no key window between: nothing was key, so no window refreshes.
+        center.post(name: NSWindow.didResignKeyNotification, object: nil)
+        #expect(refreshed.count == 4 && refreshed.last.flatMap { $0 } == nil)
+        withExtendedLifetime((observer, windows)) {}
+    }
 }

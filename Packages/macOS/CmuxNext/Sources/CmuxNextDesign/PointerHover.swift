@@ -252,51 +252,8 @@ public final class PointerHover: NSObject {
     /// Becoming or resigning key changes whether key-window targets hover.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
-        keyObserver = KeyWindowObserver()
+        keyObserver = KeyWindowObserver(events: AppEvents(center: .default), keyWindow: { NSApp?.keyWindow }) { keyChanged($0) }
     }
-}
-
-/// Key-window changes refresh that window's hover (`PointerHover`), through one ``AppEvents``
-/// subscription per notice for the process. A notice reaches it in the change's own turn, so key
-/// changes and closes keep their synchronous order. AppKit has one key window: the window that
-/// resigns is the one that last became key, so it is remembered here, not read from the notice.
-@MainActor
-private final class KeyWindowObserver {
-    private let events = AppEvents(center: .default)
-    private var subscriptions: [EventSubscription] = []
-    /// The key window as of the last become-key notice (or the install).
-    private weak var key: NSWindow?
-
-    init() {
-        key = NSApp?.keyWindow
-        subscriptions = [
-            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "PointerHover.key") { [weak self] in
-                let window = NSApp?.keyWindow
-                self?.key = window
-                PointerHover.keyChanged(window)
-            },
-            events.subscribe(NSWindow.didResignKeyNotification, owner: "PointerHover.key") { [weak self] in
-                let window = self?.key
-                self?.key = nil
-                PointerHover.keyChanged(window)
-            },
-        ]
-    }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// A closed window's synthesized pointer must not pass to a new window that reuses its address:
-    /// each window with one drops it when it closes.
-    private var closes: [ObjectIdentifier: EventSubscription] = [:]
-
-    func forgetPointer(whenClosing window: NSWindow) {
-        let id = ObjectIdentifier(window)
-        guard closes[id] == nil else { return }
-        closes[id] = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "PointerHover.debugPointer") { [weak self] in
-            PointerHover.debugPointers[id] = nil
-            self?.closes[id] = nil
-        }
-    }
-    #endif
 }
 
 /// `PointerHover`'s targets filed by window (cx-8w027.10 item c): a refresh reads one window's
