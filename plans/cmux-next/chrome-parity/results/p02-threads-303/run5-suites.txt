@@ -1,0 +1,501 @@
+SWEEP stopped terminal_host_recovery-e087772761167958 after 300 s (1 processes)
+SUITE mode=record cargo_exit=101 passed=6027 failed=220
+SWEEP stopped cli-3dbc59b1c785a0c0 after 300 s (1 processes)
+SWEEP stopped cli_audit-6b1b15a267c0c6aa after 300 s (1 processes)
+SWEEP stopped idle_wakeups-736e293fce51f25b after 300 s (1 processes)
+SWEEP stopped journal_effect_intents-27639a47ff3ce20b after 300 s (1 processes)
+SWEEP stopped link_verifier_env-95e61e4fd0b6bdc2 after 300 s (1 processes)
+SWEEP stopped projects_daemon-2198bc2d00e43e9b after 300 s (1 processes)
+SWEEP stopped terminal_host_recovery-e087772761167958 after 300 s (1 processes)
+SWEEP stopped terminal_resources-81164384bd78fcda after 300 s (1 processes)
+SWEEP stopped browser_runtime-0abc55a265ed14ce after 300 s (1 processes)
+SWEEP stopped git_files_list-713ee177868696ab after 300 s (1 processes)
+SWEEP stopped native_hosted_browser_provider-719b63b2d3e88060 after 300 s (1 processes)
+SWEEP stopped pty-421e2124b658c0c7 after 300 s (1 processes)
+SWEEP stopped terminal_resources-5813985e04c1ce19 after 300 s (1 processes)
+SUITE mode=panic cargo_exit=101 passed=5429 failed=423
+RUN-5 shared-failure binary=tests/access_request_journey.rs (access_request_journey) test=a_daemon_that_is_not_a_cloud_machine_takes_no_access_requests
+RUN-5 shared-failure binary=tests/access_request_journey.rs (access_request_journey) test=a_secret_access_request_waits_for_the_person_and_its_value_is_read_once
+RUN-5 shared-failure binary=tests/access_request_journey.rs (access_request_journey) test=an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_answered
+RUN-5 shared-failure binary=tests/acp_subsession_mcp.rs (acp_subsession_mcp) test=acpmux_link_daemon_gives_chats_a_subsession_server_that_starts
+RUN-5 shared-failure binary=tests/acp_subsession_mcp.rs (acp_subsession_mcp) test=cmux_tui_daemon_gives_chats_a_subsession_server_that_starts
+RUN-5 shared-failure binary=tests/acpmux_build_homes.rs (acpmux_build_homes) test=stopping_one_builds_acpmux_leaves_nightlys_running
+RUN-5 shared-failure binary=tests/agent_cli_job_journey.rs (agent_cli_job_journey) test=cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_owner
+RUN-5 shared-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=agent_update_apply_is_busy_while_another_runs
+RUN-5 shared-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=agent_update_apply_of_an_unknown_harness_runs_nothing
+RUN-5 shared-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=agent_update_plan_and_apply_update_the_cli_and_continue_the_chat
+RUN-5 shared-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=agent_update_refuses_a_websocket_client
+RUN-5 shared-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=cmux_next_agent_update_owner_apply_starts_only_the_captured_machine_and_echoes_it
+RUN-5 shared-failure binary=tests/bring_back_journey.rs (bring_back_journey) test=bring_back_ask_first_narrows_a_refused_vm_chat_then_brings_it_back
+RUN-5 shared-failure binary=tests/bring_back_journey.rs (bring_back_journey) test=bring_back_journey_returns_a_vm_edit_a_commit_and_a_chat_to_the_mac
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::a_keyed_caller_passes_the_keyed_check
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::a_peer_session_makes_the_keyed_restart_unsafe
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::a_start_that_needs_the_person_key_says_whether_a_restart_is_safe
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_chat_waiting_for_the_person_notifies_its_tab_until_answered
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_daemon_restart_while_a_chat_waits_posts_needs_input_once
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_failed_turn_notifies_its_tab
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_muted_chat_posts_nothing_until_unmuted
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_turn_that_ends_unseen_notifies_its_tab_until_a_pane_shows_the_chat
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_chat_notices::a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_passes_the_host_gate_on_an_ssh_host
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_refuses_a_codex_alias_before_any_agent_starts
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_starts_the_sample_harness_in_its_asking_mode
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_trust_records_the_persons_answer_and_the_start_runs
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::a_chat_send_refuses_its_own_chat_unknown_or_unscoped_chats_and_bad_text
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::a_read_holds_back_a_running_tool_call_and_never_shows_tool_titles
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::a_read_masks_secrets_in_another_chats_text
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::a_read_moves_past_a_long_run_of_events_with_no_items
+RUN-5 shared-failure binary=tests/cli.rs (cli) test=agent_session_start::agents_chat_tools::an_agent_prompts_another_chat_and_reads_its_reply_over_mcp
+RUN-5 shared-failure binary=tests/cloud_move_journey.rs (cloud_move_journey) test=cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm
+RUN-5 shared-failure binary=tests/cloud_move_journey.rs (cloud_move_journey) test=cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts
+RUN-5 shared-failure binary=tests/inventory_refresh_journey.rs (inventory_refresh_journey) test=cmux_next_inventory_refresh_journey_registry_and_watch_stay_on_selected_owner
+RUN-5 shared-failure binary=tests/link_ensure.rs (link_ensure) test=link_stop_waits_for_the_process_and_fails_for_a_link_that_does_not_end
+RUN-5 shared-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_gate_leaves_a_same_build_machine_to_its_own_refusal
+RUN-5 shared-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_gate_refuses_an_older_machine_before_anything_moves
+RUN-5 shared-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_update_swaps_in_the_pinned_build_and_keeps_terminals_and_chats
+RUN-5 shared-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_update_to_bundled_updates_a_machine_of_another_build_that_serves_every_verb
+RUN-5 shared-failure binary=tests/next_home_adoption.rs (next_home_adoption) test=a_running_pre_update_daemon_is_stopped_before_the_adoption
+RUN-5 shared-failure binary=tests/next_home_adoption.rs (next_home_adoption) test=next_cli_adopts_its_old_acpmux_home
+RUN-5 shared-failure binary=tests/next_home_adoption.rs (next_home_adoption) test=the_cli_never_stops_a_running_daemon_to_adopt
+RUN-5 shared-failure binary=tests/remote_forward_parent_lifecycle.rs (remote_forward_parent_lifecycle) test=remote_forward_exits_when_parent_is_killed
+RUN-5 shared-failure binary=tests/remote_forward_parent_lifecycle.rs (remote_forward_parent_lifecycle) test=remote_forward_exits_with_parent
+RUN-5 shared-failure binary=tests/remote_forward_parent_lifecycle.rs (remote_forward_parent_lifecycle) test=remote_forward_without_parent_flag_survives_parent_exit
+RUN-5 shared-failure binary=tests/setup.rs (setup) test=cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again
+RUN-5 shared-failure binary=tests/setup.rs (setup) test=cmux_setup_machine_an_agent_adds_a_peer_reruns_it_and_undoes_it
+RUN-5 shared-failure binary=tests/setup.rs (setup) test=cmux_setup_machine_never_moves_a_peer_by_its_default_name
+RUN-5 shared-failure binary=tests/setup.rs (setup) test=cmux_setup_machine_updates_an_outdated_peer_and_says_why_there_is_no_undo
+RUN-5 shared-failure binary=tests/terminal_host_recovery.rs (terminal_host_recovery) test=<no test result: crashed, killed or hung>
+RUN-5 shared-failure binary=tests/vm_child_sessions_journey.rs (vm_child_sessions_journey) test=session_children_journey_lists_follows_and_opens_a_vm_chats_child
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_inventory_tests::refresh::cmux_next_agent_inventory_refresh_old_or_malformed_capabilities_never_fall_back
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_inventory_tests::watch::cmux_next_inventory_native_watch_never_falls_back_on_legacy_or_malformed_features
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_inventory_tests::watch::cmux_next_inventory_native_watch_refuses_malformed_initial_snapshots
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::another_connection_cannot_drive_an_attachment
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::attach_is_scoped_to_agent_tabs_of_this_store_with_a_session
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::attach_rejects_mode_change_on_existing_read_only_observer
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::attach_replays_the_page_and_streams_live_records_of_that_session_only
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::attach_takes_the_agent_panes_whole_kind_list
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::attachments_per_connection_are_bounded
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::cancel_goes_to_the_pinned_session
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::detach_and_disconnect_close_the_acpmux_link
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::events_pages_on_the_attachment_for_a_replay_after_a_gap
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::every_verb_refuses_session_cwd_command_and_meta_params
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::lag_and_acpmux_exit_end_the_attachment_with_a_reason
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::observe_pages_from_a_cursor_and_preserves_close_reasons
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::observe_rejects_mode_change_on_existing_writable_attach
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::observe_replays_and_streams_but_rejects_session_mutations
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::permission_answers_only_announced_requests_once_and_never_by_itself
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::prompt_cancel_and_permission_need_an_attachment
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::session_children_changes_stream_on_the_attachment_and_no_others
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::session_children_listed_open_in_a_tab_of_this_store_and_no_other_session
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::session_children_lists_exactly_the_attached_sessions_descendants
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::session_children_needs_an_attached_tab_of_a_trusted_connection
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_session_attach_tests::verbs_refuse_session_cwd_and_command_params
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_capability_requires_an_update_carrier
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_legacy_plan_keeps_its_exact_shape
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_matches_and_echoes_without_starting_acpmux
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_mismatch_cannot_start_the_replacement_owner
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_mismatch_precedes_every_acpmux_call
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::agent_update::owner_tests::cmux_next_agent_update_owner_rejects_malformed_fences_before_reading
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_chat_this_daemon_landed_opens_in_a_tab_of_this_machine_and_no_other_does
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_client_guard_roots_control_env_session_or_command_param_is_refused
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_cloud_host_receive_forwards_peer_control_rooted_at_home_work
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_daemon_that_was_never_told_its_host_kind_refuses_a_receive
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_finish_that_cannot_reach_acpmux_leaves_the_receive_askable_and_finishable
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_finish_that_cannot_succeed_drops_its_receive_and_a_retryable_one_keeps_it
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_folder_outside_the_roots_is_refused_before_acpmux
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_landed_chat_still_opens_in_a_tab_of_this_machine_after_a_restart
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_landed_chat_this_daemon_moved_away_again_opens_no_tab_of_this_machine
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_landed_record_from_the_future_is_not_trusted
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_mac_receive_forwards_web_control_rooted_at_the_given_folder
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_planted_or_symlinked_landed_file_and_its_temporary_are_never_trusted
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_abort_after_a_finish_that_could_not_connect_gets_a_real_answer
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_abort_during_a_running_finish_cannot_say_yet
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_abort_whose_forget_fails_keeps_the_receive_askable
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_is_refused_on_a_team_vm_and_on_a_cloud_vm_of_unknown_kind
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_its_finish_ended_still_answers_whether_its_chat_landed
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::a_receive_that_did_not_land_opens_no_tab_of_this_machine
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::abandoned_receives_free_their_slots_once_aborted
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::abort_forgets_the_move_even_when_acpmux_refuses_it
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::an_acpmux_that_did_not_apply_the_guard_is_refused
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::an_unmapped_or_unbound_surface_gets_the_unknown_answer
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::begin_of_a_chat_already_moving_names_that_move
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::begin_scrubs_launch_settings_from_session_json_and_keeps_its_folder
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::begin_strips_absolute_source_paths_from_the_bundle_manifest
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::finish_reads_the_host_kind_again
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::pages_over_four_mebibytes_are_refused
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::read_serves_only_paths_the_begin_manifest_lists
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::read_takes_only_bundle_paths_of_a_move_this_daemon_began
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::receive_abort_has_acpmux_forget_that_move_only
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::source_verbs_take_the_chat_from_the_surface_tab
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::without_a_host_every_target_verb_is_unavailable
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::write_and_finish_forward_the_receive_and_finish_uses_its_folder
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::agent_transfer::tests::write_and_finish_take_only_a_receive_this_daemon_guarded
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::browser_runtime::tests::browser_runtime_is_refused_until_the_connection_opts_in
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::browser_runtime::tests::browser_runtime_reports_why_a_host_did_not_start
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::browser_runtime::tests::browser_runtime_starts_the_installed_host_and_stops_it
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::browser_runtime::tests::browser_runtime_stops_when_its_connection_ends
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::hello_after_any_other_line_is_window_closed
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::hello_after_exactly_one_identify_is_accepted
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::hello_after_two_identify_lines_is_window_closed
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::hello_as_first_line_returns_the_connection_id_and_fixes_the_role
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::hello_on_a_non_unix_connection_is_local_only
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::identify_reveals_no_per_connection_or_per_user_secret
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::install_id_is_validated_in_step_one
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::origin_claim_capability_is_advertised
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::page_relay_without_subscribe_is_served_and_subscribe_is_refused
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::role_is_required_and_a_bad_role_changes_nothing_and_closes_the_window
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::second_hello_is_window_closed_and_keeps_the_first_role
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::tests::step_two_refuses_a_null_install_id_or_proof
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_local_unix_connection_reaches_the_minter
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_page_origin_v2_request_cannot_mint
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_page_relay_connection_cannot_mint_with_a_legacy_command
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_page_relay_connection_refuses_every_legacy_command_but_identify
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_remote_relay_connection_cannot_mint
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::client_hello::untrusted_mint_tests::a_websocket_connection_cannot_mint
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::cloud_conversations::tests::the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::fs_wire::stream_tests::a_first_line_within_the_deadline_is_served
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::fs_wire::tests::the_link_entry_of_a_non_cloud_host_refuses_fs_and_denies_the_rest
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::line_connection::echo_thread_rows_tests::connection_writers_and_surface_reader_are_echo_path_threads
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_data_for_an_unknown_stream_is_refused
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_forwarding_can_be_turned_off_by_policy
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_open_is_refused_until_the_client_opts_in
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_open_refuses_denied_ports
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_open_refuses_hosts_that_are_not_loopback
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_open_reports_nothing_listening
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_status_reports_limits_and_audit
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_stream_returns_credit_for_bytes_it_wrote
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_stream_round_trips_with_half_close
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_stream_sends_no_more_than_the_client_window
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::loopback_forward_tests::loopback_streams_close_when_the_control_connection_ends
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::a_remote_client_acts_as_its_peer_user_never_the_local_user
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::a_remote_connection_reader_is_the_local_connection_class
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::a_stamp_on_the_local_socket_binds_no_peer
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::an_admitted_frame_reaches_dispatch
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::every_daemon_command_is_refused_by_the_default_gate
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::the_conversation_gate_admits_only_the_remote_allowlist
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::a_caller_path_keeps_the_bundled_cli_first
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::a_caller_path_with_the_shim_gets_no_second_copy
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_agent_browser_plugins_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_agent_browser_provider_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_agent_browser_provider_marker_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_agent_browser_session_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_claude_wrapper_marker_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_mux_socket_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_sidebar_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_tui_hook_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_tui_session_id_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_tui_socket_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::caller_cmux_tui_terminal_id_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::create_terminal_drops_a_caller_socket
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::frontend_integration_keys_reach_the_child_unchanged
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::new_screen_drops_a_caller_owned_key_and_keeps_the_shim_first
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::the_daemon_bundled_cli_wins_over_a_caller_value
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::the_shim_directory_stays_first_on_a_caller_path
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::split_respawn::daemon_env_tests::without_a_bundled_cli_the_caller_values_stay
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::terminal_snapshot::socket_tests::a_client_without_snapshot_gets_the_replay_stream
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::identify_and_protocol::cmux_next_terminal_osc_notifications_post_from_unattached_terminals
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::identify_and_protocol::paused_server_serves_identity_before_lifecycle_readiness
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::identify_and_protocol::title_changed_event_includes_authoritative_surface_title
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::outbound_and_scheduler::clear_history_does_not_block_unrelated_surface_input_on_one_connection
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::outbound_and_scheduler::lifecycle_command_waits_for_active_clear_history_on_one_connection
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::outbound_and_scheduler::write_side_eof_drains_accepted_surface_requests
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::tests::resource_waits::connection_wait_exit_resolves_durable_detached_terminal_after_restart
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=shell_integration::fork_count_tests::fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=shell_integration::prompt_redraw_tests::prompt_redraw_bash_two_line_prompt_narrows_without_leftovers
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=state::tab_state_store::marked_unread_tests::tab_marked_unread_column_is_added_and_an_empty_row_is_dropped
+RUN-5 shared-failure binary=unittests src/lib.rs (cmux_tui_core) test=surface::tests::local_resize_order::local_resize_bounds_the_drain_to_a_queued_snapshot
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=cli::app::page::browser_use_tests::drag_and_upload_reach_the_app
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=cli::app::tests::app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=cli::app::tests::browser_input_verbs_reach_the_app_in_the_old_cli_forms
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=cli::command::tests::transport_path_coverage_tests::every_safe_transport_operation_has_a_noun_first_path
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=config::tests::ghostty_helper::ghostty_config_helper_cleanup_kills_descendant_process_groups
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_cli::tests::install_self_atomically_replaces_destination_symlink
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_cli::tests::install_self_does_not_follow_predictable_staging_symlink
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_cli::tests::remote_stop_explicitly_acknowledges_inactive_legacy_authorization_state
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::client_socket_lease_never_unlinks_a_bound_successor
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::client_socket_rejects_a_symlinked_path_lock
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::concurrent_stale_client_socket_takeover_has_one_owner
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::daemon_startup_recovers_inactive_modern_predecessor_state
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::daemon_startup_refuses_failed_authorization_finalization
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::daemon_startup_refuses_malformed_authorization_finalization
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::initial_client_connection_retries_transient_carrier_failure
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::initial_route_budget::initial_link_timeout_closes_group_and_falls_back_to_next_route
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::initial_route_budget::initial_provider_timeout_falls_back_to_next_route
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::invitation_approval_outlives_the_route_attempt_timeout
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::legacy_recovery_makes_marker_only_state_safe_to_restart
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=remote_runtime::tests::stale_client_socket_takeover_waits_for_the_path_lock
+RUN-5 shared-failure binary=unittests src/main.rs (cmux_tui) test=ui::terminal_grid::tests::default_colors_are_resolved_by_visual_role
+RUN-5 panic-only-failure binary=tests/activity.rs (activity) test=subscribe_activity_streams_input_agent_actions_and_people
+RUN-5 panic-only-failure binary=tests/activity.rs (activity) test=v2_terminal_input_counts_only_from_a_persons_attached_client
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_body_is_at_most_32_kilobytes
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_held_delivery_expires_after_a_day
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_recipient_has_at_most_fifty_messages_waiting
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_refused_send_never_asks_acpmux
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_registry_with_the_first_delivery_table_keeps_its_messages
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_reply_may_be_eight_levels_deep
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_sender_joins_only_a_thread_it_is_part_of
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_sender_may_address_one_recipient_twenty_times_a_minute
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_sender_may_burst_five_messages_in_ten_seconds
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::a_thread_holds_at_most_forty_messages
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::deliveries_start_queued_in_a_shared_workspace_and_held_otherwise
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::limits_survive_a_daemon_restart
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::only_the_app_releases_or_declines_a_held_delivery
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::the_cross_workspace_setting_refuses_or_allows
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::the_same_message_twice_in_ten_seconds_is_dropped
+RUN-5 panic-only-failure binary=tests/agent_message_policy.rs (agent_message_policy) test=agent_message_policy::the_sender_is_the_verified_actor
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_blank_acpmux_refusal_reason_reads_withdraw_refused
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_cli_send_racing_an_unsend_is_handed_over_once_and_withdrawn
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_held_message_is_pumped_only_once_released
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_long_acpmux_refusal_fits_the_unsend_result
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_message_is_delivered_while_acpmux_reads_its_chat_logs
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_prompt_acpmux_may_still_take_is_never_called_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_prompt_acpmux_never_accepts_stays_queued_and_is_not_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_retried_unsend_replays_without_asking_acpmux_again
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_session_waiting_on_one_prompt_gets_no_later_message_first
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::a_slow_hand_over_holds_up_no_other_delivery_while_acpmux_reads_its_chat_logs
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::an_unsend_commits_acpmux_answer_after_an_unrelated_change
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::an_unsettled_delivery_to_a_deleted_session_is_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::an_unsettled_delivery_to_a_peer_session_is_never_called_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::an_unsettled_delivery_to_an_unreachable_peer_is_never_called_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::an_unverified_local_caller_cannot_unsend
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::one_refusing_recipient_does_not_undo_the_others
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::only_the_sender_or_the_person_unsends
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::queued_terminal_messages_never_hide_an_acpmux_delivery
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::the_cli_unsend_exits_1_when_it_failed
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::the_pump_delivers_a_queued_message_and_records_it
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::the_pump_retries_a_session_acpmux_is_moving
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::unsend_after_delivery_retracts_a_running_turn
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::unsend_after_the_turn_ended_is_too_late
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::unsend_before_delivery_takes_the_message_back
+RUN-5 panic-only-failure binary=tests/agent_message_pump.rs (agent_message_pump) test=agent_message_pump::without_an_answer_a_delivered_message_is_never_called_unsent
+RUN-5 panic-only-failure binary=tests/agent_message_reply_in_place.rs (agent_message_reply_in_place) test=agent_message_reply_in_place::a_reply_in_place_is_a_stored_agent_message_and_goes_nowhere_else
+RUN-5 panic-only-failure binary=tests/agent_update_journey.rs (agent_update_journey) test=cmux_next_agent_update_owner_foreign_apply_leaves_the_real_replacement_untouched
+RUN-5 panic-only-failure binary=tests/app_page_listener.rs (app_page_listener) test=an_owner_started_from_the_app_bundle_serves_its_pages_without_the_pages_env
+RUN-5 panic-only-failure binary=tests/app_page_listener.rs (app_page_listener) test=the_apps_daemon_mints_its_websocket_credential_and_serves_its_pages
+RUN-5 panic-only-failure binary=tests/browser_runtime.rs (browser_runtime) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/bundled_cli.rs (bundled_cli) test=a_daemon_started_command_with_a_caller_path_runs_the_bundled_cli
+RUN-5 panic-only-failure binary=tests/bundled_cli.rs (bundled_cli) test=daemon_started_shells_run_the_bundled_cli_after_user_startup_files
+RUN-5 panic-only-failure binary=tests/cli.rs (cli) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/cli.rs (cli) test=agent_session_start::a_machine_tab_binds_no_session_from_another_machine
+RUN-5 panic-only-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_is_refused_on_a_cloud_vm_of_unknown_kind
+RUN-5 panic-only-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_is_refused_on_a_team_vm
+RUN-5 panic-only-failure binary=tests/cli.rs (cli) test=agent_session_start::agent_session_start_sends_the_tab_workspace_to_acpmux
+RUN-5 panic-only-failure binary=tests/cli_audit.rs (cli_audit) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/color_ownership.rs (color_ownership) test=color_ownership_same_valued_osc_survives_defaults_and_resets_per_terminal
+RUN-5 panic-only-failure binary=tests/color_ownership.rs (color_ownership) test=color_ownership_shared_defaults_are_separate_on_live_resize_and_reattach
+RUN-5 panic-only-failure binary=tests/crash_forward.rs (crash_forward) test=crash_forward_sends_unsent_panics_once_and_never_test_lines
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=cmux_next_ensure_starts_the_owner_with_the_reap_grace
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=concurrent_ensures_converge_on_one_owner
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=ensure_starts_a_detached_owner_once
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=ensure_waits_for_a_restoring_owner_and_never_starts_a_second
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=stop_during_a_restore_past_its_wait_says_why
+RUN-5 panic-only-failure binary=tests/detached_owner.rs (detached_owner) test=stop_during_a_restore_waits_and_then_stops_the_owner
+RUN-5 panic-only-failure binary=tests/echo_flow.rs (echo_flow) test=echo_flow_reaches_the_next_output_event_once
+RUN-5 panic-only-failure binary=tests/ensure_chief_tools_socket.rs (ensure_chief_tools_socket) test=an_owner_ensured_with_the_tools_socket_answers_chief_engine_get
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=a_daemon_the_app_did_not_start_has_no_install_key
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=a_proved_app_confirms_for_its_own_page_relay
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=a_wrong_proof_or_install_id_fails_closed_for_the_whole_connection
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=hello_replies_say_whether_origin_user_is_allowed
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=nonces_are_per_connection_and_a_proof_never_replays
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=only_a_proved_hello_reaches_origin_user
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=only_the_proved_app_deletes_a_browser_profile
+RUN-5 panic-only-failure binary=tests/frontend_hello.rs (frontend_hello) test=the_hello_must_be_the_first_request_after_at_most_one_identify
+RUN-5 panic-only-failure binary=tests/git_diff_context.rs (git_diff_context) test=cmux_next_git_diff_context_lines_give_the_whole_file
+RUN-5 panic-only-failure binary=tests/git_files_list.rs (git_files_list) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/history_trail.rs (history_trail) test=the_first_write_adopts_the_apps_older_trail_without_incognito_steps
+RUN-5 panic-only-failure binary=tests/history_trail.rs (history_trail) test=the_history_page_lists_removes_and_clears_trail_and_command_rows
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_holder_shell_that_exits_ends_its_terminal_with_its_status
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_restart_after_clear_history_does_not_bring_the_history_back
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_restart_after_two_mib_of_output_keeps_the_alternate_screen
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_standalone_holder_that_hangs_before_ready_falls_back_to_the_built_in_holder
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_standalone_holder_that_never_starts_falls_back_to_the_built_in_holder
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=a_tab_closed_right_after_a_holder_crash_ends_without_a_lock_rank_panic
+RUN-5 panic-only-failure binary=tests/holder_terminals.rs (holder_terminals) test=shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash
+RUN-5 panic-only-failure binary=tests/idle_wakeups.rs (idle_wakeups) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/install_key_handoff.rs (install_key_handoff) test=an_owner_started_without_a_key_has_none
+RUN-5 panic-only-failure binary=tests/install_key_handoff.rs (install_key_handoff) test=an_owner_with_a_key_confirms_a_page_gesture_only_for_the_proved_app
+RUN-5 panic-only-failure binary=tests/install_key_handoff.rs (install_key_handoff) test=the_spawned_owner_holds_the_key_and_a_running_owner_never_takes_another
+RUN-5 panic-only-failure binary=tests/journal_effect_intents.rs (journal_effect_intents) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/kitty_file_media.rs (kitty_file_media) test=file_medium_image_reaches_an_attached_viewer_in_band
+RUN-5 panic-only-failure binary=tests/launch_credential.rs (launch_credential) test=a_caller_can_never_send_an_actor
+RUN-5 panic-only-failure binary=tests/launch_credential.rs (launch_credential) test=a_plain_local_connection_cannot_mint_or_rotate
+RUN-5 panic-only-failure binary=tests/launch_credential.rs (launch_credential) test=a_terminal_child_gets_a_credential_that_names_its_terminal
+RUN-5 panic-only-failure binary=tests/launch_credential.rs (launch_credential) test=the_key_file_is_private_and_a_readable_one_is_replaced
+RUN-5 panic-only-failure binary=tests/legacy_registry_maintenance.rs (legacy_registry_maintenance) test=a_large_legacy_registry_is_not_vacuumed_while_its_owner_serves
+RUN-5 panic-only-failure binary=tests/legacy_registry_maintenance.rs (legacy_registry_maintenance) test=a_small_legacy_registry_is_converted
+RUN-5 panic-only-failure binary=tests/legacy_registry_maintenance.rs (legacy_registry_maintenance) test=compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline
+RUN-5 panic-only-failure binary=tests/lifecycle_latency.rs (lifecycle_latency) test=lifecycle_latency_creates_and_closes_in_a_populated_session
+RUN-5 panic-only-failure binary=tests/link_verifier_env.rs (link_verifier_env) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_update_apply_step_refuses_before_changing_anything
+RUN-5 panic-only-failure binary=tests/machine_update_journey.rs (machine_update_journey) test=machine_update_refuses_a_build_that_does_not_match_its_pin
+RUN-5 panic-only-failure binary=tests/native_hosted_browser_provider.rs (native_hosted_browser_provider) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/new_tab_spans.rs (new_tab_spans) test=a_new_tab_traces_its_terminal_through_its_first_prompt
+RUN-5 panic-only-failure binary=tests/new_terminal_first_text.rs (new_terminal_first_text) test=a_holder_terminals_first_text_is_timed
+RUN-5 panic-only-failure binary=tests/new_terminal_first_text.rs (new_terminal_first_text) test=a_new_terminals_first_text_and_reply_do_not_wait_for_the_disk
+RUN-5 panic-only-failure binary=tests/new_terminal_first_text.rs (new_terminal_first_text) test=a_new_terminals_first_text_waits_for_at_most_one_discovery_file_sync
+RUN-5 panic-only-failure binary=tests/new_workspace_identity.rs (new_workspace_identity) test=a_workspace_move_during_new_workspace_keeps_tab_identity_and_closes_cleanly
+RUN-5 panic-only-failure binary=tests/new_workspace_record_sync.rs (new_workspace_record_sync) test=a_new_workspace_answers_after_at_most_one_discovery_file_sync
+RUN-5 panic-only-failure binary=tests/open_file_limit.rs (open_file_limit) test=cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit
+RUN-5 panic-only-failure binary=tests/page_router.rs (page_router) test=only_the_history_page_reads_history_over_the_daemon_websocket
+RUN-5 panic-only-failure binary=tests/page_router.rs (page_router) test=the_history_page_relay_hears_a_closed_workspace_as_history_changed
+RUN-5 panic-only-failure binary=tests/page_router.rs (page_router) test=the_page_relay_names_its_page_and_gets_that_page_list
+RUN-5 panic-only-failure binary=tests/projects_daemon.rs (projects_daemon) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=attach_stream_orders_resize_between_output_frames
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=attach_stream_replays_then_streams_without_duplication
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_attach_serializes_kitty_aliases_on_initial_and_resize_replay
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_attach_stream_receives_merged_colors_changed
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_broadcasts_surface_resized_once_per_changed_size
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_round_trip
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=control_socket_wait_for_matches_one_shot_output_already_on_screen
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=read_scrollback_pages_oldest_rows_and_clamps_bounds
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=render_attach_headless_fans_one_frame_to_render_and_byte_consumers
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=render_attach_resize_is_a_full_replacement_at_the_new_size
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=render_attach_snapshot_and_raced_write_have_no_gap_or_duplicate_frame
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=send_paste_wraps_only_while_dec_mode_2004_is_enabled
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=surface_exit_detaches_terminal_view_and_emits_event
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=surface_runs_command_and_screen_updates
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=tree_event_modes_receive_delta_or_exact_coarse_fallback
+RUN-5 panic-only-failure binary=tests/pty.rs (pty) test=workspace_mutations_are_exactly_once_before_guards_and_close_resolution
+RUN-5 panic-only-failure binary=tests/registry_recovery.rs (registry_recovery) test=an_orphaned_journal_is_kept_instead_of_starting_an_empty_session
+RUN-5 panic-only-failure binary=tests/registry_recovery.rs (registry_recovery) test=an_unreadable_registry_is_kept_with_its_sidecars
+RUN-5 panic-only-failure binary=tests/remote_link_state_dir.rs (remote_link_state_dir) test=a_state_dir_with_a_store_is_not_overwritten_by_an_import
+RUN-5 panic-only-failure binary=tests/remote_link_state_dir.rs (remote_link_state_dir) test=an_empty_state_dir_imports_the_default_root_session_once
+RUN-5 panic-only-failure binary=tests/remote_link_state_dir.rs (remote_link_state_dir) test=no_daemon_outlives_a_fixture
+RUN-5 panic-only-failure binary=tests/remote_link_state_dir.rs (remote_link_state_dir) test=remote_mux_binding_cli_keeps_the_selected_owner
+RUN-5 panic-only-failure binary=tests/replace_unresponsive_owner.rs (replace_unresponsive_owner) test=replace_unresponsive_keeps_a_responsive_owner
+RUN-5 panic-only-failure binary=tests/replace_unresponsive_owner.rs (replace_unresponsive_owner) test=replace_unresponsive_stops_a_frozen_owner_and_starts_a_new_one
+RUN-5 panic-only-failure binary=tests/split_first_prompt.rs (split_first_prompt) test=every_new_split_shows_its_first_prompt
+RUN-5 panic-only-failure binary=tests/terminal_resources.rs (terminal_resources) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/terminal_titles.rs (terminal_titles) test=a_spinner_titled_agent_retitles_the_terminal_once_per_change
+RUN-5 panic-only-failure binary=tests/trace_control.rs (trace_control) test=<no test result: crashed, killed or hung>
+RUN-5 panic-only-failure binary=tests/url_open.rs (url_open) test=url_open_socket_delivery_ack_headless_and_expiration
+RUN-5 panic-only-failure binary=tests/websocket_transport.rs (websocket_transport) test=clients_list_identify_resize_and_detach_across_transports
+RUN-5 panic-only-failure binary=tests/websocket_transport.rs (websocket_transport) test=websocket_pairing_is_approved_by_the_tui_and_credential_reconnects
+RUN-5 panic-only-failure binary=tests/websocket_transport.rs (websocket_transport) test=websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=a_page_never_uses_a_lease_another_connection_set
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=an_open_page_learns_that_the_app_signed_in
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=attachments::the_persons_page_sends_and_plays_a_cloud_video_through_the_daemon
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=home_inbox_cloud_rows_follow_the_shared_corpus
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=the_persons_page_gets_cloud_conversations_through_the_daemon
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=the_persons_page_gets_cloud_rows_in_the_home_inbox
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=the_persons_page_manages_group_roles_through_the_daemon
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=the_persons_page_mutes_a_cloud_conversation_through_the_daemon
+RUN-5 panic-only-failure binary=tests/ws_cloud_conversations.rs (ws_cloud_conversations) test=the_persons_page_pins_a_cloud_conversation_through_the_daemon
+RUN-5 panic-only-failure binary=tests/ws_listen.rs (ws_listen) test=a_running_owner_without_a_page_listener_opens_one_on_request
+RUN-5 panic-only-failure binary=tests/ws_listen.rs (ws_listen) test=an_owner_with_its_page_listener_reports_it
+RUN-5 panic-only-failure binary=tests/ws_listen.rs (ws_listen) test=the_page_listener_admits_every_app_page_origin_and_no_other
+RUN-5 panic-only-failure binary=tests/ws_scoped_page_credential.rs (ws_scoped_page_credential) test=a_page_bound_credential_admits_only_its_page_and_never_the_person
+RUN-5 panic-only-failure binary=tests/ws_scoped_page_credential.rs (ws_scoped_page_credential) test=after_an_owner_restart_a_fresh_page_credential_connects_again
+RUN-5 panic-only-failure binary=tests/ws_scoped_page_credential.rs (ws_scoped_page_credential) test=the_channels_page_hears_a_chiefs_live_run
+RUN-5 panic-only-failure binary=tests/ws_scoped_page_credential.rs (ws_scoped_page_credential) test=the_channels_page_hears_a_participants_avatar_change
+RUN-5 panic-only-failure binary=tests/ws_scoped_page_credential.rs (ws_scoped_page_credential) test=the_channels_page_hears_its_chiefs_change
+RUN-5 panic-only-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::a_link_token_stamp_records_the_install_check_and_is_served
+RUN-5 panic-only-failure binary=unittests src/lib.rs (cmux_tui_core) test=server::remote_entry::tests::a_peer_frame_that_looks_like_a_checked_stamp_records_nothing
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::deferred_input::pairing_dialog_captures_live_non_left_pointer_input
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::deferred_input::visible_state_browser_input_requests_draw_after_selection_clear_on_pty_surface
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::deferred_input::visible_state_focus_loss_requests_draw_after_pointer_cancel
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::graphics_pointer::deferred_tab_press_cannot_retarget_a_replacement_surface_at_the_same_index
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::graphics_pointer::dispatcher_timeout_preserves_ambiguous_press_for_recovery_release
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::graphics_pointer::evicted_known_undelivered_motion_allows_same_cell_retry
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::graphics_pointer::rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::machine_sidebar::browser_drag_retargets_to_the_animated_pane_geometry
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::machine_sidebar::pane_cursor_and_active_border_yield_to_builtin_and_plugin_sidebars
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::menus_browser::alt_left_and_middle_clicks_preserve_pty_mouse_reporting
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::menus_browser::alt_n_rejects_a_new_pane_with_no_visible_content
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::menus_browser::pty_mouse_tracking_forwards_click_release_and_wheel_with_shift_override
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::menus_browser::remote_command_k_uses_authoritative_screen_and_keyboard_modes
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::menus_browser::vertical_split_drag_keeps_nested_pane_tab_bars_visible
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::mux_recovery::admitted_tab_drag_survives_a_pending_pointer_map_refresh
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::mux_recovery::another_clients_creations_keep_this_clients_view
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::mux_recovery::input_never_reasserts_a_viewer_size
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::mux_recovery::tab_selection_is_client_local
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::mux_recovery::tab_switch_moves_size_lease_without_dropping_hidden_surface
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::program_status_tabs::a_remote_tab_shows_its_programs_progress_then_its_wait
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::catalog_refresh_preserves_machine_and_workspace_selection_identity_and_scroll
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::in_place_machine_switch_preserves_rail_view_focus_and_widths
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::pane_tab_context_menu_renames_the_exact_inactive_tab
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::projection_workspace_target_follows_id_after_tree_reorder
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::replaced_session_ignores_old_surface_lane_completion
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::retiring_surface_state_releases_its_failed_input_lane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::tabs_column_context_menu_renames_the_exact_clicked_tab
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::projection_actions::workspace_keyboard_enter_returns_focus_to_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::provider_switch::provider_success_commits_through_the_managed_workspace_boundary
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::provider_workspaces::mouse_wheel_scrolls_machine_and_workspace_rail_viewports_independently
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::provider_workspaces::projection_workspace_row_activates_on_mouse_down
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::provider_workspaces::workspace_rail_scrollbar_is_visible_clickable_and_draggable
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::clipped_terminal_input_uses_the_logical_source_column
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::disabled_mouse_snapshot_does_not_consume_press
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::full_tui_focus_gained_does_not_reset_host_capture_bookkeeping
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::physical_release_queues_behind_a_contended_terminal_press
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::pty_mouse_press_does_not_wait_for_terminal_parsing
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::pty_mouse_uses_the_canonical_rendered_grid_during_resize_margins
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::pty_mouse::scoped_host_mouse_capture_keeps_last_applied_when_state_is_unknowable
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::remote_pointer::failed_sidebar_plugin_status_schedules_passive_retry
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::remote_pointer::hiding_then_showing_sidebar_rehydrates_same_size_plugin_status
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::remote_pointer::sidebar_plugin_sync_is_deduped_after_it_is_applied
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::remote_pointer::split_ratio_samples_coalesce_without_snapshots_before_final_settlement
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::selection_clicks::directional_focus_uses_client_history_and_visible_geometry
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::selection_clicks::viewport_columns_resize_with_shortcuts_and_mouse_drag
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::selection_clicks::viewport_pane_overflows_the_existing_tiled_layout
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::session_notices::single_surface_machine_session_install_does_not_publish_global_cell_metrics
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::session_notices::stale_session_events_are_ignored_after_an_in_place_switch
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::close_tab_action_honors_its_explicit_pane_target
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::doubled_prefix_keeps_the_focused_sidebar_plugin_target
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::doubled_prefix_runs_the_shared_send_prefix_action
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::enhanced_prefixed_split_survives_pointer_mutation_and_focus_refresh
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::immediate_split_receipt_routes_following_input_past_later_creation
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::modifier_only_presses_do_not_consume_prefix_before_shifted_binding
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::opening_shortcut_help_releases_an_active_browser_mouse_press
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::opening_shortcut_help_releases_an_active_pty_mouse_press
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::pane_context_maximize_focuses_the_explicit_inactive_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::pane_context_new_pane_runs_the_same_smart_layout_action_as_alt_n
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::prefix_pane_shortcuts_create_and_resize_without_alt
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::repeated_split_then_ctrl_d_is_receipt_ordered_without_prefix_leaks
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::tab_workspace_menu_moves_the_clicked_inactive_tab_and_drag_creates_workspace
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::shortcuts_menus::user_command_action_runs_configured_argv_in_a_new_tab
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::surface_attach::graphics_scene_cache_rebuilds_only_the_dirty_surface_projection
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::surface_attach::graphics_scene_cache_skips_text_only_snapshot_rebuilds
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::surface_attach::reverse_viewport_sweep_cancels_a_queued_size_release_and_reasserts
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::alt_n_uses_zellij_default_vertical_distribution
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::client_navigation_records_the_session_focus_without_moving_the_mux
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::command_k_clears_prior_output_without_a_session_mutation
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::command_k_matches_the_reported_physical_key_across_layouts
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::command_k_reaches_a_kitty_app_on_the_alternate_screen
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::ctrl_l_reaches_foreground_primary_screen_app
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::layout_undo_action_confirms_before_closing_a_created_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::prefixed_clear_history_never_forwards_only_the_suffix_key
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::reconnecting_client_restores_its_own_focus
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::remote_screen_switch_records_the_new_active_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::remote_workspace_switch_records_the_new_active_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::stale_layout_undo_confirmation_keeps_the_created_pane
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=app::tests::viewport_history::viewport_resize_drag_keeps_its_mouse_down_coordinate_origin
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=config::tests::ghostty_defaults::injected_ghostty_defaults_drive_headless_render_state
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=pty_input::tests::ambiguous_local_press_keeps_its_recovery_release_reservation
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=session::remote::tests::resize::real_server_attach_and_resize_preserve_kitty_number_aliases
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=session::tests::shared_sizing_focus_keeps_a_counts_choice_made_elsewhere
+RUN-5 panic-only-failure binary=unittests src/main.rs (cmux_tui) test=tests::remote_host_colors_stay_client_local_across_concurrent_attaches
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/surface/directory.rs:201:19 kind=sqlite thread=surface-2-reader
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/surface/directory.rs:104:37 kind=sqlite thread=surface-2-reader
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:2139:21 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:1688:18 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:2075:21 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:2108:18 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/surface/construct.rs:319:9 kind=process-spawn thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:1637:21 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:1600:29 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:1311:21 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui/src/session/mod.rs:2173:40 kind=sqlite thread=mux-pty-input
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/server/bounded_outbound.rs:469:21 kind=condvar-wait thread=mux-line-out
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/server/origin_gate.rs:458:19 kind=fs thread=mux-conn
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/server/line_connection.rs:165:13 kind=join thread=mux-remote-conn
+RUN-5 blocking-panic site=crates/cmux-tui-core/src/server/cmd_attach.rs:525:12 kind=recv thread=mux-attach-out
+RUN-5 fail packages=cmux-tui-core,cmux-tui panic_only_failures=254 shared_failures=215 blocking_panics=15 sites=21 mq13_tasks=204
