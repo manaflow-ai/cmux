@@ -63,6 +63,10 @@ extension RenderSpringKey where Value == CGFloat {
     public static var sublayerTranslationX: Self {
         Self("sublayerTransform.translation.x", read: { $0.sublayerTransform.m41 }, write: { $0.sublayerTransform.m41 = $1 })
     }
+    /// The y translation of the layer's `sublayerTransform` (its `m42`).
+    public static var sublayerTranslationY: Self {
+        Self("sublayerTransform.translation.y", read: { $0.sublayerTransform.m42 }, write: { $0.sublayerTransform.m42 = $1 })
+    }
 }
 
 extension RenderSpringKey where Value == CGPoint {

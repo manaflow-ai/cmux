@@ -156,7 +156,7 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
 
         init(filter: DaemonEventFilter, limit: Int) {
             self.filter = filter
-            self.limit = max(limit, 1)
+            self.limit = Swift.max(limit, 1)
         }
 
         /// Appends `envelope` when the filter matches it, or hands it to the waiting consumer. Never

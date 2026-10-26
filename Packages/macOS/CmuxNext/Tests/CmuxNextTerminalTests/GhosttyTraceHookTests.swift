@@ -71,8 +71,9 @@ struct GhosttyTraceHookTests {
             }
             self.installed = installed
             key = probe.makeSurfaceKey()
-            let (_, continuation) = AsyncStream<TerminalOutgoing>.makeStream()
-            bridge = SurfaceBridge(input: TerminalInputSink(continuation: continuation, typingSurface: key), echoStage: echoStage)
+            // The surface's input goes nowhere: these tests read only the trace hook.
+            let lane = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "GhosttyTraceHookTests.input", qos: .utility)) { _, _ in .next })
+            bridge = SurfaceBridge(input: TerminalInputSink(lane: lane, typingSurface: key), echoStage: echoStage)
         }
 
         /// Calls the installed hook as Ghostty does for this surface.
