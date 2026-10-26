@@ -24,8 +24,14 @@ final class ChromeIconButton: NSButton {
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
+    /// The long press's deadline: a press still held when it fires shows the menu. With none, a press is a click.
+    var longPressDeadline: (any LongPressDeadline)?
+    /// Shows the long press's menu under the button (tests record it instead).
+    var presentMenu: @MainActor (NSMenu, ChromeIconButton) -> Void = { menu, button in button.popUpUnder(menu) }
+    /// True from a press that may become a long press until its release or its menu.
+    private(set) var isHoldingForMenu = false
     /// How long a press is held before it shows the menu instead of clicking.
-    private static let holdDelay: TimeInterval = 0.4
+    static let holdDelay: Duration = .milliseconds(400)
 
     init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
@@ -195,23 +201,51 @@ final class ChromeIconButton: NSButton {
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
-    /// clicking (long-press Back and Forward). The release is the event the
-    /// press waits for (R-timer: an event first, no timer): AppKit's
-    /// event-tracking wait returns it within 0.4 s, and the button's own
-    /// tracking then takes it as a click; no release by then is a long
-    /// press, as Cocoa's click-and-hold buttons wait for it.
+    /// clicking (long-press Back and Forward). The release or the deadline
+    /// decides, and nothing holds the run loop meanwhile: Chrome's
+    /// ToolbarButton posts its drop-down menu as a delayed task on press
+    /// (chrome/browser/ui/views/toolbar/toolbar_button.cc), as
+    /// `TitlebarBandButton` does.
     override func mouseDown(with event: NSEvent) {
-        guard menuProvider != nil, isEnabled, let window else { return super.mouseDown(with: event) }
+        guard menuProvider != nil, isEnabled, let longPressDeadline, window != nil else { return super.mouseDown(with: event) }
+        isHoldingForMenu = true
         isHighlighted = true
-        let released = window.nextEvent(matching: .leftMouseUp, until: Date(timeIntervalSinceNow: Self.holdDelay),
-                                        inMode: .eventTracking, dequeue: false)
-        isHighlighted = false
-        guard released == nil else { return super.mouseDown(with: event) }
-        showHoldMenu()
+        longPressDeadline.schedule(after: Self.holdDelay) { [weak self] in self?.longPressDeadlinePassed() }
     }
 
-    private func showHoldMenu() {
-        guard let menu = menuProvider?() else { return }
+    /// Held through the deadline: the menu instead of the click. With no menu now (no entries) the press
+    /// stays a click on its release.
+    private func longPressDeadlinePassed() {
+        guard isHoldingForMenu, isEnabled, let menu = menuProvider?() else { return }
+        endHold()
+        presentMenu(menu, self)
+    }
+
+    /// The hold's drags move nothing; the pressed look follows the pointer in and out, as a tracked press.
+    override func mouseDragged(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseDragged(with: event) }
+        isHighlighted = isInside(event)
+    }
+
+    /// Released before the menu showed: a click when the pointer is still over the button.
+    override func mouseUp(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseUp(with: event) }
+        endHold()
+        if isEnabled, isInside(event) { sendAction(action, to: target) }
+    }
+
+    private func endHold() {
+        isHoldingForMenu = false
+        isHighlighted = false
+        longPressDeadline?.cancel()
+    }
+
+    private func isInside(_ event: NSEvent) -> Bool {
+        bounds.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    /// The menu under the button, with the pressed look while it is open.
+    private func popUpUnder(_ menu: NSMenu) {
         isMenuOpen = true
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
         isMenuOpen = false
@@ -225,6 +259,8 @@ final class ChromeIconButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of the window, the hold's mouse-up never comes here.
+        if window == nil, isHoldingForMenu { endHold() }
         hover?.refresh()
         updateFill()
     }
@@ -343,79 +379,5 @@ class ChromeTextButton: NSButton {
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
         applyTitle()
-    }
-}
-
-/// Plain single-line field with no bezel, no focus ring, and a gray
-/// selection instead of the accent-colored one.
-class ChromeTextField: NSTextField {
-    private let density = DensityBinding()
-    private var placeholderText = ""
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        isBordered = false
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        cell?.isScrollable = true
-        cell?.wraps = false
-        density.update { [weak self] in
-            guard let self else { return }
-            font = BrowserMetrics.bodyFont
-            applyPlaceholder()
-        }
-        density.start(in: self)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func setPlaceholder(_ text: String) {
-        placeholderText = text
-        applyPlaceholder()
-    }
-
-    // visibility-walk-allow: a text color, the placeholder and the open editor's colors in the theme scope, no layout; cheaper than a deferral
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
-        applyPlaceholder()
-        applyEditorColors()
-    }
-
-    private func applyPlaceholder() {
-        guard !placeholderText.isEmpty else { return }
-        performWithTheme {
-            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
-                .font: font ?? BrowserMetrics.bodyFont,
-            ]))
-        }
-    }
-
-    private func applyEditorColors() {
-        guard let editor = currentEditor() as? NSTextView else { return }
-        performWithTheme {
-            editor.insertionPointColor = Palette.caret
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-        }
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted { applyEditorColors() }
-        return accepted
     }
 }
