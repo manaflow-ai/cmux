@@ -964,7 +964,9 @@ impl ConversationHost {
         self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
     }
 
-    /// The store lock for work that runs no SQL (in-memory upload state).
+    /// The store lock for work that runs no SQL and no file I/O: in-memory
+    /// upload state. Work that removes files under it hands them out and
+    /// removes them after the release (`ClosedUploads`).
     #[track_caller]
     pub(crate) fn lock_store(
         &self,

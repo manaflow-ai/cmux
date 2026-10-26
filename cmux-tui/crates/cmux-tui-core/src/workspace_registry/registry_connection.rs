@@ -21,9 +21,11 @@
 //! the site, or panics in `CMUX_DAEMON_BLOCKING=panic`) and, on a request
 //! thread (`crate::request_path`), counts it; in a recording scope its
 //! release notes `lock_hold_over_1ms` there when the hold lasted that long.
-//! The lock itself is taken through a `cmux_threads::LockHolder`: a wait of
-//! 2 ms or more is recorded with the name of the thread that held it
-//! (`cmux_threads::lock_waits`).
+//! The lock itself is taken through a `cmux_threads::LockHolder`: a failed
+//! try on a thread that disallows blocking is a `lock-wait` violation there,
+//! and a wait of 2 ms or more is recorded with the name of the thread that
+//! held the lock last before the waiter (`cmux_threads::lock_waits`, shown in
+//! `server-stats` `request_path_io.lock_waits`).
 
 use std::cell::Cell;
 use std::panic::Location;
@@ -344,6 +346,12 @@ impl RegistryConnection {
     #[cfg(test)]
     pub(crate) fn last_holder(&self) -> Option<String> {
         self.holder.holder()
+    }
+
+    /// The threads waiting for the connection lock now.
+    #[cfg(test)]
+    pub(crate) fn lock_waiting(&self) -> u32 {
+        self.holder.waiting()
     }
 
     /// Request-side lock order checks: never on the journal writer thread

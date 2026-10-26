@@ -6572,6 +6572,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "lock_waits": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockWaits"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6579,7 +6587,8 @@
     "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
     "scopes counts outermost request scopes entered: frames read plus queued requests run.",
     "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
-    "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+    "sites holds the newest notes first, at most 128, and is empty unless recording is true.",
+    "lock_waits is the daemon process's lock waits of 2 ms or more (every thread, not only request threads); a server before it omits the field."
    ]
   },
   "ServerStatsRequestPathSite": {
@@ -6606,6 +6615,94 @@
    "constraints": [
     "kind is one of sqlite, journal_wait, process_spawn, fs_write, host_wait, sleep, proc_scan, child_process, network, lock_hold_over_1ms.",
     "site is the file:line of the code that asked for the blocking work."
+   ]
+  },
+  "ServerStatsLockWaits": {
+   "kind": "object",
+   "fields": {
+    "long_waits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "dropped": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "recent": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockWait"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "long_waits counts lock waits of 2 ms or more since daemon start, on the registry connection, the Chief and conversation stores and app storage.",
+    "recent holds the newest waits first, at most 64; dropped counts records lost to a concurrent write of the same ring slot."
+   ]
+  },
+  "ServerStatsLockWait": {
+   "kind": "object",
+   "fields": {
+    "lock": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "waiter": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "waited_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "lock is registry.connection, chief.store, conversation.store or apps.storage.",
+    "holder is the thread that took the lock last before the waiter got it or gave up; it is absent when holders are not tracked (a release daemon that does not record).",
+    "waiter is the thread that waited; site is the file:line of the code that asked for the lock."
    ]
   },
   "GuestUrlOpenResult": {

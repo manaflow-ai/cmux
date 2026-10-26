@@ -302,6 +302,12 @@ impl ChiefHost {
         crate::request_path::note_at(crate::request_path::BlockingKind::Sqlite, site);
         self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
     }
+
+    /// The threads waiting for the store lock now.
+    #[cfg(test)]
+    pub(crate) fn store_waiting(&self) -> u32 {
+        self.store_holder.waiting()
+    }
 }
 
 pub(crate) struct ChiefStore {

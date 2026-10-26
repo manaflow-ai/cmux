@@ -1,47 +1,70 @@
 //! The state chokepoints as checked scopes: the router's read closure and the
 //! commit path reach the registry connection through `#[track_caller]`
-//! functions, so a thread that disallows blocking records one `sqlite` site
+//! functions, so a thread that disallows blocking records one `sqlite` note
 //! at the code that asked, never in router.rs, commit.rs or the registry.
+//!
+//! The notes are counted in a recording request scope of the test thread's
+//! own, so another thread (the test Mux's journal writer) cannot add to them;
+//! the process-wide site table is checked only for the `sqlite` kind.
 
 use std::sync::Arc;
 
 use cmux_threads::blocking::{BlockingKind, BlockingMode, disallow_blocking, set_mode, snapshot};
 use serde_json::json;
 
+use crate::request_path::{
+    BlockingKind as NoteKind, RequestPathMode, RequestPathScope, RequestPathStats,
+};
 use crate::state::commit::StateEffects;
 use crate::state::store::StateChanges;
 use crate::{Mux, SurfaceOptions, WorkspaceMutation};
 
-/// Runs `f` on a request-like thread that disallows blocking and returns
-/// what it returns.
+/// Runs `f` on a request-like thread that disallows blocking, in a
+/// recording request scope, and returns what it returns with that scope's
+/// stats.
 fn on_disallowed_thread<R: Send + 'static>(
     mux: &Arc<Mux>,
     f: impl FnOnce(&Mux) -> R + Send + 'static,
-) -> R {
+) -> (R, Arc<RequestPathStats>) {
     set_mode(BlockingMode::Record);
     let mux = Arc::clone(mux);
-    std::thread::Builder::new()
+    let stats = RequestPathStats::new(RequestPathMode::RECORD);
+    let scope_stats = Arc::clone(&stats);
+    let result = std::thread::Builder::new()
         .name("mux-conn-state-test".into())
         .spawn(move || {
             disallow_blocking();
+            let _scope = RequestPathScope::enter(&scope_stats);
             f(&mux)
         })
         .expect("spawn")
         .join()
-        .expect("test thread")
+        .expect("test thread");
+    (result, stats)
 }
 
-fn sqlite_count_at(line: u32) -> u64 {
-    snapshot()
-        .site(file!(), line)
-        .filter(|site| site.kinds.contains(BlockingKind::Sqlite))
-        .map_or(0, |site| site.count)
+/// The `sqlite` notes the scope recorded at `line` of this file.
+fn sqlite_notes_at(stats: &RequestPathStats, line: u32) -> usize {
+    stats
+        .sites()
+        .iter()
+        .filter(|noted| {
+            noted.kind == NoteKind::Sqlite
+                && noted.site.file() == file!()
+                && noted.site.line() == line
+        })
+        .count()
+}
+
+/// Whether the blocking detector recorded a `sqlite` violation at `line`.
+fn sqlite_violation_at(line: u32) -> bool {
+    snapshot().site(file!(), line).is_some_and(|site| site.kinds.contains(BlockingKind::Sqlite))
 }
 
 #[test]
 fn a_disallowed_router_read_records_one_sqlite_site_at_its_caller() {
     let mux = Mux::new_for_test("blocking-router-read", SurfaceOptions::default());
-    let line = on_disallowed_thread(&mux, |mux| {
+    let (line, stats) = on_disallowed_thread(&mux, |mux| {
         let line = line!() + 1;
         super::read(mux, |connection| {
             Ok(connection.query_row("SELECT 1", [], |row| row.get::<_, i64>(0))?)
@@ -49,13 +72,14 @@ fn a_disallowed_router_read_records_one_sqlite_site_at_its_caller() {
         .expect("read");
         line
     });
-    assert_eq!(sqlite_count_at(line), 1);
+    assert_eq!(sqlite_notes_at(&stats, line), 1);
+    assert!(sqlite_violation_at(line));
 }
 
 #[test]
 fn a_disallowed_state_commit_records_one_sqlite_site_at_its_caller() {
     let mux = Mux::new_for_test("blocking-commit", SurfaceOptions::default());
-    let (replay_line, commit_line) = on_disallowed_thread(&mux, |mux| {
+    let ((replay_line, commit_line), stats) = on_disallowed_thread(&mux, |mux| {
         let mutation =
             WorkspaceMutation::new("blocking-commit-1", "test", crate::Actor::local_user())
                 .expect("mutation");
@@ -75,8 +99,14 @@ fn a_disallowed_state_commit_records_one_sqlite_site_at_its_caller() {
         .expect("commit");
         (replay_line, commit_line)
     });
-    assert_eq!(sqlite_count_at(replay_line), 1);
-    assert_eq!(sqlite_count_at(commit_line), 1, "the pin is checked; its re-entries are not");
+    assert_eq!(sqlite_notes_at(&stats, replay_line), 1);
+    assert_eq!(
+        sqlite_notes_at(&stats, commit_line),
+        1,
+        "the pin is checked; its re-entries are not"
+    );
+    assert!(sqlite_violation_at(replay_line));
+    assert!(sqlite_violation_at(commit_line));
 }
 
 #[test]
@@ -85,5 +115,5 @@ fn an_allowed_state_read_records_nothing() {
     let mux = Mux::new_for_test("blocking-allowed-state", SurfaceOptions::default());
     let line = line!() + 1;
     super::read(&mux, |_| Ok(())).expect("read");
-    assert_eq!(sqlite_count_at(line), 0);
+    assert_eq!(snapshot().site(file!(), line), None);
 }

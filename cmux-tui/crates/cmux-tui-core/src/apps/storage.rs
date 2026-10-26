@@ -5,7 +5,8 @@
 //! Every entry point is the connection's checked scope (Chrome's
 //! `ScopedBlockingCall`): it notes `sqlite` at its caller, so a thread that
 //! disallows blocking records (or, in `CMUX_DAEMON_BLOCKING=panic`, panics
-//! at) the code that asked for the storage.
+//! at) the code that asked for the storage. The supervisor's lock in front
+//! of the connection is timed and named (`Supervisor::storage`).
 
 use std::path::Path;
 

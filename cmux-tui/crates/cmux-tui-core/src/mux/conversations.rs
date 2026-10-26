@@ -317,11 +317,16 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&client);
-        // Its attachment uploads end with it (never opens the store).
-        if let Some(store) =
-            self.conversations.lock_store().unwrap_or_else(PoisonError::into_inner).as_mut()
-        {
-            store.attachments_client_closed(client);
+        // Its attachment uploads end with it (never opens the store); their
+        // partial files are removed after the store lock is released.
+        let closed = self
+            .conversations
+            .lock_store()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+            .map(|store| store.attachments_client_closed(client));
+        if let Some(closed) = closed {
+            closed.remove_partial_files();
         }
     }
 

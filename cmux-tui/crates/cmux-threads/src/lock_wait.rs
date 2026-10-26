@@ -4,22 +4,25 @@
 //! lock first and only a failed try takes the tracked slow path,
 //! `LockInternalWithTracking`) and base/synchronization/lock.h (a DCHECK
 //! build keeps the owning thread, `owning_thread_ref_`). A [`LockHolder`]
-//! does both for one lock: the uncontended acquisition is one try plus the
-//! holder's name published under the lock; a failed try reads that name,
-//! times the wait, and a wait of [`LOCK_WAIT_BUDGET`] or more is recorded
-//! with the name of the thread that held the lock when the wait began.
+//! does both for one lock: the uncontended acquisition is one try, plus the
+//! holder's name published under the lock while holder tracking is on (debug
+//! builds, or [`set_holder_tracking`]); a failed try is the slow path. It is
+//! a [`BlockingKind::LockWait`] violation on a thread that disallows
+//! blocking ([`crate::blocking`]), checked before the wait as Chrome's
+//! `ScopedBlockingCall` checks on entry. The wait is timed, and a wait of
+//! [`LOCK_WAIT_BUDGET`] or more is recorded with the name of the thread that
+//! took the lock last before the waiter got it.
 //!
 //! Records go to a fixed ring of the [`RECENT_CAPACITY`] newest waits (read
-//! with [`lock_waits`]) plus a process-wide count. A long wait on a thread
-//! that disallows blocking is also a [`BlockingKind::LockWait`] violation at
-//! the waiter's site ([`crate::blocking`]). Nothing here takes a lock or
+//! with [`lock_waits`]; the daemon's `server-stats` `request_path_io`
+//! section shows it) plus a process-wide count. Nothing here takes a lock or
 //! allocates after a thread's first acquisition: names are copied into
 //! atomics under a sequence counter (a seqlock, Boehm, "Can Seqlocks Get
 //! Along with Programming Language Memory Models?").
 
 use std::cell::Cell;
 use std::panic::Location;
-use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering, fence};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{LockResult, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
@@ -151,6 +154,23 @@ fn read_consistent<T>(seq: &AtomicU64, read: impl Fn() -> T) -> Option<T> {
     None
 }
 
+/// Whether holders publish their names. On in debug builds (Chrome keeps the
+/// owner only in DCHECK builds, `Lock::owning_thread_ref_`); a release
+/// daemon turns it on with [`set_holder_tracking`] while it records.
+static TRACK_HOLDERS: AtomicBool = AtomicBool::new(cfg!(debug_assertions));
+
+/// Turns holder publication on or off for the process. Set it once at
+/// startup: a waiter names the last thread that published, so a name is
+/// reliable only when every holder since the switch published.
+pub fn set_holder_tracking(on: bool) {
+    TRACK_HOLDERS.store(on, Ordering::Relaxed);
+}
+
+/// Whether holders publish their names ([`set_holder_tracking`]).
+pub fn tracks_holders() -> bool {
+    TRACK_HOLDERS.load(Ordering::Relaxed)
+}
+
 /// The holder record of one lock. Embed it next to the lock and take the lock
 /// only through [`LockHolder::acquire`], [`LockHolder::acquire_until`] or
 /// [`LockHolder::lock_mutex`], so every holder publishes its name.
@@ -160,18 +180,27 @@ pub struct LockHolder {
     /// the lock writes it, so writers never race each other.
     seq: AtomicU64,
     name: AtomicName,
+    /// Threads past a failed try that have not got the lock or given up yet.
+    waiting: AtomicU32,
 }
 
 impl std::fmt::Debug for LockHolder {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("LockHolder").field("holder", &self.holder()).finish()
+        formatter
+            .debug_struct("LockHolder")
+            .field("holder", &self.holder())
+            .field("waiting", &self.waiting())
+            .finish()
     }
 }
 
 impl LockHolder {
     /// Takes the lock named `lock` for `site`: `try_lock` first, then `wait`,
-    /// timed. A wait of [`LOCK_WAIT_BUDGET`] or more is recorded with the
-    /// holder's name. The caller then holds the lock and its name is published.
+    /// timed. A failed try on a thread that disallows blocking is a
+    /// [`BlockingKind::LockWait`] violation at `site`, raised before the
+    /// wait, so a panic-mode report never unwinds through a held guard. A
+    /// wait of [`LOCK_WAIT_BUDGET`] or more is recorded with the name of the
+    /// thread that took the lock last before this one got it.
     #[inline]
     pub fn acquire<G>(
         &self,
@@ -184,10 +213,10 @@ impl LockHolder {
             self.publish();
             return guard;
         }
-        let contended = Contended::begin(self);
+        let contended = Contended::begin(self, site);
         let guard = wait();
-        self.publish();
         contended.end(lock, site);
+        self.publish();
         guard
     }
 
@@ -205,12 +234,12 @@ impl LockHolder {
             self.publish();
             return Some(guard);
         }
-        let contended = Contended::begin(self);
+        let contended = Contended::begin(self, site);
         let guard = wait();
+        contended.end(lock, site);
         if guard.is_some() {
             self.publish();
         }
-        contended.end(lock, site);
         guard
     }
 
@@ -235,18 +264,29 @@ impl LockHolder {
         )
     }
 
-    /// The name of the thread that last took the lock, `None` before any did.
+    /// The name of the thread that last took the lock: `None` before any
+    /// did, or when none published (holder tracking off).
     pub fn holder(&self) -> Option<String> {
         self.holder_bytes().map(NameBytes::to_text)
+    }
+
+    /// The threads waiting for the lock now: past a failed try, and not yet
+    /// holding it or given up.
+    pub fn waiting(&self) -> u32 {
+        self.waiting.load(Ordering::Acquire)
     }
 
     fn holder_bytes(&self) -> Option<NameBytes> {
         read_consistent(&self.seq, || self.name.load())
     }
 
-    /// Publishes the calling thread as the holder. Called with the lock held.
+    /// Publishes the calling thread as the holder. Called with the lock held;
+    /// only a relaxed load of a global while holder tracking is off.
     #[inline]
     fn publish(&self) {
+        if !tracks_holders() {
+            return;
+        }
         let name = current_name();
         let seq = self.seq.load(Ordering::Relaxed);
         begin_write(&self.seq, seq);
@@ -255,22 +295,39 @@ impl LockHolder {
     }
 }
 
-/// A wait that began after a failed try: the holder seen then and the clock.
-struct Contended {
-    holder: Option<NameBytes>,
+/// A wait that began after a failed try, counted in [`LockHolder::waiting`]
+/// until it drops.
+struct Contended<'a> {
+    lock: &'a LockHolder,
     since: Instant,
 }
 
-impl Contended {
-    fn begin(lock: &LockHolder) -> Self {
-        Self { holder: lock.holder_bytes(), since: Instant::now() }
+impl<'a> Contended<'a> {
+    #[cold]
+    #[inline(never)]
+    fn begin(lock: &'a LockHolder, site: &'static Location<'static>) -> Self {
+        assert_blocking_allowed_at(BlockingKind::LockWait, site);
+        let since = Instant::now();
+        // Counted after the clock read: a holder that sees this waiter and
+        // then keeps the lock for a time makes the timed wait at least as long.
+        lock.waiting.fetch_add(1, Ordering::AcqRel);
+        Self { lock, since }
     }
 
+    /// Ends the wait, before the waiter publishes itself: the name read is
+    /// the thread that took the lock last before the waiter got it (or gave
+    /// up), so a thread that held it during the wait.
     fn end(self, lock: &'static str, site: &'static Location<'static>) {
         let waited = self.since.elapsed();
         if waited >= LOCK_WAIT_BUDGET {
-            record(lock, self.holder, waited, site);
+            record(lock, self.lock.holder_bytes(), waited, site);
         }
+    }
+}
+
+impl Drop for Contended<'_> {
+    fn drop(&mut self) {
+        self.lock.waiting.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -279,8 +336,9 @@ impl Contended {
 pub struct LockWait {
     /// The lock's name, as its owner passed it.
     pub lock: String,
-    /// The thread that held the lock when the wait began, `None` when no
-    /// holder had published yet.
+    /// The thread that took the lock last before the waiter got it or gave
+    /// up: a thread that held it during the wait. `None` when no holder
+    /// published (holder tracking off, [`set_holder_tracking`]).
     pub holder: Option<String>,
     /// The thread that waited.
     pub waiter: String,
@@ -337,9 +395,6 @@ fn record(
     if !slot.write(order, lock, holder, waited, site) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
     }
-    // A wait on a thread that may not block is a violation at the waiter's
-    // site, recorded after the ring so a panic-mode report keeps the holder.
-    assert_blocking_allowed_at(BlockingKind::LockWait, site);
 }
 
 /// One ring entry. Several waiters can land on one slot, so a writer claims
@@ -443,20 +498,25 @@ mod tests {
     use std::sync::Arc;
     use std::sync::mpsc::channel;
 
+    /// How long a holder keeps the lock after it saw the waiter wait.
+    const HOLD: Duration = Duration::from_millis(20);
+
     #[track_caller]
     fn here() -> &'static Location<'static> {
         Location::caller()
     }
 
-    /// Holds `mutex` on a thread named `holder_name` for `hold`, and runs
-    /// `wait` on a thread named `waiter_name` once the hold began.
+    /// Holds `mutex` on a thread named `holder_name` and runs `wait` on a
+    /// thread named `waiter_name`. The holder keeps the lock until the waiter
+    /// failed its try ([`LockHolder::waiting`]), then [`HOLD`] longer, so
+    /// the wait happens and lasts at least that long under any load.
     fn contend<R: Send + 'static>(
-        mutex: Arc<(Mutex<()>, LockHolder)>,
         holder_name: &str,
-        hold: Duration,
         waiter_name: &str,
         wait: impl FnOnce(&(Mutex<()>, LockHolder)) -> R + Send + 'static,
     ) -> R {
+        set_holder_tracking(true);
+        let mutex = Arc::new((Mutex::new(()), LockHolder::default()));
         let (held_tx, held_rx) = channel();
         let holder = {
             let mutex = Arc::clone(&mutex);
@@ -466,7 +526,10 @@ mod tests {
                     let (lock, holder) = &*mutex;
                     let _guard = holder.lock_mutex("test.holder", here(), lock).expect("lock");
                     held_tx.send(()).expect("held");
-                    std::thread::sleep(hold);
+                    while holder.waiting() == 0 {
+                        std::thread::yield_now();
+                    }
+                    std::thread::sleep(HOLD);
                 })
                 .expect("spawn holder")
         };
@@ -484,23 +547,16 @@ mod tests {
     #[test]
     fn a_long_wait_is_recorded_with_the_holder_name() {
         set_mode(BlockingMode::Record);
-        let mutex = Arc::new((Mutex::new(()), LockHolder::default()));
-        let line = contend(
-            mutex,
-            "lock-wait-holder",
-            Duration::from_millis(20),
-            "lock-wait-waiter",
-            |(lock, holder)| {
-                let site = here();
-                drop(holder.lock_mutex("test.long-wait", site, lock).expect("lock"));
-                site.line()
-            },
-        );
+        let line = contend("lock-wait-holder", "lock-wait-waiter", |(lock, holder)| {
+            let site = here();
+            drop(holder.lock_mutex("test.long-wait", site, lock).expect("lock"));
+            site.line()
+        });
         let waits = lock_waits();
         let wait = waits.newest("test.long-wait").expect("the long wait is recorded");
         assert_eq!(wait.holder.as_deref(), Some("lock-wait-holder"));
         assert_eq!(wait.waiter, "lock-wait-waiter");
-        assert!(wait.waited >= LOCK_WAIT_BUDGET, "{wait:?}");
+        assert!(wait.waited >= HOLD, "{wait:?}");
         assert_eq!((wait.file, wait.line), (file!(), line));
         assert!(waits.long_waits >= 1);
         assert!(
@@ -510,21 +566,14 @@ mod tests {
     }
 
     #[test]
-    fn a_long_wait_on_a_disallowed_thread_is_a_lock_wait_violation() {
+    fn a_contended_wait_on_a_disallowed_thread_is_a_lock_wait_violation() {
         set_mode(BlockingMode::Record);
-        let mutex = Arc::new((Mutex::new(()), LockHolder::default()));
-        let line = contend(
-            mutex,
-            "lock-wait-holder-2",
-            Duration::from_millis(20),
-            "lock-wait-request",
-            |(lock, holder)| {
-                disallow_blocking();
-                let site = here();
-                drop(holder.lock_mutex("test.disallowed-wait", site, lock).expect("lock"));
-                site.line()
-            },
-        );
+        let line = contend("lock-wait-holder-2", "lock-wait-request", |(lock, holder)| {
+            disallow_blocking();
+            let site = here();
+            drop(holder.lock_mutex("test.disallowed-wait", site, lock).expect("lock"));
+            site.line()
+        });
         let site = snapshot().site(file!(), line).copied().expect("violation recorded");
         assert_eq!(site.kinds.iter().collect::<Vec<_>>(), vec![BlockingKind::LockWait]);
         assert_eq!(site.count, 1);
@@ -536,48 +585,91 @@ mod tests {
     #[test]
     fn an_uncontended_acquisition_records_nothing_and_publishes_its_holder() {
         set_mode(BlockingMode::Record);
+        set_holder_tracking(true);
         let lock = Mutex::new(());
         let holder = LockHolder::default();
         assert_eq!(holder.holder(), None, "no holder before the first acquisition");
-        let name = std::thread::Builder::new()
+        let (name, line) = std::thread::Builder::new()
             .name("lock-wait-uncontended".into())
             .spawn(move || {
                 disallow_blocking();
-                drop(holder.lock_mutex("test.uncontended", here(), &lock).expect("lock"));
-                holder.holder()
+                let site = here();
+                drop(holder.lock_mutex("test.uncontended", site, &lock).expect("lock"));
+                (holder.holder(), site.line())
             })
             .expect("spawn")
             .join()
             .expect("thread");
         assert_eq!(name.as_deref(), Some("lock-wait-uncontended"));
         assert!(lock_waits().newest("test.uncontended").is_none());
+        assert_eq!(snapshot().site(file!(), line), None, "a won try is no wait");
     }
 
     #[test]
     fn a_wait_that_gives_up_is_still_recorded() {
         set_mode(BlockingMode::Record);
-        let mutex = Arc::new((Mutex::new(()), LockHolder::default()));
-        let got = contend(
-            mutex,
-            "lock-wait-holder-3",
-            Duration::from_millis(30),
-            "lock-wait-deadline",
-            |(_, holder)| {
-                holder.acquire_until(
-                    "test.deadline",
-                    here(),
-                    || None::<()>,
-                    || {
-                        std::thread::sleep(Duration::from_millis(5));
-                        None
-                    },
-                )
-            },
-        );
+        let got = contend("lock-wait-holder-3", "lock-wait-deadline", |(_, holder)| {
+            holder.acquire_until(
+                "test.deadline",
+                here(),
+                || None::<()>,
+                || {
+                    std::thread::sleep(LOCK_WAIT_BUDGET * 2);
+                    None
+                },
+            )
+        });
         assert_eq!(got, None);
         let waits = lock_waits();
         let wait = waits.newest("test.deadline").expect("recorded");
         assert_eq!(wait.holder.as_deref(), Some("lock-wait-holder-3"));
+    }
+
+    /// A waiter whose try failed between a new holder's won try and its
+    /// publish names that holder, not the thread that held the lock before.
+    #[test]
+    fn a_holder_that_publishes_after_the_failed_try_is_the_one_named() {
+        set_mode(BlockingMode::Record);
+        set_holder_tracking(true);
+        let shared = Arc::new((Mutex::new(()), LockHolder::default()));
+        let earlier = Arc::clone(&shared);
+        std::thread::Builder::new()
+            .name("lock-wait-earlier".into())
+            .spawn(move || drop(earlier.1.lock_mutex("test.earlier", here(), &earlier.0)))
+            .expect("spawn")
+            .join()
+            .expect("earlier");
+        let (held_tx, held_rx) = channel();
+        let late = {
+            let shared = Arc::clone(&shared);
+            std::thread::Builder::new()
+                .name("lock-wait-late-publisher".into())
+                .spawn(move || {
+                    let (lock, holder) = &*shared;
+                    // Won its try, not published yet: the record still names
+                    // "lock-wait-earlier" when the waiter's try fails.
+                    let guard = lock.lock().expect("lock");
+                    held_tx.send(()).expect("held");
+                    while holder.waiting() == 0 {
+                        std::thread::yield_now();
+                    }
+                    holder.publish();
+                    std::thread::sleep(HOLD);
+                    drop(guard);
+                })
+                .expect("spawn late publisher")
+        };
+        held_rx.recv().expect("the late publisher took the lock");
+        std::thread::Builder::new()
+            .name("lock-wait-order-waiter".into())
+            .spawn(move || drop(shared.1.lock_mutex("test.late-publish", here(), &shared.0)))
+            .expect("spawn waiter")
+            .join()
+            .expect("waiter");
+        late.join().expect("late publisher");
+        let waits = lock_waits();
+        let wait = waits.newest("test.late-publish").expect("recorded");
+        assert_eq!(wait.holder.as_deref(), Some("lock-wait-late-publisher"));
     }
 
     #[test]

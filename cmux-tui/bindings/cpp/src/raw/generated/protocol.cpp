@@ -9200,6 +9200,127 @@ Result<ServerStatsLockStall> Codec<ServerStatsLockStall>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<ServerStatsLockWait>::encode(const ServerStatsLockWait& value) {
+    (void)value;
+    Json::Object object;
+    if (value.holder) {
+        auto encoded = encode_value(*value.holder);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("holder", std::move(encoded).value());
+    }
+    auto encoded_lock = encode_value(value.lock);
+    if (!encoded_lock) return std::move(encoded_lock).error();
+    object.emplace("lock", std::move(encoded_lock).value());
+    auto encoded_site = encode_value(value.site);
+    if (!encoded_site) return std::move(encoded_site).error();
+    object.emplace("site", std::move(encoded_site).value());
+    auto encoded_waited_us = encode_value(value.waited_us);
+    if (!encoded_waited_us) return std::move(encoded_waited_us).error();
+    object.emplace("waited_us", std::move(encoded_waited_us).value());
+    auto encoded_waiter = encode_value(value.waiter);
+    if (!encoded_waiter) return std::move(encoded_waiter).error();
+    object.emplace("waiter", std::move(encoded_waiter).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsLockWait> Codec<ServerStatsLockWait>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsLockWait result{};
+    const Json* field_holder = value.find("holder");
+    if (field_holder) {
+        auto decoded = decode_value<std::string>(*field_holder);
+        if (!decoded) return std::move(decoded).error();
+        result.holder = std::move(decoded).value();
+    }
+    const Json* field_lock = value.find("lock");
+    if (!field_lock) {
+        return make_error(ErrorCode::decode, "missing required field 'lock'");
+    }
+    if (field_lock) {
+        auto decoded = decode_value<std::string>(*field_lock);
+        if (!decoded) return std::move(decoded).error();
+        result.lock = std::move(decoded).value();
+    }
+    const Json* field_site = value.find("site");
+    if (!field_site) {
+        return make_error(ErrorCode::decode, "missing required field 'site'");
+    }
+    if (field_site) {
+        auto decoded = decode_value<std::string>(*field_site);
+        if (!decoded) return std::move(decoded).error();
+        result.site = std::move(decoded).value();
+    }
+    const Json* field_waited_us = value.find("waited_us");
+    if (!field_waited_us) {
+        return make_error(ErrorCode::decode, "missing required field 'waited_us'");
+    }
+    if (field_waited_us) {
+        auto decoded = decode_value<std::uint64_t>(*field_waited_us);
+        if (!decoded) return std::move(decoded).error();
+        result.waited_us = std::move(decoded).value();
+    }
+    const Json* field_waiter = value.find("waiter");
+    if (!field_waiter) {
+        return make_error(ErrorCode::decode, "missing required field 'waiter'");
+    }
+    if (field_waiter) {
+        auto decoded = decode_value<std::string>(*field_waiter);
+        if (!decoded) return std::move(decoded).error();
+        result.waiter = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsLockWaits>::encode(const ServerStatsLockWaits& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_dropped = encode_value(value.dropped);
+    if (!encoded_dropped) return std::move(encoded_dropped).error();
+    object.emplace("dropped", std::move(encoded_dropped).value());
+    auto encoded_long_waits = encode_value(value.long_waits);
+    if (!encoded_long_waits) return std::move(encoded_long_waits).error();
+    object.emplace("long_waits", std::move(encoded_long_waits).value());
+    auto encoded_recent = encode_value(value.recent);
+    if (!encoded_recent) return std::move(encoded_recent).error();
+    object.emplace("recent", std::move(encoded_recent).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsLockWaits> Codec<ServerStatsLockWaits>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsLockWaits result{};
+    const Json* field_dropped = value.find("dropped");
+    if (!field_dropped) {
+        return make_error(ErrorCode::decode, "missing required field 'dropped'");
+    }
+    if (field_dropped) {
+        auto decoded = decode_value<std::uint64_t>(*field_dropped);
+        if (!decoded) return std::move(decoded).error();
+        result.dropped = std::move(decoded).value();
+    }
+    const Json* field_long_waits = value.find("long_waits");
+    if (!field_long_waits) {
+        return make_error(ErrorCode::decode, "missing required field 'long_waits'");
+    }
+    if (field_long_waits) {
+        auto decoded = decode_value<std::uint64_t>(*field_long_waits);
+        if (!decoded) return std::move(decoded).error();
+        result.long_waits = std::move(decoded).value();
+    }
+    const Json* field_recent = value.find("recent");
+    if (!field_recent) {
+        return make_error(ErrorCode::decode, "missing required field 'recent'");
+    }
+    if (field_recent) {
+        auto decoded = decode_value<std::vector<ServerStatsLockWait>>(*field_recent);
+        if (!decoded) return std::move(decoded).error();
+        result.recent = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsRegistryLock>::encode(const ServerStatsRegistryLock& value) {
     (void)value;
     Json::Object object;
@@ -9442,6 +9563,11 @@ Result<Json> Codec<ServerStatsRequestPathIo>::encode(const ServerStatsRequestPat
         if (!encoded) return std::move(encoded).error();
         object.emplace("lock_hold_over_1ms", std::move(encoded).value());
     }
+    if (value.lock_waits) {
+        auto encoded = encode_value(*value.lock_waits);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("lock_waits", std::move(encoded).value());
+    }
     auto encoded_network = encode_value(value.network);
     if (!encoded_network) return std::move(encoded_network).error();
     object.emplace("network", std::move(encoded_network).value());
@@ -9514,6 +9640,12 @@ Result<ServerStatsRequestPathIo> Codec<ServerStatsRequestPathIo>::decode(const J
         auto decoded = decode_value<std::uint64_t>(*field_lock_hold_over_1ms);
         if (!decoded) return std::move(decoded).error();
         result.lock_hold_over_1ms = std::move(decoded).value();
+    }
+    const Json* field_lock_waits = value.find("lock_waits");
+    if (field_lock_waits) {
+        auto decoded = decode_value<ServerStatsLockWaits>(*field_lock_waits);
+        if (!decoded) return std::move(decoded).error();
+        result.lock_waits = std::move(decoded).value();
     }
     const Json* field_network = value.find("network");
     if (!field_network) {

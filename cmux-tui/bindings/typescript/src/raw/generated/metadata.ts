@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc. */
+/* cmux-tui mux protocol 12, IR c51d8a593f97d377512f50c4f2539402a6018ebd0594ba4b76cb5444f7e8032a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc" as const;
+export const SDK_IR_SHA256 = "c51d8a593f97d377512f50c4f2539402a6018ebd0594ba4b76cb5444f7e8032a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10781,6 +10781,94 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockWait": {
+    "additional_properties": false,
+    "constraints": [
+      "lock is registry.connection, chief.store, conversation.store or apps.storage.",
+      "holder is the thread that took the lock last before the waiter got it or gave up; it is absent when holders are not tracked (a release daemon that does not record).",
+      "waiter is the thread that waited; site is the file:line of the code that asked for the lock."
+    ],
+    "fields": {
+      "holder": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lock": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "waited_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "waiter": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockWaits": {
+    "additional_properties": false,
+    "constraints": [
+      "long_waits counts lock waits of 2 ms or more since daemon start, on the registry connection, the Chief and conversation stores and app storage.",
+      "recent holds the newest waits first, at most 64; dropped counts records lost to a concurrent write of the same ring slot."
+    ],
+    "fields": {
+      "dropped": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "long_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "recent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockWait"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsRegistryLock": {
     "additional_properties": false,
     "constraints": [
@@ -10930,7 +11018,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
       "scopes counts outermost request scopes entered: frames read plus queued requests run.",
       "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
-      "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+      "sites holds the newest notes first, at most 128, and is empty unless recording is true.",
+      "lock_waits is the daemon process's lock waits of 2 ms or more (every thread, not only request threads); a server before it omits the field."
     ],
     "fields": {
       "child_process": {
@@ -10971,6 +11060,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "lock_waits": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockWaits"
         }
       },
       "network": {
