@@ -35,15 +35,21 @@ public struct LaunchThreadCensus: Sendable, Equatable {
     }
 
     /// Takes the census right after the first window's first frame, on the cpu lane (never on main), and sends
-    /// each of its ``values`` to `record` from there. Debug and bench builds only; elsewhere it posts nothing.
+    /// each of its ``values`` to `record` from there. Only a committed frame takes it
+    /// (``StartupScheduler/whenFirstFrameCommitted(_:)``): a reveal-deadline release or a launch that never draws
+    /// sends no value, so the bench reads a missing count, not one taken before the frame. Debug and bench builds
+    /// only; elsewhere it posts nothing.
     ///
     /// - Parameters:
-    ///   - startup: The launch's scheduler: the post is held until its first frame.
+    ///   - startup: The launch's scheduler: the census waits for its committed first frame.
     ///   - record: Takes each value's name and value (the app passes `LaunchMarkSink.writeValue`, any thread).
+    @MainActor
     public static func post(on startup: StartupScheduler, record: @escaping @Sendable (_ name: String, _ value: UInt64) -> Void) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        startup.post(.afterFirstFrame, "Launch.threadCensus", on: .lane(.cpu, .userVisible)) {
-            for value in LaunchThreadCensus.now().values { record(value.name, value.value) }
+        startup.whenFirstFrameCommitted { [weak startup] in
+            startup?.post(.afterFirstFrame, "Launch.threadCensus", on: .lane(.cpu, .userVisible)) {
+                for value in LaunchThreadCensus.now().values { record(value.name, value.value) }
+            }
         }
         #endif
     }

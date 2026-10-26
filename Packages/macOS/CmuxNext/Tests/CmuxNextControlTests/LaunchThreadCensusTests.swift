@@ -1,6 +1,8 @@
 #if DEBUG
 import CmuxNextCompat
 @testable import CmuxNextControl
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -33,6 +35,30 @@ struct LaunchThreadCensusTests {
 
         #expect(census.libraries == ["iroh": 1])
         #expect(census.runtimeThreads == 1)
+    }
+
+    /// A reveal-deadline release (``StartupScheduler/firstFrameMissed(_:)`` with nil) is not the first frame: the
+    /// census sends nothing then, and the late committed frame takes it.
+    @MainActor @Test func aMissedFirstFrameRecordsNoFirstFrameValues() async {
+        // One cpu slot: the marker posted after the missed frame runs after a census submitted before it.
+        let f = StartupTestScheduler(background: BackgroundWork(cpuWidth: 1, label: "test.census"))
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        LaunchThreadCensus.post(on: f.startup) { name, _ in report.yield(name) }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(nil)
+        f.hand.drain()
+        f.startup.post(.afterFirstFrame, "Test.marker", on: .lane(.cpu, .userVisible)) { report.yield("marker") }
+        f.hand.drain()
+        var reports = seen.makeAsyncIterator()
+        let first = await reports.next()
+        #expect(first == "marker", "no first-frame value before the frame")
+
+        f.startup.firstFrameCommitted()
+        f.hand.drain()
+        let expected = [LaunchThreadCensus.threadsValue, LaunchThreadCensus.runtimeThreadsValue, LaunchThreadCensus.ghosttyThreadsValue]
+        var names: [String] = []
+        for _ in expected { if let name = await reports.next() { names.append(name) } }
+        #expect(names == expected, "the committed frame takes the census")
     }
 
     /// The live read sees a running tokio-named thread of this process as a runtime thread.

@@ -293,6 +293,9 @@ FIRST_FRAME_THREADS = "launch.first_frame_threads"
 FIRST_FRAME_RUNTIME_THREADS = "launch.first_frame_runtime_threads"
 FIRST_FRAME_GHOSTTY_THREADS = "launch.first_frame_ghostty_threads"
 THREAD_MARKS = (FIRST_FRAME_THREADS, FIRST_FRAME_RUNTIME_THREADS, FIRST_FRAME_GHOSTTY_THREADS)
+# How long a launch that reached its content waits for the thread counts, sent from a cpu lane after the committed
+# first frame (never at a missed reveal deadline); a build without them, or a launch that drew no frame, costs this.
+THREAD_MARKS_WAIT_S = 1.0
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
                *THREAD_MARKS)
 # Percentiles printed after p50 (perf_stats.summary).
@@ -831,6 +834,9 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
             # without them, or a launch with no window, costs SIDEBAR_ROWS_WAIT_S.
             if STARTUP_COMPLETE in launch.marks:
                 launch.wait_for([SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE], SIDEBAR_ROWS_WAIT_S)
+        if reached:
+            # p08-startup-068: the census comes after the first frame, so a quit at the content mark can beat it.
+            launch.wait_for(list(THREAD_MARKS), THREAD_MARKS_WAIT_S)
         for term in ORDER_MARKS if reached else []:
             launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)
         if HANG_THRESHOLD_MS:
@@ -972,16 +978,20 @@ def run_values(marks):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
     if is_number(marks.get(SIDEBAR_ROWS_BUILT)) and is_number(marks.get(SIDEBAR_ROWS_VISIBLE)):
         shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
-    if is_number(marks.get(FIRST_FRAME_THREADS)):
-        shown.append(f"threads at first frame {marks[FIRST_FRAME_THREADS]:.0f}"
-                     f" (runtime {marks.get(FIRST_FRAME_RUNTIME_THREADS, 0):.0f},"
-                     f" ghostty {marks.get(FIRST_FRAME_GHOSTTY_THREADS, 0):.0f})")
+    if any(mark in marks for mark in THREAD_MARKS):
+        total, runtime, ghostty = (count_or_missing(marks.get(mark)) for mark in THREAD_MARKS)
+        shown.append(f"threads at first frame {total} (runtime {runtime}, ghostty {ghostty})")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
     if interrupted(marks):
         shown.append("interrupted")
     return shown
+
+
+def count_or_missing(value):
+    """A count for a run's line, or `missing`: a count that did not arrive is never read as 0."""
+    return f"{value:.0f}" if is_number(value) else "missing"
 
 
 def main_span_summary(runs):
@@ -1046,18 +1056,25 @@ def sidebar_rows_summary(runs):
 
 
 def first_frame_threads_summary(runs):
-    """p08-startup-068: each first-frame thread count as a spread, and the runs with a runtime thread at the first
-    frame (target none). No line when no run sent them (an older build, or a Release build without bench hooks)."""
+    """p08-startup-068: each first-frame thread count as a spread, the runs with a runtime thread at the first
+    frame (target none) and the runs that sent no runtime count, which never pass as none. No line when no run sent
+    any count (an older build, or a Release build without bench hooks)."""
+    if not any(mark in run for run in runs for mark in THREAD_MARKS):
+        return []
     lines = []
     for mark in THREAD_MARKS:
         values = [run[mark] for run in runs if is_number(run.get(mark))]
         if values:
             cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(values).items())
             lines.append(f"  {mark}: {cells}  n {len(values)}")
-    runtime = [str(index + 1) for index, run in enumerate(runs)
-               if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS)) and run[FIRST_FRAME_RUNTIME_THREADS] > 0]
-    if lines:
-        lines.append("  runtime threads at first frame: " + (f"runs {', '.join(runtime)}" if runtime else "none"))
+    measured = [(index + 1, run[FIRST_FRAME_RUNTIME_THREADS]) for index, run in enumerate(runs)
+                if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    runtime = [str(number) for number, value in measured if value > 0]
+    status = f"runs {', '.join(runtime)}" if runtime else "none"
+    lines.append(f"  runtime threads at first frame: {status} of {len(measured)} measured")
+    missing = [str(index + 1) for index, run in enumerate(runs) if not is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    if missing:
+        lines.append(f"  {FIRST_FRAME_RUNTIME_THREADS}: missing in runs {', '.join(missing)} ({len(missing)} of {len(runs)})")
     return lines
 
 
