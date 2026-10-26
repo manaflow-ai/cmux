@@ -124,7 +124,8 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryAppCaches` (default off): the registry the app's caches register with, nil while the feature
-    /// is off. Caches made per page (Browse more art in Settings) take it at their init.
+    /// is off. Caches made per page take it at their init: Browse more art in Settings (p07-memory-056),
+    /// the Apps page's glyph masks and the Settings page's backdrop thumbnails (p07-memory-057).
     var appCacheRegistry: (any MemoryConsumerRegistry)? {
         services.features.isEnabled(.memoryAppCaches) ? services.memoryCoordinator : nil
     }
