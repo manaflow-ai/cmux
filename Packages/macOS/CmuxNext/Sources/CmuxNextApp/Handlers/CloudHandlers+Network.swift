@@ -113,7 +113,8 @@ extension CloudHandlers {
             // OpenSSH's own reading of every config says whether `ssh NAME` is this route now.
             let resolved = try? await SSHProcessRunner.run(["/usr/bin/ssh", "-G", "--", name], environment: await SSHService.environment(),
                                                            deadline: .seconds(10), label: "ssh -G")
-            if let resolved, resolved.status == 0, enrollment.routeIsLive(resolved.stdout) {
+            let knownHosts = home.appendingPathComponent(".ssh/cmux-cloud/known_hosts").path
+            if let resolved, resolved.status == 0, enrollment.routeIsLive(resolved.stdout, cli: binary.path, hubLink: hubLink, knownHosts: knownHosts) {
                 done.append(.string("ssh-route"))
                 left += await acpmuxPeer(name, cli: HostCLI(binary: binary, environment: SSHService.environment), done: &done).map(ActionResultValue.string)
             } else {

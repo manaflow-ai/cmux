@@ -36,6 +36,7 @@ struct CloudEnrollMachineTests {
         let command = Self.enrollment.authorizeCommand, edit = Self.enrollment.keyEdit
         #expect(edit.hasPrefix("set -eu; "), "a key file it cannot append to fails the run")
         #expect(edit.contains("awk -v k='AAAAC3NzaC1lZDI1NTE5AAAAIE37Tl/9rijUPR8Dvy6OrvbHfOcb5zbYWEs2QJqEehL2'"), "a rerun matches the whole key, not a substring")
+        #expect(edit.contains(#"$1 !~ /^#/"#), "a commented-out key is not an installed one")
         #expect(edit.contains(#"[ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f""#), "a file without a final newline gets one first")
         #expect(command.contains(#"as_u env HOME="#), "the key goes to the cmux user's file whichever account the exec uses")
         #expect(edit.contains("'\(Self.key) cmux-enroll:lane-vm-1'"))
@@ -135,9 +136,12 @@ struct CloudEnrollMachineTests {
     @Test func theRouteIsLiveOnlyWhenSSHResolvesNameToIt() {
         let ours = "user cmux\nhostname 10.0.0.7\nstricthostkeychecking true\nuserknownhostsfile /Users/me/.ssh/cmux-cloud/known_hosts\n"
             + "proxycommand '/bin/cmux-tui' wg dial --hub '/tmp/hub.sock' %h %p\n"
-        #expect(Self.enrollment.routeIsLive(ours))
-        #expect(!Self.enrollment.routeIsLive("user leo\nhostname lane-vm-1\n"), "no include: ssh would dial the name itself")
-        #expect(!Self.enrollment.routeIsLive(ours.replacingOccurrences(of: "10.0.0.7", with: "10.9.9.9")), "an earlier Host lane-vm-1 elsewhere wins")
-        #expect(!Self.enrollment.routeIsLive(ours.replacingOccurrences(of: "true", with: "ask")))
+        let live = { (text: String) in Self.enrollment.routeIsLive(text, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", knownHosts: "/Users/me/.ssh/cmux-cloud/known_hosts") }
+        #expect(live(ours))
+        #expect(!live("user leo\nhostname lane-vm-1\n"), "no include: ssh would dial the name itself")
+        #expect(!live(ours.replacingOccurrences(of: "10.0.0.7", with: "10.9.9.9")), "an earlier Host lane-vm-1 elsewhere wins")
+        #expect(!live(ours.replacingOccurrences(of: "true", with: "ask")))
+        #expect(!live(ours.replacingOccurrences(of: "/bin/cmux-tui", with: "/tmp/evil")), "another program's wg dial is not this route")
+        #expect(!live(ours.replacingOccurrences(of: "/Users/me/", with: "/tmp/x/")), "another known_hosts is not this route")
     }
 }
