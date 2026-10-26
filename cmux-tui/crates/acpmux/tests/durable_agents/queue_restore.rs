@@ -219,7 +219,7 @@ async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
 #[tokio::test]
 async fn a_lost_prompt_runs_once_after_another_turn_started_first() {
     let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
-    let mut daemon = Daemon::with_env("qlost", "approve-all", &seam);
+    let mut daemon = Daemon::with_env("qlostrun", "approve-all", &seam);
     let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     client
         .send(
@@ -398,7 +398,7 @@ async fn a_long_queue_log_restores_in_time() {
 /// they left it.
 #[tokio::test]
 async fn a_long_log_of_unstarted_prompts_restores_in_time() {
-    let (ids, took) = restore_long_log("qlost", |record| {
+    let (ids, took) = restore_long_log("qunstart", |record| {
         for i in 0..LONG_LOG_PROMPTS {
             record("queued", queued(i, &format!("prompt {i}")));
         }
