@@ -18,6 +18,16 @@ extension ScreenContentView {
         rowColumn(of: kind).flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
     }
 
+    /// The vertical offset `pane`'s host is laid out at: its row's pan base while a pan shows on the
+    /// row's container (p04-input-050), else ``rowOffset(of:)``.
+    func rowLayoutOffset(of pane: PaneID) -> CGFloat {
+        baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.layoutOffset } ?? 0
+    }
+
+    func rowLayoutOffset(of kind: DividerHandleView.Kind) -> CGFloat {
+        rowColumn(of: kind).flatMap { rowScrolls[$0]?.layoutOffset } ?? 0
+    }
+
     /// The row column whose vertical offset moves a divider handle, if any.
     func rowColumn(of kind: DividerHandleView.Kind) -> ColumnID? {
         switch kind {
@@ -118,11 +128,12 @@ extension ScreenContentView {
     }
 
     /// A trackpad delta (points; positive moves content down, as AppKit
-    /// reports it).
+    /// reports it). On the row's motion container it moves one layer property and lays nothing out
+    /// (``presentScrollerPan(_:)``); the gesture's end lays the rows out once where they show.
     func rowScroll(_ column: ColumnID, deltaY: CGFloat, timestamp: TimeInterval) {
         rowScrolls[column]?.state.reduce(.gestureChanged(deltaX: deltaY, time: timestamp))
         refreshRowShift()
-        applyPresentation()
+        if !presentScrollerPan(.row(column)) { applyPresentation() }
     }
 
     @discardableResult

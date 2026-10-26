@@ -194,14 +194,21 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The part of this host the layout shows (own coordinates): its bounds cut by its own mask (a
-    /// scroll area's window or a held strip range, `setStripClip`) and by the strip container it sits
-    /// in (`StripClipContainerView`); `.zero` when none of it shows.
+    /// scroll area's window or a held strip range, `setStripClip`) and by the clipping pan containers it
+    /// sits in (the strip container, a scroll area's, `PanMotionContainer`); `.zero` when none of it shows.
     var stripShownRect: CGRect {
         var shown = bounds
         if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
-        if let container = superview as? StripClipContainerView {
-            // The clip stays where it is while a strip pan moves this host by the container's translation.
-            shown = shown.intersection(convert(container.bounds.offsetBy(dx: -container.translation, dy: 0), from: container))
+        // A container's clip stays where it is while the pans at or below it move this host by their translations.
+        var moved = CGVector.zero
+        var current = superview
+        while let container = current as? any PanMotionContainer {
+            moved.dx += container.panTranslation.dx
+            moved.dy += container.panTranslation.dy
+            if container.clipsSubviews {
+                shown = shown.intersection(convert(container.bounds.offsetBy(dx: -moved.dx, dy: -moved.dy), from: container))
+            }
+            current = container.superview
         }
         return shown.isNull ? .zero : shown
     }

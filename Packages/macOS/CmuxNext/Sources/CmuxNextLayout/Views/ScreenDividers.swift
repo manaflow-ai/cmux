@@ -54,16 +54,18 @@ struct ScreenDividers {
         screen.dividerViews.values.compactMap { view in
             guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
-            let line = view.lineFrameInSuperview.offsetBy(dx: screen.panTranslation(of: view), dy: 0).intersection(screen.bounds)
+            let moved = screen.panTranslation(of: view)
+            let line = view.lineFrameInSuperview.offsetBy(dx: moved.dx, dy: moved.dy).intersection(screen.bounds)
             let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
-    /// `rect` (`view`'s coordinates) in the screen's, where it shows: a strip pan on the motion
-    /// container moves it by the container's translation, which `convert` does not see.
+    /// `rect` (`view`'s coordinates) in the screen's, where it shows: a pan on the strip's motion
+    /// container, or a row's or area's, moves it by the translation, which `convert` does not see.
     private func shown(_ rect: CGRect, of view: DividerHandleView) -> CGRect {
-        screen.convert(rect, from: view).offsetBy(dx: screen.panTranslation(of: view), dy: 0)
+        let moved = screen.panTranslation(of: view)
+        return screen.convert(rect, from: view).offsetBy(dx: moved.dx, dy: moved.dy)
     }
 
     /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
