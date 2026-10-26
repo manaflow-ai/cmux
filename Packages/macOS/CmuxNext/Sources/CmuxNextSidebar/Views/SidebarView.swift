@@ -282,10 +282,10 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
-        let titlebarButtonsMinX = layoutUpdateAvailableButton(before: newButton.frame, minX: layoutPriorityButton(before: newButton.frame))
+        let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
+        let titlebarButtonsMinX = layoutUpdateAvailableButton(before: newButton.frame, minX: layoutPriorityButton(before: newButton.frame), leading: x)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
-            let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
             accessory.frame = NSRect(x: x, y: (rowMidY - size.height / 2).rounded(), width: width, height: size.height)
             accessory.isHidden = width < size.height

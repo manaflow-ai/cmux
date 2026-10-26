@@ -95,6 +95,11 @@ extension UpdaterService {
                  settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
                 self?.apply(updates, downloadsAutomatically: downloads)
+                // Opt-in on stable; the dogfood apps write their default while it is unset (Reset included).
+                if downloads == nil, let self, self.identity.track.downloadsAutomaticallyByDefault {
+                    // task-owner: one settings write that ends by itself; its change returns through this loop.
+                    Task { _ = try? await settings.seedDownloadAutomatically(channelDefault: true) }
+                }
                 if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch

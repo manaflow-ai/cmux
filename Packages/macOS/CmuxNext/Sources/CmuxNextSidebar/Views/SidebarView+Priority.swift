@@ -62,12 +62,20 @@ extension SidebarViewComponents {
         addSubview(updateAvailableButton)
     }
 
-    /// Places the Update Available button before `next` (the leftmost titlebar button) and
-    /// returns the row's new leftmost minX.
-    func layoutUpdateAvailableButton(before next: NSRect, minX: CGFloat) -> CGFloat {
+    /// Places the Update Available button left of the bell (or of `next`, the New Workspace
+    /// button, without one) and returns the row's leftmost minX. It never crosses `leading` (the
+    /// traffic lights and the toolbar band's reserve): with no room for both, the update notice
+    /// takes the bell's slot and the bell steps out of the row (the palette and its shortcut
+    /// still open the Priority view).
+    func layoutUpdateAvailableButton(before next: NSRect, minX: CGFloat, leading: CGFloat) -> CGFloat {
         guard !updateAvailableButton.isHidden else { return minX }
-        updateAvailableButton.frame = NSRect(x: minX - Metrics.space1 - next.width, y: next.minY, width: next.width, height: next.height)
-        return updateAvailableButton.frame.minX
+        var frame = NSRect(x: minX - Metrics.space1 - next.width, y: next.minY, width: next.width, height: next.height)
+        if frame.minX < leading, !priorityButton.isHidden {
+            frame = priorityButton.frame
+            priorityButton.frame = .zero
+        }
+        updateAvailableButton.frame = frame
+        return frame.minX
     }
 
     /// Places the bell before `next` (the New Workspace button) in the titlebar row; returns the
