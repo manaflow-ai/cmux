@@ -54,10 +54,14 @@ They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
 
---require-optimized refuses (exit 2), before any launch, a build that is not
-optimized: the Info.plist's CMUXBuildConfiguration when the build stamps it,
-else the bundle itself (bench_launch.bundle_kind: Xcode's .debug.dylib means
-Debug; a bench-hooks or plain bundle is Release-optimized).
+--tag finds the tag's newest bundle in DerivedData's Build/Products/Debug or
+Build/Products/Release (where `reload.sh --config release|bench|bench-checks`
+puts it). --require-optimized refuses (exit 2), before any launch, a build that
+is not optimized, by bench_launch.build_config: reload.sh's Info.plist stamp
+CMUXBuildConfiguration, checked against the executable. `release` and `bench`
+pass; `debug`, `bench-checks` (its blocking detector costs time on every
+checked call), a stamp the executable contradicts, and an unstamped bench-hooks
+bundle are refused. With --tag it takes the tag's newest optimized bundle.
 
 --order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run.
 """
@@ -65,7 +69,6 @@ import argparse
 import glob
 import json
 import os
-import plistlib
 import re
 import shutil
 import select
@@ -80,9 +83,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
 from bench_launch import (  # noqa: E402
-    bundle_kind, finder_limits, info_plist, limits_line, require_gui_session, socket_candidates)
+    BUILD_CONFIG_KEY, RecordError, build_config, bundle_kind, finder_limits, info_plist, limits_line,
+    require_gui_session, socket_candidates)
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
+# The product folders a tagged build lands in: reload.sh's default Debug, and Release for --config release, bench
+# and bench-checks (BUILD_CONFIGURATION=Release).
+PRODUCT_CONFIGS = ("Debug", "Release")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
 
@@ -175,9 +182,6 @@ PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED)
-# A numeric temperature is Chrome's StartupTemperature enum
-# (components/startup_metric_utils/browser/startup_metric_utils.h).
-CHROME_TEMPERATURES = {0: "cold", 1: "warm", 2: "lukewarm", 3: "undetermined"}
 # Percentiles printed after p50 (nearest rank).
 PERCENTILES = (95, 99)
 
@@ -221,9 +225,9 @@ def spread(values):
 
 
 def temperature_name(value):
-    if is_number(value) and int(value) == value:
-        return CHROME_TEMPERATURES.get(int(value), f"{value:g}")
-    return str(value).lower()
+    """A temperature as the build names it (`cold`, `warm`, `lukewarm`: task 007 sends names, never a number); any
+    other value is shown as it came."""
+    return f"{value:g}" if is_number(value) else str(value).lower()
 
 
 def run_temperature(marks):
@@ -241,8 +245,9 @@ def interrupted(run):
     return value is not None and value is not False
 
 
-# Apps given with --app, by tag; other tags are DerivedData builds.
+# Apps given with --app, by tag; other tags are DerivedData builds, each resolved once into TAGGED (tagged_app).
 APPS = {}
+TAGGED = {}
 
 
 def app_tag(path):
@@ -260,18 +265,48 @@ def bundle_root(tag):
         # /tmp is /private/tmp: a process may show either spelling.
         path = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", APPS[tag].removeprefix("/private"))
         return f"(/private)?{path}" if path.startswith("/tmp/") else path
-    return f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV"
+    return f"DerivedData/cmux-{tag}/Build/Products/({'|'.join(PRODUCT_CONFIGS)})/cmux DEV"
+
+
+def executable(app):
+    """The bundle's main executable: a Release product names it differently (cmux, not cmux DEV); the bundle says."""
+    name = info_plist(app).get("CFBundleExecutable")
+    if not name:
+        raise SystemExit(f"{app}: its Info.plist names no CFBundleExecutable")
+    return os.path.join(app, "Contents/MacOS", name)
+
+
+def tagged_apps(tag):
+    """The tag's DerivedData bundles in every product folder, the newest stamp first (the Info.plist, which reload.sh
+    writes when it stages the tagged app)."""
+    apps = [app for config in PRODUCT_CONFIGS
+            for app in glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/{config}/cmux DEV*.app")
+            if os.path.isfile(os.path.join(app, "Contents/Info.plist"))]
+    return sorted(apps, key=lambda app: os.path.getmtime(os.path.join(app, "Contents/Info.plist")), reverse=True)
+
+
+def tagged_app(tag, optimized=False):
+    """The tag's newest DerivedData bundle. With `optimized`, its newest optimized one, so a later Debug rebuild of
+    the tag never hides its bench build; the newest when it has none, for require_optimized to refuse by name."""
+    apps = tagged_apps(tag)
+    if not apps:
+        raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}/Build/Products/"
+                         f"({' or '.join(PRODUCT_CONFIGS)})")
+    if optimized:
+        return next((app for app in apps if build_evidence(app, executable(app))[0]), apps[0])
+    return apps[0]
+
+
+def app_path(tag):
+    if tag in APPS:
+        return APPS[tag]
+    if tag not in TAGGED:
+        TAGGED[tag] = tagged_app(tag)
+    return TAGGED[tag]
 
 
 def app_binary(tag):
-    if tag in APPS:
-        # A Release build names its executable differently; the bundle says which.
-        with open(os.path.join(APPS[tag], "Contents/Info.plist"), "rb") as info:
-            return os.path.join(APPS[tag], "Contents/MacOS", plistlib.load(info)["CFBundleExecutable"])
-    matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
-    if not matches:
-        raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")
-    return matches[0]
+    return executable(app_path(tag))
 
 
 def pgrep(pattern):
@@ -772,31 +807,45 @@ def value_summary(runs, temperature=None):
     return lines
 
 
-BUNDLE_KINDS = {
-    "debug": (False, "a Debug build (Xcode's .debug.dylib beside the executable)"),
-    "bench-hooks": (True, "a bench build (Release optimization, CMUX_BENCH_HOOKS marker)"),
-    "release": (True, "a Release build (no .debug.dylib, no bench-hooks marker)"),
+# Each `reload.sh --config` name (bench_launch.build_config): whether its launch is the shipped, optimized one.
+BUILD_CONFIGS = {
+    "release": (True, "a Release build"),
+    "bench": (True, "a bench build (Release optimization plus the bench hooks)"),
+    "debug": (False, "a Debug build (not optimized)"),
+    # Release-optimized, but its blocking detector's bookkeeping costs time on every checked call (reload.sh), so
+    # the launch it times is not the one that ships; the perf-lab launch story measures `bench` for the same reason.
+    "bench-checks": (False, "a bench-checks build (its blocking detector costs time on every checked call)"),
 }
 
 
 def build_evidence(app, binary):
-    """`(optimized, why)` for a bundle: its Info.plist CMUXBuildConfiguration (the Xcode configuration) when the
-    build stamps it, else what the bundle shows (bench_launch.bundle_kind, the rule perf-lab records use)."""
-    stated = info_plist(app).get("CMUXBuildConfiguration")
-    if stated:
-        return str(stated).lower() == "release", f"Info.plist CMUXBuildConfiguration={stated}"
-    return BUNDLE_KINDS[bundle_kind(app, binary)]
+    """`(optimized, why)` for a bundle, from bench_launch.build_config: reload.sh's CMUXBuildConfiguration stamp,
+    checked against the executable (Xcode's .debug.dylib, the bench-hooks marker). A stamp the bundle contradicts,
+    or a bench-hooks bundle with no stamp (bench or bench-checks), is no evidence of an optimized build."""
+    try:
+        config = build_config(app, binary)
+    except RecordError as error:
+        return False, str(error).removeprefix("bench-launch: ")
+    optimized, what = BUILD_CONFIGS[config]
+    stamped = info_plist(app).get(BUILD_CONFIG_KEY)
+    if stamped:
+        return optimized, f"{what}; Info.plist {BUILD_CONFIG_KEY}={stamped}"
+    return optimized, f"{what}; an unstamped {bundle_kind(app, binary)} bundle"
 
 
 def require_optimized(tags):
-    """Refuses, before any launch, a tag whose build is not optimized: its numbers would not be launch numbers."""
+    """Refuses, before any launch, a tag whose build is not optimized: its numbers would not be launch numbers.
+    A DerivedData tag resolves here to its newest optimized bundle (tagged_app), which every run then launches."""
     for tag in tags:
-        binary = app_binary(tag)
-        optimized, why = build_evidence(os.path.dirname(os.path.dirname(os.path.dirname(binary))), binary)
-        print(f"build: {tag} is {why}", flush=True)
+        if tag not in APPS and tag not in TAGGED:
+            TAGGED[tag] = tagged_app(tag, optimized=True)
+        app = app_path(tag)
+        optimized, why = build_evidence(app, executable(app))
+        print(f"build: {tag} is {why} ({app})", flush=True)
         if not optimized:
             raise Refused(f"--require-optimized: tag {tag} is {why}; bench a Release or bench build "
-                          "(`reload.sh --config bench`, or the fleet's bench artifact)")
+                          f"(`reload.sh --tag {tag} --config bench`, which lands in Build/Products/Release, or "
+                          "--app with the fleet's bench artifact)")
 
 
 def parse_order(order):
@@ -838,8 +887,9 @@ def parse_args(argv):
                              "the bench, exit 2); warm: no purge. The summary counts the runs whose "
                              "launch.temperature read it")
     parser.add_argument("--require-optimized", action="store_true",
-                        help="exit 2 before any launch when a build is not optimized (Info.plist "
-                             "CMUXBuildConfiguration, else the bundle: a Debug build has Xcode's .debug.dylib)")
+                        help="exit 2 before any launch unless each build is release or bench (Info.plist "
+                             "CMUXBuildConfiguration, checked against the executable); a --tag takes its newest "
+                             "optimized bundle")
     args = parser.parse_args(argv)
     if not args.tag and not args.app:
         parser.error("give at least one --tag or --app")

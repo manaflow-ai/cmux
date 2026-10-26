@@ -41,18 +41,20 @@ def quiet(call, *args, **kwargs):
     return result, out.getvalue(), err.getvalue()
 
 
-def bundle(folder, tag, configuration=None, debug_dylib=False, marker=False):
+def bundle(folder, tag, configuration=None, debug_dylib=False, marker=False, executable="cmux DEV"):
+    """A `cmux DEV <tag>.app` as reload.sh stages it: `configuration` is its --config stamp (debug, release, bench,
+    bench-checks); a Release product's executable is `cmux`."""
     app = os.path.join(folder, f"cmux DEV {tag}.app")
     os.makedirs(os.path.join(app, "Contents/MacOS"))
-    info = {"CFBundleExecutable": "cmux DEV"}
+    info = {"CFBundleExecutable": executable}
     if configuration:
         info["CMUXBuildConfiguration"] = configuration
     with open(os.path.join(app, "Contents/Info.plist"), "wb") as out:
         plistlib.dump(info, out)
-    with open(os.path.join(app, "Contents/MacOS/cmux DEV"), "wb") as out:
+    with open(os.path.join(app, "Contents/MacOS", executable), "wb") as out:
         out.write(b"\xcf\xfa\xed\xfe" + b"\0" * 256 + (bl.BENCH_HOOKS_MARKER if marker else b"") + b"\0" * 16)
     if debug_dylib:
-        open(os.path.join(app, "Contents/MacOS/cmux DEV.debug.dylib"), "wb").close()
+        open(os.path.join(app, "Contents/MacOS", f"{executable}.debug.dylib"), "wb").close()
     return app
 
 
@@ -116,7 +118,7 @@ class ValueSummaryTests(unittest.TestCase):
 
     def test_temperature_counts_against_the_asked_one(self):
         runs = [{bs.TEMPERATURE: "cold", bs.PAGEINS: 4000 + i, bs.MAIN_CPU: 50.0} for i in range(8)]
-        runs += [{bs.TEMPERATURE: 1, bs.PAGEINS: 300}, {bs.INTERRUPTED: True}]
+        runs += [{bs.TEMPERATURE: "warm", bs.PAGEINS: 300}, {bs.INTERRUPTED: True}]
         lines = bs.value_summary(runs, "cold")
         self.assertEqual(lines[0], "  launch.temperature: cold 8, warm 1 of 10 runs (1 without it); "
                                    "8 of 10 read cold as asked")
@@ -139,8 +141,8 @@ class ValueSummaryTests(unittest.TestCase):
         runs += [{"launch.temperature.lukewarm": 11.0}, {"main_start": 3.0}]
         self.assertEqual(bs.run_temperature(runs[0]), "cold")
         self.assertIsNone(bs.run_temperature(runs[-1]))
-        self.assertEqual(bs.run_temperature({bs.TEMPERATURE: 0, "launch.temperature.warm": 4.0}), "cold",
-                         "the value mark wins over the instant mark")
+        self.assertEqual(bs.run_temperature({bs.TEMPERATURE: "lukewarm", "launch.temperature.warm": 4.0}),
+                         "lukewarm", "the value mark wins over the instant mark")
         lines = bs.value_summary(runs, "cold")
         self.assertEqual(lines[0], "  launch.temperature: cold 8, lukewarm 1 of 10 runs (1 without it); "
                                    "8 of 10 read cold as asked")
@@ -150,9 +152,13 @@ class ValueSummaryTests(unittest.TestCase):
                             "an instant temperature mark alone prints the summary")
         self.assertIsNotNone(bs.parse_order("main_start<launch.temperature.cold"), "the instant mark is a time")
 
-    def test_chrome_enum_values_and_interrupted_rule(self):
-        self.assertEqual([bs.temperature_name(v) for v in (0, 1.0, 2, 3, 7, "COLD")],
-                         ["cold", "warm", "lukewarm", "undetermined", "7", "cold"])
+    def test_temperatures_read_as_named_and_interrupted_rule(self):
+        # Task 007 sends names. A number has no agreed meaning (007's signpost counts 0 as warm, Chrome's
+        # StartupTemperature counts 0 as cold), so it is shown as it came, never turned into a name.
+        self.assertEqual([bs.temperature_name(v) for v in ("COLD", "warm", "lukewarm", 0, 1.0, 2.5)],
+                         ["cold", "warm", "lukewarm", "0", "1", "2.5"])
+        self.assertEqual(bs.run_temperature({bs.TEMPERATURE: 0.0}), "0")
+        self.assertEqual(bs.run_temperature({"launch.temperature.Warm": 3.0}), "warm")
         self.assertTrue(bs.interrupted({bs.INTERRUPTED: 0.0}), "a mark at 0 ms counts")
         self.assertFalse(bs.interrupted({bs.INTERRUPTED: False}))
         self.assertFalse(bs.interrupted({bs.INTERRUPTED: None}))
@@ -241,33 +247,83 @@ class OneRunTests(unittest.TestCase):
 class RequireOptimizedTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp(prefix="bench-startup-test-")
-        self.saved = dict(bs.APPS)
+        self.saved = dict(bs.APPS), dict(bs.TAGGED), bs.DERIVED
+        bs.DERIVED = os.path.join(self.folder, "DerivedData")
 
     def tearDown(self):
-        bs.APPS.clear()
-        bs.APPS.update(self.saved)
+        for live, saved in zip((bs.APPS, bs.TAGGED), self.saved):
+            live.clear()
+            live.update(saved)
+        bs.DERIVED = self.saved[2]
 
     def check(self, tag, **kwargs):
         bs.APPS[tag] = bundle(self.folder, tag, **kwargs)
         return quiet(bs.require_optimized, [tag])
 
-    def test_debug_bundles_are_refused_before_any_launch(self):
-        code, out, err = self.check("dbg", debug_dylib=True)
+    def tagged(self, tag, config, age, **kwargs):
+        """A reload.sh --tag build in the tag's DerivedData product folder (Debug or Release), `age` seconds old."""
+        folder = os.path.join(bs.DERIVED, f"cmux-{tag}/Build/Products", config)
+        os.makedirs(folder, exist_ok=True)
+        app = bundle(folder, tag, **kwargs)
+        stamp = os.path.getmtime(os.path.join(app, "Contents/Info.plist")) - age
+        os.utime(os.path.join(app, "Contents/Info.plist"), (stamp, stamp))
+        return app
+
+    # The stamps reload.sh writes (`--config` names), on the bundles each builds.
+    def test_release_and_bench_stamps_pass(self):
+        code, out, _ = self.check("rel", configuration="release")
+        self.assertEqual(code, None)
+        self.assertIn("a Release build; Info.plist CMUXBuildConfiguration=release", out)
+        code, out, _ = self.check("bench", configuration="bench", marker=True)
+        self.assertEqual(code, None)
+        self.assertIn("a bench build", out)
+
+    def test_debug_and_bench_checks_stamps_are_refused_before_any_launch(self):
+        code, out, err = self.check("dbg", configuration="debug", debug_dylib=True)
         self.assertEqual(code, 2)
         self.assertIn("Debug build", out)
         self.assertIn("--require-optimized: tag dbg", err)
+        code, _, err = self.check("checks", configuration="bench-checks", marker=True)
+        self.assertEqual(code, 2)
+        self.assertIn("blocking detector costs time on every checked call", err)
 
-    def test_release_and_bench_bundles_pass(self):
-        self.assertEqual(self.check("rel")[0], None)
-        code, out, _ = self.check("bench", marker=True)
-        self.assertEqual(code, None)
-        self.assertIn("bench build", out)
+    def test_a_stamp_the_bundle_contradicts_is_refused(self):
+        code, _, err = self.check("liar", configuration="release", marker=True)
+        self.assertEqual(code, 2)
+        self.assertIn("CMUXBuildConfiguration='release', but", err)
+        self.assertIn("bench-hooks bundle", err)
+        code, _, err = self.check("debug-says-bench", configuration="bench", debug_dylib=True)
+        self.assertEqual(code, 2)
+        self.assertIn("debug bundle", err)
 
-    def test_the_stamped_configuration_wins_over_the_bundle(self):
-        self.assertEqual(self.check("stamped-debug", configuration="Debug")[0], 2)
-        code, out, _ = self.check("stamped-release", configuration="Release")
-        self.assertEqual(code, None)
-        self.assertIn("CMUXBuildConfiguration=Release", out)
+    def test_unstamped_bundles_read_from_the_executable(self):
+        self.assertEqual(self.check("plain")[0], None, "no .debug.dylib, no marker: a Release build")
+        self.assertEqual(self.check("plain-debug", debug_dylib=True)[0], 2)
+        code, _, err = self.check("plain-bench", marker=True)
+        self.assertEqual(code, 2, "an unstamped bench-hooks bundle can be bench or bench-checks")
+        self.assertIn("bench-hooks build with no CMUXBuildConfiguration", err)
+
+    def test_a_tag_finds_its_bench_build_under_products_release(self):
+        # reload.sh --tag t --config bench stages `cmux DEV t.app` (executable `cmux`) under Products/Release;
+        # a later Debug rebuild of the tag lands under Products/Debug and is newer.
+        bench = self.tagged("t", "Release", 60, configuration="bench", marker=True, executable="cmux")
+        debug = self.tagged("t", "Debug", 0, configuration="debug", debug_dylib=True)
+        code, out, _ = quiet(bs.require_optimized, ["t"])
+        self.assertEqual(code, None, out)
+        self.assertEqual(bs.app_binary("t"), os.path.join(bench, "Contents/MacOS/cmux"))
+        bs.TAGGED.clear()
+        self.assertEqual(bs.app_binary("t"), os.path.join(debug, "Contents/MacOS/cmux DEV"),
+                         "without --require-optimized the newest build runs")
+        pattern = bs.re.compile(bs.bundle_root("t"))
+        self.assertTrue(pattern.search(bench) and pattern.search(debug), "both product folders are the tag's")
+
+    def test_a_tag_with_only_a_debug_build_is_refused_with_the_bench_command(self):
+        self.tagged("only", "Debug", 0, configuration="debug", debug_dylib=True)
+        code, _, err = quiet(bs.require_optimized, ["only"])
+        self.assertEqual(code, 2)
+        self.assertIn("`reload.sh --tag only --config bench`, which lands in Build/Products/Release", err)
+        code, _, err = quiet(bs.app_binary, "missing")
+        self.assertIn("no tagged app for missing", str(code))
 
 
 class OrderTests(unittest.TestCase):
