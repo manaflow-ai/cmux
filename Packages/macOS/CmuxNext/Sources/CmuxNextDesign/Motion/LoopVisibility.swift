@@ -5,10 +5,10 @@ public import QuartzCore
 /// The one way a view runs an infinite Core Animation loop: the loop is in the render server only
 /// while a person can see it (plans/cmux-next/chrome-parity/p03-rendering.md, R6 and task 070).
 ///
-/// Its ``node`` sits under the view's window node (``WindowVisibilitySource``, which the window's
-/// occlusion family feeds: occluded by the system or by a same-size cmux window above it,
-/// crbug.com/883031), or under a hidden root while the view is in no window; its own state is the
-/// view's hidden state. While the node is not ``Visibility/visible`` (the view left its window, it or
+/// Its ``node`` sits under the view's window node (``WindowVisibilitySource``: occluded while AppKit
+/// says so or while the window's ``WindowOcclusionFamily`` does, which covers a window fully under
+/// an opaque cmux window of the same size, crbug.com/883031), or under a hidden root while the view
+/// is in no window; its own state is the view's hidden state. While the node is not ``Visibility/visible`` (the view left its window, it or
 /// an ancestor is hidden, the window is miniaturized or occluded, the app is hidden) no attached loop
 /// is on its layer. When the node shows again each loop is made again and begins at the phase the
 /// shared media-time clock gives it (``SpinnerClock``), so it joins in step instead of restarting.

@@ -59,6 +59,28 @@ import Testing
         #expect(loops.runningCount == 1)
     }
 
+    /// A window fully under an opaque cmux window of the same size: AppKit still says visible, its
+    /// occlusion family says occluded (p03-rendering-097, crbug.com/883031), and its loops come off
+    /// until the family clears.
+    @Test func aSameSizeCoveredWindowRunsNoLoop() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let host = LoopTestWindow(.visible)
+        let loops = LoopVisibility("test.covered")
+        loops.place(in: host.window)
+        let a = CALayer(), b = CALayer()
+        loops.attach(a, key: "spin") { Motion.indicators.spinAnimation() }
+        loops.attach(b, key: "spin") { Motion.indicators.spinAnimation() }
+        #expect(loops.runningCount == 2)
+
+        let family = WindowOcclusionFamily.of(host.window)
+        family.set(occluded: true)
+        #expect(host.state == .visible, "the fake AppKit read still says visible")
+        #expect(loops.runningCount == 0, "a window a same-size cmux window covers keeps its loops")
+        family.set(occluded: false)
+        #expect(loops.runningCount == 2, "the loops do not come back when the cover goes")
+    }
+
     /// A loop that starts, or starts again after its window was occluded, begins at the phase the
     /// shared clock gives it, so it sits where one running all along would; its own offset stays.
     @Test func aLoopBeginsAtTheSharedClocksPhase() throws {
