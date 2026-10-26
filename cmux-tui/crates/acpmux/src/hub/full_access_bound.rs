@@ -13,13 +13,13 @@
 //!   those flags);
 //! - mode: its current mode is a full-access one;
 //! - undeclared mode: a mode its harness reported without declaring modes
-//!   (`RemoteFloor::undeclared_mode`);
+//!   (`RemoteFloor::undeclared_mode`); for a host a restart left, read back from its log first;
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
 //!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
-//! (`cap_full_access`).
+//! (`cap_full_access`). An agent that already runs in it ends (below, `end_if_runs_full_access`).
 
 use super::*;
 
@@ -153,6 +153,115 @@ impl Hub {
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
         self.drain_pool();
+        // Unavailable now, not only for the next start: an agent still in full access ends.
+        self.end_every_managed_full_access().await;
+    }
+}
+
+/// Ending what already runs (#23322): under the managed off, an agent that runs in full access
+/// ends (`end_if_runs_full_access`) wherever `runs_full_access` turns true for it:
+/// - the push that turns it off (`full_access_turned_off`, every session);
+/// - a mode or option write, the harness's own included: `write_mode_state` wakes the hub's
+///   background task (`idle.rs`), which checks every session;
+/// - a mode switch that raced the push, checked again after it writes its mode (`Hub::forward`);
+/// - a host a restart left, at adoption (`adopt_agent_hosts`) or at the next start
+///   (`ensure_child`), with the mode it reported read back from the log first;
+/// - the next start (`ensure_child`); `child_for` never hands such an agent out.
+impl Hub {
+    /// Under the managed off, ends `session`'s agent when it runs in full access
+    /// (`runs_full_access`), and says whether it did: its live child, and any host a restart
+    /// left. For such a host the mode its harness reported without declaring modes is read back
+    /// from the log first (`read_back_undeclared_mode`). Called under the session's spawn lock.
+    pub(super) async fn end_if_runs_full_access(&self, session: &Session) -> bool {
+        if !self.full_access_managed_off() {
+            return false;
+        }
+        if Self::host_record_live(&session.id) {
+            self.read_back_undeclared_mode(session);
+        }
+        if runs_full_access(&FullAccessView::of_session(session)).is_none() {
+            return false;
+        }
+        self.end_managed_full_access(session).await;
+        true
+    }
+
+    /// Every agent still running in full access under the managed off ends now (a turn in
+    /// progress ends with it), each under its session's spawn lock, checked again there.
+    pub(super) async fn end_every_managed_full_access(&self) {
+        for session in self.sessions() {
+            if self.managed_off_runs_full_access(&session) {
+                let _spawning = session.spawn_lock.lock().await;
+                self.end_if_runs_full_access(&session).await;
+            }
+        }
+    }
+
+    /// The mode a harness that declares no modes last reported for its running agent: its own
+    /// `current_mode_update` records since the agent's `host_started`, read back from the log.
+    /// Kept only in memory while a daemon runs (`RemoteFloor::undeclared_mode`), so the next
+    /// daemon reads it before it decides about a host a restart left.
+    fn read_back_undeclared_mode(&self, session: &Session) {
+        if session.meta().modes.is_some()
+            || session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        {
+            return;
+        }
+        let mut last = None;
+        let kinds = ["host_started", "current_mode_update"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+            match (e.dir.as_str(), e.kind.as_str()) {
+                ("mux", "host_started") => last = None,
+                ("in", "current_mode_update") => {
+                    last = e
+                        .msg
+                        .pointer("/params/update/currentModeId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                }
+                _ => {}
+            }
+            true
+        });
+        if last.is_some() {
+            *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = last;
+        }
+    }
+
+    /// Ends the agent of a session that runs in full access while MDM forces it off: the live
+    /// child and any host a restart left. The start that follows runs in a mode that asks, or
+    /// refuses a profile that pins full access (`refuse_pinned_full_access`).
+    async fn end_managed_full_access(&self, session: &Session) {
+        let child = session.child.lock().await.take();
+        let ended = child.is_some() || Self::host_record_live(&session.id);
+        if let Some(child) = child {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        // What only the ended agent said goes with it: the mode it reported without declaring
+        // modes, and a full-access value of any option (the next agent reports its own, and
+        // `replay_config` skips a null).
+        *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let scrubbed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let mut scrubbed = false;
+            for o in m.config_options.as_mut().and_then(Value::as_array_mut).into_iter().flatten() {
+                if o["currentValue"].as_str().is_some_and(super::start_mode::is_full_access) {
+                    o["currentValue"] = Value::Null;
+                    scrubbed = true;
+                }
+            }
+            scrubbed
+        };
+        if scrubbed {
+            self.save_meta(session);
+        }
+        if ended {
+            tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
+            self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
+        }
     }
 }
 

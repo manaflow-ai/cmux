@@ -519,6 +519,9 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
+        // ends here and is never reached again; the start below asks, or refuses a pinned profile.
+        self.end_if_runs_full_access(session).await;
         let live = session.child.lock().await.clone();
         if let Some(child) = live
             && child.is_alive().await
@@ -1335,6 +1338,7 @@ impl Hub {
         if session.status() != SessionStatus::Closed
             && session.stops.load(Ordering::SeqCst) == stops
             && let Ok(_idle) = session.spawn_lock.try_lock()
+            && !self.managed_off_runs_full_access(session)
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
