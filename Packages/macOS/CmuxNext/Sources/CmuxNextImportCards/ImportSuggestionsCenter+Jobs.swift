@@ -2,6 +2,7 @@ import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import Foundation
 
 /// The jobs a card's button runs, each saved after every step: a browser's

@@ -6,6 +6,7 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the

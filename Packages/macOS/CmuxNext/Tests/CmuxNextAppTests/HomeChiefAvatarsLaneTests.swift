@@ -52,27 +52,27 @@ import Testing
     @Test func aTileReadRunsOnTheFilesLaneAtUserVisible() async throws {
         let home = try Self.folder()
         HomeChiefFiles(muxHome: home).writeAvatar("MX")
-        let runner = RecordingRunner()
-        let shown = await HomeChiefAvatars(muxHome: home, cache: try Self.folder(), files: runner).read(chiefs: ["agent_mux"])
+        let runner = RecordingRunner(), avatars = HomeChiefAvatars(muxHome: home, cache: try Self.folder(), files: runner)
+        let shown = await avatars.read(chiefs: ["agent_mux"])
         #expect(shown == ["agent_mux": .text("MX")])
         #expect(!runner.recorded.isEmpty)
-        #expect(runner.recorded.allSatisfy { $0 == (.files, .userVisible) })
+        #expect(runner.recorded.allSatisfy { $0.0 == .files && $0.1 == .userVisible })
     }
 
     @Test func theHeaderFallbackReadRunsOnTheFilesLaneAtUserVisible() async throws {
         let fallback = try Self.folder().appendingPathComponent("pet.png")
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fallback)
-        let runner = RecordingRunner()
-        let shown = await HomeChiefAvatars.headerAvatar(files: HomeChiefFiles(muxHome: try Self.folder()), fallback: fallback, on: runner)
+        let runner = RecordingRunner(), files = HomeChiefFiles(muxHome: try Self.folder())
+        let shown = await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, on: runner)
         #expect(shown.picture == (try Data(contentsOf: fallback)))
         #expect(runner.recorded.count == 2)  // the Chief's own files, then the fallback
-        #expect(runner.recorded.allSatisfy { $0 == (.files, .userVisible) })
+        #expect(runner.recorded.allSatisfy { $0.0 == .files && $0.1 == .userVisible })
     }
 
     @Test func clearingAPictureRunsOnTheFilesLaneAtUserBlocking() async throws {
-        let runner = RecordingRunner()
-        try await HomeChiefAvatars(muxHome: try Self.folder(), cache: try Self.folder(), files: runner).clearPicture(chief: "agent_mux")
+        let runner = RecordingRunner(), avatars = HomeChiefAvatars(muxHome: try Self.folder(), cache: try Self.folder(), files: runner)
+        try await avatars.clearPicture(chief: "agent_mux")
         #expect(runner.recorded.count == 1)
-        #expect(runner.recorded.allSatisfy { $0 == (.files, .userBlocking) })
+        #expect(runner.recorded.allSatisfy { $0.0 == .files && $0.1 == .userBlocking })
     }
 }
