@@ -128,7 +128,7 @@ final class BookmarkChromiumSync {
         // One debounce per store: a later schedule replaces the pending deadline.
         let timer = scheduled[store] ?? DemandTimer(owner: "BookmarkChromiumSync.settle")
         scheduled[store] = timer
-        timer.schedule(after: Self.settle) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: Self.settle) { [weak self] in
             self?.sync(store, profile: profile)
         }
     }

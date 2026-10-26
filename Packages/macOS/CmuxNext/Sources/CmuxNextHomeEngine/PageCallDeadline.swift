@@ -24,7 +24,7 @@ enum PageCallDeadline {
                     do { result = .success(try await work()) } catch { result = .failure(error) }
                     once.finish(result)
                 }
-                timer.schedule(after: deadline) { @MainActor in
+                timer.scheduleOnMain(after: deadline) {
                     guard once.isWaiting else { return }
                     once.finish(.failure(onTimeout()))
                 }
