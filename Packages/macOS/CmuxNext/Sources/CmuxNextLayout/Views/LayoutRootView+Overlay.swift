@@ -80,12 +80,16 @@ extension LayoutRootView {
                 let alpha = host.alphaValue * screenAlpha
                 let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
                                              rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
-                if chrome.superview === plane, host.overlaySyncKey == key { continue }
+                // A host that went to rest on a render-server spring hands its chrome the same spring.
+                let chromeSpring = host.chromeSpring
+                host.chromeSpring = nil
+                if chrome.superview === plane, host.overlaySyncKey == key, chromeSpring == nil { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
+                if let chromeSpring { chrome.springOnRenderServer(to: rect, chromeSpring) }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }

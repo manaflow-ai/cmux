@@ -17,9 +17,12 @@ extension ScreenContentView {
     /// Opens a change turn: a model update, a resize, or a camera move from the scrollbar or the
     /// wheel. With render-server variants live, presentation waits for ``endMotionTurn(needsFrames:policy:)``,
     /// so they take their motions before anything is laid out and the turn lays out once.
+    /// The frames the render server carries show what it shows for the turn (``openRenderTurn(live:)``).
     func beginMotionTurn() {
         motionTurnDepth += 1
-        if motionTurnDepth == 1, motionBackends.isLive { heldPresentation = HeldPresentation() }
+        guard motionTurnDepth == 1 else { return }
+        if motionBackends.isLive { heldPresentation = HeldPresentation() }
+        openRenderTurn(live: heldPresentation != nil)
     }
 
     /// Ends a change turn, after every motion it starts has started (the root's layout, focus, center
@@ -36,9 +39,11 @@ extension ScreenContentView {
         let taken = motionBackends.begin(on: self, policy: policy)
         // The render server runs the close: it has no first frame on the CPU.
         if taken.contains(.splitClose) { leadsFrame = false }
+        let rendered = closeRenderTurn(taken: taken.contains(.splitClose))
         let led = leadIfPending(policy: policy)
         if led || held != nil { applyPresentation(force: held?.force ?? false) }
-        guard !taken.isEmpty else { return needsFrames }
+        if rendered == .handedBack { return true }
+        guard !taken.isEmpty || rendered == .carried else { return needsFrames }
         return needsFrames && (hasMotion || reportScrollOnSettle || canvasState.camera.isMoving)
     }
 

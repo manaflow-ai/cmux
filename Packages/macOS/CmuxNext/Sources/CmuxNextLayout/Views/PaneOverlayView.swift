@@ -142,35 +142,37 @@ final class PaneOverlayView: NSView {
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
 
+    /// The rest frames of the chrome sublayers for a pane cell of `size`, from this overlay's shape and
+    /// bands: what ``layoutLayers()`` places and a render-server spring of the chrome carries
+    /// (`PaneOverlayView+RenderSpring.swift`).
+    func chromeFrames(cellSize size: CGSize) -> PaneMotionPlan.ChromeFrames {
+        PaneMotionPlan.ChromeFrames(cellSize: size,
+                                    shape: PaneMotionPlan.ChromeShape(padding: padding, cornerRadius: cornerRadius,
+                                                                      ringCornerRadius: focusRing.cornerRadius),
+                                    bands: PaneMotionPlan.ChromeBands(header: headerHeight, footer: footerHeight))
+    }
+
+    /// Each sublayer with its frame in `frames` (the glow's is in the glow clip).
+    func sublayerFrames(_ frames: PaneMotionPlan.ChromeFrames) -> [(layer: CALayer, frame: CGRect)] {
+        [(border, frames.rounded), (attention, frames.rounded), (ring, frames.rounded), (glowClip, frames.rounded),
+         (focusFlash, frames.rounded), (dimLayer, frames.padded), (glow, CGRect(origin: .zero, size: frames.rounded.size))]
+    }
+
     private func layoutLayers() {
-        var style = LayoutStyle()
-        style.panePadding = padding
-        style.paneCornerRadius = cornerRadius
-        let padded = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
-        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight, footerHeight: footerHeight)
-        let radius = PaneChromeGeometry.cornerRadius(for: rect, style: style)
-        let ringRadius = focusRing.cornerRadius.map { min($0, min(rect.width, rect.height) / 2) } ?? radius
+        let frames = chromeFrames(cellSize: bounds.size)
+        let rect = frames.rounded, radius = frames.cornerRadius, ringRadius = frames.ringCornerRadius
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [border, attention] {
-            sublayer.frame = rect
-            sublayer.cornerRadius = radius
-        }
-        for sublayer in [ring, glowClip, focusFlash] {
-            sublayer.frame = rect
-            sublayer.cornerRadius = ringRadius
-        }
-        dimLayer.frame = padded
-        dimLayer.cornerRadius = radius
+        for (sublayer, frame) in sublayerFrames(frames) { sublayer.frame = frame }
+        for sublayer in [border, attention, dimLayer] { sublayer.cornerRadius = radius }
+        for sublayer in [ring, glowClip, focusFlash, glow] { sublayer.cornerRadius = ringRadius }
         // The dim covers the whole padded rect: only the corners the content
         // area shares with it round (a header squares the top ones, a footer
         // the bottom ones). The view is flipped, so maxY is the bottom.
         var corners: CACornerMask = []
-        if headerHeight <= 0 { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
-        if footerHeight <= 0 { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+        if frames.dimRoundsTop { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+        if frames.dimRoundsBottom { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
         dimLayer.maskedCorners = corners
-        glow.frame = glowClip.bounds
-        glow.cornerRadius = ringRadius
         border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = focusRing.width
         focusFlash.borderWidth = max(focusRing.width, Self.flashMinimumWidth)

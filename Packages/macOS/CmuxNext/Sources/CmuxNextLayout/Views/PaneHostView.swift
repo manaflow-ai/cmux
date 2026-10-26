@@ -31,6 +31,8 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
     var renderSpringsInFlight = 0
+    /// The chrome spring the next overlay sync starts once it puts the chrome at rest (``PaneChromeSpring``).
+    var chromeSpring: PaneChromeSpring?
 
     /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
     /// default: live resize). Injected so tests pin it without the shared tunable store.
@@ -80,7 +82,8 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                heldContentSize = holdsContentInMotion() ? content.frame.size : nil
+                // A render-server spring lays the content out at rest from its start: nothing is held.
+                heldContentSize = holdsContentInMotion() && !isOnRenderSpring ? content.frame.size : nil
             } else {
                 heldContentSize = nil
                 heldAnchor = nil
@@ -124,8 +127,8 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil {
-            // Its render-server springs end now; their landings still run (``springOnRenderServer``).
-            if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            // Its render-server springs end now; the screen lands their calls (`landDepartedRenderSprings`).
+            if isOnRenderSpring { stopRenderSprings() }
             isOnLayoutSpring = false
         }
         // Another screen (or none) places it now: its clip and overlay are computed afresh.

@@ -127,7 +127,8 @@ extension ScreenContentView {
             let heights = RowResize.heights(start.rows, stack: start.stack, upper: upper, pointerY: pointer,
                                             minimums: start.minimums, fits: !context.style.rowsEnabled)
             rowDragPreview = (column, heights)
-            reconcile(animated: false)
+            // A change turn: frames still on the render server move under the pointer from where they show.
+            motionTurn { reconcile(animated: false) }
             if phase == .ended {
                 // One intent on release; the preview stays until the next
                 // layout carries it.

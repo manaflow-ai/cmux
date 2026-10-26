@@ -196,6 +196,19 @@ final class DividerHandleView: NSView {
         }
     }
 
+    /// Taken out mid-spring, it shows its model frame at once; the screen lands its spring calls
+    /// (`ScreenContentView.landDepartedRenderSprings`).
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil { stopRenderSprings() }
+    }
+
+    /// Takes the render-server springs of a split off the handle's layer (`ScreenContentView+RenderMotion`).
+    func stopRenderSprings() {
+        guard let layer else { return }
+        for keyPath in PaneHostView.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) }
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// A press here drags the divider, also where the handle reaches into the titlebar band:

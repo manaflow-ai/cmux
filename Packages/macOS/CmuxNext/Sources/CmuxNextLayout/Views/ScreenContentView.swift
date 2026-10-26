@@ -90,9 +90,9 @@ final class ScreenContentView: NSView {
     /// Layout motion the CPU step does not own has not ended yet: a user pan of this screen stepped the
     /// layout (`applyPresentation`), or render-server springs run (``renderSpringsInFlight``).
     var userMotionActive = false
-    /// Render-server spring calls of this screen's panes and dividers that have not landed
-    /// (`ScreenContentView+RenderMotion.swift`).
-    var renderSpringsInFlight = 0
+    /// What this screen's panes and dividers run on the render server: their tracks and the spring calls
+    /// that have not landed (`ScreenContentView+RenderMotion.swift`).
+    var renderMotion = ScreenRenderMotion()
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
@@ -439,6 +439,7 @@ final class ScreenContentView: NSView {
         // A drag on a screen that goes away gets no release either.
         endDrag()
         holdsGrids = false
+        stopRenderSprings(settles: true) // The layout motion waits for no call of a screen that is gone.
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }

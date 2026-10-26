@@ -91,8 +91,11 @@ public struct RenderSpring {
     }
 
     /// Springs every move on this token from one begin time, in one transaction. A move whose
-    /// key path does not animate (``animates(_:in:)``) shows its value in one frame.
-    public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil) {
+    /// key path does not animate (``animates(_:in:)``) shows its value in one frame. `begin` is the
+    /// media time the springs start at (now when nil): the moves of several layers one change places
+    /// at different points of its turn (a pane host and its chrome in the overlay plane) share it.
+    public func animateGroup(_ moves: [Move], in view: NSView?, startingAt begin: CFTimeInterval? = nil,
+                             completion: Completion? = nil) {
         let shown = Motion.canAnimate(in: view)
         let styles = moves.map { style(for: $0.keyPath, shown: shown) }
         let landing = Landing(completion)
@@ -108,7 +111,7 @@ public struct RenderSpring {
             landing.trace("render.\(token.rawValue)", id: ObjectIdentifier(animated.layer))
         }
         let spring = parameters
-        let now = CACurrentMediaTime()
+        let now = begin ?? CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if animated != nil {
