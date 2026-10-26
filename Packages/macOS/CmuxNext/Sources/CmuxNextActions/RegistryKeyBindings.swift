@@ -157,7 +157,10 @@ public struct RegistryKeyBindings {
 
     /// A user override equal to the catalog default stays a default entry,
     /// so writing the default key into cmux.json changes nothing.
+    /// An action with alternates (`{"any": [...]}`) has all its keys as
+    /// cmux.json entries, so one of them never yields where another runs.
     private func source(_ id: ActionID, _ shortcut: Shortcut) -> KeyBinding.Source {
+        if registry.alternateShortcuts[id] != nil { return .user }
         guard let override = registry.shortcutOverrides[id], override != nil else { return .default }
         return override == registry.descriptor(for: id)?.defaultShortcut ? .default : .user
     }

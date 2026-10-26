@@ -135,6 +135,12 @@ public final class SettingsApplier {
                     continue
                 }
             }
+            // A numbered family (`⌘1…9`) is named by one key.
+            if keys.count > 1, registry.descriptor(for: id)?.shortcutFamily != nil {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path,
+                                                      message: "a numbered family takes one key; only the first is used"))
+                keys = [keys[0]]
+            }
             if binding.keys.isEmpty {
                 setOverride(nil, for: id)
             } else if let primary = keys.first {
@@ -202,7 +208,7 @@ public final class SettingsApplier {
     }
 
     private func setOverride(_ shortcut: Shortcut?, for id: ActionID) {
-        if let current = registry.shortcutOverrides[id], current == shortcut { return }
+        if let current = registry.shortcutOverrides[id], current == shortcut, registry.alternateShortcuts[id] == nil { return }
         registry.setShortcutOverride(shortcut, for: id)
     }
 

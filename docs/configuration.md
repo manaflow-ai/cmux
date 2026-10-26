@@ -622,7 +622,7 @@ A binding in `shortcuts.bindings` is one key (`"cmd+]"`) or a two-key chord (`["
 }
 ```
 
-The first item is the one menus and the command palette show. Settings > Keyboard Shortcuts lists each key as its own row: changing or removing a row changes only that key in the list. An empty list (`{ "any": [] }`) unbinds the action. Keys listed this way replace the action's default keys, as a single binding does.
+The first item is the one menus and the command palette show. Settings > Keyboard Shortcuts lists each key as its own row: changing or removing a row changes only that key in the list. An empty list (`{ "any": [] }`) unbinds the action. Keys listed this way replace the action's default keys, as a single binding does. A numbered family such as `selectSurfaceByNumber` takes one key.
 
 ## Start Agent and `app.startAgentGlobalHotKey`
 

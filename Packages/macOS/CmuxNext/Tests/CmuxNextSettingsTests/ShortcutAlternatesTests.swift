@@ -55,6 +55,36 @@ import Testing
         #expect(registry.effectiveShortcut(for: "prevSurface") == Shortcut("\t", modifiers: [.control, .shift]))
     }
 
+    @Test func aKeyTheGhosttyConfigClaimsStillRunsTheAction() throws {
+        let applier = Self.applier()
+        applier.apply(Self.snapshot(Self.tabs))
+        let registry = applier.registry
+        KeyBindingLoader(registry).loadGhostty([], claims: [Shortcut("\t", modifiers: [.control]), Shortcut("]", modifiers: [.command])])
+        #expect(try Self.resolve(registry, Self.event("\t", kVK_Tab, [.control]), in: .terminalFocused) == "nextSurface")
+        #expect(try Self.resolve(registry, Self.event("]", kVK_ANSI_RightBracket, [.command]), in: .terminalFocused) == "nextSurface")
+    }
+
+    @Test func removingTheListWithTheCmdTSwapOnDropsItsOtherKeys() throws {
+        let swap = CmuxConfigSnapshot.parse(["tabs": ["swapCmdTAndCmdN": true]], validDensities: [], validMetrics: [])
+        let applier = Self.applier()
+        applier.apply(CmuxConfigSnapshot.parse(["tabs": ["swapCmdTAndCmdN": true],
+                                                "shortcuts": ["bindings": ["newTab": ["any": ["cmd+t", "cmd+opt+ctrl+y"]]]]],
+                                               validDensities: [], validMetrics: []))
+        let ctrlOptCmdY = try Self.event("y", kVK_ANSI_Y, [.command, .option, .control])
+        #expect(Self.resolve(applier.registry, ctrlOptCmdY) == "newTab")
+        applier.apply(swap)
+        #expect(Self.resolve(applier.registry, ctrlOptCmdY) != "newTab")
+        #expect(applier.registry.alternateShortcuts["newTab"] == nil)
+    }
+
+    @Test func aNumberedFamilyTakesOneKey() {
+        let applier = Self.applier()
+        let diagnostics = applier.apply(Self.snapshot(["selectSurfaceByNumber": ["any": ["ctrl+1", "cmd+opt+1"]]]))
+        #expect(diagnostics.contains { $0.path == "shortcuts.bindings.selectSurfaceByNumber" && $0.kind == .invalidValue })
+        #expect(applier.registry.alternateShortcuts["selectSurfaceByNumber"] == nil)
+        #expect(applier.registry.effectiveShortcut(for: "selectSurfaceByNumber") == Shortcut("1", modifiers: [.control]))
+    }
+
     @Test func theListedKeysReplaceTheDefaultOnes() throws {
         let applier = Self.applier()
         applier.apply(Self.snapshot(Self.tabs))
