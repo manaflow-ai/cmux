@@ -432,16 +432,37 @@ final class CloudService {
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
     /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
+    /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
+    /// `/api/vm` create only; the app server's create refuses them for now). A server that did
+    /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+                       request: CloudMachineRequest = CloudMachineRequest()) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
+        let name = name ?? request.name
+        if configuration.linkSource == .appServer, request.size != nil || request.persistent {
+            throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
+        }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let machine = configuration.linkSource == .appServer
+        let idlePause = request.persistent ? 0 : nil
+        var machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause, idempotencyKey: request.idempotencyKey, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
+        // The machine exists either way: a failed write leaves its idle pause as the server says,
+        // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
+        if let idlePause, machine.idlePauseMinutes != idlePause {
+            do {
+                try await api.setIdlePause(machine.id, minutes: idlePause)
+                machine.idlePauseMinutes = idlePause
+                // A refresh may have listed the machine meanwhile: its session holds the record.
+                machines.session(machine.id)?.machine.idlePauseMinutes = idlePause
+            } catch {
+                logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
+            }
+        }
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.

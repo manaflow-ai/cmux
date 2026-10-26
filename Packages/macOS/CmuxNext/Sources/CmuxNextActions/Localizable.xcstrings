@@ -27249,6 +27249,51 @@
           }
         }
       }
+    },
+    "argument.persistent": {
+      "comment": "cloud new-machine argument: the machine never pauses by itself when idle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Persistent"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "常時稼働"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dauerhaft"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Persistante"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "دائم"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "상시 실행"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "常驻"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "常駐"}}
+      }
+    },
+    "argument.bootstrap": {
+      "comment": "cloud new-machine argument: what setup runs on the new machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップ"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ersteinrichtung"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Amorçage"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Arranque inicial"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "التمهيد"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導"}}
+      }
+    },
+    "argument.bootstrapScript": {
+      "comment": "cloud new-machine argument: the script file the new machine runs on its first boot.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap Script"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップスクリプト"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bootstrap-Skript"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نص التمهيد"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩 스크립트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导脚本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導腳本"}}
+      }
     }
   },
   "version": "1.0"
