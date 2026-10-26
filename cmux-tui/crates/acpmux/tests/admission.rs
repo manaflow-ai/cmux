@@ -282,11 +282,19 @@ fn max_lanes_warns_at_the_cap_and_never_refuses() {
     daemon.wait_live("three");
     daemon.wait_log(|l| l.contains("admitted past the lane cap"), "the daemon logs it");
     // Past the cap too: a one-shot `exec` (the stall reconciler's PONG) runs and answers.
-    let out = daemon.run(&["exec", "--timeout", "30", "-n", "pong", "Reply with only: PONG"]);
+    let out = daemon.run(&[
+        "exec",
+        "--ephemeral",
+        "--timeout",
+        "30",
+        "-n",
+        "pong",
+        "Reply with only: PONG",
+    ]);
     assert!(out.status.success(), "an exec past the cap: {}", text(&out));
     assert!(text(&out).contains("acpmux: warning: "), "{}", text(&out));
     // A session that stopped is not live: under the cap again, no warning.
-    for name in ["one", "two", "three", "pong"] {
+    for name in ["one", "two", "three"] {
         let out = daemon.run(&["kill", name]);
         assert!(out.status.success(), "kill: {}", text(&out));
     }

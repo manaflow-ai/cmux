@@ -445,7 +445,9 @@ impl Hub {
                 Some(why) if why == NO_REGISTRY => {
                     tracing::debug!("session admitted with no lane cap: {why}")
                 }
-                Some(why) if unreadable => tracing::warn!("session admitted with no lane cap: {why}"),
+                Some(why) if unreadable => {
+                    tracing::warn!("session admitted with no lane cap: {why}")
+                }
                 Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
                 None => {}
             }
@@ -517,6 +519,9 @@ impl Hub {
                 .collect();
             crate::placement::place(&peers, registry, Work::Agent)
         });
+        // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
+        let verdict =
+            verdict.filter(|v| v.get("overloaded").and_then(Value::as_bool) != Some(true));
         let placed = verdict.as_ref().and_then(crate::placement::placed);
         let host = verdict.as_ref().and_then(|v| v.get("pick")).and_then(Value::as_str);
         let text = over.warning(ask.local, placed.as_deref());
@@ -583,11 +588,7 @@ mod tests {
         std::fs::write(&path, br#"{"machines":{"m":{"max_lanes":1}}}"#).unwrap();
         let fresh = dir.join("first-read-truncated.json");
         std::fs::write(&fresh, br#"{"machines":"#).unwrap();
-        assert_eq!(
-            read_registry(&fresh, false),
-            (None, true),
-            "no good copy yet: unreadable"
-        );
+        assert_eq!(read_registry(&fresh, false), (None, true), "no good copy yet: unreadable");
         let good = read_registry(&path, false).0.unwrap();
         std::fs::write(&path, br#"{"machines":{"m":"#).unwrap();
         assert_eq!(read_registry(&path, false), (Some(good.clone()), false));
@@ -605,9 +606,16 @@ mod tests {
             machine: None,
             live: 99,
         });
-        assert_eq!((&unreadable.refusal, &unreadable.over), (&None, &None), "admitted: {unreadable:?}");
+        assert_eq!(
+            (&unreadable.refusal, &unreadable.over),
+            (&None, &None),
+            "admitted: {unreadable:?}"
+        );
         let why = unreadable.uncapped.unwrap_or_default();
-        assert!(why.contains("cannot be read") && why.contains("first-read-truncated.json"), "{why}");
+        assert!(
+            why.contains("cannot be read") && why.contains("first-read-truncated.json"),
+            "{why}"
+        );
     }
 
     #[tokio::test]
@@ -710,7 +718,11 @@ mod tests {
             Some(OverCap { live, max, machine: machine.into(), source: source.into() })
         };
         for (machine, max) in [("huge-blue", 12), ("cmux16", 3), ("big-red", 6), ("air-blue", 3)] {
-            assert_eq!(at(machine, max as usize - 1), Verdict::default(), "{machine} under its cap");
+            assert_eq!(
+                at(machine, max as usize - 1),
+                Verdict::default(),
+                "{machine} under its cap"
+            );
             for live in [max as usize, 16] {
                 let v = at(machine, live);
                 assert_eq!(v.refusal, None, "{machine} at {live}: a cap never refuses");

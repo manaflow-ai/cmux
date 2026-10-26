@@ -419,7 +419,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
             if reused.is_none()
-                && let Some(w) = v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
+                && let Some(w) =
+                    v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
             {
                 eprintln!("acpmux: warning: {w}");
             }
@@ -529,9 +530,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                     let r = outcome?;
                     if json_out {
-                        print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
-                        );
+                        let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        if let Some(a) = v.pointer("/_meta/acpmux/admission") {
+                            out["admission"] = a.clone();
+                        }
+                        print_json(&out);
                     } else {
                         println!("{}", r.reply);
                     }
