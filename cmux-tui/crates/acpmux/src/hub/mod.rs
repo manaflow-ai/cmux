@@ -1289,8 +1289,7 @@ impl Hub {
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
-            let reopens = reopen
-                .is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
+            let reopens = reopen.is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
             if (was == SessionStatus::Closed && status != SessionStatus::Closed && !reopens)
                 || (reopen.is_some() && was != SessionStatus::Closed)
             {
