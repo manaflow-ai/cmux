@@ -54,6 +54,9 @@ public final class BackgroundWork: Sendable {
     public let label: String
     private let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
+    private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
+    /// False after ``stopReportingRuns()``: items submitted later skip `onRan` and the clock.
+    private let reportsRuns = Atomic<Bool>(true)
     /// The clock a block-shutdown item's run time is measured with (``blockShutdownLimit``).
     let uptimeNanos: @Sendable () -> UInt64
     // concurrency-allow: id counter, the shutdown count and the registered tasks, read and written synchronously by submitters, lane threads and finishing tasks (lock carve-out: counters and a dictionary, no I/O under it).
@@ -94,21 +97,29 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - onRan: called on the lane thread after each item ran, with its lane, its priority and its start
+    ///     and end in `uptimeNanos` nanoseconds; default none, and then no item reads the clock for it. The
+    ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it closes
+    ///     (``stopReportingRuns()``).
     ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
+                            onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
                             uptimeNanos: (@Sendable () -> UInt64)? = nil) {
-        self.init(cpuWidth: cpuWidth, label: label, onQueued: onQueued, uptimeNanos: uptimeNanos, taskHooks: .none)
+        self.init(cpuWidth: cpuWidth, label: label, onQueued: onQueued, onRan: onRan, uptimeNanos: uptimeNanos,
+                  taskHooks: .none)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
     init(cpuWidth: Int, label: String, onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
+         onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
+        self.onRan = onRan
         self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
@@ -169,7 +180,7 @@ public final class BackgroundWork: Sendable {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                guard let job = makeJob(id: id, shutdown: shutdown, site: site,
+                guard let job = makeJob(id: id, lane: lane, priority: priority, shutdown: shutdown, site: site,
                                         work: { continuation.resume(with: Result { try body() }) },
                                         abandoned: { continuation.resume(throwing: CancellationError()) }) else {
                     return continuation.resume(throwing: CancellationError())
@@ -195,8 +206,8 @@ public final class BackgroundWork: Sendable {
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown,
                      fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
-        guard let job = makeJob(id: nextID(), shutdown: shutdown, site: CallSite(fileID: fileID, line: line),
-                                work: body, abandoned: {}) else { return }
+        guard let job = makeJob(id: nextID(), lane: lane, priority: priority, shutdown: shutdown,
+                                site: CallSite(fileID: fileID, line: line), work: body, abandoned: {}) else { return }
         submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
     }
 
@@ -311,8 +322,28 @@ public final class BackgroundWork: Sendable {
 
     /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
     /// (recorded, never run).
-    private func makeJob(id: UInt64, shutdown: ShutdownBehavior, site: CallSite, work: @escaping @Sendable () -> Void,
+    /// Items submitted from now on no longer call `onRan` or read the clock for it (one relaxed load per
+    /// item); items already queued still report. The startup trace calls it when it closes.
+    public func stopReportingRuns() {
+        reportsRuns.store(false, ordering: .relaxed)
+    }
+
+    /// The item's work, wrapped to report its run to `onRan` while runs are reported.
+    private func reporting(_ work: @escaping @Sendable () -> Void, lane: BlockingLane,
+                           priority: WorkPriority) -> @Sendable () -> Void {
+        guard let onRan, reportsRuns.load(ordering: .relaxed) else { return work }
+        let uptimeNanos = uptimeNanos
+        return {
+            let start = uptimeNanos()
+            work()
+            onRan(lane, priority, start, uptimeNanos())
+        }
+    }
+
+    private func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
+                         site: CallSite, work unreported: @escaping @Sendable () -> Void,
                          abandoned: @escaping @Sendable () -> Void) -> LaneJob? {
+        let work = reporting(unreported, lane: lane, priority: priority)
         guard shutdown == .blockShutdown else {
             return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: {})
         }

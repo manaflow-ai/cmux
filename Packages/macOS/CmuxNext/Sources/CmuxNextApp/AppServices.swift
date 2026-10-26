@@ -113,6 +113,8 @@ final class AppServices {
     let registry: ActionRegistry
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    let wireStats: DaemonWireStats?
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
@@ -448,11 +450,13 @@ final class AppServices {
     ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
+         wireStats: DaemonWireStats? = nil) {
         self.work = work
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
+        self.wireStats = wireStats
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
@@ -461,7 +465,7 @@ final class AppServices {
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
                                              discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

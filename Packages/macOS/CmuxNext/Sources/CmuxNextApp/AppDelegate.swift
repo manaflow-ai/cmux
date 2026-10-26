@@ -26,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The launch load-in, region by region; its last region revealing ends the startup phase's
     /// `launching` (made here, the composition root, and passed by init).
     private let launchReveal: LaunchReveal
+    /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
+    private let startupTrace: StartupTrace?
+    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// The startup phase's settle references (first snapshot, restore, visible page).
@@ -64,11 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+         startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
+        self.startupTrace = startupTrace
+        self.wireStats = wireStats
         self.launchCleanup = launchCleanup
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
@@ -102,8 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
-        DebugTimings.install()
-        defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        let launchStart = startupTrace?.uptimeNanos
+        DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
+        defer {
+            DebugTimings.markLaunch("did_finish_launching_end")
+            if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
+        }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
@@ -131,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // The settle references, one closure each, before the daemon starts and the windows restore
