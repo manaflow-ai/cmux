@@ -282,12 +282,13 @@ public final class StartupPhase {
 
 extension MainWorkClass {
     /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, and background waits for the reveal. Exhaustive on purpose: a new class
-    /// (idle opens at ``StartupPhase/Phase/settled``) does not compile until it is mapped here.
+    /// while launching, background waits for the reveal and idle work for the settle. Exhaustive
+    /// on purpose: a new class does not compile until it is mapped here.
     public var startupOpening: StartupPhase.Phase {
         switch self {
         case .input, .frame, .visible, .automation: .launching
         case .background: .revealed
+        case .idle: .settled
         }
     }
 }
