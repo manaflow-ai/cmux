@@ -171,35 +171,51 @@ private final class CmxIrohBonjourResolveCallbackBox: Sendable {
     }
 }
 
+// Context ownership for both replies: startBrowse and startResolve pass a box
+// retained once (+1) as the DNS-SD context. The box is released only by
+// CmxIrohBonjourSystemOperation.cancel(), after DNSServiceRefDeallocate ran on
+// the queue that delivers these replies, or on a start failure before any reply
+// can run. A reply therefore always sees a live box.
 private let cmxIrohBonjourBrowseCallback: DNSServiceBrowseReply = {
     _, flags, interfaceIndex, errorCode, serviceName, regtype, replyDomain, context in
-    guard let context else { return }
-    let handler = Unmanaged<CmxIrohBonjourBrowseCallbackBox>
+    // SAFETY: dnssd hands back the context pointer given to DNSServiceBrowse.
+    guard let context = unsafe context else { return }
+    // SAFETY: the context is a live +1 browse box (context ownership above); the
+    // unretained read does not change its count.
+    let handler = unsafe Unmanaged<CmxIrohBonjourBrowseCallbackBox>
         .fromOpaque(context)
         .takeUnretainedValue()
         .handler
-    let name = serviceName.map(String.init(cString:))
-    let type = regtype.map(String.init(cString:))
-    let domain = replyDomain.map(String.init(cString:))
+    // SAFETY: dnssd's strings are NUL-terminated and valid during this reply;
+    // String(cString:) copies each before the reply returns.
+    let name = unsafe serviceName.map(String.init(cString:))
+    // SAFETY: as for serviceName.
+    let type = unsafe regtype.map(String.init(cString:))
+    // SAFETY: as for serviceName.
+    let domain = unsafe replyDomain.map(String.init(cString:))
     handler(flags, interfaceIndex, errorCode, name, type, domain)
 }
 
 private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
     _, _, interfaceIndex, errorCode, _, hostTarget, port, txtLength, txtRecord, context in
-    guard let context else { return }
-    let handler = Unmanaged<CmxIrohBonjourResolveCallbackBox>
+    // SAFETY: dnssd hands back the context pointer given to DNSServiceResolve.
+    guard let context = unsafe context else { return }
+    // SAFETY: the context is a live +1 resolve box (context ownership above); the
+    // unretained read does not change its count.
+    let handler = unsafe Unmanaged<CmxIrohBonjourResolveCallbackBox>
         .fromOpaque(context)
         .takeUnretainedValue()
         .handler
     let data: Data?
     if txtLength == 0 {
         data = Data()
-    } else if let txtRecord {
-        data = Data(bytes: txtRecord, count: Int(clamping: txtLength))
     } else {
-        data = nil
+        // SAFETY: a non-nil txtRecord points to txtLength readable bytes during this
+        // reply; Data(bytes:count:) copies them before the reply returns.
+        data = unsafe txtRecord.map { unsafe Data(bytes: $0, count: Int(clamping: txtLength)) }
     }
-    let host = hostTarget.map(String.init(cString:))
+    // SAFETY: hostTarget is NUL-terminated and valid during this reply; String(cString:) copies it.
+    let host = unsafe hostTarget.map(String.init(cString:))
     let hostPort = UInt16(bigEndian: port)
     Task {
         await handler(errorCode, interfaceIndex, host, hostPort, data)
@@ -208,10 +224,13 @@ private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
 
 /// A DNS-SD service reference (an `OpaquePointer` to the daemon connection).
 // crash-allow: used only on the DNS-SD queue it is bound to; the operation hands it out of its lock once, to deallocate it there.
+@safe
 private struct CmxIrohDNSServiceHandle: @unchecked Sendable {
     let ref: DNSServiceRef
 }
 
+// The ref and the release of its +1 context box (context ownership above). cancel()
+// takes both out of `registration` under the lock, so they are released exactly once.
 private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
     private struct Registration: Sendable {
         let handle: CmxIrohDNSServiceHandle
@@ -229,9 +248,11 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
         releaseCallback: @escaping @Sendable () -> Void
     ) {
         self.queue = queue
+        // SAFETY: the operation takes over the live ref from its start call; cancel() is
+        // the only place that deallocates it.
         registration = Mutex(
             Registration(
-                handle: CmxIrohDNSServiceHandle(ref: ref),
+                handle: unsafe CmxIrohDNSServiceHandle(ref: ref),
                 releaseCallback: releaseCallback
             )
         )
@@ -244,7 +265,10 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
             return taken
         }
         guard let current else { return }
-        queue.sync { DNSServiceRefDeallocate(current.handle.ref) }
+        // SAFETY: the ref is live and taken out of `registration` once; deallocating it on
+        // the reply queue means no reply runs after this returns.
+        queue.sync { unsafe DNSServiceRefDeallocate(current.handle.ref) }
+        // No reply can read the context any more (above); this drops its +1 once.
         current.releaseCallback()
     }
 }
@@ -262,9 +286,13 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
         handler: @escaping CmxIrohBonjourBrowseHandler
     ) throws -> any CmxIrohBonjourOperation {
         let callback = CmxIrohBonjourBrowseCallbackBox(handler: handler)
-        let context = Unmanaged.passRetained(callback).toOpaque()
+        // SAFETY: the +1 retain is the reply context; each path below either releases it
+        // once or hands it to the operation (context ownership above).
+        let context = unsafe Unmanaged.passRetained(callback).toOpaque()
         var ref: DNSServiceRef?
-        let errorCode = DNSServiceBrowse(
+        // SAFETY: DNSServiceBrowse stores a ref in `ref` and reads the NUL-terminated
+        // copies of serviceType and domain Swift makes for this call.
+        let errorCode = unsafe DNSServiceBrowse(
             &ref,
             0,
             0,
@@ -273,24 +301,34 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
             cmxIrohBonjourBrowseCallback,
             context
         )
-        guard errorCode == kDNSServiceErr_NoError, let ref else {
-            Unmanaged<CmxIrohBonjourBrowseCallbackBox>.fromOpaque(context).release()
+        // SAFETY: reads the ref DNSServiceBrowse stored, if any.
+        guard errorCode == kDNSServiceErr_NoError, let ref = unsafe ref else {
+            // SAFETY: without a ref no reply can run; this drops the +1 once.
+            unsafe Unmanaged<CmxIrohBonjourBrowseCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(
                 code: errorCode == kDNSServiceErr_NoError
                     ? Int32(clamping: kDNSServiceErr_Unknown)
                     : errorCode
             )
         }
-        let queueError = DNSServiceSetDispatchQueue(ref, queue)
+        // SAFETY: `ref` is the live ref DNSServiceBrowse returned.
+        let queueError = unsafe DNSServiceSetDispatchQueue(ref, queue)
         guard queueError == kDNSServiceErr_NoError else {
-            DNSServiceRefDeallocate(ref)
-            Unmanaged<CmxIrohBonjourBrowseCallbackBox>.fromOpaque(context).release()
+            // SAFETY: the ref has no queue, so no reply ran or can run; it is
+            // deallocated once here.
+            unsafe DNSServiceRefDeallocate(ref)
+            // SAFETY: as above; this drops the +1 once.
+            unsafe Unmanaged<CmxIrohBonjourBrowseCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(code: queueError)
         }
-        return CmxIrohBonjourSystemOperation(
+        // SAFETY: the operation takes over the live ref and the +1 context.
+        return unsafe CmxIrohBonjourSystemOperation(
             ref: ref,
             queue: queue,
-            releaseCallback: { Unmanaged.passUnretained(callback).release() }
+            releaseCallback: {
+                // SAFETY: cancel() calls this once, after the ref was deallocated.
+                unsafe Unmanaged.passUnretained(callback).release()
+            }
         )
     }
 
@@ -301,9 +339,13 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
         handler: @escaping CmxIrohBonjourResolveHandler
     ) throws -> any CmxIrohBonjourOperation {
         let callback = CmxIrohBonjourResolveCallbackBox(handler: handler)
-        let context = Unmanaged.passRetained(callback).toOpaque()
+        // SAFETY: the +1 retain is the reply context; each path below either releases it
+        // once or hands it to the operation (context ownership above).
+        let context = unsafe Unmanaged.passRetained(callback).toOpaque()
         var ref: DNSServiceRef?
-        let errorCode = DNSServiceResolve(
+        // SAFETY: DNSServiceResolve stores a ref in `ref` and reads the NUL-terminated
+        // copies of the service name, regtype and domain Swift makes for this call.
+        let errorCode = unsafe DNSServiceResolve(
             &ref,
             0,
             id.interfaceIndex,
@@ -313,24 +355,34 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
             cmxIrohBonjourResolveCallback,
             context
         )
-        guard errorCode == kDNSServiceErr_NoError, let ref else {
-            Unmanaged<CmxIrohBonjourResolveCallbackBox>.fromOpaque(context).release()
+        // SAFETY: reads the ref DNSServiceResolve stored, if any.
+        guard errorCode == kDNSServiceErr_NoError, let ref = unsafe ref else {
+            // SAFETY: without a ref no reply can run; this drops the +1 once.
+            unsafe Unmanaged<CmxIrohBonjourResolveCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(
                 code: errorCode == kDNSServiceErr_NoError
                     ? Int32(clamping: kDNSServiceErr_Unknown)
                     : errorCode
             )
         }
-        let queueError = DNSServiceSetDispatchQueue(ref, queue)
+        // SAFETY: `ref` is the live ref DNSServiceResolve returned.
+        let queueError = unsafe DNSServiceSetDispatchQueue(ref, queue)
         guard queueError == kDNSServiceErr_NoError else {
-            DNSServiceRefDeallocate(ref)
-            Unmanaged<CmxIrohBonjourResolveCallbackBox>.fromOpaque(context).release()
+            // SAFETY: the ref has no queue, so no reply ran or can run; it is
+            // deallocated once here.
+            unsafe DNSServiceRefDeallocate(ref)
+            // SAFETY: as above; this drops the +1 once.
+            unsafe Unmanaged<CmxIrohBonjourResolveCallbackBox>.fromOpaque(context).release()
             throw CmxIrohBonjourDNSServiceError(code: queueError)
         }
-        return CmxIrohBonjourSystemOperation(
+        // SAFETY: the operation takes over the live ref and the +1 context.
+        return unsafe CmxIrohBonjourSystemOperation(
             ref: ref,
             queue: queue,
-            releaseCallback: { Unmanaged.passUnretained(callback).release() }
+            releaseCallback: {
+                // SAFETY: cancel() calls this once, after the ref was deallocated.
+                unsafe Unmanaged.passUnretained(callback).release()
+            }
         )
     }
 }

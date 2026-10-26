@@ -56,6 +56,9 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
         let priority: WorkPriority
         /// Nobody awaits it.
         let posted: Bool
+        /// The trace clock at its post to the sequence while the `task` category recorded (nil when off), so its
+        /// `task.run` queue wait includes the time behind the items in front of it.
+        let tracedPost: UInt64?
     }
 
     /// The item the lane holds, queued or running, and what it was submitted at.
@@ -138,6 +141,7 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
         work.noteAwaited(priority, site: site)
         let id = work.nextID()
         let level = max(priority, WorkPriority(Task.currentPriority))
+        let tracedPost = scheduler.postStamp()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
                 guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
@@ -147,7 +151,7 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                     return continuation.resume(throwing: CancellationError())
                 }
                 // Checked under the sequence's lock, so a cancel either finds the item or stops it here.
-                add(Item(job: job, priority: level, posted: false), unless: { Task.isCancelled })
+                add(Item(job: job, priority: level, posted: false, tracedPost: tracedPost), unless: { Task.isCancelled })
             }
         } onCancel: {
             cancel(id)
@@ -169,12 +173,13 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                      fileID: StaticString = #fileID, line: UInt = #line,
                      abandoned: @escaping @Sendable () -> Void = {}, _ body: @escaping @Sendable () -> Void) {
         let id = work.nextID()
+        let tracedPost = scheduler.postStamp()
         guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown,
                                      site: BackgroundWork.CallSite(fileID: fileID, line: line), work: body,
                                      abandoned: abandoned, finished: { [self] in finished(id) }) else {
             return abandoned()
         }
-        add(Item(job: job, priority: priority, posted: true), unless: { false })
+        add(Item(job: job, priority: priority, posted: true, tracedPost: tracedPost), unless: { false })
     }
 
     /// What ``add(_:unless:)`` found under the lock.
@@ -245,7 +250,8 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                 let level = max(next.priority, state.highestWaiting ?? next.priority)
                 let posted = next.posted && state.awaited == 0
                 // Submitted under this lock: the item's `finished` takes it, so it sees the front set below.
-                let submitted = scheduler.submit(next.job, at: level, posted: posted, unless: { false })
+                let submitted = scheduler.submit(next.job, at: level, posted: posted, postStamp: .taken(next.tracedPost),
+                                                 unless: { false })
                 if case .refused = submitted { return .refused(next.job) }
                 state.front = Front(id: next.job.id, level: level, posted: posted)
                 state.advancing = false

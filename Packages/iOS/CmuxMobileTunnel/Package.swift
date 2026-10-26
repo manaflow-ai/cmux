@@ -39,6 +39,7 @@ let package = Package(
             dependencies: [
                 "CmuxMobileTunnel",
                 .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOEmbedded", package: "swift-nio"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
