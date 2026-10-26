@@ -72,13 +72,14 @@ public struct CmuxNextApp {
         // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
-        // The incognito workspaces a crashed run left, before the settings read on the same serial lane: the
-        // launch window (made after that read lands) knows whether it may list every workspace (p08-startup 038).
+        // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
+        // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
+        let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
-            at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), on: work)
+            at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
-        let settingsRead = SettingsController.startLaunchRead(on: work)
+        let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }

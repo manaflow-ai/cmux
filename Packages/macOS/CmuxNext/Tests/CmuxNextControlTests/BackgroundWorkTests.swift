@@ -209,7 +209,7 @@ import Testing
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.fence.\(lane)."), "ran on \(seen.queue)")
-        if lane == .files { #expect(seen.queue == "test.fence.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.fence.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 
@@ -226,7 +226,7 @@ import Testing
         }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        if lane == .files { #expect(seen.queue == "test.fenceawait.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.fenceawait.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(seen.qos == priority.qos.qosClass.rawValue)
         work.endBestEffortFence()
     }
@@ -239,13 +239,14 @@ import Testing
         work.post(priority, mayBlock: .files) { report.yield(Seen.here()) }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        #expect(seen.queue == "test.fenceabove.files.\(priority)")
+        #expect(seen.queue.hasPrefix("test.fenceabove.files.\(priority)."), "ran on \(seen.queue)")
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 
     @Test func fencesNestAndHeldItemsRunInPostOrder() async throws {
         let queued = Started()
-        let work = BackgroundWork(label: "test.fencenest", onQueued: { _, _ in queued.signal() })
+        // One slot per priority: held items of one priority then start one after another, in post order.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.fencenest", onQueued: { _, _ in queued.signal() })
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])
         let finished = Started()
         work.beginBestEffortFence()
@@ -287,10 +288,10 @@ import Testing
     /// `stopReportingRuns()`; items submitted after it do not report.
     @Test func onRanReportsEachItemUntilRunsStopBeingReported() async throws {
         let reports = OSAllocatedUnfairLock<[(BlockingLane, WorkPriority, UInt64, UInt64)]>(initialState: [])
-        let work = BackgroundWork(label: "test.onran", onRan: { lane, priority, start, end in
+        let work = BackgroundWork(filesWidths: .serial, label: "test.onran", onRan: { lane, priority, start, end in
             reports.withLock { $0.append((lane, priority, start, end)) }
         })
-        // One serial queue (files, user-visible): an item's report runs before the next item's body.
+        // One user-visible files slot: an item's report runs before the next item's body.
         let ran = Started()
         work.post(.userVisible, mayBlock: .files) {}
         work.post(.userVisible, mayBlock: .files) { ran.signal() }

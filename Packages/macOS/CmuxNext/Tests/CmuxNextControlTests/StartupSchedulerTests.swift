@@ -316,6 +316,27 @@ import Testing
         #expect(onMain == false)
     }
 
+    /// A post on a sequence runs after the sequence's earlier posts, off main, although the files lane runs two
+    /// best-effort items at once: the managed-status writes, each a whole file, never land out of order.
+    @Test func aSequencePostRunsAfterTheSequencesEarlierPosts() async {
+        let f = StartupFixture()
+        f.complete()
+        // Its own work with the app's widths: two best-effort slots.
+        let writes = BackgroundWork(label: "test.startup-sequence").sequence("test.status-writes")
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) {
+            // A slow write: outside the sequence, the next one would land first on the other slot.
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(50))
+            report.yield("first main=\(Thread.isMainThread)")
+        }
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) { report.yield("second") }
+        var reports = seen.makeAsyncIterator()
+        let first = await reports.next()
+        let second = await reports.next()
+        #expect(first == "first main=false")
+        #expect(second == "second")
+    }
+
     @Test func afterBeginQuitNothingRunsAndTheFailsafeIsCancelled() async throws {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Updater.start", on: .main) { [ran = f.ran] in ran.names.append("Updater.start") }

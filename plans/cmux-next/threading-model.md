@@ -195,15 +195,19 @@ per process, built where the session opens (`mux/construct.rs`, label `mux`).
 - QoS by priority: the table in "QoS and task priority" below. Daemon workers keep one class for life (`fg`
   user-initiated, `be` utility, `idle` background), named `mux-<lane>-<fg|be|idle>` (lane `files`, `sys`,
   `cpu`); on Linux a `mux-launch` thread (user-initiated) starts them.
-- Hang deadlines per item: files 5 s, system 30 s, cpu 10 s.
+- Hang deadlines per item: files 5 s, system 30 s, cpu 10 s. Each slot registers with the hang watch on its own
+  (under the lane's name), as Chrome watches each pool worker thread: items of one lane run at once, and a scope
+  nests only on one thread.
 - **Sequence rule.** Work that must run in order (writes to one file or one store) goes through one sequence:
   `work.sequence(label)` (lane `.files` by default) returns a `WorkSequence` (Chrome `SequencedTaskRunner` on the
   thread pool, base/task/sequenced_task_runner.h; task 116). Its items run in post order, never two at once, each
   on any free slot of the lane at its own priority; the front item runs at the highest priority waiting behind it
-  and leaves the startup fence while one of them is awaited. A cancelled awaited item leaves the sequence; shutdown
-  drops items in their turn, so a block-shutdown save behind a dropped item still runs. Never count on order
-  outside a sequence: the items of one priority on one lane run at once (the startup trace's drains, for example,
-  go through one sequence).
+  and leaves the startup fence while one of them is awaited, moved in place (it stays before the work posted after
+  it), and `onRan` reports the level it ran at. A cancelled awaited item leaves the sequence; shutdown drops items in
+  their turn, so a block-shutdown save behind a dropped item still runs. Never count on order outside a sequence:
+  the items of one priority on one lane run at once. Sequences today: the startup trace's drains, the incognito
+  ledger read then the settings read at launch (`LaunchRead(in:)`: the launch window needs the ledger's answer),
+  and the managed-status writes (`StartupDestination.Lane.sequence`).
 - Shutdown: `skipOnShutdown` (default) is dropped at quit, `continueOnShutdown` runs on, `blockShutdown` is
   awaited inside the quit deadline and raised to user-initiated (task 118). `blockShutdown` is only for one
   bounded write (< 50 ms, atomic replace).

@@ -147,9 +147,10 @@ public final class BackgroundWork: Sendable {
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
             }
-            let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
+            // One registration per slot: items of a lane run at once, and a hang scope nests only on one thread.
+            let watching = hangs.map { LaneScheduler.HangWatching(name: Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), watch: $0) }
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 hangWatched: watched)
+                                 hangWatching: watching)
         }
     }
 
@@ -219,7 +220,7 @@ public final class BackgroundWork: Sendable {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                guard let job = makeJob(id: id, lane: lane, priority: priority, shutdown: shutdown, site: site,
+                guard let job = makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
                                         work: { continuation.resume(with: Result { try body() }) },
                                         abandoned: { continuation.resume(throwing: CancellationError()) }) else {
                     return continuation.resume(throwing: CancellationError())
@@ -248,7 +249,7 @@ public final class BackgroundWork: Sendable {
                      shutdown: ShutdownBehavior = .skipOnShutdown,
                      fileID: StaticString = #fileID, line: UInt = #line,
                      abandoned: @escaping @Sendable () -> Void = {}, _ body: @escaping @Sendable () -> Void) {
-        guard let job = makeJob(id: nextID(), lane: lane, priority: priority, shutdown: shutdown,
+        guard let job = makeJob(id: nextID(), lane: lane, shutdown: shutdown,
                                 site: CallSite(fileID: fileID, line: line), work: body, abandoned: abandoned) else {
             return abandoned()
         }
@@ -376,12 +377,11 @@ public final class BackgroundWork: Sendable {
         reportsRuns.store(false, ordering: .relaxed)
     }
 
-    /// The item's work, wrapped to report its run to `onRan` while runs are reported.
-    private func reporting(_ work: @escaping @Sendable () -> Void, lane: BlockingLane,
-                           priority: WorkPriority) -> @Sendable () -> Void {
-        guard let onRan, reportsRuns.load(ordering: .relaxed) else { return work }
+    /// The item's work, wrapped to report its run to `onRan` while runs are reported, at the level the lane ran it at.
+    private func reporting(_ work: @escaping @Sendable () -> Void, lane: BlockingLane) -> @Sendable (WorkPriority) -> Void {
+        guard let onRan, reportsRuns.load(ordering: .relaxed) else { return { _ in work() } }
         let uptimeNanos = uptimeNanos
-        return {
+        return { priority in
             let start = uptimeNanos()
             work()
             onRan(lane, priority, start, uptimeNanos())
@@ -389,13 +389,14 @@ public final class BackgroundWork: Sendable {
     }
 
     /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
-    /// (recorded, never run). `finished` runs once the item ran or was abandoned, after its shutdown count
-    /// dropped (a ``WorkSequence`` starts its next item then).
-    func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
+    /// (recorded, never run). `onRan` gets the level the lane ran it at, not the one it was posted at.
+    /// `finished` runs once the item ran or was abandoned, after its shutdown count dropped (a ``WorkSequence``
+    /// starts its next item then).
+    func makeJob(id: UInt64, lane: BlockingLane, shutdown: ShutdownBehavior,
                  site: CallSite, work unreported: @escaping @Sendable () -> Void,
                  abandoned: @escaping @Sendable () -> Void,
                  finished: @escaping @Sendable () -> Void = {}) -> LaneJob? {
-        let work = reporting(unreported, lane: lane, priority: priority)
+        let work = reporting(unreported, lane: lane)
         guard shutdown == .blockShutdown else {
             return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: finished)
         }
@@ -408,9 +409,9 @@ public final class BackgroundWork: Sendable {
             blockShutdownRefused(site)
             return nil
         }
-        return LaneJob(id: id, shutdown: shutdown, work: { [self] in
+        return LaneJob(id: id, shutdown: shutdown, work: { [self] priority in
             let start = blockShutdownStarted()
-            work()
+            work(priority)
             blockShutdownEnded(site, since: start)
         }, abandoned: abandoned, done: { [self] in
             blockItemFinished()

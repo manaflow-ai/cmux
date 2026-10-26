@@ -25,9 +25,18 @@ import Dispatch
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
 ///
-/// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
-/// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
+/// With a hang-watched lane, each slot registers on its own and each item's run on its slot is one hang scope
+/// of that slot (Chrome's `WatchHangsInScope` in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc,
+/// on each worker thread's own `HangWatchState`); the wait for a slot is not. Scopes nest only on one thread, so
+/// items that run at once never share a registration.
 final class LaneScheduler: Sendable {
+    /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
+    struct HangWatching: Sendable {
+        let name: StaticString
+        let deadline: Duration
+        let watch: any HangWatchScoping
+    }
+
     enum Policy: Sendable {
         /// `widths[level.rawValue]` slots for each ``WorkPriority``, run only by items of that level.
         case perPriority(widths: [Int])
@@ -112,8 +121,8 @@ final class LaneScheduler: Sendable {
     let policy: Policy
     /// Whether the lane's items may block (Chrome's `MayBlock()` trait): files and system may, cpu may not.
     private let mayBlock: Bool
-    /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
-    private let hangWatched: HangWatchedLane?
+    /// Each slot's hang-watch registration, by slot; each item runs in one scope of its slot's. Empty watches nothing.
+    private let hangWatched: [HangWatchedLane]
     private let slots: [DispatchQueue]
     /// For a `perPriority` lane, the slots of each level (by `rawValue`); empty for a `shared` lane.
     private let levelSlots: [Range<Int>]
@@ -122,10 +131,10 @@ final class LaneScheduler: Sendable {
 
     /// - Parameters:
     ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
-    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:], hangWatched: HangWatchedLane? = nil) {
+    ///   - hangWatching: how each slot registers with the hang watch; nil watches nothing.
+    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:], hangWatching: HangWatching? = nil) {
         self.policy = policy
         self.mayBlock = mayBlock
-        self.hangWatched = hangWatched
         var names: [String] = [], levelSlots: [Range<Int>] = [], reserved = 0
         switch policy {
         case .perPriority(let widths):
@@ -141,12 +150,15 @@ final class LaneScheduler: Sendable {
         self.levelSlots = levelSlots
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
+        hangWatched = hangWatching.map { watching in
+            names.map { _ in HangWatchedLane(watching.name, deadline: watching.deadline, on: watching.watch) }
+        } ?? []
         state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
                             caps: caps.mapValues { max(1, $0) }))
     }
 
     deinit {
-        hangWatched?.unregister()
+        for slot in hangWatched { slot.unregister() }
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -175,6 +187,33 @@ final class LaneScheduler: Sendable {
         guard let taken else { return .refused }
         launch(taken.starts)
         return taken.starts.contains { $0.job.id == job.id } ? .started : .queued(taken.level)
+    }
+
+    /// Moves queued item `id` to `level` and sets whether it is `posted`, at once: at its new level it goes before
+    /// every item posted after it (by id), and a move that keeps its level keeps its place, so a raise never puts it
+    /// behind later work. Chrome orders a raised sequence by its oldest task's queue time
+    /// (base/task/thread_pool/sequence.cc, `Sequence::GetSortKey`). False when the item is not queued (it started,
+    /// or shutdown dropped it).
+    @discardableResult
+    func move(_ id: UInt64, to level: WorkPriority, posted: Bool) -> Bool {
+        let starts = state.withLock { state -> [Start]? in
+            for from in WorkPriority.allCases {
+                guard let index = state.pending[from.rawValue].firstIndex(where: { $0.job.id == id }) else { continue }
+                if from == level {
+                    state.pending[from.rawValue][index].posted = posted
+                } else {
+                    var entry = state.pending[from.rawValue].remove(at: index)
+                    entry.posted = posted
+                    let list = state.pending[level.rawValue]
+                    state.pending[level.rawValue].insert(entry, at: list.firstIndex { $0.job.id > id } ?? list.endIndex)
+                }
+                return pump(&state)
+            }
+            return nil
+        }
+        guard let starts else { return false }
+        launch(starts)
+        return true
     }
 
     /// Takes item `id` out of the queue when it has not started; returns it so the caller abandons it.
@@ -260,19 +299,20 @@ final class LaneScheduler: Sendable {
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
                 if mayBlock {
-                    BlockingContext.runAsLane { run(start.job) }
+                    BlockingContext.runAsLane { run(start) }
                 } else {
-                    BlockingContext.runAsCPULane { run(start.job) }
+                    BlockingContext.runAsCPULane { run(start) }
                 }
                 finish(start.job.id, slot: start.slot)
             }
         }
     }
 
-    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
-    private func run(_ job: LaneJob) {
-        guard let hangWatched else { return job.execute() }
-        hangWatched.run { job.execute() }
+    /// Runs the started job on its slot's thread at the level the slot runs it at, inside the slot's hang scope
+    /// when the lane is watched.
+    private func run(_ start: Start) {
+        guard hangWatched.indices.contains(start.slot) else { return start.job.execute(at: start.priority) }
+        hangWatched[start.slot].run { start.job.execute(at: start.priority) }
     }
 
     private func finish(_ id: UInt64, slot: Int) {

@@ -22,7 +22,8 @@ extension BackgroundWork {
 /// the items behind it, and the best-effort fence does not hold it while one of them is awaited, so an item
 /// someone waits for never waits behind lower work at a lower QoS (Chrome raises a whole sequence:
 /// `UpdateableSequencedTaskRunner::UpdatePriority`). A raise moves a queued front item to its new level at
-/// once; a running one keeps its QoS.
+/// once, ahead of the work posted after it there; a running one keeps its QoS. The lane reports each item's run
+/// (`onRan`) at the level it ran at.
 ///
 /// Cancel and shutdown keep the order of what is left: a cancelled awaited item leaves the queue, and an item
 /// that shutdown drops is abandoned in its turn, so a block-shutdown save behind it still runs.
@@ -38,7 +39,7 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
     public let lane: BlockingLane
     private let work: BackgroundWork
     private let scheduler: LaneScheduler
-    // concurrency-allow: a short non-blocking critical section over the waiting items and the front, taken by posters, cancel handlers and lane threads that must not await (lock carve-out); under it at most one LaneScheduler submit or remove, which takes only the lane's lock, and the lane never takes this one.
+    // concurrency-allow: a short non-blocking critical section over the waiting items and the front, taken by posters, cancel handlers and lane threads that must not await (lock carve-out); under it at most one LaneScheduler submit, move or remove, which takes only the lane's lock, and the lane never takes this one.
     private let state = Mutex(State())
 
     init(label: String, lane: BlockingLane, work: BackgroundWork) {
@@ -138,7 +139,7 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
         let site = BackgroundWork.CallSite(fileID: fileID, line: line)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                guard let job = work.makeJob(id: id, lane: lane, priority: level, shutdown: shutdown, site: site,
+                guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
                                              work: { continuation.resume(with: Result { try body() }) },
                                              abandoned: { continuation.resume(throwing: CancellationError()) },
                                              finished: { [self] in finished(id) }) else {
@@ -167,7 +168,7 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                      fileID: StaticString = #fileID, line: UInt = #line,
                      abandoned: @escaping @Sendable () -> Void = {}, _ body: @escaping @Sendable () -> Void) {
         let id = work.nextID()
-        guard let job = work.makeJob(id: id, lane: lane, priority: priority, shutdown: shutdown,
+        guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown,
                                      site: BackgroundWork.CallSite(fileID: fileID, line: line), work: body,
                                      abandoned: abandoned, finished: { [self] in finished(id) }) else {
             return abandoned()
@@ -181,8 +182,9 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
         case refused
         /// The sequence was idle: this item goes to the lane now.
         case first
-        /// It waits behind the front; the lane refused the raised front, if it is set.
-        case waits(refusedFront: LaneJob?)
+        /// It waits behind the front, at the sequence's level: the next item goes to the lane at the highest
+        /// waiting level.
+        case waits(at: WorkPriority)
     }
 
     private func add(_ item: Item, unless cancelled: () -> Bool) {
@@ -193,39 +195,31 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
                 state.advancing = true
                 return .first
             }
-            return .waits(refusedFront: raiseFront(&state))
+            raiseFront(&state)
+            return .waits(at: state.highestWaiting ?? item.priority)
         }
         switch added {
         case .refused:
             item.job.abandon()
         case .first:
             advance(reportingQueued: true)
-        case .waits(let refusedFront):
-            work.onQueued(lane, item.priority)
-            if let refusedFront {
-                refusedFront.abandon()
-                advance()
-            }
+        case .waits(let level):
+            work.onQueued(lane, level)
         }
     }
 
     /// Moves a queued front item up to the highest waiting level, and out of the fence while someone awaits an
-    /// item behind it; a running front keeps its QoS. Returns the front when the lane refused it on the move
-    /// (shut down), and then the caller abandons it and advances. Under the lock.
-    private func raiseFront(_ state: inout State) -> LaneJob? {
-        guard var front = state.front else { return nil }
+    /// item behind it, in place (``LaneScheduler/move(_:to:posted:)``): it keeps its place before the work posted
+    /// after it. A running front keeps its QoS; a front shutdown dropped is abandoned, and its `finished` takes
+    /// the next. Under the lock.
+    private func raiseFront(_ state: inout State) {
+        guard var front = state.front else { return }
         let level = max(front.level, state.highestWaiting ?? front.level)
         let posted = front.posted && state.awaited == 0
-        guard level != front.level || posted != front.posted, let job = scheduler.remove(front.id) else { return nil }
-        if case .refused = scheduler.submit(job, at: level, posted: posted, unless: { false }) {
-            state.front = nil
-            state.advancing = true
-            return job
-        }
+        guard level != front.level || posted != front.posted, scheduler.move(front.id, to: level, posted: posted) else { return }
         front.level = level
         front.posted = posted
         state.front = front
-        return nil
     }
 
     /// One step of ``advance(reportingQueued:)``.

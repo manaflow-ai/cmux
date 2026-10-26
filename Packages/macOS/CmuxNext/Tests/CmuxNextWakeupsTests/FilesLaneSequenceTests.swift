@@ -151,7 +151,8 @@ import Testing
     }
 
     @Test func aRaisedFrontLeavesItsFullLevelAtTheHigherQoS() async throws {
-        let work = BackgroundWork(label: "test.sequence-raise")
+        let ranAt = Box<[WorkPriority]>([])
+        let work = BackgroundWork(label: "test.sequence-raise", onRan: { _, priority, _, _ in ranAt.withLock { $0.append(priority) } })
         let sequence = work.sequence("test.raised")
         let started = Signal()
         let release = DispatchSemaphore(value: 0)
@@ -171,7 +172,35 @@ import Testing
         }.value
         #expect(read, "the read ran before the save")
         #expect(saveQoS.withLock { $0 } == QOS_CLASS_USER_INITIATED)
+        // The save reported its run (before the read could start) at the level it ran at, not the one it was posted at.
+        #expect(ranAt.withLock { $0.first } == .userBlocking)
         for _ in 0..<FilesLaneWidths.standard.bestEffort { release.signal() }
+    }
+
+    /// An awaited item at the front's own level changes only whether the front is awaited: the front keeps its
+    /// place before the files work posted after it, so the item someone waits for does not wait behind that work.
+    @Test func anAwaitedItemAtTheFrontsLevelKeepsTheFrontAheadOfLaterWork() async throws {
+        let queued = Signal(), started = Signal()
+        // One user-visible slot, so the start order of the queued items is the order they leave the queue in.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.sequence-keep-place", onQueued: { lane, level in
+            if lane == .files && level == .userVisible { queued.signal() }
+        })
+        let sequence = work.sequence("test.keep-place")
+        let log = Log()
+        let release = DispatchSemaphore(value: 0)
+        work.post(.userVisible, mayBlock: .files) {
+            started.signal()
+            release.wait()
+        }
+        await started.wait(1)
+        sequence.post(.userVisible) { log.add("front") }
+        work.post(.userVisible, mayBlock: .files) { log.add("unrelated") }
+        await queued.wait(2)
+        let read = Task(priority: .medium) { try await sequence.run(.userVisible) { log.add("read") } }
+        await queued.wait(1)
+        release.signal()
+        try await read.value
+        #expect(log.entries == ["front", "unrelated", "read"])
     }
 
     @Test func aCancelledWaitingItemNeverRunsAndTheRestKeepTheirOrder() async throws {
