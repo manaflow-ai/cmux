@@ -85,6 +85,9 @@ pub(super) struct Slot<'a> {
     /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
     /// queue and the running turn stops.
     pub(super) interrupt: bool,
+    /// The turn `interrupt` was aimed at, when it was one turn (`PromptOptions::interrupt_turn`):
+    /// another turn running now is not stopped.
+    pub(super) interrupt_turn: Option<&'a str>,
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
@@ -218,11 +221,13 @@ impl Hub {
             }
         };
         let (withdraw, joined) = withdraw;
-        // A steer the agent cannot take goes next, and stops the turn that runs now.
+        // A steer the agent cannot take goes next, and stops the turn that runs now, unless it was
+        // aimed at a turn that has ended since: the one running now is another prompt's.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
             if self.put_next(session, p.prompt_id)
                 && let Some(running) = running
+                && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
                 self.cancel_turn(session, &running).await;
             }
