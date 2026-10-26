@@ -22,78 +22,84 @@ struct ColdCmdNRowSlotTests {
 
     @Test func firstColdCmdNWithRestoredFollowingRowsStaysAfterCurrent() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
-        let services = launched.services
-        let window = try #require(services.windows.active?.state.id)
-        let controller = try #require(services.windows.controller(for: window))
-        let state = controller.state
-        let list = controller.sidebar.container.sidebarView.list
-        let store = services.daemon.store
-        let connection = try #require(services.daemon.connection)
+        do {
+            let services = launched.services
+            let window = try #require(services.windows.active?.state.id)
+            let controller = try #require(services.windows.controller(for: window))
+            let state = controller.state
+            let list = controller.sidebar.container.sidebarView.list
+            let store = services.daemon.store
+            let connection = try #require(services.daemon.connection)
 
-        let config = launched.root.appendingPathComponent("cmux.json")
-        try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: config)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        services.settings = settings
-        try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-        try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+            let config = launched.root.appendingPathComponent("cmux.json")
+            try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: config)
+            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
+                                              managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            await settings.reload()
+            services.settings = settings
+            try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
+            try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
 
-        // Restore three existing workspaces through the daemon state path, without a prior Cmd-N.
-        let names = (1...3).map { "cold-restore-\($0)" }
-        for name in names {
-            _ = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
-        }
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-            names.allSatisfy { name in store.workspaces.contains { $0.name == name && !$0.isProvisional } }
-        }
-        let restored = try #require(names.compactMap { name in store.workspaces.first { $0.name == name && !$0.isProvisional } }.count == names.count
-            ? names.compactMap { name in store.workspaces.first { $0.name == name && !$0.isProvisional } } : nil,
-            "restored workspaces: \(store.workspaces.map(\.name))")
-        for workspace in restored {
-            services.windows.claim(workspaceID: workspace.id, in: state, select: false)
-        }
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-            restored.allSatisfy { services.windows.registry.value.owner(of: $0.id) == window }
-        }
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-            let drawn = Self.rows(list.displayed)
-            return restored.allSatisfy { drawn.contains($0.id) }
-        }
+            // Restore three existing workspaces through the daemon state path, without a prior Cmd-N.
+            let names = (1...3).map { "cold-restore-\($0)" }
+            for name in names {
+                _ = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+            }
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+                names.allSatisfy { name in store.workspaces.contains { $0.name == name && !$0.isProvisional } }
+            }
+            let restored = try #require(names.compactMap { name in store.workspaces.first { $0.name == name && !$0.isProvisional } }.count == names.count
+                ? names.compactMap { name in store.workspaces.first { $0.name == name && !$0.isProvisional } } : nil,
+                "restored workspaces: \(store.workspaces.map(\.name))")
+            for workspace in restored {
+                services.windows.claim(workspaceID: workspace.id, in: state, select: false)
+            }
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+                restored.allSatisfy { services.windows.registry.value.owner(of: $0.id) == window }
+            }
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+                let drawn = Self.rows(list.displayed)
+                return restored.allSatisfy { drawn.contains($0.id) }
+            }
 
-        let current = restored[1]
-        services.windows.select(current.id, in: state)
-        controller.showWorkspace(requested: state.workspaceID)
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
-            state.workspaceID == current.id && Self.rows(list.displayed).contains(current.id)
-        }
-        let before = Self.rows(list.displayed)
-        let anchor = try #require(before.firstIndex(of: current.id), "middle workspace is not drawn: \(before)")
-        try #require(anchor + 1 < before.count, "need a row following the selected middle workspace: \(before)")
+            let current = restored[1]
+            services.windows.select(current.id, in: state)
+            controller.showWorkspace(requested: state.workspaceID)
+            await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+                state.workspaceID == current.id && Self.rows(list.displayed).contains(current.id)
+            }
+            let before = Self.rows(list.displayed)
+            let anchor = try #require(before.firstIndex(of: current.id), "middle workspace is not drawn: \(before)")
+            try #require(anchor + 1 < before.count, "need a row following the selected middle workspace: \(before)")
 
-        var frames: [[String]] = []
-        list.onApply = { frames.append(Self.rows($0)) }
-        _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("cold-target")]))
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-            store.workspaces.contains { $0.name == "cold-target" && !$0.isProvisional }
-                && Self.rows(list.displayed).contains { id in store.workspaces.first { $0.id == id }?.name == "cold-target" }
-                && PendingWorkspaceRows.shared.rows(in: window).isEmpty
-        }
-        try? await Task.sleep(for: .seconds(1))
-        list.onApply = nil
+            var frames: [[String]] = []
+            let previousOnApply = list.onApply
+            defer { list.onApply = previousOnApply }
+            list.onApply = { layout in previousOnApply?(layout); frames.append(Self.rows(layout)) }
+            _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("cold-target")]))
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+                store.workspaces.contains { $0.name == "cold-target" && !$0.isProvisional }
+                    && Self.rows(list.displayed).contains { id in store.workspaces.first { $0.id == id }?.name == "cold-target" }
+                    && PendingWorkspaceRows.shared.rows(in: window).isEmpty
+            }
+            try? await Task.sleep(for: .seconds(1))
 
-        let target = try #require(store.workspaces.first { $0.name == "cold-target" }?.id, "new workspace never entered the store")
-        let targetFrames = frames.filter { $0.contains(target) }
-        let expected = anchor + 1
-        let misplaced = targetFrames.filter { frame in
-            frame.firstIndex(of: target) != frame.firstIndex(of: current).map { $0 + 1 }
+            let target = try #require(store.workspaces.first { $0.name == "cold-target" }?.id, "new workspace never entered the store")
+            let targetFrames = frames.filter { $0.contains(target) }
+            let expected = anchor + 1
+            let misplaced = targetFrames.filter { frame in
+                frame.firstIndex(of: target) != frame.firstIndex(of: current).map { $0 + 1 }
+            }
+            let final = Self.rows(list.displayed)
+
+            #expect(!targetFrames.isEmpty, "no drawn frame contained the new workspace: \(frames)")
+            #expect(misplaced.isEmpty, "cold Cmd-N row moved from after-current \(expected): \(misplaced)")
+            #expect(final.firstIndex(of: target) == final.firstIndex(of: current).map { $0 + 1 }, "final rows: \(final)")
+        } catch {
+            await launched.stop()
+            throw error
         }
-        let final = Self.rows(list.displayed)
         await launched.stop()
-
-        #expect(!targetFrames.isEmpty, "no drawn frame contained the new workspace: \(frames)")
-        #expect(misplaced.isEmpty, "cold Cmd-N row moved from after-current \(expected): \(misplaced)")
-        #expect(final.firstIndex(of: target) == final.firstIndex(of: current).map { $0 + 1 }, "final rows: \(final)")
     }
 }

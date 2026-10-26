@@ -78,4 +78,9 @@ extension SidebarDocStore {
         }
         return true
     }
+
+    /// Reprojects the accepted create placement before the next display pass.
+    public func reshow(live: [SidebarDocWorkspaceRef]) {
+        show(live: live, connectedRemotes: lastConnectedRemotes)
+    }
 }
