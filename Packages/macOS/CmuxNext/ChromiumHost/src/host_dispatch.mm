@@ -35,6 +35,9 @@ constexpr size_t kMaxPageViews = 4096;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
+// Page accessibility requests held for one browser's creation: cmux asks once
+// per page, window and context its page view shows.
+constexpr size_t kMaxHeldPerBrowser = 16;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -189,8 +192,34 @@ void HostContext::Handle(control::Message& message) {
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
+      if (message.op == kOpBrowserAccessibilityToken && HoldForCreation(message)) return;
       Dispatch(message);
       return;
+  }
+}
+
+bool HostContext::HoldForCreation(control::Message& message) {
+  TlvReader peek(message.fields);
+  const int32_t client = peek.I32();
+  // A malformed op is the generated case's to refuse.
+  if (!peek.ok() || !AwaitsCreation(client)) return false;
+  std::vector<control::Message>& held = held_for_creation_[client];
+  if (held.size() >= kMaxHeldPerBrowser) {
+    Bad("too many accessibility requests waiting for a browser's creation");
+    return true;
+  }
+  held.push_back(std::move(message));
+  return true;
+}
+
+void HostContext::RunHeldForCreation(int32_t client_id) {
+  auto held = held_for_creation_.find(client_id);
+  if (held == held_for_creation_.end()) return;
+  std::vector<control::Message> messages = std::move(held->second);
+  held_for_creation_.erase(held);
+  for (const control::Message& message : messages) {
+    if (state_ != State::kRunning) return;
+    Dispatch(message);
   }
 }
 
@@ -397,7 +426,8 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   int32_t out_request = request;
   MirrorEvent mirror_event{kind, request, client, a, b, std::nullopt};
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
-  if (pending != pending_binds_.end()) {
+  const bool created = pending != pending_binds_.end();
+  if (created) {
     Bind(pending->second.minted, browser_id);
     if (pending->second.view) view_of_browser_[browser_id] = pending->second.view;
     client = pending->second.minted;
@@ -415,6 +445,8 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
+  // Never inside an op's dispatch (held_events_ above): each held request dispatches as an op of its own.
+  if (created) RunHeldForCreation(client);
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
     delegate_.BrowserClosed();

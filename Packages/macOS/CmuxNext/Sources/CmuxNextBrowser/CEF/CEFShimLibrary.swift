@@ -55,6 +55,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
     /// with no key window (0 when the fork lacks it or the page is not detached).
     let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 30: `cmux_shim_browser_accessibility_token(browser, embedder_pid, parent_token, parent_length,
+    /// window_token, window_length, out, capacity)`: sets the page's accessibility parent and window from
+    /// the embedder's tokens and returns the length of the page's own token, copied into `out` when it
+    /// fits (0: none). Host mode answers in a REPLY (task 049, ``ChromiumHostAccessibilityToken``).
+    let browserAccessibilityToken: @convention(c) (Int32, Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32,
+                                                   UnsafeMutablePointer<UInt8>?, Int32) -> Int32
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
@@ -334,6 +340,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
+        browserAccessibilityToken = try r("cmux_shim_browser_accessibility_token")
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")

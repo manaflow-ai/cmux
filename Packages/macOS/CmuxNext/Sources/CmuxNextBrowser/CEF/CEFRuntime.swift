@@ -71,7 +71,7 @@ final class CEFRuntime {
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
     private(set) lazy var accessibility = CEFAccessibility(
-        apply: { [weak self] browser, enabled in self?.setPageAccessibility(browser, enabled) },
+        apply: { [weak self] browser, enabled in self?.applyPageAccessibility(browser, enabled) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
