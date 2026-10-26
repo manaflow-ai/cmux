@@ -28,12 +28,16 @@ Usage:
 Arms (task p15-oracle-049; driver_app.py and driver_daemon.py apply them). `arm_plan` turns a run's
 request (registry name -> arm) into each product's `KEY=ARM,KEY=ARM` value: the app's
 `--cmux-switches=` (passed as CMUX_NEXT_SWITCHES, since bench_launch starts the app with no arguments)
-and the daemon's CMUX_TUI_SWITCHES (set on the app too, for the daemon it launches). An unknown name,
-an arm outside old/new, or a key the product's catalog lacks aborts before anything launches. After the
-launch `read_back` compares what each product reports, the app's `debug.oracle.snapshot` switches facet
-(`arms`) and the daemon's `identify` and `oracle-state` `switches`, with the plan: a requested switch
-must read back its arm in every reader that knows its key and needs at least one reader; any other
-switch must read back its default. A mismatch is `arm-not-applied` and ends the case before its steps.
+and the daemon's CMUX_TUI_SWITCHES. The daemon the app starts gets that value as CMUX_NEXT_TUI_SWITCHES:
+the app unsets every inherited CMUX* variable that is not a CMUX_NEXT_* knob before its daemon starts
+(LaunchIdentity.stripInheritedEnvironment), and DaemonDiagnosticKnobs passes this one on as
+CMUX_TUI_SWITCHES. An unknown name, an arm outside old/new, a key the product's catalog lacks, or a
+catalog that is not on the branch aborts before anything launches. After the launch `read_back`
+compares what each product reports, the app's `debug.oracle.snapshot` switches facet (`arms`) and the
+daemon's `identify` and `oracle-state` `switches`, with the plan: a requested switch must read back its
+arm in every reader that knows its key and needs at least one reader; any other registry switch must
+read back its default wherever a reader reports it. A mismatch is `arm-not-applied` (ArmNotApplied,
+with the readback): the run stops there, since every later case would run on the same wrong arms.
 `hits_by_name` turns one `debug.oracle.switch_hits` result into the result's per-name hit counts. The
 driver's result carries both (`switch_readback`, `switch_hits`), which oracle.py writes into the receipt.
 
@@ -558,6 +562,8 @@ def hits(roots: Roots, report_path: Path, name: str, arm: str) -> HitVerdict:
 APP_SWITCHES_ENV = "CMUX_NEXT_SWITCHES"
 APP_SWITCHES_ARG = "--cmux-switches"
 DAEMON_SWITCHES_ENV = "CMUX_TUI_SWITCHES"
+# The app's knob for it (DaemonDiagnosticKnobs): the app's launch strip unsets a raw CMUX_TUI_SWITCHES.
+DAEMON_SWITCHES_APP_ENV = "CMUX_NEXT_TUI_SWITCHES"
 ARM_NOT_APPLIED = "arm-not-applied"
 APP, DAEMON = "app", "daemon"
 # The task that gives each product its readback: the frozen RefactorSwitches value, the Switches value.
@@ -565,16 +571,19 @@ READBACK_TASK = {APP: APP_CATALOG_TASK, DAEMON: DAEMON_CATALOG_TASK}
 
 
 class UnknownSwitch(Exception):
-    """A requested switch the run cannot apply: no registry file, no key, an arm outside old/new, or a key
-    the product's catalog does not declare. The run aborts before anything launches."""
+    """A requested switch the run cannot apply: no registry file, no key, an arm outside old/new, a key the
+    product's catalog does not declare, or no catalog on the branch. The run aborts before anything launches."""
 
 
 class ArmNotApplied(Exception):
-    """The product read back other arms than the run applied; `problems` names each one."""
+    """The product read back other arms than the run applied: `problems` names each mismatch and `readback`
+    is what was read (registry name -> arm). A driver raises it out of `run_case`; oracle.py then stops the
+    run with one arm-not-applied verdict, since every later case would run on the same arms."""
 
-    def __init__(self, problems: Sequence[str]):
+    def __init__(self, problems: Sequence[str], readback: Optional[Mapping[str, str]] = None):
         super().__init__(f"{ARM_NOT_APPLIED}: " + "; ".join(problems))
         self.problems = tuple(problems)
+        self.readback = dict(readback or {})
 
 
 @dataclass(frozen=True)
@@ -591,8 +600,8 @@ class SwitchArm:
 
 @dataclass(frozen=True)
 class ArmPlan:
-    """The arms of one run. Only requested switches are passed; every other switch must read back its
-    default, so an arm that leaked in from elsewhere is caught too."""
+    """The arms of one run. Only requested switches are passed; every other registry switch must read back
+    its default, so an arm that leaked in from elsewhere is caught too."""
 
     switches: Tuple[SwitchArm, ...]
 
@@ -614,10 +623,11 @@ class ArmPlan:
 
     def app_environment(self) -> Dict[str, str]:
         """The app launch's variables: CMUX_NEXT_SWITCHES is --cmux-switches= in the environment (bench_launch
-        starts the app with no arguments), and CMUX_TUI_SWITCHES is the value the app's DaemonLauncher hands
-        the daemon it starts (p15-oracle-180). The daemon's readback proves it got there."""
-        value = self.value(APP)
-        return {**({APP_SWITCHES_ENV: value} if value else {}), **self.daemon_environment()}
+        starts the app with no arguments), and CMUX_NEXT_TUI_SWITCHES is the daemon's value. The app's launch
+        strip keeps CMUX_NEXT_* knobs only, and DaemonDiagnosticKnobs hands this one to the daemon the app
+        starts as CMUX_TUI_SWITCHES. The daemon's readback proves it got there."""
+        app, daemon = self.value(APP), self.value(DAEMON)
+        return {**({APP_SWITCHES_ENV: app} if app else {}), **({DAEMON_SWITCHES_APP_ENV: daemon} if daemon else {})}
 
 
 @dataclass(frozen=True)
@@ -632,7 +642,7 @@ class Readback:
     def check(self) -> Dict[str, str]:
         """The readback when every arm is the planned one; raises ArmNotApplied otherwise."""
         if self.problems:
-            raise ArmNotApplied(self.problems)
+            raise ArmNotApplied(self.problems, self.arms)
         return dict(self.arms)
 
 
@@ -659,7 +669,8 @@ def entry_key(entry: Mapping[str, Any]) -> Optional[Tuple[str, str]]:
 def arm_plan(requested: Mapping[str, str], roots: Roots = Roots(),
              registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> ArmPlan:
     """The plan of a run that requests `requested` (registry name -> arm). Raises UnknownSwitch for every
-    request it cannot apply; a key is checked against its product's catalog when that file is on the branch."""
+    request it cannot apply, a requested key whose product catalog is not on the branch among them: nothing
+    then says the build parses that key."""
     registry = load_registry(roots) if registry is None else registry
     catalogs: Dict[str, Any] = {APP: app_catalog(roots.app_catalog), DAEMON: daemon_catalog(roots.daemon_catalog)}
     catalog_paths = {APP: roots.app_catalog, DAEMON: roots.daemon_catalog}
@@ -681,7 +692,11 @@ def arm_plan(requested: Mapping[str, str], roots: Roots = Roots(),
                 problems.append(f"{name}: arm {arm!r} is not old or new")
             continue
         catalog = catalogs[product]
-        if asked and catalog is not None and key not in catalog:
+        if asked and catalog is None:
+            problems.append(f"{name}: {product} key {key!r} cannot be checked: "
+                            f"{relative(catalog_paths[product], roots.repo)} is not on this branch ({READBACK_TASK[product]})")
+            continue
+        if asked and key not in catalog:
             problems.append(f"{name}: {product} key {key!r} is not in {relative(catalog_paths[product], roots.repo)}")
             continue
         switches.append(SwitchArm(name=name, product=product, key=key, arm=str(arm), requested=asked))
@@ -1114,9 +1129,11 @@ def selftest_arms(tmp: Path) -> Tuple[List[str], int]:
            plan.value(APP))
     expect("app launch argument", plan.app_arguments() == ["--cmux-switches=browser.cef-helper=old,browser.layer-hosting=new"],
            plan.app_arguments())
-    expect("the app gets both variables", plan.app_environment() == {
-        "CMUX_NEXT_SWITCHES": "browser.cef-helper=old,browser.layer-hosting=new", "CMUX_TUI_SWITCHES": "holder=new"},
+    expect("the app gets both values under CMUX_NEXT_ names", plan.app_environment() == {
+        "CMUX_NEXT_SWITCHES": "browser.cef-helper=old,browser.layer-hosting=new", "CMUX_NEXT_TUI_SWITCHES": "holder=new"},
         plan.app_environment())
+    expect("no raw daemon variable on the app: its launch strip unsets every other CMUX*",
+           all(key.startswith("CMUX_NEXT_") for key in plan.app_environment()), plan.app_environment())
     expect("the daemon gets CMUX_TUI_SWITCHES only", plan.daemon_environment() == {"CMUX_TUI_SWITCHES": "holder=new"},
            plan.daemon_environment())
 
@@ -1130,8 +1147,14 @@ def selftest_arms(tmp: Path) -> Tuple[List[str], int]:
             lambda: arm_plan({"holder": "new"}, ghost_roots))
     ghost_roots.app_catalog.unlink()
     ghost_roots.daemon_catalog.unlink()
-    expect("with no catalog on the branch the product's readback decides",
-           arm_plan({"layer-hosting": "new", "holder": "new"}, ghost_roots).value(DAEMON) == "ghost=new")
+    refused("a requested app key with no catalog on the branch aborts", UnknownSwitch,
+            "app key 'browser.ghost' cannot be checked: Sources/RefactorSwitches.swift is not on this branch (p15-oracle-180)",
+            lambda: arm_plan({"layer-hosting": "new"}, ghost_roots))
+    refused("a requested daemon key with no catalog on the branch aborts", UnknownSwitch,
+            "daemon key 'ghost' cannot be checked: switches.rs is not on this branch (p15-oracle-020)",
+            lambda: arm_plan({"holder": "new"}, ghost_roots))
+    expect("with no catalog a default run still expects every default",
+           [(s.name, s.arm) for s in arm_plan({}, ghost_roots).switches] == [("holder", "old"), ("layer-hosting", "old")])
 
     roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
     plan = arm_plan({"layer-hosting": "new", "holder": "new"}, roots)
@@ -1177,6 +1200,12 @@ def selftest_arms(tmp: Path) -> Tuple[List[str], int]:
         refused(f"{label} raises", ArmNotApplied, want, readback.check)
     refused("the abort names arm-not-applied", ArmNotApplied, "arm-not-applied: layer-hosting=new: ",
             read_back(arm_plan({"layer-hosting": "new"}, roots), APP, {"snapshot.switches": {}}).check)
+    try:
+        read_back(arm_plan({"layer-hosting": "new"}, roots), APP,
+                  {"snapshot.switches": {"browser.layer-hosting": "old"}}).check()
+        expect("the abort carries the readback", False, "no ArmNotApplied")
+    except ArmNotApplied as error:
+        expect("the abort carries the readback", error.readback == {"layer-hosting": "old"}, error.readback)
     expect("an app reader need not know a daemon switch",
            read_back(plan, APP, {"snapshot.switches": {"browser.layer-hosting": "new"}}).problems == ())
     refused("a malformed reader is bad input", UsageError, "an object of strings",

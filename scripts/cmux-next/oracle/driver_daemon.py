@@ -31,7 +31,8 @@ Usage:
                                            oracle-state part must equal daemon-oracle-state.expected.json
   driver_daemon.py arms --cmux BIN [--switch NAME=ARM]... [--registry DIR] [--receipt FILE]
                                            a hermetic daemon on those arms, read back (exit 0 applied,
-                                           1 arm-not-applied, 2 unknown switch: nothing starts)
+                                           1 arm-not-applied, 2 unknown switch: nothing starts,
+                                           3 readback-failed: the daemon's answer proves no arm)
   driver_daemon.py --selftest              offline tests against the recorded wire fixtures
 """
 
@@ -43,7 +44,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Protocol
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -181,16 +182,28 @@ def daemon_readback(plan: Any, reads: DaemonReads) -> Any:
         raise DriverError(str(error)) from None
 
 
-def arms_check(binary: Path, requested: Mapping[str, str], registry: Optional[Path], receipt: Optional[Path]) -> int:
+READBACK_FAILED = "readback-failed"
+ARMS_EXIT = {"applied": 0, "arm-not-applied": 1, READBACK_FAILED: 3}
+
+
+def hermetic_daemon(binary: Path, root: Path) -> Any:
+    """capture_wire_fixtures.py's hermetic daemon of `binary` under `root` (not started)."""
+    return _sibling("capture_wire_fixtures").Daemon(binary.resolve(), root)
+
+
+def arms_check(binary: Path, requested: Mapping[str, str], roots: Any, receipt: Optional[Path], *,
+               make_daemon: Callable[[Path, Path], Any] = hermetic_daemon,
+               open_reads: Callable[[str], Any] = SdkReads) -> int:
     """`arms`: one hermetic daemon started with the plan's CMUX_TUI_SWITCHES, its arms read back. Exit 0 when
     they are the plan's, 1 on arm-not-applied (the daemon refused the value at start, or read back others),
-    2 when the request names an unknown switch (nothing starts)."""
+    2 when the request names an unknown switch (nothing starts), 3 on readback-failed (identify failed, or
+    oracle-state answered without switches or with malformed ones: no arm is proved either way). Every
+    verdict but 2 writes the receipt."""
     import shutil
     import subprocess
     import tempfile
 
     switches = _sibling("switches")
-    roots = switches.Roots() if registry is None else switches.Roots(registry=registry.resolve())
     try:
         plan = switches.arm_plan(requested, roots)
     except switches.UnknownSwitch as error:
@@ -201,9 +214,8 @@ def arms_check(binary: Path, requested: Mapping[str, str], registry: Optional[Pa
         return 2
     environment = plan.daemon_environment()
     record: Dict[str, Any] = {"switches": dict(sorted(requested.items())), "environment": environment}
-    wire = _sibling("capture_wire_fixtures")
     root = Path(tempfile.mkdtemp(prefix="oracle-049-", dir="/tmp"))
-    daemon = wire.Daemon(binary.resolve(), root)
+    daemon = make_daemon(binary, root)
     daemon.env.update(environment)
     try:
         try:
@@ -214,10 +226,14 @@ def arms_check(binary: Path, requested: Mapping[str, str], registry: Optional[Pa
                           problems=[f"the daemon refused {switches.DAEMON_SWITCHES_ENV}={environment.get(switches.DAEMON_SWITCHES_ENV, '')!r} "
                                     f"at start (exit {error.returncode}): {detail}"])
         else:
-            with SdkReads(daemon.socket) as reads:
-                readback = daemon_readback(plan, reads)
-            record.update(verdict="applied" if not readback.problems else switches.ARM_NOT_APPLIED,
-                          readback=readback.arms, sources=readback.sources, problems=list(readback.problems))
+            try:
+                with open_reads(daemon.socket) as reads:
+                    readback = daemon_readback(plan, reads)
+            except (DriverError, OSError) as error:
+                record.update(verdict=READBACK_FAILED, problems=[f"daemon switch readback: {error}"])
+            else:
+                record.update(verdict="applied" if not readback.problems else switches.ARM_NOT_APPLIED,
+                              readback=readback.arms, sources=readback.sources, problems=list(readback.problems))
     finally:
         daemon.stop()
         shutil.rmtree(root, ignore_errors=True)
@@ -225,7 +241,7 @@ def arms_check(binary: Path, requested: Mapping[str, str], registry: Optional[Pa
     if receipt is not None:
         receipt.write_text(text, encoding="utf-8")
     print(text, end="")
-    return 0 if record["verdict"] == "applied" else 1
+    return ARMS_EXIT[record["verdict"]]
 
 
 # ---------------------------------------------------------------------------------------------- self test
@@ -325,6 +341,27 @@ class _ArmReads:
     def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
         raise AssertionError(f"no resource read is needed for the arms ({operation})")
 
+    def __enter__(self) -> "_ArmReads":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        pass
+
+
+class _StubDaemon:
+    """capture_wire_fixtures.Daemon as arms_check uses it: env, start, socket, stop."""
+
+    def __init__(self, binary: Path, root: Path):
+        self.env: Dict[str, str] = {}
+        self.socket = str(root / "daemon.sock")
+        self.started = self.stopped = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
 
 def _identify(**extra: Any) -> Dict[str, Any]:
     return {"ok": True, "data": {"app": "cmux-tui", "protocol": 5, **extra}}
@@ -385,9 +422,45 @@ class DaemonArmsSelfTest(unittest.TestCase):
 
         err = io.StringIO()
         with redirect_stderr(err):
-            code = arms_check(Path("/nonexistent/cmux-tui"), {"ghost": "new"}, self.roots.registry, None)
+            code = arms_check(Path("/nonexistent/cmux-tui"), {"ghost": "new"}, self.roots, None)
         self.assertEqual(code, 2)
         self.assertIn("unknown switch: ghost", err.getvalue())
+
+    def run_arms(self, reads: "_ArmReads", arm: str = "new") -> "tuple[int, Dict[str, Any], _StubDaemon]":
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        daemons = []
+
+        def make(binary: Path, root: Path) -> _StubDaemon:
+            daemons.append(_StubDaemon(binary, root))
+            return daemons[-1]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = Path(tmp) / "arms.json"
+            with redirect_stdout(io.StringIO()):
+                code = arms_check(Path(sys.executable), {"holder": arm}, self.roots, receipt, make_daemon=make,
+                                  open_reads=lambda path: reads)
+            return code, json.loads(receipt.read_text(encoding="utf-8")), daemons[0]
+
+    def test_arms_check_writes_the_applied_receipt(self) -> None:
+        code, record, daemon = self.run_arms(_ArmReads(_identify(switches={"holder": "new"}), _state({"holder": "new"})))
+        self.assertEqual(code, 0)
+        self.assertEqual(record["verdict"], "applied")
+        self.assertEqual(record["readback"], {"holder": "new"})
+        self.assertEqual(daemon.env, {"CMUX_TUI_SWITCHES": "holder=new"}, "a daemon started directly gets the raw name")
+        self.assertTrue(daemon.started and daemon.stopped)
+
+    def test_arms_check_tells_a_failed_readback_from_a_wrong_arm(self) -> None:
+        no_switches = {"ok": True, "data": {k: v for k, v in EXTRAS_REPLY.items() if k != "switches"}}
+        code, record, daemon = self.run_arms(_ArmReads(_identify(), no_switches))
+        self.assertEqual(code, 3)
+        self.assertEqual(record["verdict"], "readback-failed")
+        self.assertIn("oracle-state gave no switches", record["problems"][0])
+        self.assertTrue(daemon.stopped)
+        code, record, _ = self.run_arms(_ArmReads(_identify(), _state({"holder": "old"})))
+        self.assertEqual((code, record["verdict"]), (1, "arm-not-applied"))
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -416,7 +489,8 @@ def main(argv: Optional[list] = None) -> int:
             requested = switches.parse_requests(args.switch)
         except switches.UsageError as error:
             parser.error(str(error))
-        return arms_check(args.cmux, requested, args.registry, args.receipt)
+        roots = switches.Roots() if args.registry is None else switches.Roots(registry=args.registry.resolve())
+        return arms_check(args.cmux, requested, roots, args.receipt)
     if args.command == "facet":
         with SdkReads(args.socket) as reads:
             value = capture_daemon_facet(reads)

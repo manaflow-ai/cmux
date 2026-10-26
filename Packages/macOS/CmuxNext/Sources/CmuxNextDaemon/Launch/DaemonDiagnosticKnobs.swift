@@ -14,12 +14,14 @@ public import Foundation
 /// ```
 public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
-    /// create-path debug timing marks and the terminal host model (`holder`; bench_memory.py
-    /// `--terminal-host-model`).
+    /// create-path debug timing marks, the terminal host model (`holder`; bench_memory.py
+    /// `--terminal-host-model`) and the daemon's refactor switch arms (`KEY=ARM,...`; the oracle's
+    /// switches.py, until the app's frozen switch value hands them on, p15-oracle task 180).
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
+        ("CMUX_NEXT_TUI_SWITCHES", "CMUX_TUI_SWITCHES"),
     ]
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.

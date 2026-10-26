@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import oracle  # noqa: E402
+import switches  # noqa: E402 - the ArmNotApplied a driver raises (p15-oracle-049)
 
 HAS_EXPECTATIONS = (HERE / "expectations.py").is_file()
 
@@ -43,15 +44,21 @@ class FakeDriver:
     """`script` maps a case id to the statuses of its successive runs (the last one repeats).
 
     `value_of(cid, n)` is the snapshot value of the n-th run of a case; `hits` are switch hits
-    reported per case run.
+    reported per case run, `launch_hits` once per session (its first case), `readback` the arms
+    every case reads back; a case in `wrong_arms` raises switches.ArmNotApplied.
     """
 
-    def __init__(self, script=None, value_of=None, dirty=(), raises=(), hits=None):
+    def __init__(self, script=None, value_of=None, dirty=(), raises=(), hits=None, launch_hits=None, readback=None,
+                 wrong_arms=()):
         self.script = script or {}
         self.value_of = value_of or (lambda cid, n: "v-" + cid)
         self.dirty = set(dirty)
         self.raises = set(raises)
         self.hits = hits
+        self.launch_hits = launch_hits
+        self.readback = readback
+        self.wrong_arms = set(wrong_arms)
+        self.launched = set()
         self.calls = []
         self.sessions = 0
         self.closed = 0
@@ -71,6 +78,8 @@ class FakeDriver:
             self.calls.append((cid, ctx["phase"], ctx["attempt"], session, ctx))
         if cid in self.raises and n == 0:
             raise RuntimeError("driver lost the app")
+        if cid in self.wrong_arms:
+            raise switches.ArmNotApplied(["f6=new: snapshot.switches read back app.f6=old"], {"f6": "old"})
         statuses = self.script.get(cid, ["Pass"])
         status = statuses[min(n, len(statuses) - 1)]
         result = {
@@ -83,6 +92,13 @@ class FakeDriver:
         }
         if self.hits is not None:
             result["switch_hits"] = self.hits
+        if self.readback is not None:
+            result["switch_readback"] = self.readback
+        with self.mutex:
+            first_of_session = session not in self.launched
+            self.launched.add(session)
+        if self.launch_hits is not None and first_of_session:
+            result["launch_switch_hits"] = self.launch_hits
         return result
 
 
@@ -269,6 +285,97 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(oracle.coerce_result({"status": "Pass", "checkpoints": [
             {"step": "s", "checkpoint": "settled", "snapshot": {"x": float("nan")}}]})["status"], "Crash")
         self.assertEqual(oracle.coerce_result({"status": "Fine"})["status"], "Crash")
+
+
+class SwitchArmReceiptTests(unittest.TestCase):
+    """p15-oracle-049: the receipt logs each arm read back, and an arm-not-applied stops the run."""
+
+    def setUp(self):
+        raw = tempfile.TemporaryDirectory()
+        self.addCleanup(raw.cleanup)
+        self.tmp = Path(raw.name)
+        write_corpus(self.tmp / "corpus", per_suite=4)
+
+    def test_the_readback_is_logged_per_case_and_per_run(self):
+        driver = FakeDriver(hits={"f6": {"new": 1}}, launch_hits={"f6": {"new": 2}}, readback={"f6": "new"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=4, jobs=1)
+        self.assertEqual(code, 0, receipt)
+        self.assertEqual(receipt["switch_readback"], {"f6": {"new": 12}})
+        self.assertEqual(receipt["cases"]["alpha/case-000"]["switch_readback"], {"f6": "new"})
+        self.assertTrue(receipt["arm_applied"])
+        self.assertIsNone(receipt["arm_not_applied"])
+        # 3 launches of 4 cases each: launch hits count with the case hits.
+        self.assertEqual(receipt["launch_switch_hits"], {"f6": {"new": 6}})
+        self.assertEqual(receipt["switch_hits"], {"f6": {"new": 18}})
+        on_disk = json.loads((self.tmp / "out" / "receipt.json").read_text())
+        self.assertEqual(on_disk["switch_readback"], {"f6": {"new": 12}})
+        self.assertEqual(on_disk["cases"]["beta/case-003"]["switch_readback"], {"f6": "new"})
+
+    def test_a_launch_only_site_exercises_the_arm(self):
+        driver = FakeDriver(launch_hits={"f6": {"new": 1}}, readback={"f6": "new"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=12, jobs=1)
+        self.assertEqual(code, 0, receipt)
+        self.assertTrue(receipt["arm_exercised"])
+
+    def test_another_arm_read_back_fails_the_run(self):
+        driver = FakeDriver(hits={"f6": {"new": 1}}, readback={"f6": "old"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new")
+        self.assertEqual(code, 1)
+        self.assertFalse(receipt["arm_applied"])
+        driver = FakeDriver(hits={"f6": {"new": 1}})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new")
+        self.assertFalse(receipt["arm_applied"], "no readback proves no arm")
+
+    def test_a_malformed_readback_is_a_crash(self):
+        result = oracle.coerce_result({"status": "Pass", "switch_readback": {"f6": 1}})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("malformed switch_readback", result["message"])
+
+    def test_one_arm_mismatch_stops_the_run_with_no_retry(self):
+        driver = FakeDriver(wrong_arms={"alpha/case-000"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=4, jobs=1, retry_limit=3)
+        self.assertEqual(code, 1)
+        self.assertEqual(driver.sessions, 1, "one launch, no relaunch per case")
+        self.assertEqual([(cid, phase) for cid, phase, *_ in driver.calls], [("alpha/case-000", "run")])
+        self.assertEqual(receipt["arm_not_applied"], {
+            "verdict": "arm-not-applied", "case": "alpha/case-000", "phase": "run",
+            "problems": ["f6=new: snapshot.switches read back app.f6=old"], "readback": {"f6": "old"}})
+        self.assertEqual(receipt["counts"], {"not-run": 12})
+        self.assertEqual(receipt["switch_readback"], {"f6": {"old": 1}})
+        self.assertFalse(receipt["arm_applied"])
+        self.assertFalse(receipt["ok"])
+        self.assertIn("arm-not-applied at alpha/case-000", (self.tmp / "out" / "index.md").read_text())
+
+    def test_parallel_batches_stop_too(self):
+        driver = FakeDriver(wrong_arms={f"{s}/case-{i:03d}" for s in ("alpha", "beta", "gamma") for i in range(4)})
+        receipt, code = run_cases(self.tmp, driver, batch_limit=1, jobs=4, retry_limit=3)
+        self.assertEqual(code, 1)
+        self.assertTrue(all(phase == "run" for _, phase, *_ in driver.calls), "no retry phase ran")
+        self.assertLessEqual(len(driver.calls), 4, "only batches already running reach a case")
+        self.assertEqual(receipt["arm_not_applied"]["verdict"], "arm-not-applied")
+
+    def test_the_merge_keeps_the_refusal_and_sums_the_readback(self):
+        outs = []
+        for i in range(2):
+            out = self.tmp / f"s{i}"
+            driver = FakeDriver(readback={"f6": "new"}, hits={"f6": {"new": 1}},
+                                wrong_arms={"gamma/case-003"} if i == 1 else ())
+            run_cases(self.tmp, driver, shard=(i, 2), out=out, run_id=f"r{i}", switch="f6", arm="new", jobs=1)
+            outs.append(out)
+        view, errors = oracle.merge_runs(outs, require_complete=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(view.receipt["arm_not_applied"]["case"], "gamma/case-003")
+        self.assertFalse(view.receipt["ok"])
+        side = oracle.Side("new", "f6", "new", {"f6": "new"}, None, None)
+        self.assertIn("arm-not-applied: the new side f6=new: snapshot.switches read back app.f6=old",
+                      oracle.side_refusal(view.receipt, side))
+
+    def test_an_unknown_switch_aborts_before_any_product_starts(self):
+        opened = []
+        with self.assertRaisesRegex(oracle.UsageError, r"unknown switch: ghost: no .*ghost\.json; nothing ran"):
+            oracle.run_one(options(self.tmp, switch="ghost", arm="new", switches={"ghost": "new"}),
+                           open_session=lambda ctx: opened.append(ctx))
+        self.assertEqual(opened, [])
 
 
 class RunTests(unittest.TestCase):
