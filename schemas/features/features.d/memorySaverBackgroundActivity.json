@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memorySaverBackgroundActivity",
+  "owner": "PL-memory",
+  "description": "A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -36,9 +36,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.
+    public static let memorySaverBackgroundActivity = Feature(
+        index: 2,
+        name: "memorySaverBackgroundActivity",
+        owner: "PL-memory",
+        description: "A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 2,
+        index: 3,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -55,7 +72,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 3,
+        index: 4,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -74,6 +91,7 @@ nonisolated extension Feature {
     public static let registered: [Feature] = [
         .energySaver,
         .frameRateClasses,
+        .memorySaverBackgroundActivity,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]
