@@ -84,6 +84,15 @@ class HostMirrors {
   bool Produce(HostContext& ctx, uint16_t op, const MirrorEvent& event) const;
   // After the event's refreshed mirrors are pushed.
   void EventSent(const MirrorEvent& event);
+  // HostContext::RefreshMirror for a mirror these producers own: pushes each
+  // open tab's key (or the host's) that `named` and `wildcards` match. False
+  // for a mirror they do not own.
+  bool Refresh(HostContext& ctx, uint16_t op, const std::vector<control::Field>& named, uint32_t wildcards) const;
+
+  // Whether `key` (every parameter) matches a pending key pattern: `named`
+  // holds, in order, the parameters whose bit in `wildcards` is clear.
+  static bool KeyMatches(const std::vector<control::Field>& key, const std::vector<control::Field>& named,
+                         uint32_t wildcards);
 
   // A watched key of a mirror these producers do not own (the caller's
   // watched_): true when `event` names it. Its first field is a tab, or a
