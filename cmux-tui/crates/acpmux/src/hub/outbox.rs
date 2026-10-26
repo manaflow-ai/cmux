@@ -165,7 +165,12 @@ impl Outbox {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| d.prompt_id() == prompt_id) {
-            return first.clone();
+            let first = first.clone();
+            // The first add may still be writing: answer once the file holds it too.
+            let change = book.changes;
+            drop(book);
+            self.save(change);
+            return first;
         }
         book.deliveries.insert(delivery.id.clone(), delivery.clone());
         let change = book.changed();
@@ -358,6 +363,41 @@ mod tests {
         let pending = restarted.open(&path);
         assert_eq!(pending.len(), 63);
         assert_eq!(restarted.get("d-3").map(|d| d.state), Some(State::Delivered));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A retry of a prompt whose first add is still writing answers only once the file holds it.
+    #[test]
+    fn a_duplicate_add_returns_once_the_first_is_on_disk() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        outbox.open(&path);
+        // Hold the write lock as a slow write would, then add: the delivery is in memory only.
+        let held = outbox.saved.lock().unwrap();
+        let first = {
+            let outbox = outbox.clone();
+            std::thread::spawn(move || outbox.add(delivery(1)))
+        };
+        while outbox.get("d-1").is_none() {
+            std::thread::yield_now();
+        }
+        let retry = {
+            let outbox = outbox.clone();
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let again = outbox.add(delivery(1));
+                let saved: BTreeMap<String, Delivery> =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                (again.id, saved.contains_key("d-1"))
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!retry.is_finished(), "the retry answered before the first add was on disk");
+        drop(held);
+        first.join().unwrap();
+        assert_eq!(retry.join().unwrap(), ("d-1".to_owned(), true));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
