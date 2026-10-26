@@ -56,8 +56,13 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
 /// `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
 final class UpdateRelaunchGate {
-    /// How often a waiting gate re-reads the host's blockers.
+    /// How soon a waiting gate first re-reads the host's blockers, and again after they change.
     static let recheckInterval: Duration = .seconds(2)
+    /// The longest gap between re-reads: each reading that changed nothing doubles the gap up to
+    /// this, like Blink's wake-up throttling of work nobody is looking at
+    /// (third_party/blink/renderer/platform/scheduler/common/throttling/wake_up_budget_pool.h).
+    /// A person who is waiting never waits for it: the waiting state offers Install Now.
+    static let recheckCeiling: Duration = .seconds(30)
     /// How long an explicit install waits for busy agents before relaunching anyway.
     static let agentTimeout: Duration = .seconds(30 * 60)
     /// How long an automatic install waits for a daemon mirror that stays unconfirmed before it
@@ -70,6 +75,7 @@ final class UpdateRelaunchGate {
     private let clock: any UpdateClock
     private let log: any UpdateLogging
     private let recheckInterval: Duration
+    private let recheckCeiling: Duration
     private let agentTimeout: Duration
     private let daemonUnavailableTimeout: Duration
     /// ``UpdateRelaunchGate/automaticWaitCap`` unless the host sets its own; read on each check.
@@ -102,12 +108,14 @@ final class UpdateRelaunchGate {
         clock: any UpdateClock,
         log: any UpdateLogging,
         recheckInterval: Duration = UpdateRelaunchGate.recheckInterval,
+        recheckCeiling: Duration = UpdateRelaunchGate.recheckCeiling,
         agentTimeout: Duration = UpdateRelaunchGate.agentTimeout,
         daemonUnavailableTimeout: Duration = UpdateRelaunchGate.daemonUnavailableTimeout
     ) {
         self.clock = clock
         self.log = log
         self.recheckInterval = recheckInterval
+        self.recheckCeiling = max(recheckCeiling, recheckInterval)
         self.agentTimeout = agentTimeout
         self.daemonUnavailableTimeout = daemonUnavailableTimeout
     }
@@ -170,14 +178,12 @@ final class UpdateRelaunchGate {
                               later: later)
         pending = request
         guard !evaluate(request, blockers: blockers(), publish: publish) else { return }
-        let interval = recheckInterval
-        waitTask = Task { @MainActor [weak self, clock] in
-            while !Task.isCancelled {
-                do {
-                    try await clock.sleep(for: interval)
-                } catch {
-                    return
-                }
+        waitTask = Task { @MainActor [weak self, clock, recheckInterval, recheckCeiling] in
+            var interval = recheckInterval
+            // wakeup-allow: bounded re-reads the host's pull-only blockers only while a relaunch is
+            // held, at most one read per recheckCeiling once nothing changes; the hold ends on
+            // relaunch, Install Now, Later, a replaced waiting state or the end of the session.
+            while (try? await clock.sleep(for: interval)) != nil {
                 guard let self, self.pending === request else { return }
                 guard isShown() else {
                     self.log.append("update relaunch gate: waiting state replaced; ending hold")
@@ -188,7 +194,9 @@ final class UpdateRelaunchGate {
                 request.waited += interval
                 request.daemonUnavailableFor = current.daemonStateUnavailable
                     ? request.daemonUnavailableFor + interval : .zero
+                let shown = request.published
                 if self.evaluate(request, blockers: current, publish: publish) { return }
+                interval = request.published == shown ? min(interval * 2, recheckCeiling) : recheckInterval
             }
         }
     }

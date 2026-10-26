@@ -28,6 +28,8 @@ extension UpdateController {
         wakeCheckTask?.cancel()
         wakeCheckTask = Task { @MainActor [weak self] in
             guard let clock = self?.clock else { return }
+            // wakeup-allow: deadline one cancellable check after the Mac woke (the event);
+            // a second wake restarts it.
             try? await clock.sleep(for: Self.wakeCheckDelay)
             guard !Task.isCancelled, let self else { return }
             self.wakeCheckTask = nil

@@ -395,7 +395,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         checkTimeoutTask?.cancel()
         checkTimeoutTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Bounded, cancellable check-timeout deadline via the injected clock.
+            // wakeup-allow: deadline one cancellable check timeout per check; any state change
+            // cancels it.
             try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration))
             guard !Task.isCancelled else { return }
             guard case .checking = self.model.state else { return }

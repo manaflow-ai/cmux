@@ -6,9 +6,12 @@ import Testing
 /// releases them with ``fireDeadlines()`` so watchdog time is explicit.
 actor TestDeadlineClock: UpdateClock {
     private var parked: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    /// Every duration asked for, in order.
+    private(set) var requested: [Duration] = []
 
     func sleep(for duration: Duration) async throws {
         try Task.checkCancellation()
+        requested.append(duration)
         guard duration >= .seconds(1) else { return }
         let id = UUID()
         try await withTaskCancellationHandler {

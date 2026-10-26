@@ -30,6 +30,7 @@ public struct UpdateTestSupport {
                 if delayMilliseconds > 0 {
                     let model = self.model
                     Task { @MainActor in
+                        // wakeup-allow: fixture DEBUG-only UI-test scaffolding, run only under CMUX_UI_TEST_* variables.
                         try? await Task.sleep(for: .milliseconds(delayMilliseconds))
                         guard !Task.isCancelled else { return }
                         model.recordDetectedUpdate(item)
@@ -92,6 +93,7 @@ public struct UpdateTestSupport {
             let delayMilliseconds = Int(env["CMUX_UI_TEST_MOCK_FEED_DELAY_MS"] ?? "") ?? 0
             Task { @MainActor in
                 if delayMilliseconds > 0 {
+                    // wakeup-allow: fixture DEBUG-only UI-test scaffolding, run only under CMUX_UI_TEST_* variables.
                     try? await Task.sleep(for: .milliseconds(delayMilliseconds))
                 }
                 if hasItem {
@@ -110,6 +112,7 @@ public struct UpdateTestSupport {
         model.applyDriverState(.checking(.init(cancel: {})))
         let model = self.model
         Task { @MainActor in
+            // wakeup-allow: fixture DEBUG-only UI-test scaffolding, run only under CMUX_UI_TEST_* variables.
             try? await Task.sleep(for: .milliseconds(200))
             model.applyDriverState(state)
         }

@@ -484,4 +484,39 @@ private final class CallCounter: @unchecked Sendable {
         #expect(relaunched == 1)
         #expect(gate.isWaiting)
     }
+
+    /// A held relaunch re-reads less often while nothing changes (2 s, then doubling to the
+    /// ceiling) and comes back to the first interval as soon as a reading changes.
+    @Test func reReadsStretchWhileNothingChangesAndResetOnAChange() async {
+        let gate = UpdateRelaunchGate(
+            clock: clock,
+            log: NoopUpdateLog(),
+            recheckInterval: .seconds(1),
+            recheckCeiling: .seconds(4)
+        )
+        var blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        var evaluations = 0
+        gate.hold(
+            isAutoUpdate: false,
+            blockers: {
+                evaluations += 1
+                return blockers
+            },
+            isShown: { true },
+            publish: { _ in },
+            relaunch: { Issue.record("relaunch must not run") },
+            later: { Issue.record("later must not run") }
+        )
+        for expected in 2...4 {
+            await recheck { evaluations == expected }
+        }
+        blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0)
+        await recheck { evaluations == 5 }
+        await recheck { evaluations == 6 }
+
+        let requested = await clock.requested
+        #expect(Array(requested.prefix(5)) == [.seconds(1), .seconds(2), .seconds(4), .seconds(4), .seconds(1)])
+        #expect(gate.isWaiting)
+        gate.cancel()
+    }
 }

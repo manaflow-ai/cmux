@@ -138,6 +138,8 @@ extension UpdateController {
                     return
                 }
                 remaining -= 1
+                // wakeup-allow: bounded readiness retry after a person asked to check, at most
+                // readyRetryCount waits of readyRetryDelay (5 s in all), then a visible error.
                 try? await self.clock.sleep(for: self.readyRetryDelay)
                 if Task.isCancelled { return }
             }
