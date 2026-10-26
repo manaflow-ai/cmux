@@ -99,6 +99,8 @@ extension LayoutRootView {
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
+        // A screen switch's turn put the rings and dims at rest above: they spring with their screens now.
+        startScreenSwitch()
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
