@@ -28,6 +28,7 @@
 # benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
 # built app (zipped) and the PTY recordings with their replay rates.
 set -euo pipefail
+trap 'echo "cmux-next-ios-sim.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
@@ -153,7 +154,9 @@ if [[ "$mode" == bench || "$mode" == all ]]; then
   corpus="$work/corpus"
   mkdir -p "$corpus"
   # A 6 MB real text file: this checkout's Swift sources.
-  git ls-files -z '*.swift' | xargs -0 cat 2>/dev/null | head -c 6000000 > "$corpus/big.txt"
+  # head closes the pipe early; the SIGPIPE upstream is expected (pipefail).
+  { git ls-files -z '*.swift' | xargs -0 cat 2>/dev/null | head -c 6000000 > "$corpus/big.txt"; } || true
+  [[ -s "$corpus/big.txt" ]] || { echo "error: empty benchmark corpus" >&2; exit 1; }
   # Record each workload through a real PTY at a phone-like grid (50 x 45).
   record() { # name, command...
     local name=$1; shift
