@@ -54,7 +54,9 @@ struct RedirectMethodPreservingDelegateRefusalTests {
         #expect(delegate.refusedRedirect)
     }
 
-    @Test func refusalWrittenOnOneThreadIsSeenOnAnother() async throws {
+    /// A race probe for concurrent writes and reads of the refusal bit: it can fail only under
+    /// `swift test --sanitize=thread`, because the group join already orders the final read.
+    @Test func concurrentRefusalWritesAndReadsAreRaceFree() async throws {
         let delegate = RedirectMethodPreservingDelegate()
         let source = try #require(URL(string: "https://push.example.test/send"))
         let target = try #require(URL(string: "https://push.example.test/send"))
