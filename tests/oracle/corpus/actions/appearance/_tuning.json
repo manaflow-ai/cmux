@@ -1,139 +1,22 @@
 {
-  "$comment": "p15-oracle-074: the appearance and toggle action families (every non-excluded id of plans/cmux-next/action-surfaces.json whose family prefix is appearance or toggle: 66 today, 65 runnable and toggleFileEditorWordWrap a gap; appearance.animations.feedback.toggle is excluded). The format is browser/_tuning.json's (p15-oracle-072): gen_actions.py (p15-oracle-071) reads it and writes one case per action and engine into the flat actions suite; a context-none case is the same on both engines. Settings facet assertions: an action that writes a non-default value waits until /settings/nonDefaultKeys contains its key; one that writes the default first makes the key non-default in its before steps, then waits until the list changed; the motion actions read the arm back (/settings/motion/enabled and speed, MotionSpeed.timeScale fast 1, normal 1.5, off 0). The oracle launch is the bench config plus ui.animations.enabled false, appearance.backgroundOpacity 1 and mcp.enabled true (driver_app.py ORACLE_CONFIG). Every key these actions write is agent-settable (SettingsSchema.agentSettableKeys), so a socket caller (SettingWriter.caller) may write it; the handlers apply the value at once and return the cmux-next.json write as tracked work (AppActionContext.writeSettings), so action.run answers after the file has it. Legacy bind/run/invoke handlers report action.done. A toggle's generated restore runs it again; app_reset puts the settings back between cases. Keys as in 072: context, entrypoint, params, before, after, expect, waitFor, invariants, untested, note, chromium, divergence, gap, gap_success.",
-  "task": "p15-oracle-074",
-  "families": [
-    "appearance",
-    "toggle"
-  ],
-  "engines": [
-    "chromium",
-    "webkit"
-  ],
-  "contexts": {
-    "page": {
-      "note": "the fixture page in the focused pane: p15-oracle-222's loopback load.html (openBrowser and cmux browser navigate refuse data: URLs, BrowserURLResolver searches them), opened with focus so the socket caller's tab is selected and focused (without it TabLifecycle.newBrowser opens it unselected behind the focused tab), then navigated to #b by the bundle's CLI (a same-document navigation), so it has two history entries. The tabs facet lists a pane's browser and page tabs only (OracleTabsFacet), so on a fresh launch per case (--batch-limit 1) the fixture is the one tab of pane 0's list: page-only checks that before any case reads $page",
-      "pointer": "/tabs/panes/0/tabs/0",
-      "url": "$WEB/load.html#b",
-      "fixture": {
-        "web": true
-      },
-      "depends_on": [
-        "p15-oracle-222",
-        "p15-oracle-245"
-      ],
-      "before": {
-        "chromium": [
-          {
-            "id": "open-page",
-            "action": "openBrowser.chromium",
-            "params": {
-              "url": "$WEB/load.html"
-            },
-            "focus": true
-          },
-          {
-            "id": "page-loaded",
-            "waitFor": {
-              "pointer": "$page/loadState",
-              "maxMs": 15000,
-              "equals": "finished"
-            }
-          },
-          {
-            "id": "page-hash",
-            "cli": [
-              "browser",
-              "page",
-              "navigate",
-              "$WEB/load.html#b"
-            ]
-          }
-        ],
-        "webkit": [
-          {
-            "id": "open-page",
-            "action": "openBrowser.webkit",
-            "params": {
-              "url": "$WEB/load.html"
-            },
-            "focus": true
-          },
-          {
-            "id": "page-loaded",
-            "waitFor": {
-              "pointer": "$page/loadState",
-              "maxMs": 15000,
-              "equals": "finished"
-            }
-          },
-          {
-            "id": "page-hash",
-            "cli": [
-              "browser",
-              "page",
-              "navigate",
-              "$WEB/load.html#b"
-            ]
-          }
-        ]
-      },
-      "ready": [
-        {
-          "id": "page-ready",
-          "waitFor": {
-            "pointer": "$page/url",
-            "maxMs": 15000,
-            "equals": "$WEB/load.html#b"
-          }
-        },
-        {
-          "id": "page-history",
-          "waitFor": {
-            "pointer": "$page/canGoBack",
-            "maxMs": 5000,
-            "equals": true
-          }
-        },
-        {
-          "id": "page-only",
-          "waitFor": {
-            "pointer": "/tabs/panes/0/tabs",
-            "maxMs": 5000,
-            "predicate": {
-              "op": "lengthEquals",
-              "value": 1
-            }
-          }
-        },
-        {
-          "id": "page-focused",
-          "waitFor": {
-            "pointer": "/focus/context/browser",
-            "maxMs": 5000,
-            "equals": true
-          }
-        }
-      ]
-    },
-    "none": {
-      "note": "no page: the action acts on settings, the window or the focused terminal",
-      "before": {
-        "chromium": [],
-        "webkit": []
-      },
-      "ready": []
-    }
-  },
+  "$comment": "p15-oracle-074: the appearance and toggle action families (every non-excluded id of plans/cmux-next/action-surfaces.json whose family_of is appearance: 66 today). gen_actions.py (p15-oracle-071) reads this file (load_tuning: only $comment and actions; each spec's keys in TUNING_KEYS, each before step a case-v1 step with an op) and writes one flat case per action; regeneration keeps it byte-stable. Not tuned: toggleFileEditorWordWrap (every-action-gaps.json lists it: p15-oracle-082's file page fixture) and appearance.animations.feedback.toggle (excluded); appearance.glass.lens.toggle is debug-only, so the sweep's plan blocks it by flag and its entry is the expectation for a debug arm. Settings facet assertions: an action that writes a non-default value waits until /settings/nonDefaultKeys contains its key; one that writes the default first makes the key non-default in a before step, then waits until the list changed; the motion actions read the arm back (/settings/motion/enabled and speed, MotionSpeed.timeScale fast 1, normal 1.5, off 0). The oracle launch is the bench config plus ui.animations.enabled false, appearance.backgroundOpacity 1 and mcp.enabled true (driver_app.py ORACLE_CONFIG). Every key these actions write is agent-settable (SettingsSchema.agentSettableKeys), so a socket caller may write it; the handlers apply the value at once and return the cmux-next.json write as tracked work (AppActionContext.writeSettings), so action.run answers after the file has it. Legacy bind/run/invoke handlers report action.done. A toggle's generated restore runs it again (the sweep's TOGGLES); app_reset puts the settings back between cases. Page actions (toggleBrowser*, toggleReactGrab, toggleTabAudioMute) take their page from the generator's chromium context step and require chromium. Divergences are stated in their actions' invariants: pane-border-toggle-reads-configured, pane-padding-toggle-noop-default-style, design-mode-unlocalized-refusal, react-grab-untracked-work. Chromium: a case per command, as chrome/browser/ui/browser_command_controller_unittest.cc checks each command on its own browser; the settings facet reads the applied prefs as components/prefs/pref_service.cc reports them.",
   "actions": {
     "appearance.animationSpeed.fast": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "speed-normal",
-          "action": "appearance.animationSpeed.normal"
-        },
-        {
-          "id": "speed-normal-applied",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.animationSpeed.normal"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/motion/speed",
             "maxMs": 10000,
@@ -141,10 +24,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/motion/speed",
         "maxMs": 10000,
@@ -156,11 +35,7 @@
       ]
     },
     "appearance.animationSpeed.normal": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/motion/speed",
         "maxMs": 10000,
@@ -172,11 +47,7 @@
       ]
     },
     "appearance.animationSpeed.off": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/motion/speed",
         "maxMs": 10000,
@@ -188,14 +59,21 @@
       ]
     },
     "appearance.animations.bounce.none": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "bounce-subtle",
-          "action": "appearance.animations.bounce.subtle"
-        },
-        {
-          "id": "bounce-subtle-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.animations.bounce.subtle"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -206,10 +84,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -221,11 +95,7 @@
       ]
     },
     "appearance.animations.bounce.subtle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -240,11 +110,7 @@
       ]
     },
     "appearance.animations.cursor.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -260,11 +126,7 @@
       ]
     },
     "appearance.animations.home.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -280,11 +142,7 @@
       ]
     },
     "appearance.animations.hoverCards.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -300,11 +158,7 @@
       ]
     },
     "appearance.animations.indicators.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -320,11 +174,7 @@
       ]
     },
     "appearance.animations.newTab.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -340,11 +190,7 @@
       ]
     },
     "appearance.animations.newWorkspace.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -360,11 +206,7 @@
       ]
     },
     "appearance.animations.overlays.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -380,11 +222,7 @@
       ]
     },
     "appearance.animations.panes.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -400,11 +238,7 @@
       ]
     },
     "appearance.animations.sidebar.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -420,11 +254,7 @@
       ]
     },
     "appearance.animations.tabs.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -440,11 +270,7 @@
       ]
     },
     "appearance.animations.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/motion/enabled",
         "maxMs": 10000,
@@ -458,11 +284,7 @@
       "note": "the only case of the suite that runs with the motion arm on between its action and its restore (the motion-on arm of every case is p15-oracle-233's)"
     },
     "appearance.animations.web.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -478,11 +300,7 @@
       ]
     },
     "appearance.changeBackground": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/webviews/pages",
         "maxMs": 15000,
@@ -498,11 +316,7 @@
       "note": "no action closes the Settings window from the socket and app_reset does not see it: the case wants a fresh launch after it (--batch-limit 1, as the page cases of 072)"
     },
     "appearance.chromeStyle.bare": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -517,11 +331,7 @@
       ]
     },
     "appearance.chromeStyle.card": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -536,11 +346,7 @@
       ]
     },
     "appearance.chromeStyle.cardOutlined": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -555,11 +361,7 @@
       ]
     },
     "appearance.chromeStyle.default": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -574,11 +376,7 @@
       ]
     },
     "appearance.chromeStyle.flat": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -593,14 +391,21 @@
       ]
     },
     "appearance.chromeStyle.flatSidebarLine": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "style-card",
-          "action": "appearance.chromeStyle.card"
-        },
-        {
-          "id": "style-card-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.chromeStyle.card"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -611,10 +416,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -626,11 +427,7 @@
       ]
     },
     "appearance.chromeStyle.floating": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -645,11 +442,7 @@
       ]
     },
     "appearance.chromeStyle.panes": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -664,11 +457,7 @@
       ]
     },
     "appearance.chromeStyle.twoTone": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -683,11 +472,7 @@
       ]
     },
     "appearance.customize": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/webviews/pages",
         "maxMs": 15000,
@@ -703,11 +488,7 @@
       "note": "no action closes the Settings window from the socket and app_reset does not see it: the case wants a fresh launch after it (--batch-limit 1, as the page cases of 072)"
     },
     "appearance.density.comfortable": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -722,14 +503,21 @@
       ]
     },
     "appearance.density.compact": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "density-cozy",
-          "action": "appearance.density.cozy"
-        },
-        {
-          "id": "density-cozy-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.density.cozy"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -740,10 +528,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -758,11 +542,7 @@
       ]
     },
     "appearance.density.cozy": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -777,16 +557,12 @@
       ]
     },
     "appearance.density.create": {
-      "context": "none",
-      "entrypoint": "action",
+      "entry": "action",
       "params": {
         "name": "Oracle",
         "basedOn": "compact"
       },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -804,15 +580,11 @@
       ]
     },
     "appearance.density.set": {
-      "context": "none",
-      "entrypoint": "action",
+      "entry": "action",
       "params": {
         "density": "cozy"
       },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -826,11 +598,7 @@
       ]
     },
     "appearance.density.spacious": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -845,11 +613,7 @@
       ]
     },
     "appearance.density.ultraCompact": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -864,11 +628,7 @@
       ]
     },
     "appearance.glass.lens.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "invariants": [
         "the Debug choice glass.lens flips between Plain Glass and Lens"
       ],
@@ -878,11 +638,7 @@
       "note": "isDebugOnly: the sweep's plan excludes it by its flag, so the generator writes it blocked (flag); this entry is the expectation for the day a debug arm runs it"
     },
     "appearance.interfaceSize.decrease": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -900,11 +656,7 @@
       ]
     },
     "appearance.interfaceSize.increase": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -922,14 +674,21 @@
       ]
     },
     "appearance.interfaceSize.reset": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "size-up",
-          "action": "appearance.interfaceSize.increase"
-        },
-        {
-          "id": "size-up-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.interfaceSize.increase"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -940,10 +699,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -958,11 +713,7 @@
       ]
     },
     "appearance.paneBorder.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -971,31 +722,36 @@
           "value": "layout.paneBorder"
         }
       },
-      "divergence": [
-        "pane-border-toggle-reads-configured"
-      ],
       "invariants": [
         "layout.paneBorder none is written (the handler flips the configured border, unset reads as subtle), so it becomes a non-default key",
-        "the generated restore runs the toggle again, which removes the key"
+        "the generated restore runs the toggle again, which removes the key",
+        "divergence pane-border-toggle-reads-configured: The handler flips the configured border (an unset layout.paneBorder reads as subtle), not the drawn one. Under the default window style (flat-sidebar-line: separation none, no border drawn) the first Toggle Pane Borders writes layout.paneBorder none, which PaneSeparation.resolve reads as cards: panes gain the density's padding and rounded corners, and no border appears or goes. (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePaneBorder; Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/PaneChrome.swift PaneSeparation.resolve; Chromium: chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle flips the effective pref value the person sees, components/prefs/pref_service.cc GetBoolean); the case checks the write; no facet reads pane metrics, so the look change was found by reading the code)"
       ],
       "untested": [
         "pane padding, border and corner metrics are not a facet: the cards look the written none gives (divergence pane-border-toggle-reads-configured) is found by reading the handler"
       ]
     },
     "appearance.paneBorderColor.reset": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "border-color",
-          "cli": [
-            "settings",
-            "set",
-            "layout.paneBorderColor",
-            "#1A2B3C"
-          ]
-        },
-        {
-          "id": "border-color-saved",
+          "op": "cli",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "argv": [
+              "settings",
+              "set",
+              "layout.paneBorderColor",
+              "#1A2B3C"
+            ]
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -1006,10 +762,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1021,11 +773,7 @@
       ]
     },
     "appearance.paneBorderWidth.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1040,11 +788,7 @@
       ]
     },
     "appearance.paneCorners.toggle": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1059,14 +803,21 @@
       ]
     },
     "appearance.panePadding.toggle": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "style-panes",
-          "action": "appearance.chromeStyle.panes"
-        },
-        {
-          "id": "style-panes-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.chromeStyle.panes"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -1077,10 +828,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1089,37 +836,41 @@
           "value": "layout.panePadding"
         }
       },
-      "divergence": [
-        "pane-padding-toggle-noop-default-style"
-      ],
       "invariants": [
         "under the Panes window style (bordered panes with the density's padding) the toggle writes layout.panePadding 0: it becomes a non-default key",
-        "the generated restore runs the toggle again: padding 0 reads as off, so the key is removed"
+        "the generated restore runs the toggle again: padding 0 reads as off, so the key is removed",
+        "divergence pane-padding-toggle-noop-default-style: Under the default window style the pane padding is 0 by the style's separation (impliedPadding), so Toggle Pane Padding computes off -> on as nil, writes nothing and changes nothing: action.run answers ok and padding can never be turned on from the toggle. (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePanePadding; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics.swift codePanePadding; Chromium: chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle always changes what shows); the case runs under the Panes style, where the toggle works; the default-style no-op was found by reading the handler)"
       ],
       "note": "the before steps choose the Panes window style because under the default one the toggle writes nothing (divergence pane-padding-toggle-noop-default-style); the reset puts appearance.chromeStyle back"
     },
     "appearance.reset": {
-      "context": "none",
-      "entrypoint": "action",
+      "entry": "action",
       "params": {
         "scope": "workspace",
         "property": "tint"
       },
+      "receipt": "action.done",
       "before": [
         {
           "id": "set-tint",
-          "action": "appearance.set",
-          "params": {
-            "scope": "workspace",
-            "property": "tint",
-            "value": "blue"
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.set",
+            "params": {
+              "scope": "workspace",
+              "property": "tint",
+              "value": "blue"
+            }
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "invariants": [
         "the shown workspace's tint follows its window again; cmux-next.json does not change"
       ],
@@ -1128,43 +879,36 @@
       ]
     },
     "appearance.set": {
-      "context": "none",
-      "entrypoint": "action",
+      "entry": "action",
       "params": {
         "scope": "workspace",
         "property": "tint",
         "value": "blue"
       },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
-      "after": [
-        {
-          "id": "clear-tint",
-          "action": "appearance.reset",
-          "params": {
-            "scope": "workspace",
-            "property": "tint"
-          }
-        }
-      ],
+      "receipt": "action.done",
       "invariants": [
         "the shown workspace's own tint is blue; cmux-next.json does not change (nonDefaultKeys and effectiveSha256 equal before and after)"
       ],
       "untested": [
-        "the appearance scope store is not a facet, and no reset reads it: the after step clears the tint"
+        "the appearance scope store is not a facet; no step clears the tint (gen_actions.py writes a restore for a toggle or a fit only), so it goes with the session reset before the next case (app_reset.py)"
       ]
     },
     "appearance.titlebar.minimal": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "titlebar-standard",
-          "action": "appearance.titlebar.standard"
-        },
-        {
-          "id": "titlebar-standard-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.titlebar.standard"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -1175,10 +919,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1190,11 +930,7 @@
       ]
     },
     "appearance.titlebar.standard": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1209,11 +945,7 @@
       ]
     },
     "appearance.uiScale.decrease": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1228,11 +960,7 @@
       ]
     },
     "appearance.uiScale.increase": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1247,14 +975,21 @@
       ]
     },
     "appearance.uiScale.reset": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "scale-up",
-          "action": "appearance.uiScale.increase"
-        },
-        {
-          "id": "scale-up-saved",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "appearance.uiScale.increase"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/settings/nonDefaultKeys",
             "maxMs": 10000,
@@ -1265,10 +1000,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/settings/nonDefaultKeys",
         "maxMs": 10000,
@@ -1280,57 +1011,52 @@
       ]
     },
     "toggleBrowserDesignMode": {
-      "context": "page",
-      "entrypoint": "action",
-      "expect": {
-        "outcome": "error",
-        "error": "control.unavailable",
-        "errorDetails": {
-          "action": "toggleBrowserDesignMode",
-          "reason": "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
-        }
-      },
-      "divergence": [
-        "design-mode-unlocalized-refusal"
-      ],
+      "entry": "action",
+      "error": "control.unavailable",
       "invariants": [
         "the Debug tunable browserPage.uiPointer is off in the oracle launch, so the action is unavailable with its reason before the handler runs",
-        "no facet changes"
+        "no facet changes",
+        "divergence design-mode-unlocalized-refusal: the unavailable reason and the thrown refusal are English literals, not String(localized:) (CLAUDE.md, cmux-localization): a socket or palette caller in another language gets English (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleBrowserDesignMode; Chromium: chrome/app/generated_resources.grd, every user-visible string is a message id)",
+        "the refusal's details today are {\"action\": \"toggleBrowserDesignMode\", \"reason\": \"UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.\"}"
       ],
-      "gap_success": "the success case needs the Debug tunable browserPage.uiPointer on in the launch: p15-oracle-087 (toggle fixtures)"
+      "untested": [
+        "the refusal's details: a tuning names the typed code only (gen_actions.py TUNING_KEYS)",
+        "the success case needs the Debug tunable browserPage.uiPointer on in the launch: p15-oracle-087 (toggle fixtures)",
+        "restore-1 runs the toggle again with an ok expectation and is refused the same way: gen_actions.py writes a restore after an action step that expects an error until p15-oracle-270"
+      ],
+      "requires": [
+        "chromium"
+      ],
+      "note": "the page is the generator's context step (the action's registry context, CONTEXT_STEPS chromium): on a fresh session the one browser tab of pane 0's list, which the tabs facet reads at /tabs/panes/0/tabs/0"
     },
     "toggleBrowserDeveloperTools": {
-      "context": "page",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "invariants": [
         "the focused page's inspector opens; the generated restore closes it"
       ],
       "untested": [
         "the inspector's visibility is not a facet (WebKit's is not observable at all, BrowserHandlers)"
-      ]
+      ],
+      "requires": [
+        "chromium"
+      ],
+      "note": "the page is the generator's context step (the action's registry context, CONTEXT_STEPS chromium): on a fresh session the one browser tab of pane 0's list, which the tabs facet reads at /tabs/panes/0/tabs/0"
     },
     "toggleBrowserFocusMode": {
-      "context": "page",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "invariants": [
         "the page tab enters browser focus mode and takes the keyboard (focus model target content); the generated restore, an action.run, leaves it (a key would reach the page)"
       ],
       "untested": [
         "FocusState.browserFocusMode is not in the focus facet"
-      ]
+      ],
+      "requires": [
+        "chromium"
+      ],
+      "note": "the page is the generator's context step (the action's registry context, CONTEXT_STEPS chromium): on a fresh session the one browser tab of pane 0's list, which the tabs facet reads at /tabs/panes/0/tabs/0"
     },
     "toggleCanvasLayout": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/layout/screens/0/canvas",
         "maxMs": 5000,
@@ -1342,44 +1068,68 @@
       ]
     },
     "toggleChecklistItemComplete": {
-      "context": "none",
+      "entry": "action",
+      "params": {
+        "item": "$step:add-item#/stdout/value/items/0/id"
+      },
+      "receipt": "action.done",
       "before": [
         {
           "id": "add-item",
-          "action": "palette.addWorkspaceChecklistItem",
-          "params": {
-            "text": "oracle"
-          }
-        }
-      ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
-      "invariants": [
-        "the workspace's one checklist item (to do) is done; the generated restore makes it to do again",
-        "the settled daemon facet records the checklist (extra.state workspace_checklist)"
-      ],
-      "untested": [
-        "debug.oracle.wait_for reads app facets only, so no step waits on the daemon's checklist"
-      ]
-    },
-    "toggleFileEditorWordWrap": {
-      "context": "none",
-      "gap": "needs codeEditorFocused, a file page with the code editor focused: p15-oracle-082 makes the file page fixtures (every-action-gaps.json lists the gap)"
-    },
-    "toggleFocusedWorkspaceGroupCollapsed": {
-      "context": "none",
-      "before": [
-        {
-          "id": "group",
-          "action": "workspace.moveToNewGroup",
-          "params": {
-            "name": "oracle"
+          "op": "cli",
+          "target": {
+            "workspace": "current"
+          },
+          "args": {
+            "argv": [
+              "--json",
+              "workspace",
+              "checklist",
+              "add",
+              "oracle"
+            ]
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
           }
         },
         {
-          "id": "grouped",
+          "id": "item-applied",
+          "op": "settle"
+        }
+      ],
+      "invariants": [
+        "add-item writes the shown workspace's one checklist item (to do) through the daemon (workspace_checklist.add); its --json reply is the mutation result, whose value is the checklist snapshot (workspace_checklist_store.rs checklist_snapshot), so /stdout/value/items/0/id is the new item's id",
+        "item-applied waits until the app's daemon store applied every event up to a sync round trip after the add (debug.oracle.settle), so the workspace model has the item before the action reads its checklist (WorkspaceChecklistEdit.target)",
+        "the action names that item (params.item), so it marks it done; the generated restore runs the action with the same item, which makes it to do again (WorkspaceChecklistItem.State.togglingComplete); without the item the restore would find no to-do or in-progress item and be refused (noItem)",
+        "the settled daemon facet records the checklist (extra.state workspace_checklist)"
+      ],
+      "untested": [
+        "debug.oracle.wait_for reads app facets only, so no step waits on the daemon's checklist; the settled checkpoints of the action and the restore record it",
+        "the shortcut (cmd+return) and the palette's no-item path (the current item): a key or a run with no item acts on the first in-progress, else to-do item, and its restore would find none"
+      ],
+      "note": "the action runs through action.run, not its shortcut: only action.run carries the item argument"
+    },
+    "toggleFocusedWorkspaceGroupCollapsed": {
+      "receipt": "action.done",
+      "before": [
+        {
+          "id": "group",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "workspace.moveToNewGroup",
+            "params": {
+              "name": "oracle"
+            }
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/topology/topology/workspace_groups",
             "maxMs": 5000,
@@ -1390,10 +1140,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/topology/topology/workspace_groups/0/collapsed",
         "maxMs": 5000,
@@ -1405,44 +1151,37 @@
       ]
     },
     "toggleFullScreen": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/windows/list/0/fullscreen",
         "maxMs": 10000,
         "equals": true
       },
       "invariants": [
-        "the launch's one window enters full screen (AppKit's transition ends before the waitFor holds)",
-        "the generated restore runs the toggle again: the window leaves full screen"
+        "the launch's one window enters full screen: the waitFor sees /windows/list/0/fullscreen turn true, which AppKit sets in styleMask when the transition starts (WindowInvariants.oracleWindows)",
+        "the settled checkpoint is the window at rest: debug.oracle.settle waits until no window is in a full screen transition (AppControl.motionIdle, Motion.fullScreenTransitionsEnded: willEnterFullScreen to didEnterFullScreen, and the exit pair)",
+        "the generated restore runs the toggle after that settle, so AppKit does not ignore it mid-transition; its own settle waits for the exit transition: the window leaves full screen before the case ends",
+        "Chromium: chrome/browser/ui/exclusive_access/fullscreen_controller.cc ToggleBrowserFullscreenMode; ui/views/cocoa/native_widget_mac_ns_window_host.cc OnWindowFullscreenTransitionComplete"
       ],
-      "chromium": "chrome/browser/ui/exclusive_access/fullscreen_controller.cc ToggleBrowserFullscreenMode"
+      "settleMaxMs": 10000,
+      "note": "AppKit's full screen animation does not obey ui.animations.enabled; settleMaxMs gives the enter and exit transitions room"
     },
     "toggleReactGrab": {
-      "context": "page",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
-      "divergence": [
-        "react-grab-untracked-work"
-      ],
+      "receipt": "action.done",
       "invariants": [
-        "the first toggle loads the pinned React Grab library into the fixture page's world; the generated restore turns it off"
+        "the first toggle loads the pinned React Grab library into the fixture page's world; the generated restore turns it off",
+        "divergence react-grab-untracked-work: The handler starts the library load in an unstructured Task: the registry never tracks it, action.run answers before the page has React Grab, and a failure shows only as a page notice. (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleReactGrab; Chromium: content/public/browser/web_contents.h ExecuteJavaScriptInIsolatedWorld (the callback reports the result to the caller); no facet reads the page's React Grab state, so the case stays green; a facet would make it flaky until the work is returned as an ActionEffect)"
       ],
       "untested": [
         "React Grab's state in the page is not a facet"
-      ]
+      ],
+      "requires": [
+        "chromium"
+      ],
+      "note": "the page is the generator's context step (the action's registry context, CONTEXT_STEPS chromium): on a fresh session the one browser tab of pane 0's list, which the tabs facet reads at /tabs/panes/0/tabs/0"
     },
     "toggleRightSidebar": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "invariants": [
         "the right sidebar shows on its last section without taking focus; the generated restore hides it"
       ],
@@ -1451,11 +1190,7 @@
       ]
     },
     "toggleSidebar": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/sidebar/hidden",
         "maxMs": 5000,
@@ -1467,15 +1202,21 @@
       ]
     },
     "toggleSplitZoom": {
-      "context": "none",
+      "receipt": "action.done",
       "before": [
         {
           "id": "split",
-          "action": "splitRight",
-          "focus": true
-        },
-        {
-          "id": "split-shown",
+          "op": "action.run",
+          "target": {
+            "window": "current"
+          },
+          "args": {
+            "action": "splitRight"
+          },
+          "expect": {
+            "outcome": "ok",
+            "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
+          },
           "waitFor": {
             "pointer": "/layout/screens/0/root/kind",
             "maxMs": 5000,
@@ -1483,10 +1224,6 @@
           }
         }
       ],
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
       "waitFor": {
         "pointer": "/layout/screens/0/zoomedPane",
         "maxMs": 5000,
@@ -1498,27 +1235,23 @@
       ]
     },
     "toggleTabAudioMute": {
-      "context": "page",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
-        "pointer": "$page/muted",
+        "pointer": "/tabs/panes/0/tabs/0/muted",
         "maxMs": 5000,
         "equals": true
       },
       "invariants": [
-        "the fixture page's tab is muted; the generated restore unmutes it"
+        "the fixture page's tab is muted; the generated restore unmutes it",
+        "Chromium: chrome/browser/ui/tabs/tab_utils.cc SetTabAudioMuted"
       ],
-      "chromium": "chrome/browser/ui/tabs/tab_utils.cc SetTabAudioMuted"
+      "requires": [
+        "chromium"
+      ],
+      "note": "the page is the generator's context step (the action's registry context, CONTEXT_STEPS chromium): on a fresh session the one browser tab of pane 0's list, which the tabs facet reads at /tabs/panes/0/tabs/0"
     },
     "toggleTerminalCopyMode": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "invariants": [
         "the focused terminal enters keyboard copy mode; the generated restore leaves it"
       ],
@@ -1527,11 +1260,7 @@
       ]
     },
     "toggleUnread": {
-      "context": "none",
-      "expect": {
-        "outcome": "ok",
-        "receipt": "action.done"
-      },
+      "receipt": "action.done",
       "waitFor": {
         "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/unread",
         "maxMs": 5000,
@@ -1541,44 +1270,6 @@
         "the focused terminal tab, which has no notification, is marked unread (the daemon keeps the mark)",
         "the generated restore runs the toggle again: the mark is cleared"
       ]
-    }
-  },
-  "divergences": {
-    "pane-border-toggle-reads-configured": {
-      "actions": [
-        "appearance.paneBorder.toggle"
-      ],
-      "what": "The handler flips the configured border (an unset layout.paneBorder reads as subtle), not the drawn one. Under the default window style (flat-sidebar-line: separation none, no border drawn) the first Toggle Pane Borders writes layout.paneBorder none, which PaneSeparation.resolve reads as cards: panes gain the density's padding and rounded corners, and no border appears or goes.",
-      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePaneBorder; Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/PaneChrome.swift PaneSeparation.resolve",
-      "chromium": "chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle flips the effective pref value the person sees, components/prefs/pref_service.cc GetBoolean)",
-      "case": "the case checks the write; no facet reads pane metrics, so the look change was found by reading the code"
-    },
-    "pane-padding-toggle-noop-default-style": {
-      "actions": [
-        "appearance.panePadding.toggle"
-      ],
-      "what": "Under the default window style the pane padding is 0 by the style's separation (impliedPadding), so Toggle Pane Padding computes off -> on as nil, writes nothing and changes nothing: action.run answers ok and padding can never be turned on from the toggle.",
-      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift togglePanePadding; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics.swift codePanePadding",
-      "chromium": "chrome/browser/ui/browser_commands.cc ToggleBookmarkBar (a toggle always changes what shows)",
-      "case": "the case runs under the Panes style, where the toggle works; the default-style no-op was found by reading the handler"
-    },
-    "design-mode-unlocalized-refusal": {
-      "actions": [
-        "toggleBrowserDesignMode"
-      ],
-      "what": "The unavailable reason and the thrown refusal are English literals, not String(localized:) (CLAUDE.md, cmux-localization): a socket or palette caller in another language gets English.",
-      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleBrowserDesignMode",
-      "chromium": "chrome/app/generated_resources.grd (every user-visible string is a message id)",
-      "case": "errorDetails pins today's English reason, so a localized fix shows as a base/head divergence on an English launch only if the text changes"
-    },
-    "react-grab-untracked-work": {
-      "actions": [
-        "toggleReactGrab"
-      ],
-      "what": "The handler starts the library load in an unstructured Task: the registry never tracks it, action.run answers before the page has React Grab, and a failure shows only as a page notice.",
-      "where": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserHandlers.swift toggleReactGrab",
-      "chromium": "content/public/browser/web_contents.h ExecuteJavaScriptInIsolatedWorld (the callback reports the result to the caller)",
-      "case": "no facet reads the page's React Grab state, so the case stays green; a facet would make it flaky until the work is returned as an ActionEffect"
     }
   }
 }
