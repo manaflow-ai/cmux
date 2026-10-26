@@ -77,6 +77,12 @@ pub fn origin_refused() -> RpcError {
     )
 }
 
+/// The refusal of a prompt that names both a person and another sender's provenance: it is one
+/// or the other.
+pub fn with_provenance() -> RpcError {
+    refusal("author.value_refused", "a prompt names its author or a provenance, never both".into())
+}
+
 /// The author of a request: `None` when absent or null (the owner's). Fields acpmux does not
 /// know are dropped.
 pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
@@ -140,6 +146,28 @@ pub fn of_provenance(provenance: Option<&Value>) -> Option<&str> {
     (p.get("kind").and_then(Value::as_str) == Some(PERSON_MESSAGE))
         .then(|| p.get("from").and_then(Value::as_str))
         .flatten()
+}
+
+/// Who changes a queued prompt or an unread steer (`hub/queue_edit.rs`, `_acpmux/queue_remove`):
+/// `Some(author id)`, `Some(None)` for the owner, checked against the prompt's sender under the
+/// lock that changes it; `None` is the hub's own change, never checked.
+pub type Editor<'a> = Option<Option<&'a str>>;
+
+/// The editor of a request (`author(params)`), checked from here on.
+pub fn editor(author: Option<&Author>) -> Editor<'_> {
+    Some(author.map(|a| a.id.as_str()))
+}
+
+/// `queue.not_author` unless `editor` may change a prompt sent by `sender` (`of_provenance`):
+/// only the same person, the owner counting as one (an agent's message is the owner's).
+pub fn may_change(editor: Editor<'_>, sender: Option<&str>) -> Result<(), crate::rpc::RpcError> {
+    match editor {
+        Some(id) if id != sender => Err(refusal(
+            "queue.not_author",
+            "queue.not_author: only the person who sent this prompt may change it".into(),
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The supersede key a restored `queued` record runs under (`hub/queue.rs` restore): none for a
@@ -206,6 +234,20 @@ mod tests {
             let e = author(&with(bad.clone())).expect_err(&bad.to_string());
             assert_eq!(e.data.unwrap()["reason"], "author.value_refused", "{bad}");
         }
+    }
+
+    #[test]
+    fn only_the_sender_may_change_a_prompt() {
+        let not_author = |r: Result<(), RpcError>| r.unwrap_err().data.unwrap()["reason"].clone();
+        assert!(may_change(None, Some("user_1")).is_ok(), "the hub's own change");
+        assert!(may_change(Some(Some("user_1")), Some("user_1")).is_ok());
+        assert!(may_change(Some(None), None).is_ok(), "the owner, the owner's");
+        assert_eq!(not_author(may_change(Some(None), Some("user_1"))), "queue.not_author");
+        assert_eq!(
+            not_author(may_change(Some(Some("user_2")), Some("user_1"))),
+            "queue.not_author"
+        );
+        assert_eq!(not_author(may_change(Some(Some("user_1")), None)), "queue.not_author");
     }
 
     #[test]

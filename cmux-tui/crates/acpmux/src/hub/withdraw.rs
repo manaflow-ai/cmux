@@ -364,7 +364,7 @@ impl Hub {
                 && accepted.get("queued") == Some(&json!(true))
                 && let Some(id) = accepted.get("promptId").and_then(Value::as_str)
             {
-                hub.move_queued(&queued_in, id, 0);
+                let _ = hub.move_queued(&queued_in, id, 0, None);
             }
             let _ = tx.send(!duplicate);
         });

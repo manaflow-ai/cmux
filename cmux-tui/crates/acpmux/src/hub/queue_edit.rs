@@ -5,7 +5,7 @@
 //! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 //!
 //! In a chat several people share (`author.rs`), only the person who sent a prompt changes it or
-//! takes it back (`queue_author_check`), `_acpmux/queue_remove` included: anyone else gets
+//! takes it back (`author::may_change`, under the lock that changes it), `_acpmux/queue_remove` included: anyone else gets
 //! `queue.not_author`. No author is the owner, and an agent's message counts as the owner's.
 
 use super::queue::PromptRun;
@@ -119,18 +119,16 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        // Only its sender changes a prompt; `resume` changes no one prompt.
-        if op != "resume" {
-            self.queue_author_check(session, prompt_id, params)?;
-        }
+        // Only its sender changes a prompt (`author.rs`), checked under the lock that changes it;
+        // `resume` changes no one prompt.
+        let author = crate::author::author(params)?;
+        let editor = crate::author::editor(author.as_ref());
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
-                let editor = crate::author::author(params)?;
-                let editor = editor.as_ref().map(|a| a.id.as_str());
                 let updated = self
-                    .update_queued(session, prompt_id, edit, control, trust_gate, device, editor);
+                    .update_queued(session, prompt_id, edit, control, trust_gate, device, editor)?;
                 json!(updated)
             }
             "move" => {
@@ -138,59 +136,30 @@ impl Hub {
                     .get("index")
                     .and_then(Value::as_u64)
                     .ok_or_else(|| RpcError::invalid_params("move needs index"))?;
-                json!(self.move_queued(session, prompt_id, index as usize))
+                json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
-                let sent = match self.send_queued_now(session, prompt_id, control, device)? {
-                    Some(sent) => Some(sent),
-                    None => self.step_now(session, prompt_id, control, device).await?,
-                };
+                let sent =
+                    match self.send_queued_now(session, prompt_id, control, device, editor)? {
+                        Some(sent) => Some(sent),
+                        None => self.step_now(session, prompt_id, control, device, editor).await?,
+                    };
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
             "interrupt" => {
-                let sent = self.interrupt_for_queued(session, prompt_id).await;
+                let sent = self.interrupt_for_queued(session, prompt_id, editor).await?;
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
-            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control).await?),
+            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
             }
         };
         Ok(reply)
-    }
-
-    /// `queue.not_author` unless the author of `params` (`author.rs`; none: the owner) sent
-    /// `prompt_id`, a waiting prompt or a steer the agent has not read. A prompt that no longer
-    /// waits is no one's to refuse: the change finds nothing.
-    pub fn queue_author_check(
-        &self,
-        session: &Session,
-        prompt_id: &str,
-        params: &Value,
-    ) -> Result<(), RpcError> {
-        let caller = crate::author::author(params)?;
-        let queued = {
-            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let q = queue.iter().find(|q| q.prompt_id == prompt_id);
-            q.map(|q| crate::author::of_provenance(q.run.provenance.as_ref()).map(str::to_owned))
-        };
-        let sender = queued.or_else(|| {
-            let now = session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.get(prompt_id).cloned()
-        });
-        match sender {
-            Some(sender) if sender.as_deref() != caller.as_ref().map(|a| a.id.as_str()) => {
-                Err(RpcError::invalid_params(
-                    "queue.not_author: only the person who sent this prompt may change it",
-                )
-                .with_data(json!({"reason": "queue.not_author"})))
-            }
-            _ => Ok(()),
-        }
     }
 
     /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
@@ -205,8 +174,8 @@ impl Hub {
     }
 
     /// Replaces a waiting prompt's content (`Edit`); it keeps its place. It runs under the
-    /// stricter rules of its sender and its editor. A person's prompt edited by that person
-    /// (`editor`, `author.rs`) is still theirs.
+    /// stricter rules of its sender and its editor. Only its sender edits it (`editor`,
+    /// `author.rs`), and a person's prompt edited by that person is still theirs.
     fn update_queued(
         &self,
         session: &Arc<Session>,
@@ -215,13 +184,14 @@ impl Hub {
         control: Control,
         trust_gate: bool,
         device: Option<&str>,
-        editor: Option<&str>,
-    ) -> bool {
+        editor: crate::author::Editor<'_>,
+    ) -> Result<bool, RpcError> {
         let (turn_id, run, text) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
-                return false;
+                return Ok(false);
             };
+            crate::author::may_change(editor, q.sender())?;
             let mut blocks = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
@@ -234,7 +204,7 @@ impl Hub {
                 // The person rewrote it: it is no longer the sender's message, unless the sender
                 // is that person.
                 provenance: q.run.provenance.clone().filter(|p| {
-                    crate::author::of_provenance(Some(p)).is_some_and(|id| Some(id) == editor)
+                    crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
                 supersede: None,
@@ -263,21 +233,24 @@ impl Hub {
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
-        true
+        Ok(true)
     }
 
-    /// Moves a waiting prompt to `index` (0 is next); the queue's order is what runs.
+    /// Moves a waiting prompt to `index` (0 is next); the queue's order is what runs. Only its
+    /// sender moves it (`editor`, `author.rs`).
     pub(super) fn move_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         index: usize,
-    ) -> bool {
+        editor: crate::author::Editor<'_>,
+    ) -> Result<bool, RpcError> {
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return false;
+                return Ok(false);
             };
+            crate::author::may_change(editor, queue[from].sender())?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
@@ -285,7 +258,7 @@ impl Hub {
         };
         session.queue_moved.notify_waiters();
         self.append(session, "mux", "queue_order", json!({"promptId": prompt_id, "order": order}));
-        true
+        Ok(true)
     }
 
     /// Sends a waiting prompt now. Into a running turn of an agent that steers it is steered in
@@ -300,6 +273,7 @@ impl Hub {
         prompt_id: &str,
         control: Control,
         device: Option<&str>,
+        editor: crate::author::Editor<'_>,
     ) -> Result<Option<&'static str>, RpcError> {
         if session.turn().is_some() && session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
@@ -316,6 +290,7 @@ impl Hub {
                 let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                     return Ok(None);
                 };
+                crate::author::may_change(editor, q.sender())?;
                 let run = PromptRun {
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
@@ -335,7 +310,7 @@ impl Hub {
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
-        Ok(self.put_next(session, prompt_id).then_some("next"))
+        Ok(self.put_next(session, prompt_id, editor)?.then_some("next"))
     }
 
     /// `interrupt`: a waiting prompt goes next and the running turn stops, whether or not its
@@ -345,16 +320,17 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
-    ) -> Option<&'static str> {
+        editor: crate::author::Editor<'_>,
+    ) -> Result<Option<&'static str>, RpcError> {
         let running = session.turn().map(|t| t.turn_id);
-        if !self.put_next(session, prompt_id) {
-            return None;
+        if !self.put_next(session, prompt_id, editor)? {
+            return Ok(None);
         }
         let Some(running) = running else {
-            return Some("next");
+            return Ok(Some("next"));
         };
         self.cancel_turn(session, &running).await;
-        Some("interrupt")
+        Ok(Some("interrupt"))
     }
 
     /// Send now on a steer the agent has not read yet (`steer_end.rs`): the agent's current step
@@ -366,16 +342,19 @@ impl Hub {
         prompt_id: &str,
         control: Control,
         device: Option<&str>,
+        editor: crate::author::Editor<'_>,
     ) -> Result<Option<&'static str>, RpcError> {
         let waiting = session
             .steer_now
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
-            .contains_key(prompt_id);
-        if !waiting {
+            .get(prompt_id)
+            .map(|sender| crate::author::may_change(editor, sender.as_deref()));
+        let Some(mine) = waiting else {
             return Ok(None);
-        }
+        };
+        mine?;
         self.check_steer(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
@@ -397,16 +376,19 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         let waiting = session
             .steer_now
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
-            .contains_key(prompt_id);
-        if !waiting {
+            .get(prompt_id)
+            .map(|sender| crate::author::may_change(editor, sender.as_deref()));
+        let Some(mine) = waiting else {
             return Ok(false);
-        }
+        };
+        mine?;
         // Who may steer may take one back; taking it back raises no turn's control.
         self.web_control_check(session, control)?;
         let child = session.child.lock().await.clone();

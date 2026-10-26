@@ -899,6 +899,9 @@ async fn dispatch_request(
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
             let author = crate::author::author(&params)?;
+            if author.is_some() && provenance.is_some() {
+                return Err(crate::author::with_provenance());
+            }
             let provenance = provenance.or_else(|| author.as_ref().map(|a| a.provenance()));
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:
@@ -1533,9 +1536,10 @@ async fn dispatch_request(
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             hub.full_access_hold(&s.meta(), control, device.as_deref())?;
-            // Only its sender takes a prompt back (`author.rs`).
-            hub.queue_author_check(&s, prompt_id, &params)?;
-            let removed = hub.withdraw_queued(&s, prompt_id)?;
+            // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
+            let author = crate::author::author(&params)?;
+            let editor = crate::author::editor(author.as_ref());
+            let removed = hub.withdraw_queued(&s, prompt_id, editor)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {

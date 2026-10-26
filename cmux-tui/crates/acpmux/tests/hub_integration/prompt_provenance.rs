@@ -861,3 +861,15 @@ async fn an_answer_after_a_stop_is_told_the_ask_was_cancelled() {
         "{lost}"
     );
 }
+
+/// A prompt is a person's or another sender's, never both: an author beside a provenance is
+/// refused, so it never runs as an agent's message under the owner's queue rules.
+#[tokio::test]
+async fn an_author_beside_a_provenance_is_refused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let both = by(prompt(&session, "p-both", "hi", Some(&provenance(&session))), Some(&ana()));
+    assert_eq!(reason(&c.reply("session/prompt", both).await), "author.value_refused");
+    assert!(c.records(&session, "user_message").await.is_empty(), "a refused prompt ran");
+}
