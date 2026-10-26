@@ -74,13 +74,14 @@ session, observed through debug.energy at both ends) and `thermal` (ProcessInfo.
 rAF rate could not be read; a session whose thermal state reached serious or critical has `thermal_marked` on its
 rows.
 
-Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each process's `ps`
-priority, nice and flags and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default,
-user-visible, foreground: observed_role). The app is napped while no window shows; hidden Chromium renderers and the
-extension process are best-effort (Chrome's kBestEffort); the daemon and terminal hosts are never backgrounded while
-a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget `role` (napped, best-effort, background,
-not-background, foreground) overrides the default. Each mismatch is one
-`IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line.
+Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
+(proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
+observed_role). The app is napped while no window shows; renderers the debug.webui census marks hidden (or every
+renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); the daemon and
+terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
+`role` (napped, best-effort, background, not-background; null: not judged) overrides the default. Each mismatch is
+one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
+be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
@@ -116,7 +117,9 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+kind, IDLE-BUDGET-UNCLASSIFIED <session> pid <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
+`kind other != classified`), IDLE-BUDGET-GOAL for a number the plan names a goal (reported, never an over),
+IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
 when the build has debug.wakeups, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
 POWER-OVER <owner> <mW>, a Markdown table, and --json with every sample.
@@ -148,9 +151,43 @@ UTILITY_KINDS = {"network.mojom.NetworkService": "cef-network", "storage.mojom.S
                  "audio.mojom.AudioService": "cef-audio"}
 
 
-def kind(cmd):
-    """The budget kind of a process of the app's set."""
-    if "__holder" in cmd:
+# The app's own one-shot tools (GitHubCLIClient's `gh`, AgentPaneGitProcess's and the file pages' `git`, RipgrepSearch's
+# `rg`, DiffSidecarLauncher's bundled `cmux-diff-sidecar`) and what they run: `app-tool`.
+APP_TOOLS = ("gh", "git", "rg", "cmux-diff-sidecar")
+# The Now Playing stream (MediaRemoteAdapterProcess): `/bin/sh -c <parentWatch> /usr/bin/perl .../mediaremote-adapter.pl
+# ... stream`, its `{ while read }` subshell (the same argv) and the perl adapter: `now-playing`.
+NOW_PLAYING_SCRIPT = "/mediaremote-adapter.pl"
+
+
+def executable(cmd):
+    """The executable path of a `ps` command line: its first word, or through a bundle whose name has a space
+    (`/Applications/cmux DEV.app/Contents/Resources/bin/cmux-diff-sidecar rpc ...`) the word after its `.app/`."""
+    head = cmd.split(" --", 1)[0].strip()
+    first = head.split(" ", 1)[0]
+    if ".app/" in head and first.startswith("/") and ".app/" not in first:
+        bundle, rest = head.rsplit(".app/", 1)
+        if " -" not in bundle and rest.strip():
+            return bundle + ".app/" + rest.split(" ", 1)[0]
+    return first
+
+
+def app_tool(cmd):
+    return os.path.basename(executable(cmd)) in APP_TOOLS
+
+
+def kind(cmd, pid=None, window=None):
+    """The budget kind of a process of the app's set. With `pid` and `window` (WindowKinds: the window's process
+    tree and WebKit census) also what the command line alone cannot tell: a terminal's job (under a terminal host
+    or a holder), an agent's harness, what the app's tools and its Now Playing stream run, and whether a WebContent
+    process runs cmux's own pages. `other:<executable>` is a process no rule names: an over in every judged session
+    (over_budget)."""
+    ancestors = [command for _parent, command in window.tree.ancestors(pid)] if window is not None and pid is not None else []
+    for command in ancestors:
+        if "__terminal-host" in command or procs.is_holder(command):
+            return "terminal-job"  # the person's shell and what it runs, not cmux's work
+        if "__agent-host" in command:
+            return "agent-harness"
+    if procs.is_holder(cmd):
         return "holder"
     if "__terminal-host" in cmd:
         return "terminal-host"
@@ -160,6 +197,12 @@ def kind(cmd):
         return "acpmux"
     if "--type=crashpad-handler" in cmd or "chrome_crashpad_handler" in cmd:
         return "crashpad"
+    if procs.CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
+    if NOW_PLAYING_SCRIPT in cmd or any(NOW_PLAYING_SCRIPT in command for command in ancestors):
+        return "now-playing"
+    if app_tool(cmd) or any(app_tool(command) for command in ancestors):
+        return "app-tool"
     chromium = tab_pages.chromium_kind(cmd)
     if chromium == "cef-utility":
         service = re.search(r"--utility-sub-type=(\S+)", cmd)
@@ -167,17 +210,113 @@ def kind(cmd):
     if chromium:
         return chromium
     if "com.apple.WebKit." in cmd:
-        return "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
+        service = "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
+        if service != "webkit-webcontent" or window is None or window.app_pages is None or pid is None:
+            return service
+        return "webkit-app-page" if pid in window.app_pages else "webkit-browser-tab"
     exe = cmd.split(" --", 1)[0]
+    if procs.CUA_HELPER_APP in exe:
+        return "cua-helper"
     if exe.count(".app/") == 1 and "/Contents/MacOS/" in exe:
         return "app"
-    return "other:" + os.path.basename(exe.split()[0])[:32]
+    return "other:" + os.path.basename(executable(cmd))[:32]
+
+
+class WindowKinds:
+    """`kind` of one window's processes, with what their command lines cannot tell, from the window's end: the
+    process tree of the app's set (`rows`: its [(pid, ppid, command)], the same `ps` read as the set, ProcessSet)
+    and the debug.webui census (`census`, {} for a build without one; see webkit_app_pages and hidden_pids).
+    `shown_tab` is a tab session's shown browser tab (build_tabs), None in a session without one. `hidden(pid,
+    kind)` is whether the process runs only hidden pages; a WebContent of a build with no census stays
+    webkit-webcontent and is never hidden. `shown(pid, kind)` is whether the census reports the process running a
+    visible page or the shown tab; a process that is neither is of unknown visibility (no census, or a browser tab
+    of a session without `shown_tab`)."""
+
+    def __init__(self, rows, census=None, shown_tab=None):
+        census = census if isinstance(census, dict) else {}
+        self.tree = procs.ProcessTree(rows)
+        self.app_pages = webkit_app_pages(census)
+        self.visible_pids, hidden = census_visibility(census, shown_tab)
+        self.hidden_pids = hidden - self.visible_pids
+        # The shown tab is a Chromium one, so every WebKit browser tab is hidden behind it.
+        self.webkit_tabs_hidden = bool(shown_tab) and shown_tab.get("engine") == "chromium"
+
+    def __call__(self, cmd, pid=None):
+        return kind(cmd, pid, self)
+
+    def hidden(self, pid, name):
+        if name == "webkit-browser-tab":
+            return self.webkit_tabs_hidden
+        return pid in self.hidden_pids
+
+    def shown(self, pid, name):
+        if name == "webkit-browser-tab":
+            return False if self.webkit_tabs_hidden else None
+        return pid in self.visible_pids
+
+
+def census_pid(value):
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value == int(value) else None
+
+
+def host_pids(row):
+    """The content processes of one debug.webui row: its WebContent pid and its Chromium renderer pids."""
+    values = [row.get("webkit_pid")] + list(row.get("renderer_pids") if isinstance(row.get("renderer_pids"), list) else [])
+    return {pid for pid in map(census_pid, values) if pid is not None}
+
+
+def census_rows(census, key):
+    return [row for row in census.get(key) or [] if isinstance(row, dict)] if isinstance(census.get(key), list) else []
+
+
+def webkit_app_pages(census):
+    """The WebContent pids of cmux's own pages and spares from a debug.webui reply (WebUICensus: `pages` and
+    `spares`, each with `webkit_pid`), or None when the build has no census. Any other WebContent of the app is a
+    browser tab's: WebKit browser tabs are the only other WKWebViews the app makes."""
+    if not isinstance(census.get("pages"), list):
+        return None
+    pids = (census_pid(row.get("webkit_pid")) for row in census_rows(census, "pages") + census_rows(census, "spares"))
+    return {pid for pid in pids if pid is not None}
+
+
+def hidden_pids(census, shown_tab=None):
+    """The content processes (WebContent and Chromium renderer pids) that run only hidden pages, from a debug.webui
+    reply: a page whose `state` is hidden, every spare (Chrome counts no spare renderer as visible), and with
+    `shown_tab` ({engine, tabs: the shown browser tabs' census names}) every other Chromium browser tab. A process
+    that also runs a visible page or the shown tab is not hidden. Browser tabs have no state in the census, so
+    without `shown_tab` none is counted either way."""
+    visible, hidden = census_visibility(census, shown_tab)
+    return hidden - visible
+
+
+def census_visibility(census, shown_tab=None):
+    """(visible, hidden): the content processes running a visible page or the shown tab, and those running a hidden
+    page, a spare or another browser tab (hidden_pids). A process can be in both."""
+    visible, hidden = set(), set()
+    for page in census_rows(census, "pages"):
+        (hidden if page.get("state") == "hidden" else visible).update(host_pids(page))
+    for spare in census_rows(census, "spares"):
+        hidden.update(host_pids(spare))
+    shown = (shown_tab or {}).get("tabs")
+    if shown:
+        for tab in census_rows(census, "browser_tabs"):
+            (visible if tab.get("tab") in shown else hidden).update(host_pids(tab))
+    return visible, hidden
+
+
+class ProcessSet(dict):
+    """{pid: command} of the app's set, with `rows`: the [(pid, ppid, command)] of its processes from the same `ps`
+    read, so the kinds' process tree (WindowKinds) and the set are one instant."""
+
+    def __init__(self, commands, rows):
+        super().__init__(commands)
+        self.rows = rows
 
 
 def process_set(instance):
-    """{pid: command} of the app's processes plus their descendants (shells of the terminals are `other:`)."""
-    found = dict(instance.pids())
+    """The app's processes plus their descendants (the terminals' jobs: `terminal-job`), from one `ps` read."""
     table = procs.process_table()
+    found = dict(instance.pids(table))
     children = {}
     commands = {}
     for pid, ppid, cmd in table:
@@ -190,7 +329,8 @@ def process_set(instance):
             if child not in found and child in commands:
                 found[child] = commands[child]
                 stack.append(child)
-    return found
+    # The tree of the set alone: a bench started from a cmux terminal must not make the app a terminal's job.
+    return ProcessSet(found, [row for row in table if row[0] in found])
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -229,11 +369,13 @@ def saver_state(reply):
     return saver, policy.get("reason") or inputs.get("reason")
 
 
-def measure(app, instance, seconds, read_anim=None, attribute=False):
-    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
-    outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
-    `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
-    run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
+def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None):
+    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end and
+    the debug.webui census the kinds need) sit outside every counter bracket, the app's own counters included, so
+    the bench's reads are never counted. Each row's kind and `hidden` come from one WindowKinds (the `last` set's
+    own `ps` rows, the census and `shown_tab`, build_tabs's), which also names the power owners. With `attribute`,
+    `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo) run before
+    `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
     window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
@@ -263,11 +405,18 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
+    # debug.webui runs on the app's main actor: read after every counter, with the window's other end reads.
+    classify = WindowKinds(last_pids.rows, read_rpc(app, "debug.webui"), shown_tab)
     end = window_end(app, last_pids, read_anim)
-    # The roles at the window's end, read after every counter (`ps` and proc_pidinfo do not wake the processes).
+    # The roles at the window's end, after every counter (proc_pidinfo wakes no process); the pooled agents from the
+    # set's own `ps` rows.
     priority = procs.priorities(last_pids)
-    pooled = pool_pids(last_pids, procs.process_table(), acpmux_homes(getattr(app, "launched_env", None)))
-    rows = with_roles(process_rows(first, last, elapsed, gpu0, gpu1, kind), priority, pooled)
+    pooled = pool_pids(last_pids, last_pids.rows, acpmux_homes(getattr(app, "launched_env", None)))
+    rows = process_rows(first, last, elapsed, gpu0, gpu1, classify)
+    for row in rows:
+        row["hidden"] = classify.hidden(row["pid"], row["kind"])
+        row["shown"] = classify.shown(row["pid"], row["kind"])
+    rows = with_roles(rows, priority, pooled)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
               "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
@@ -279,7 +428,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
         result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
                                                                   (sources0, sources1) if attribute else None)
     if power is not None:
-        result["power"] = power_attribution.attribute(power)
+        result["power"] = power_attribution.attribute({**power, "classify": classify})
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
              if key in counters0 and counters1[key] != counters0[key]}
     if rates:
@@ -324,10 +473,10 @@ def process_rows(first, last, elapsed, gpu0, gpu1, classify):
 
 def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, classify=None):
     """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
-    window, `partial`); its kind from `classify` (default: the cmux kinds, `kind`)."""
+    window, `partial`); its kind from `classify(cmd, pid)` (default: the cmux kinds, `kind`)."""
     got = procs.rates(first, last, elapsed)
     return {
-        "pid": pid, "kind": (classify or kind)(cmd), "command": cmd[:160], "partial": first is None,
+        "pid": pid, "kind": (classify or kind)(cmd, pid), "command": cmd[:160], "partial": first is None,
         "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
         "cpu_pct": round(got["cpu_pct"], 4),
         "wakeups_per_s": round(got["wakeups_per_s"], 3),
@@ -539,12 +688,27 @@ def summarize(session, result, budget):
         # A power session is reported, never judged: it has no budget row, and the default kinds are not its budget.
         entry["over"], entry["not_judged"] = [], []
         return entry
-    roles = role_mismatches(session, result["processes"], budget)
+    roles, role_notes = role_audit(session, result["processes"], budget)
     entry["role_mismatches"] = roles
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["over"] += [[m["kind"], "role", m["observed"], m["expected"]] for m in roles]
-    entry["not_judged"] = sum_notes(session, kinds, budget)
+    entry["not_judged"] = sum_notes(session, kinds, budget) + role_notes
+    entry["goals"] = goal_rows(budget, session, kinds)
     return entry
+
+
+def goal_rows(budget, session, kinds):
+    """The session's `goals` rows (an absolute number the plan names a goal, not a check: D4's cef-gpu 1.0/s), each
+    with its value and whether it is met (None: the selector did not run or its value is unknown). Reported in
+    IDLE-BUDGET-GOAL lines, never an over."""
+    rows = []
+    for goal in budget.get("goals") or []:
+        if goal.get("session") != session:
+            continue
+        value = selector_value(kinds, goal["of"], goal["field"])
+        rows.append({"of": goal["of"], "field": goal["field"], "max": goal["max"], "value": value,
+                     "met": None if value is None else value <= goal["max"]})
+    return rows
 
 
 def window_facts(entry):
@@ -637,6 +801,12 @@ def unknown_sum(kinds, selector, field):
     return bool(selected(kinds, selector)) and selector_value(kinds, selector, field) is None
 
 
+def unclassified(name):
+    """Whether `name` is the kind of a process no rule of `kind` names (`other:<executable>`): every process of
+    the app's tree has a budget kind, so one that has none is an over in any session but a reference browser's."""
+    return name.startswith("other:")
+
+
 def setting_on(value):
     return value not in (None, False, "off", "never", 0, "")
 
@@ -650,12 +820,14 @@ def over_budget(session, kinds, budget, facts=None):
     out = []
     for name in sorted(kinds):
         entry = kinds[name]
+        if unclassified(name) and not own.get("reference"):
+            out.append((name, "kind", "other", "classified"))
         for field in limited_fields(budget, session, name):
             limit = limit_for(budget, session, name, field)
             if limit is None:
                 continue
             if field == "role":
-                continue  # judged per process, with D16's defaults: role_mismatches
+                continue  # judged per process, with D16's defaults: role_audit
             value = entry.get(field)
             if isinstance(value, (int, float)) and value > limit:
                 out.append((name, field, value, limit))
@@ -830,25 +1002,29 @@ def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
 #
 # Chrome's model (base/process/process_mac.cc `Process::SetPriority`; RenderProcessHostImpl::UpdateProcessPriority
 # in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare renderer is kBestEffort
-# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: darwin background, low CPU priority), a shown one
-# kUserBlocking (TASK_FOREGROUND_APPLICATION). App Nap suppresses a hidden app the same way. The audit reads each
-# process's role at the window's end (procs.priorities) and compares it with D16 or the budget's `role`.
+# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one is not. App Nap suppresses a
+# hidden app the same way. The audit reads each task's role at the window's end (procs.priorities: its base priority
+# and darwinbg bit, never its busiest thread's priority) and compares it with D16 or the budget's `role`.
+
+# osfmk/kern/sched.h: BASEPRI_DEFAULT. task_policy_update_internal_locked (osfmk/kern/task_policy.c) lowers a task's
+# base priority below it only for lowpri_cpu (MAXPRI_THROTTLE 4), suppressed_cpu (MAXPRI_SUPPRESSED 28) or a
+# positive nice.
+BASEPRI_DEFAULT = 31
+
 
 def observed_role(priority):
-    """The scheduling role of one process from `procs.priorities()`, by the base priorities of osfmk/kern/sched.h:
-    `darwinbg` (the kernel's darwin-background bit: PRIO_DARWIN_BG, Chrome's kBestEffort), `suppressed` (below the
-    default 31: App Nap or task suppression, MAXPRI_SUPPRESSED 28, or a positive nice), `user-visible` (46,
-    BASEPRI_BACKGROUND: TASK_BACKGROUND_APPLICATION without suppression, Chrome's kUserVisible), `foreground` (47 and
-    up, BASEPRI_FOREGROUND: TASK_FOREGROUND_APPLICATION, Chrome's kUserBlocking), `default`; None when unread."""
-    if not priority or priority.get("pri") is None:
+    """The scheduling role of one task from `procs.priorities()`: `darwinbg` (the kernel's darwin-background bit:
+    PRIO_DARWIN_BG, a background role), `suppressed` (a base priority below BASEPRI_DEFAULT: App Nap or task
+    suppression, Chrome's kBestEffort, or a positive nice), `default` (not lowered; foreground and visible apps
+    alike, since their role changes thread QoS, not the task's base priority); None when unread."""
+    if not priority:
         return None
     if priority.get("darwinbg"):
         return "darwinbg"
-    if priority["pri"] < 31:
-        return "suppressed"
-    if priority["pri"] >= 47:
-        return "foreground"
-    return "user-visible" if priority["pri"] == 46 else "default"
+    base = priority.get("base")
+    if base is None:
+        return None
+    return "suppressed" if base < BASEPRI_DEFAULT else "default"
 
 
 # A budget or D16 role and the observed roles that meet it.
@@ -856,8 +1032,7 @@ ROLE_EXPECTATIONS = {
     "napped": {"darwinbg", "suppressed"},       # App Nap
     "best-effort": {"darwinbg", "suppressed"},  # Chrome kBestEffort
     "background": {"darwinbg"},                 # PRIO_DARWIN_BG exactly (pooled acpmux agents, task 038)
-    "not-background": {"default", "user-visible", "foreground"},
-    "foreground": {"foreground"},
+    "not-background": {"default"},
 }
 
 
@@ -873,11 +1048,12 @@ def with_roles(rows, priority, pooled):
 
 def role_budget_errors(budget):
     """Every budget `role` (kinds, all_kinds, sessions.<s>.kinds) that is no ROLE_EXPECTATIONS key, so a typo refuses
-    the run instead of judging by the default."""
+    the run instead of judging by the default. null is valid: measured, not judged (budget_role)."""
     places = [(f"kinds.{name}", limits) for name, limits in (budget.get("kinds") or {}).items()]
     places.append(("all_kinds", budget.get("all_kinds") or {}))
     for session, own in (budget.get("sessions") or {}).items():
-        places += [(f"sessions.{session}.kinds.{name}", limits) for name, limits in ((own or {}).get("kinds") or {}).items()]
+        places += [(f"sessions.{session}.kinds.{name}", limits)
+                   for name, limits in ((own or {}).get("kinds") or {}).items()]
     errors = []
     for where, limits in places:
         role = limits.get("role") if isinstance(limits, dict) else None
@@ -890,23 +1066,52 @@ def role_budget_errors(budget):
     return errors
 
 
+NO_BUDGET_ROLE = object()
+
+
+def budget_role(budget, session, name):
+    """The budget's `role` for kind `name` in `session`, read as limit_for reads limits, with an explicit null kept
+    apart: None is `"role": null` (measured, not judged) or a busy kind; NO_BUDGET_ROLE is no `role` anywhere, so
+    D16's default applies."""
+    own = session_budget(budget, session)
+    kind_limits = (own.get("kinds") or {}).get(name) or {}
+    if "role" in kind_limits:
+        return kind_limits["role"]
+    if busy_kind(own, name):
+        return None
+    defaults = (budget.get("kinds") or {}).get(name) or {}
+    if "role" in defaults:
+        limit = defaults["role"]
+        if not isinstance(limit, dict):
+            return limit
+        if session in limit:
+            return limit[session]
+    all_kinds = budget.get("all_kinds") or {}
+    return all_kinds["role"] if "role" in all_kinds else NO_BUDGET_ROLE
+
+
+def renderer_visibility(row):
+    """`hidden`, `shown` or `unknown` for a renderer row: the census's attribution (WindowKinds.hidden and .shown)."""
+    if row.get("hidden") is True:
+        return "hidden"
+    return "shown" if row.get("shown") is True else "unknown"
+
+
 def expected_role(session, row, budget=None, sessions=None):
-    """The role D16 expects of one process in `session`, or None when it is not judged alone: the budget's `role`
-    (limit_for) wins; a busy kind or a reference session is not judged; a renderer of a session that counts its shown
-    Chromium tabs is judged with the others by role_mismatches unless it is known hidden (`hidden`)."""
+    """The role D16 expects of one process in `session`, or None when it is not judged: the budget's `role` wins (an
+    explicit null: not judged); a busy kind or a reference session is not judged; a renderer is best-effort when the
+    census marks it hidden or no window shows, and not judged when it is shown or its visibility is unknown."""
     budget = budget or {}
     name = row["kind"]
-    limit = limit_for(budget, session, name, "role")
-    if limit is not None:
+    limit = budget_role(budget, session, name)
+    if limit is not NO_BUDGET_ROLE:
         return limit
-    if busy_kind(session_budget(budget, session), name):
-        return None
     facts = (SESSIONS if sessions is None else sessions).get(session, {})
     if row.get("pooled"):
         return "background"
     if name == "cef-extension":
         return "best-effort"
-    if name == "cef-renderer" and (row.get("hidden") is True or facts.get("shown") is False):
+    if name == "cef-renderer" and (facts.get("shown") is False or renderer_visibility(row) == "hidden"):
         return "best-effort"
     if facts.get("shown") is False and name == "app":
         return "napped"
@@ -915,31 +1120,33 @@ def expected_role(session, row, budget=None, sessions=None):
     return None
 
 
-def role_mismatches(session, rows, budget=None, sessions=None):
-    """[{kind, pids, observed, expected}] for every process whose observed role does not meet expected_role. In a
-    session that shows N Chromium tabs, at most N renderers of unknown visibility may be above best-effort (less the
-    renderers known shown): the shown tabs' renderers can not be told apart by pid until per-tab renderer attribution
-    (task 124) marks rows `hidden`, so any more are one mismatch naming all of them."""
-    out = []
+def role_audit(session, rows, budget=None, sessions=None):
+    """([{kind, pids, observed, expected}], [not-judged note]): a mismatch for every process whose observed role does
+    not meet expected_role; a note for a process with an expected role whose role could not be read (gone, or the
+    read failed) and for the renderers of a shown session whose visibility the census does not tell (a build
+    without debug.webui, a browser tab of a session with no shown tab): they may serve a shown page, so they are
+    not judged. Per-tab renderer attribution (task 124) narrows the second."""
+    budget = budget or {}
+    out, unread, unknown = [], {}, []
+    facts = (SESSIONS if sessions is None else sessions).get(session, {})
     for row in rows:
         want = expected_role(session, row, budget, sessions)
-        if want is None or row.get("role") is None or row["role"] in ROLE_EXPECTATIONS[want]:
+        if want is None:
+            if (row["kind"] == "cef-renderer" and facts.get("shown") and not row.get("pooled")
+                    and budget_role(budget, session, "cef-renderer") is NO_BUDGET_ROLE
+                    and renderer_visibility(row) == "unknown"):
+                unknown.append(row["pid"])
             continue
-        out.append({"kind": row["kind"], "pids": [row["pid"]], "observed": row["role"], "expected": want})
-    facts = (SESSIONS if sessions is None else sessions).get(session, {})
-    shown_tabs = facts.get("chromium_tabs_shown")
-    if shown_tabs is None or not facts.get("shown") or busy_kind(session_budget(budget or {}, session), "cef-renderer"):
-        return out
-    renderers = [row for row in rows if row["kind"] == "cef-renderer" and not row.get("pooled")]
-    unknown = [row for row in renderers if row.get("hidden") is None
-               and expected_role(session, row, budget, sessions) is None]
-    allowed = shown_tabs - sum(1 for row in renderers if row.get("hidden") is False)
-    above = [row for row in unknown if row.get("role") is not None
-             and row["role"] not in ROLE_EXPECTATIONS["best-effort"]]
-    if len(above) > max(allowed, 0):
-        out.append({"kind": "cef-renderer", "pids": sorted(row["pid"] for row in above),
-                    "observed": f"{len(above)}-above-best-effort", "expected": f"best-effort-beyond-{shown_tabs}-shown"})
-    return out
+        if row.get("role") is None:
+            unread.setdefault(row["kind"], []).append(row["pid"])
+        elif row["role"] not in ROLE_EXPECTATIONS[want]:
+            out.append({"kind": row["kind"], "pids": [row["pid"]], "observed": row["role"], "expected": want})
+    notes = [f"{session} {name} role: not judged: unread pids={','.join(map(str, sorted(pids)))}"
+             for name, pids in sorted(unread.items())]
+    if unknown:
+        notes.append(f"{session} cef-renderer role: not judged: visibility unknown "
+                     f"pids={','.join(map(str, sorted(unknown)))}")
+    return out, notes
 
 
 def role_over_line(session, mismatch):
@@ -1062,7 +1269,7 @@ def load_budget(path):
     budget.setdefault("version", 1)
     for key in ("kinds", "sessions", "all_kinds"):
         budget.setdefault(key, {})
-    for key in ("ratio_to_chrome", "xbench", "allowed_periodic", "assertions_allowed_when"):
+    for key in ("ratio_to_chrome", "goals", "xbench", "allowed_periodic", "assertions_allowed_when"):
         budget.setdefault(key, [])
     return budget
 
@@ -1130,10 +1337,11 @@ LOAD_EXTENSION_GONE_MAJOR = 137
 MANIFEST_V2_GONE_MAJOR = 139
 
 
-def chrome_kind(cmd):
+def chrome_kind(cmd, pid=None):
     """The kind of a Chrome process: browser, renderer, extension, gpu, utility, crashpad, other (Chromium's
     process types, content/public/common/content_switches.cc; an extension's renderer carries
-    --extension-process, extensions/common/switches.cc; Crashpad's handler runs with no --type)."""
+    --extension-process, extensions/common/switches.cc; Crashpad's handler runs with no --type). The command
+    alone decides; `pid` is the classifier signature process_row calls."""
     typed = tab_pages.process_type_kind(cmd)
     if typed:
         return CHROME_KINDS[typed]
@@ -1408,14 +1616,25 @@ def tab_plan(pages, tabs):
 
 def build_tabs(app, pages, tabs):
     """Opens the session's tabs (tab_plan) in the launch pane; a new tab is selected, so every earlier one is hidden
-    behind the last. Waits for each page to load. Returns {engine: count} of the opened tabs."""
-    opened = {}
-    for engine, url, key in tab_plan(pages, tabs):
+    behind the last. Waits for each page to load. Returns ({engine: count} of the opened tabs, the shown tab:
+    {engine, tabs: the debug.webui `browser_tabs` names the last open added, empty for a WebKit tab or a build with
+    no census}), so the window's kinds tell hidden tabs' processes from the shown one's (WindowKinds)."""
+    opened, shown = {}, None
+    plan = tab_plan(pages, tabs)
+    for index, (engine, url, key) in enumerate(plan):
+        before = browser_tab_names(app) if index == len(plan) - 1 else None
         run_action(app, f"openBrowser.{engine}", {"url": url}, focus=True, timeout=90)
         if not pages.wait_loaded(key, 90):
             raise SessionShapeError(f"{engine} tab {url} did not load in 90 s")
         opened[engine] = opened.get(engine, 0) + 1
-    return opened
+        if before is not None:
+            shown = {"engine": engine, "tabs": sorted(browser_tab_names(app) - before)}
+    return opened, shown
+
+
+def browser_tab_names(app):
+    """The census names of the app's Chromium browser tabs now (debug.webui `browser_tabs`)."""
+    return {tab.get("tab") for tab in census_rows(read_rpc(app, "debug.webui"), "browser_tabs")}
 
 
 def anim_rate(start, end):
@@ -1468,21 +1687,19 @@ POWER_SETTLE_S = 120
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
-# the session's tabs). The role audit's facts (role_mismatches): shown (an app window, with a terminal, can be
-# seen) and chromium_tabs_shown (how many Chromium tabs are on screen; None: not counted, as where Home's pages run in
-# Chromium); a session without them gets only the rules that hold in every session.
+# the session's tabs), shown (role_audit: an app window, with a terminal, can be seen; a session without it gets
+# only the role rules that hold in every session).
 SESSIONS = {
-    "light": {"shown": True, "chromium_tabs_shown": None},
-    "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True, "chromium_tabs_shown": 0},
+    "light": {"shown": True},
+    "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
     "light-hidden": {"hide": True, "shown": False},
     "minimized": {"minimize": True, "shown": False},
-    "stress": {"stress": True, "shown": True, "chromium_tabs_shown": None},
-    "stress-static": {"stress": True, "static": True, "shown": True, "chromium_tabs_shown": None},
+    "stress": {"stress": True, "shown": True},
+    "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
-                    "shown": True, "chromium_tabs_shown": 1},
+                    "shown": True},
     "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
-                     "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True,
-                     "shown": True, "chromium_tabs_shown": 1},
+                     "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True, "shown": True},
     # The references (run_chrome_static): the cmux session's pages in a Chromium, settled as long as it.
     CHROME_SESSION: {"chrome": True, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     POWER_SESSION: {"tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
@@ -1952,8 +2169,10 @@ def main(argv=None):
             app.launch()
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
+            shown_tab = None
             if spec.get("tabs"):
-                entry["tabs"] = build_tabs(app, pages, spec["tabs"])
+                entry["tabs"], shown_tab = build_tabs(app, pages, spec["tabs"])
+                entry["shown_tab"] = shown_tab
             activation = app.activate()  # once, before the settle (and before a hide or minimize): users run an active app
             if not activation["activated"]:
                 print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
@@ -1975,7 +2194,7 @@ def main(argv=None):
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
-                             attribute=spec.get("power", False))
+                             attribute=spec.get("power", False), shown_tab=shown_tab)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             app_sample = os.path.join(out, session, "sample-app.txt")
@@ -1997,12 +2216,16 @@ def main(argv=None):
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
             print(f"IDLE-BUDGET-ENERGY {session} " + json.dumps(entry["energy_mw"]), flush=True)
+            for goal in entry.get("goals") or []:
+                print(f"IDLE-BUDGET-GOAL {session} " + json.dumps(goal), flush=True)
             print(f"IDLE-BUDGET-STATE {session} " + json.dumps({"saver": entry["saver"], "thermal": entry["thermal"]}), flush=True)
             for item in entry["assertions"]:
                 print(f"IDLE-BUDGET-ASSERTION {session} {item['line']}", flush=True)
             if "anim" in entry:
                 print(f"IDLE-BUDGET-ANIM {session} " + json.dumps(entry["anim"]), flush=True)
             for row in result["processes"]:
+                if unclassified(row["kind"]):
+                    print(f"IDLE-BUDGET-UNCLASSIFIED {session} pid {row['pid']} {row['kind']}: {row['command']}", flush=True)
                 if row["kind"] in ("app", "daemon", "holder", "acpmux") and row["ran"]:
                     names = ", ".join(f"{t['name'] or t['tid']}={t['cpu_us']}us" for t in row["ran"])
                     print(f"IDLE-BUDGET-THREADS {session} {row['kind']} pid {row['pid']}: {names}", flush=True)

@@ -18,6 +18,7 @@ are the reference forms; these functions are the canonical ones, with the plan's
   MQ-B  bench-migration  MQ1 | MQ2 | MQ3 by file: one file is one migration task
   MQ13  bench-gaps       debug methods and env names that bench scripts use and that a
                          `--config bench` build (DEBUG off, CMUX_BENCH_HOOKS on) does not compile
+                         (DEBUG_ONLY_BY_DESIGN names the script uses that stay Debug-only, each with its reason)
 
     python3 scripts/perf-lab/queues.py --all --counts          # one line per queue
     python3 scripts/perf-lab/queues.py bench-migration --files # MQ-B, one path per line
@@ -358,6 +359,22 @@ MEASURING_SCRIPTS = {
     "remote-browser-local-live.py": "--stats measures frame rate, bitrate and input to frame (task 221)",
     "child-crash-e2e.py": "becomes the crash survival timing story (task 036)",
 }
+# Script uses of a Debug-only name that stay Debug-only on purpose, by (name, script), each with its
+# reason: an option the person adds for diagnosis, which the measurement does not need. MQ13 still
+# lists the name for every other script that uses it (trace.py's and cef-idle-probe.py's
+# remote-debugging-port, which their measurement needs, are gaps).
+_EXTRA_SWITCHES_OPTION = ("an optional extra Chromium switch the person passes for diagnosis; a bench build "
+                          "takes only the Web Page Replay pair, through CMUX_NEXT_BENCH_CEF_SWITCHES (task 221)")
+DEBUG_ONLY_BY_DESIGN = {
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_renderer_sharing.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_memory.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_power.py"): "an --env example in its help text only",
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/browser-idle-cost-live.py"): "an --env example in its help text only",
+    ("CMUX_NEXT_CHROMIUM_HOST_SWITCHES", "scripts/cmux-next/chromium-host-bench.py"):
+        "--host-switches: optional host switches for diagnosis (child logging, no-sandbox); a bench build measures "
+        "the host with the switches it ships with (task 221)",
+}
+QUEUES_SOURCE = "scripts/perf-lab/queues.py"
 _PLATFORM = {"os": {"macOS"}, "arch": {"arm64"}, "targetEnvironment": set()}
 _CONDITION_TOKEN = re.compile(r"\s*(\|\||&&|!|\(|\)|\w+\([^()]*\)|\w+)")
 
@@ -457,6 +474,8 @@ def _bench_script_names(root: str) -> dict[str, dict[str, list[str]]]:
     used: dict[str, dict[str, list[str]]] = {"method": {}, "env": {}}
     for top in BENCH_SCRIPT_DIRS:
         for rel in _walk(root, top, (".py", ".sh"), recursive=False):
+            if rel == QUEUES_SOURCE:  # names this file lists (DEBUG_ONLY_BY_DESIGN) are not uses
+                continue
             code = _code(_read(os.path.join(root, rel)), "#")
             name = os.path.basename(rel)
             if name in NOT_A_BENCH or not (
@@ -487,6 +506,9 @@ def bench_gaps(root: str = ROOT) -> list[Item]:
     for kind in ("method", "env"):
         for name, scripts in sorted(used[kind].items()):
             found = sites.get(name)
+            scripts = [script for script in scripts if (name, script) not in DEBUG_ONLY_BY_DESIGN]
+            if not scripts:
+                continue
             if found and not any(bench for _, bench in found):
                 more = " (+%d more)" % (len(scripts) - 1) if len(scripts) > 1 else ""
                 items.append(Item(name, found[0][0], "%s, Debug only; used by %s%s" % (kind, scripts[0], more)))

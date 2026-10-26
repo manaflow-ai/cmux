@@ -104,9 +104,13 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
-    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
-    /// moved or whose covers changed, not every pane).
+    /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0
+    /// Moves on with any change to the hosts' frames, alphas, clips or order (`PaneHostView.pageCovers`).
+    var coverVersion = 0
+    /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
+    /// (`StripClipContainerView`); the docks stack above it.
+    let stripContainer = StripClipContainerView(frame: .zero)
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -119,6 +123,7 @@ final class ScreenContentView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        addSubview(stripContainer)
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -288,10 +293,8 @@ final class ScreenContentView: NSView {
                 paneFrames[pane] = existing
             } else {
                 let host = context.host(for: pane)
-                if host.superview !== self {
-                    // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
-                    addSubview(host, positioned: .below, relativeTo: firstDividerView)
-                }
+                // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
+                if !holds(host) { move(host, to: hostParent(for: pane)) }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
                 if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
@@ -303,7 +306,7 @@ final class ScreenContentView: NSView {
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
-            if covering, context.hosts[pane]?.superview === self, frame != nil {
+            if covering, let host = context.hosts[pane], holds(host), frame != nil {
                 zoomMotion.leave(pane)
                 continue
             }
@@ -409,6 +412,7 @@ final class ScreenContentView: NSView {
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)
+            coverVersion &+= 1
         }
     }
 
@@ -429,10 +433,6 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = frame
         }
         (carriedShown, carriedDividers) = ([:], [:])
-    }
-
-    fileprivate var firstDividerView: NSView? {
-        subviews.first { $0 is DividerHandleView }
     }
 
     /// A row divider release's preview waits for the layout that carries

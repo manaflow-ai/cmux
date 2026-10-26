@@ -36,8 +36,8 @@ CHROME = "/Applications/Chromium.app"
 CHROME_HELPERS = f"{CHROME}/Contents/Frameworks/Chromium Framework.framework/Versions/154.0.8037.58/Helpers"
 
 
-def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0):
-    return {"kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu,
+def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0, pid=0):
+    return {"pid": pid, "kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu,
             "energy_mw_cpu": cpu_mw, "energy_mw_billed": billed_mw}
 
 
@@ -96,6 +96,221 @@ class IdleBudgetTests(unittest.TestCase):
             budget = json.load(handle)
         for name in ("cef-gpu", "cef-renderer", "cef-extension", "cef-utility", "cef-host"):
             self.assertIn(name, budget["kinds"])
+
+    def test_every_process_of_the_tree_has_a_kind(self):
+        """p14-energy-104: fixture command lines map to each kind; the tree and the census tell what the command
+        cannot."""
+        frameworks = f"{APP}/Contents/Frameworks"
+        helper = f"{frameworks}/cmux Helper.app/Contents/MacOS/cmux Helper"
+        renderer = f"{frameworks}/cmux Helper (Renderer).app/Contents/MacOS/cmux Helper (Renderer)"
+        webcontent = ("/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/"
+                      "com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent")
+        bin_ = f"{APP}/Contents/Resources/bin"
+        cua = f"{APP}/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-helper"
+        watcher = ("/bin/zsh -f -c zmodload zsh/system || exit 0\npid=$1 out=$2 seconds=$3\n"
+                   "sysread -i 3 -s 1 byte || exit 0 cmux-crash-watcher 501 /tmp/x/sample.txt 15")
+        adapter = f"{APP}/Contents/Resources/MediaRemoteAdapter/mediaremote-adapter.pl"
+        framework = f"{frameworks}/MediaRemoteAdapter.framework"
+        watch = (f"/bin/sh -c exec 3<&0\nchild= watch=\n\"$0\" \"$@\" </dev/null &\nwait \"$child\" /usr/bin/perl "
+                 f"{adapter} {framework} stream --micros --debounce=150")
+        table = [
+            (501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+            (502, 501, f"{renderer} --type=renderer --extension-process"),
+            (503, 501, f"{helper} --type=utility --utility-sub-type=network.mojom.NetworkService"),
+            (504, 501, f"{helper} --type=utility --utility-sub-type=storage.mojom.StorageService"),
+            (505, 501, f"{helper} --type=utility --utility-sub-type=audio.mojom.AudioService"),
+            (506, 501, watcher),
+            (507, 1, f"{cua} serve --socket /tmp/s --no-permissions-gate --owner-pid 501"),
+            (508, 501, f"{helper} --type=crashpad-handler --database=/tmp/c"),
+            (509, 501, f"{APP}/Contents/MacOS/cmux Chromium Host --framework=/x"),
+            (510, 1, webcontent),
+            (511, 1, webcontent),
+            (512, 501, f"{bin_}/cmux-tui server --socket s"),
+            (513, 512, f"{bin_}/cmux-tui __terminal-host --owner a@512"),
+            (514, 513, "-zsh"),
+            (515, 514, "/opt/homebrew/bin/node build.js"),
+            (516, 512, f"{bin_}/acpmux daemon"),
+            (517, 516, f"{bin_}/acpmux __agent-host --session s1"),
+            (518, 517, "/Users/x/.local/bin/claude --acp"),
+            (519, 1, "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/"
+                     "Contents/MacOS/com.apple.WebKit.GPU"),
+            # The holder model (CMUX_TUI_TERMINAL_HOST_MODEL=holder): the built-in holder and the standalone one
+            # (argv[0] cmux-holder, no `__holder`), each with a shell and its job.
+            (530, 1, f"{bin_}/cmux-tui-host __holder --socket h1 --owner a@512"),
+            (531, 530, "-zsh"),
+            (532, 531, "/usr/bin/make -j8"),
+            (533, 1, "cmux-holder --socket h2 --owner a@512"),
+            (534, 533, "/bin/bash -l"),
+            (535, 534, "/usr/bin/git status"),
+            # The Now Playing stream: the watch shell, its `{ while read }` subshell (the same argv) and the adapter.
+            (540, 501, watch),
+            (541, 540, watch),
+            (542, 540, f"/usr/bin/perl {adapter} {framework} stream --micros --debounce=150"),
+            # The app's one-shot tools, and what they run.
+            (550, 501, "gh api --include -X GET /notifications"),
+            (551, 501, "/usr/bin/git -C /Users/x/repo status --porcelain"),
+            (552, 551, "/Library/Developer/CommandLineTools/usr/libexec/git-core/git-remote-https origin"),
+            (553, 501, "/opt/homebrew/bin/rg --json needle /Users/x/repo"),
+            (554, 501, f"{bin_}/cmux-diff-sidecar rpc --root /tmp/r --cmux {bin_}/cmux --process-group-ready"),
+            (555, 554, f"{bin_}/cmux __diff --resource-scheme page"),
+            # A foreign executable the app runs and no rule names.
+            (560, 501, "/usr/local/libexec/mystery-agent --serve"),
+        ]
+        census = {"pages": [{"page": "cmux.home", "engine": "webkit", "state": "visible", "webkit_pid": 510},
+                            {"page": "cmux.agent", "engine": "chromium", "webkit_pid": None}],
+                  "spares": [{"spare": "cef_window", "webkit_pid": None}]}
+        window = ib.WindowKinds(table, census)
+        got = {pid: window(cmd, pid) for pid, _ppid, cmd in table}
+        self.assertEqual(got, {
+            501: "app", 502: "cef-extension", 503: "cef-network", 504: "cef-storage", 505: "cef-audio",
+            506: "crash-watcher", 507: "cua-helper", 508: "crashpad", 509: "cef-host", 510: "webkit-app-page",
+            511: "webkit-browser-tab", 512: "daemon", 513: "terminal-host", 514: "terminal-job", 515: "terminal-job",
+            516: "acpmux", 517: "acpmux", 518: "agent-harness", 519: "webkit-gpu",
+            530: "holder", 531: "terminal-job", 532: "terminal-job", 533: "holder", 534: "terminal-job",
+            535: "terminal-job", 540: "now-playing", 541: "now-playing", 542: "now-playing",
+            550: "app-tool", 551: "app-tool", 552: "app-tool", 553: "app-tool", 554: "app-tool", 555: "app-tool",
+            560: "other:mystery-agent"})
+        # Every kind but the foreign executable has a budget row.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual({k for k in got.values() if k not in budget["kinds"]}, {"other:mystery-agent"})
+        # A build with no census (no debug.webui) cannot split WebKit: unsplit, not a guess.
+        self.assertIsNone(ib.webkit_app_pages({}))
+        self.assertEqual(ib.WindowKinds(table, {})(webcontent, 510), "webkit-webcontent")
+        self.assertEqual(ib.kind(webcontent), "webkit-webcontent")
+        # The command alone still names what it can.
+        self.assertEqual(ib.kind(watcher), "crash-watcher")
+        self.assertEqual(ib.kind(f"{cua} serve --socket /tmp/s"), "cua-helper")
+        self.assertEqual(ib.kind("cmux-holder --socket h2 --owner a@512"), "holder")
+        self.assertEqual(ib.kind("/opt/homebrew/bin/node build.js"), "other:node")
+        self.assertEqual(ib.kind("/Applications/Other App.app/Contents/Resources/bin/thing --x"), "other:thing")
+        # The tree is the app's set alone: a bench started in a cmux terminal does not make the app a terminal job.
+        app_only = [(501, 901, f"{APP}/Contents/MacOS/cmux DEV")]
+        self.assertEqual(ib.WindowKinds(app_only)(app_only[0][2], 501), "app")
+
+    def test_the_set_and_its_tree_come_from_one_ps_read(self):
+        """process_set's rows are the `ps` read it walked: a job that exits before a later read keeps its kind."""
+        bin_ = f"{APP}/Contents/Resources/bin"
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"), (512, 501, f"{bin_}/cmux-tui server --socket s"),
+                 (513, 1, f"{bin_}/cmux-tui __terminal-host --owner a@512"), (514, 513, "-zsh"),
+                 (515, 514, "/usr/bin/git status"), (900, 1, "/usr/sbin/sshd"), (901, 900, "-zsh")]
+        reads = []
+
+        def process_table():
+            reads.append(1)
+            return table
+
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", process_table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            found = ib.process_set(instance)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(sorted(found), [501, 512, 513, 514, 515])
+        self.assertEqual(sorted(found.rows), sorted(r for r in table if r[0] in found))
+        classify = ib.WindowKinds(found.rows)
+        self.assertEqual(classify(found[515], 515), "terminal-job")
+
+    def test_holders_join_the_set_by_their_owner(self):
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+                 (512, 501, f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"),
+                 (533, 1, "cmux-holder --socket h2 --owner a@512"),
+                 (534, 533, "-zsh"),
+                 (535, 1, "cmux-holder --socket h3 --owner a@9999")]
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", return_value=table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            found = ib.process_set(instance)
+        self.assertEqual(sorted(found), [501, 512, 533, 534])
+
+    def test_hidden_pages_mark_their_rows(self):
+        """A row is hidden when every page its process runs is hidden: debug.webui pages and spares, and in a tab
+        session every browser tab but the shown one (WebKit tabs all, behind a shown Chromium tab)."""
+        census = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid": 10, "renderer_pids": []},
+                            {"page": "cmux.agent", "state": "hidden", "webkit_pid": 11, "renderer_pids": [20]},
+                            {"page": "cmux.notes", "state": "hidden", "webkit_pid": None, "renderer_pids": [21]},
+                            {"page": "cmux.files", "state": "visible", "webkit_pid": None, "renderer_pids": [21]}],
+                  "spares": [{"spare": "cef_window", "renderer_pids": [22], "webkit_pid": None},
+                             {"spare": "new_tab", "state": None, "webkit_pid": 12.0}],
+                  "browser_tabs": [{"tab": "t1", "renderer_pids": [30]}, {"tab": "t2", "renderer_pids": [31]}]}
+        # 21 runs a visible page too: not hidden. Browser tabs have no state without the session's shown tab.
+        self.assertEqual(ib.hidden_pids(census), {11, 20, 12, 22})
+        shown = {"engine": "chromium", "tabs": ["t2"]}
+        self.assertEqual(ib.hidden_pids(census, shown), {11, 20, 12, 22, 30})
+        window = ib.WindowKinds([], census, shown)
+        self.assertTrue(window.hidden(99, "webkit-browser-tab"))
+        self.assertFalse(window.hidden(31, "cef-renderer"))
+        self.assertFalse(ib.WindowKinds([], census).hidden(99, "webkit-browser-tab"))
+        self.assertFalse(ib.WindowKinds([], census, {"engine": "webkit", "tabs": []}).hidden(99, "webkit-browser-tab"))
+        # A hidden WebKit browser tab at 1.0/s is over tabs-static's 0.5 per hidden process; a shown one is not judged.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        tab = {**row("webkit-browser-tab", 10, 1.0), "hidden": True}
+        over = ("webkit-browser-tab", "hidden_wakeups_max", 1.0, 0.5)
+        self.assertIn(over, ib.over_budget("tabs-static", ib.aggregate({"processes": [tab]}), budget))
+        tab["hidden"] = False
+        self.assertNotIn(over, ib.over_budget("tabs-static", ib.aggregate({"processes": [tab]}), budget))
+
+    def test_an_unclassified_child_is_an_over_with_kind_other(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = ib.aggregate({"processes": [row("app", 30, 0.1), row("other:mystery-agent", 1, 0.0)],
+                              "main_wakes_per_s": 0})
+        over = ("other:mystery-agent", "kind", "other", "classified")
+        for session in ("light", "tabs-static", "stress", "busy-hidden"):
+            self.assertIn(over, ib.over_budget(session, kinds, budget))
+        self.assertEqual(ib.over_line("light", over),
+                         "IDLE-BUDGET-OVER light other:mystery-agent kind other != classified")
+        # A reference browser's kinds are Chrome's own (chrome_kind), never judged.
+        self.assertEqual(ib.over_budget("chrome-static", kinds, budget), [])
+        self.assertEqual(ib.exit_code(True, [("light", *over)], []), 1)
+        self.assertEqual(ib.exit_code(False, [("light", *over)], []), 0)
+
+    def test_every_cef_kind_is_judged(self):
+        """No cef-* kind goes unjudged: each has task 104's number or a ratio_to_chrome row against Chrome; none has
+        an explicit null wakeup limit. cef-gpu's absolute 1.0/s is D4's goal: reported, never an over."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        fields = ("wakeups_per_s", "wakeups_max")
+        cef = [name for name in budget["kinds"] if name.startswith("cef-")]
+        self.assertEqual(set(cef), {"cef-host", "cef-gpu", "cef-renderer", "cef-extension", "cef-network",
+                                    "cef-storage", "cef-audio", "cef-utility", "cef-helper"})
+        against_chrome = {part for rule in budget["ratio_to_chrome"] if rule["field"] == "wakeups_per_s"
+                          for part in rule["of"].split("+")}
+        for name in cef:
+            limits = budget["kinds"][name]
+            self.assertFalse(any(f in limits and limits[f] is None for f in fields), name)
+            numbered = any(isinstance(limits.get(f), (int, float)) for f in fields)
+            self.assertTrue(numbered or name in against_chrome, name)
+        for own in budget["sessions"].values():
+            for name, limits in (own.get("kinds") or {}).items():
+                if name.startswith("cef-"):
+                    self.assertFalse(any(f in limits and limits[f] is None for f in fields), name)
+        # The plan's numbers, and nothing invented beside them.
+        self.assertEqual(ib.limit_for(budget, "light", "cef-extension", "wakeups_max"), 0.1)
+        self.assertEqual(ib.limit_for(budget, "light", "cef-network", "wakeups_per_s"), 0.2)
+        for name in ("crash-watcher", "cua-helper"):
+            self.assertEqual(ib.limit_for(budget, "light", name, "wakeups_max"), 0)
+        for name in ("cef-host", "cef-gpu", "cef-renderer", "cef-storage", "cef-audio", "cef-utility", "cef-helper"):
+            for field in fields:
+                self.assertIsNone(ib.limit_for(budget, "light", name, field), (name, field))
+        # D4: cef-gpu at 3/s in tabs-static is no over (its check is the ratio), and its goal reports it unmet.
+        kinds = ib.aggregate({"processes": [row("cef-gpu", 10, 3.0)]})
+        self.assertEqual(ib.over_budget("tabs-static", kinds, budget), [])
+        self.assertEqual(ib.goal_rows(budget, "tabs-static", kinds),
+                         [{"of": "cef-gpu", "field": "wakeups_per_s", "max": 1.0, "value": 3.0, "met": False}])
+        self.assertEqual(ib.goal_rows(budget, "light", kinds), [])
+        # A terminal's jobs are the person's and the app's tools are reported: never judged.
+        self.assertEqual(ib.over_budget("light", {"terminal-job": {"wakeups_max": 9.0, "disk_bytes_per_s": 9.0},
+                                                  "app-tool": {"wakeups_max": 9.0, "disk_bytes_per_s": 9.0}}, budget), [])
+
+    def test_the_cua_helper_joins_the_set_by_its_owner_pid(self):
+        cua = "/Applications/cmux.app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-helper"
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+                 (600, 1, f"{cua} serve --socket /tmp/s --owner-pid 501"),
+                 (601, 1, f"{cua} serve --socket /tmp/t --owner-pid 5010"),
+                 (602, 1, f"{cua} serve --socket /tmp/u")]
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", return_value=table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            self.assertEqual(sorted(instance.pids()), [501, 600])
+        self.assertEqual(procs.kind_of(f"{cua} serve --socket /tmp/s"), "cua-helper")
+        self.assertEqual(procs.kind_of("/bin/zsh -f -c x cmux-crash-watcher 501 /tmp/s 15"), "crash-watcher")
 
     def test_aggregate_sums_and_maxes_per_kind(self):
         kinds = ib.aggregate({"processes": [row("terminal-host", 3, 0.0), row("terminal-host", 5, 0.5), row("app", 40, 2.0)],
@@ -318,7 +533,7 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(limit("tabs-static", "cef-renderer", "hidden_wakeups_max"), 0.1)
         self.assertEqual(limit("tabs-static", "cef-extension", "wakeups_max"), 0.1)
         self.assertEqual(limit("tabs-static", "cef-network", "wakeups_per_s"), 0.2)
-        self.assertEqual(limit("tabs-static", "webkit-webcontent", "hidden_wakeups_max"), 0.5)
+        self.assertEqual(limit("tabs-static", "webkit-browser-tab", "hidden_wakeups_max"), 0.5)
         # D5 stress-static.
         self.assertEqual(sessions["stress-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
         self.assertEqual(limit("stress-static", "app", "main_wakes_per_s"), 0.5)
@@ -385,16 +600,27 @@ class CountersTests(unittest.TestCase):
         self.assertIn("light-hidden app wakeups_per_s/light: not judged: reference session light not measured", notes)
         # 40/s vs Chrome's 63.5/s at 0.5 (task 004's fixture) and a Chromium Host above Chrome's browser process,
         # with tabs-static measured before chrome-static (task 004's --sessions tabs-static,chrome-static).
-        cmux = {"app": {"wakeups_per_s": 30.0, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
+        cmux = {"app": {"wakeups_per_s": 26.7, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
                 "daemon": {"wakeups_per_s": 0.0, "energy_mw_billed": 1.0},
                 "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": 2.0},
-                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0}}
+                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0},
+                "cef-renderer": {"wakeups_per_s": 3.0, "energy_mw_billed": 0.0},
+                "cef-network": {"wakeups_per_s": 0.2, "energy_mw_billed": 0.0},
+                "cef-storage": {"wakeups_per_s": 0.1, "energy_mw_billed": 0.0},
+                "cef-helper": {"wakeups_per_s": 0.0, "energy_mw_billed": 0.0}}
         chrome = {"browser": {"wakeups_per_s": 3.5, "energy_mw_billed": 20.0},
-                  "gpu": {"wakeups_per_s": 60.0, "energy_mw_billed": 20.0}}
+                  "gpu": {"wakeups_per_s": 57.0, "energy_mw_billed": 20.0},
+                  "renderer": {"wakeups_per_s": 2.0, "energy_mw_billed": 1.0},
+                  "utility": {"wakeups_per_s": 1.0, "energy_mw_billed": 1.0},
+                  "other": {"wakeups_per_s": 0.0, "energy_mw_billed": 0.0}}
         overs, notes = ib.cross_overs(budget, {"tabs-static": cmux, "chrome-static": chrome})
         got = [over for session, over in overs if session == "tabs-static"]
         self.assertIn(("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5), got)
         self.assertIn(("cef-host", "wakeups_per_s/chrome:browser", 1.143, 1.0), got)
+        # The cef-* kinds with no number of their own are judged against Chrome's same role.
+        self.assertIn(("cef-renderer", "wakeups_per_s/chrome:renderer", 1.5, 1.0), got)
+        self.assertNotIn("cef-network+cef-storage+cef-audio+cef-utility", [o[0] for o in got])
+        self.assertNotIn("cef-helper", [o[0] for o in got])
         self.assertNotIn("cef-gpu", [o[0] for o in got])
         self.assertEqual(notes, [])
         # Without chrome-static, every ratio_to_chrome row says it was not judged.
@@ -469,15 +695,15 @@ class CountersTests(unittest.TestCase):
                          [("session", "saver_reason", "setting", "battery")])
         self.assertEqual(ib.over_line("x", ("session", "saver_reason", "setting", "battery")),
                          "IDLE-BUDGET-OVER x session saver_reason setting != battery")
-        # A budget role is judged per process (role_mismatches), not per kind.
-        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["foreground"]}}
+        # A budget role is judged per process (role_audit), not per kind.
+        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["default"]}}
         self.assertEqual(ib.over_budget("minimized", napped, budget), [])
-        self.assertEqual(ib.role_mismatches("minimized", [{"pid": 7, "kind": "app", "role": "foreground"}], budget),
-                         [{"kind": "app", "pids": [7], "observed": "foreground", "expected": "napped"}])
+        self.assertEqual(ib.role_audit("minimized", [{"pid": 7, "kind": "app", "role": "default"}], budget),
+                         ([{"kind": "app", "pids": [7], "observed": "default", "expected": "napped"}], []))
         # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
         # their own limits.
-        self.assertEqual(ib.over_budget("light", {"other:zsh": {"disk_bytes_per_s": 12.0}}, budget),
-                         [("other:zsh", "disk_bytes_per_s", 12.0, 0)])
+        self.assertEqual(ib.over_budget("light", {"cef-helper": {"disk_bytes_per_s": 12.0}}, budget),
+                         [("cef-helper", "disk_bytes_per_s", 12.0, 0)])
         busy = {"app": {"wakeups_per_s": 1.5, "main_wakes_per_s": 30.0, "disk_bytes_per_s": 100.0}}
         self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [])
         self.assertEqual(ib.over_budget("chrome-static", busy, budget), [])
@@ -602,7 +828,8 @@ class MeasureOrderTests(unittest.TestCase):
         instance = type("Instance", (), {"pid": 1})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
                  procs.thermal_state, procs.power_assertions, ib.time.sleep)
-        ib.process_set = lambda _instance: {1: f"{APP}/Contents/MacOS/cmux DEV"}
+        ib.process_set = lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
+                                                         [(1, 0, f"{APP}/Contents/MacOS/cmux DEV")])
         ib.threads = lambda _pid: {}
         procs.usage = lambda _pid: calls.append("usage") or procs.usage_from_words(rusage_words(), 1, 1)
         procs.overhead = lambda _pid: (0, 30, 0, 0, 0)
@@ -612,8 +839,8 @@ class MeasureOrderTests(unittest.TestCase):
         procs.power_assertions = lambda _pids: calls.append("pmset") or []
         ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
         roles_saved = (procs.priorities, procs.process_table, ib.acpmux_homes)
-        procs.priorities = lambda _pids: calls.append("roles") or {1: {"pri": 4, "nice": 0, "flags": 0, "darwinbg": True}}
-        procs.process_table = lambda: []
+        procs.priorities = lambda _pids: calls.append("roles") or {1: {"base": 4, "nice": 0, "darwinbg": True}}
+        procs.process_table = lambda: calls.append("ps") or []
         ib.acpmux_homes = lambda _env: []
         try:
             result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0})
@@ -628,122 +855,189 @@ class MeasureOrderTests(unittest.TestCase):
         self.assertEqual(len(start_probes) + len(end_probes), sum(1 for c in calls if c in probes))
         self.assertEqual((len(start_probes), len(end_probes)), (3, 3))
         self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
+        # debug.webui runs on the app's main actor: the census the kinds need is read after every counter.
+        self.assertGreater(calls.index("debug.webui"), counters[-1])
+        self.assertEqual(calls.count("debug.webui"), 1)
+        self.assertEqual([(r["kind"], r["hidden"]) for r in result["processes"]], [("app", False)])
         self.assertEqual(result["ends"]["start"]["saver"], True)
         self.assertIn("anim", result["ends"]["end"])
         # The roles are read once, after every counter and end read.
         self.assertEqual(calls.count("roles"), 1)
         self.assertGreater(calls.index("roles"), max(counters + end_probes))
         self.assertEqual((result["processes"][0]["role"], result["processes"][0]["pooled"]), ("darwinbg", False))
+        # The pooled agents come from the set's own `ps` rows: no second `ps` read in the window.
+        self.assertNotIn("ps", calls)
 
 
-# `ps -axo pid=,pri=,nice=,flags=` on macOS: the app at foreground priority, the daemon and terminal host at the
-# default 31, two renderers at 47 (a foreground role), one at 4 (darwin background), the extension process suppressed.
-PS_PRIORITIES = """  501  47    0     4004
-  502  31    0     4004
-  503  31    0     4004
-  601  47    0     4004
-  602  47    0     4004
-  603   4    0     4004
-  604  28    0     4004
-  999  20    0        0
-  700  bogus
-"""
-DARWINBG = {603: True}
+# The role reads of one window (procs.priorities' seams): each task's base priority (proc_pidinfo PROC_PIDTASKINFO
+# pti_priority) and its darwinbg bit and nice (PROC_PIDTBSDINFO). The app, daemon, terminal host and three renderers
+# at the default 31 (not lowered), the spare renderer 603 darwin background at 4, the extension process suppressed at
+# 28; 999 is not of the set and 700 is gone (neither read answers).
+TASK_BASE = {501: 31, 502: 31, 503: 31, 601: 31, 602: 31, 605: 31, 603: 4, 604: 28, 999: 20}
+BSD_STATE = {501: (False, 0), 502: (False, 0), 503: (False, 0), 601: (False, 0), 602: (False, 0), 605: (False, 0),
+             603: (True, 0), 604: (False, 0), 999: (False, 0)}
 
 
-def role_rows(kinds, hidden=None):
-    """Rows of `kinds` ({pid: kind}) with their roles from the fixture `ps` output."""
-    priority = procs.priorities(kinds, ps_output=PS_PRIORITIES, darwinbg_of=lambda pid: DARWINBG.get(pid, False))
+def role_priorities(pids, base=None, bsd=None):
+    base, bsd = {**TASK_BASE, **(base or {})}, {**BSD_STATE, **(bsd or {})}
+    return procs.priorities(pids, task_priority_of=base.get, bsd_state_of=bsd.get)
+
+
+def role_rows(kinds, hidden=None, shown=None, base=None):
+    """Rows of `kinds` ({pid: kind}) with their roles from the fixture reads and the census's `hidden` / `shown`."""
     rows = [{"pid": pid, "kind": kind} for pid, kind in kinds.items()]
     for row_ in rows:
         if hidden and row_["pid"] in hidden:
             row_["hidden"] = hidden[row_["pid"]]
-    return ib.with_roles(rows, priority, pooled=set())
+        if shown and row_["pid"] in shown:
+            row_["shown"] = shown[row_["pid"]]
+    return ib.with_roles(rows, role_priorities(kinds, base), pooled=set())
+
+
+def census_rows_of(kinds, census, shown_tab=None, base=None):
+    """Rows marked as measure() marks them: WindowKinds' `hidden` and `shown` from a debug.webui census."""
+    window = ib.WindowKinds([], census, shown_tab)
+    rows = [{"pid": pid, "kind": kind, "hidden": window.hidden(pid, kind), "shown": window.shown(pid, kind)}
+            for pid, kind in kinds.items()]
+    return ib.with_roles(rows, role_priorities(kinds, base), pooled=set())
 
 
 TABS_KINDS = {501: "app", 502: "daemon", 503: "terminal-host", 601: "cef-renderer", 602: "cef-renderer",
-              603: "cef-renderer", 604: "cef-extension"}
+              605: "cef-renderer", 603: "cef-renderer", 604: "cef-extension"}
+# tabs-static as debug.webui reports it: Home visible in Chromium (601), the shown browser tab t1 (602), the hidden
+# tab t2 (605) and a spare (603).
+TABS_CENSUS = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid": None, "renderer_pids": [601]}],
+               "spares": [{"spare": "cef_window", "renderer_pids": [603], "webkit_pid": None}],
+               "browser_tabs": [{"tab": "t1", "renderer_pids": [602]}, {"tab": "t2", "renderer_pids": [605]}]}
+TABS_SHOWN = {"engine": "chromium", "tabs": ["t1"]}
 
 
 class RoleAuditTests(unittest.TestCase):
-    """Task 106: each process's role from `ps` and darwinbg, checked against D16."""
+    """Task 106: each task's role from its base priority and darwinbg bit, checked against D16."""
 
-    def test_fixture_ps_output_gives_a_role_per_process(self):
-        priority = procs.priorities(TABS_KINDS, ps_output=PS_PRIORITIES, darwinbg_of=lambda pid: DARWINBG.get(pid, False))
-        self.assertEqual(sorted(priority), sorted(TABS_KINDS))  # 999 is not of the set; the bogus line is skipped
-        self.assertEqual(priority[501], {"pri": 47, "nice": 0, "flags": 0x4004, "darwinbg": False})
+    def test_fixture_reads_give_a_role_per_process(self):
+        priority = role_priorities(list(TABS_KINDS) + [700])
+        self.assertEqual(sorted(priority), sorted(TABS_KINDS))  # 999 is not asked for; 700 is gone
+        self.assertEqual(priority[603], {"base": 4, "darwinbg": True, "nice": 0})
         roles = {row_["pid"]: row_["role"] for row_ in role_rows(TABS_KINDS)}
-        self.assertEqual(roles, {501: "foreground", 502: "default", 503: "default", 601: "foreground",
-                                 602: "foreground", 603: "darwinbg", 604: "suppressed"})
-        self.assertEqual(ib.observed_role({"pri": 46, "darwinbg": False}), "user-visible")
+        self.assertEqual(roles, {501: "default", 502: "default", 503: "default", 601: "default", 602: "default",
+                                 605: "default", 603: "darwinbg", 604: "suppressed"})
         self.assertIsNone(ib.observed_role(None))
-        self.assertIsNone(ib.observed_role({"pri": None, "darwinbg": True}))
+        self.assertIsNone(ib.observed_role({"base": None, "darwinbg": False}))
+        self.assertEqual(ib.observed_role({"base": None, "darwinbg": True}), "darwinbg")
+        # One unread half is None, the other still counts.
+        self.assertEqual(procs.priorities([1], task_priority_of=lambda _pid: 28, bsd_state_of=lambda _pid: None),
+                         {1: {"base": 28, "darwinbg": None, "nice": None}})
 
-    def test_parse_priorities_reads_hex_flags_and_negative_nice(self):
-        self.assertEqual(procs.parse_priorities(" 12  31  -5  1004004\n"),
-                         {12: {"pri": 31, "nice": -5, "flags": 0x1004004}})
+    def test_the_task_base_priority_decides_not_the_busiest_thread(self):
+        """`ps -o pri` would print 97 for a napped app with one realtime thread (CVDisplayLink, audio) and 20 for a
+        daemon whose threads all idle at utility QoS: the task's base priority is what the role sets."""
+        napped_with_realtime_thread = {"base": 4, "darwinbg": False, "nice": 0}
+        self.assertEqual(ib.observed_role(napped_with_realtime_thread), "suppressed")
+        self.assertEqual(ib.observed_role({"base": 28, "darwinbg": False, "nice": 0}), "suppressed")
+        utility_qos_daemon = {"base": 31, "darwinbg": False, "nice": 0}
+        self.assertEqual(ib.observed_role(utility_qos_daemon), "default")
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        app = role_rows({501: "app"}, base={501: 4})
+        self.assertEqual(ib.role_audit("minimized", app, budget), ([], []))
+        daemons = role_rows({502: "daemon", 503: "terminal-host"})
+        self.assertEqual(ib.role_audit("light", daemons, budget), ([], []))
 
     def test_hidden_renderer_at_foreground_priority_is_flagged(self):
+        """With 104's census: Home's visible renderer and the shown tab's run above best-effort and are not judged;
+        the hidden tab's renderer at the default priority is the one mismatch."""
         budget = ib.load_budget(ib.BUDGET_FILE)
-        rows = role_rows(TABS_KINDS, hidden={601: False, 602: True, 603: True})
-        mismatches = ib.role_mismatches("tabs-static", rows, budget)
-        self.assertEqual(mismatches, [{"kind": "cef-renderer", "pids": [602], "observed": "foreground",
-                                       "expected": "best-effort"}])
+        rows = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN)
+        for session in ("tabs-static", "energy-saver"):
+            mismatches, notes = ib.role_audit(session, rows, budget)
+            self.assertEqual(mismatches, [{"kind": "cef-renderer", "pids": [605], "observed": "default",
+                                           "expected": "best-effort"}])
+            self.assertEqual(notes, [])
         self.assertEqual(ib.role_over_line("tabs-static", mismatches[0]),
-                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=602 observed=foreground "
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=605 observed=default "
                          "expected=best-effort")
+        # Suppressed, the hidden tab passes.
+        fixed = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
+        self.assertEqual(ib.role_audit("tabs-static", fixed, budget), ([], []))
 
-    def test_renderers_of_unknown_visibility_beyond_the_shown_tabs(self):
+    def test_a_build_without_a_census_judges_no_renderer_of_a_shown_session(self):
+        """No debug.webui: every renderer is of unknown visibility. A shown session reports them not judged (no false
+        over for Home's or the shown tab's renderer); with no window shown each is still best-effort."""
         budget = ib.load_budget(ib.BUDGET_FILE)
-        # tabs-static shows one Chromium tab: two renderers above best-effort are one too many.
-        self.assertEqual(ib.role_mismatches("tabs-static", role_rows(TABS_KINDS), budget),
-                         [{"kind": "cef-renderer", "pids": [601, 602], "observed": "2-above-best-effort",
-                           "expected": "best-effort-beyond-1-shown"}])
-        one = {pid: kind for pid, kind in TABS_KINDS.items() if pid != 602}
-        self.assertEqual(ib.role_mismatches("tabs-static", role_rows(one), budget), [])
-        # light does not count its shown Chromium pages (Home): renderers are not judged there.
-        self.assertEqual(ib.role_mismatches("light", role_rows(TABS_KINDS), budget), [])
+        rows = census_rows_of(TABS_KINDS, {}, TABS_SHOWN)
+        self.assertEqual([(r["hidden"], r["shown"]) for r in rows if r["kind"] == "cef-renderer"], [(False, False)] * 4)
+        mismatches, notes = ib.role_audit("tabs-static", rows, budget)
+        self.assertEqual(mismatches, [])
+        self.assertEqual(notes, ["tabs-static cef-renderer role: not judged: visibility unknown pids=601,602,603,605"])
+        mismatches, _notes = ib.role_audit("minimized", rows, budget)
+        self.assertEqual([(m["kind"], m["pids"]) for m in mismatches if m["kind"] == "cef-renderer"],
+                         [("cef-renderer", [601]), ("cef-renderer", [602]), ("cef-renderer", [605])])
 
     def test_minimized_app_must_nap_and_every_renderer_is_best_effort(self):
         budget = ib.load_budget(ib.BUDGET_FILE)
-        mismatches = ib.role_mismatches("minimized", role_rows(TABS_KINDS), budget)
+        mismatches, _notes = ib.role_audit("minimized", role_rows(TABS_KINDS), budget)
         self.assertEqual([(m["kind"], m["pids"], m["observed"], m["expected"]) for m in mismatches],
-                         [("app", [501], "foreground", "napped"),
-                          ("cef-renderer", [601], "foreground", "best-effort"),
-                          ("cef-renderer", [602], "foreground", "best-effort")])
-        napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"})
-        napped[0]["role"] = "suppressed"
-        self.assertEqual(ib.role_mismatches("minimized", napped, budget), [])
+                         [("app", [501], "default", "napped"),
+                          ("cef-renderer", [601], "default", "best-effort"),
+                          ("cef-renderer", [602], "default", "best-effort"),
+                          ("cef-renderer", [605], "default", "best-effort")])
+        napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"}, base={501: 28})
+        self.assertEqual(ib.role_audit("minimized", napped, budget), ([], []))
+
+    def test_an_unread_role_is_not_judged_and_says_so(self):
+        """A process whose role could not be read (gone at the window's end, the read failed) is a not-judged note,
+        never a silent pass."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = ib.with_roles([{"pid": 501, "kind": "app"}, {"pid": 502, "kind": "daemon"}], {}, pooled=set())
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], ["minimized app role: not judged: unread pids=501"]))
+        entry = ib.summarize("minimized", {"processes": [{**row("app", 30, 0.1), "pid": 501, "role": None}],
+                                           "ends": ends(False, False)}, budget)
+        self.assertIn("minimized app role: not judged: unread pids=501", entry["not_judged"])
+        self.assertFalse([o for o in entry["over"] if o[1] == "role"])
 
     def test_daemon_and_terminal_host_never_background_while_a_terminal_shows(self):
         rows = role_rows({502: "daemon", 603: "terminal-host"})
-        self.assertEqual(ib.role_mismatches("light", rows, ib.load_budget(ib.BUDGET_FILE)),
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(ib.role_audit("light", rows, budget)[0],
                          [{"kind": "terminal-host", "pids": [603], "observed": "darwinbg", "expected": "not-background"}])
-        self.assertEqual(ib.role_mismatches("minimized", rows, ib.load_budget(ib.BUDGET_FILE)), [])
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], []))
 
     def test_pooled_agents_are_darwin_background(self):
         rows = role_rows({502: "acpmux", 603: "acpmux"})
         for row_ in rows:
             row_["pooled"] = True
-        self.assertEqual(ib.role_mismatches("light", rows, ib.load_budget(ib.BUDGET_FILE)),
+        self.assertEqual(ib.role_audit("light", rows, ib.load_budget(ib.BUDGET_FILE))[0],
                          [{"kind": "acpmux", "pids": [502], "observed": "default", "expected": "background"}])
 
     def test_busy_and_reference_sessions_are_not_judged(self):
         budget = ib.load_budget(ib.BUDGET_FILE)
         rows = role_rows({601: "cef-renderer", 602: "cef-renderer"}, hidden={601: True, 602: True})
-        self.assertEqual(ib.role_mismatches("stress", rows, budget), [])
-        self.assertEqual(ib.role_mismatches("chrome-static", rows, budget), [])
+        self.assertEqual(ib.role_audit("stress", rows, budget), ([], []))
+        self.assertEqual(ib.role_audit("chrome-static", rows, budget), ([], []))
+
+    def test_an_explicit_null_role_is_not_judged(self):
+        """`"role": null` means measured, not judged (limit_for's contract), not D16's default."""
+        rows = role_rows({501: "app"})  # the app at the default priority while minimized
+        own = {"kinds": {}, "sessions": {"minimized": {"kinds": {"app": {"role": None}}}}}
+        self.assertEqual(ib.role_audit("minimized", rows, own), ([], []))
+        per_session = {"kinds": {"app": {"role": {"minimized": None}}}}
+        self.assertEqual(ib.role_audit("minimized", rows, per_session), ([], []))
+        self.assertEqual(ib.role_audit("minimized", rows, {"kinds": {}})[0][0]["expected"], "napped")
+        renderers = census_rows_of({601: "cef-renderer"}, {}, None)
+        self.assertEqual(ib.role_audit("tabs-static", renderers, {"kinds": {"cef-renderer": {"role": None}}}), ([], []))
+        self.assertEqual(ib.role_budget_errors(own), [])
 
     def test_budget_role_overrides_and_unknown_roles(self):
-        budget = {"kinds": {}, "sessions": {"light": {"kinds": {"app": {"role": "foreground"}}}}}
+        budget = {"kinds": {}, "sessions": {"minimized": {"kinds": {"app": {"role": "not-background"}}}}}
         rows = role_rows({501: "app"})
-        self.assertEqual(ib.role_mismatches("light", rows, budget), [])
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], []))
         rows[0]["role"] = "suppressed"
-        self.assertEqual(ib.role_mismatches("light", rows, budget),
-                         [{"kind": "app", "pids": [501], "observed": "suppressed", "expected": "foreground"}])
+        self.assertEqual(ib.role_audit("minimized", rows, budget)[0],
+                         [{"kind": "app", "pids": [501], "observed": "suppressed", "expected": "not-background"}])
         self.assertEqual(ib.role_budget_errors(ib.load_budget(ib.BUDGET_FILE)), [])
         typo = {"kinds": {"app": {"role": {"light": "naped"}}}, "sessions": {"x": {"kinds": {"daemon": {"role": "bg"}}}}}
         self.assertEqual(len(ib.role_budget_errors(typo)), 2)
+        self.assertEqual(len(ib.role_budget_errors({"kinds": {"app": {"role": "foreground"}}})), 1)
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "budget.json")
             with open(path, "w") as handle:
@@ -753,10 +1047,10 @@ class RoleAuditTests(unittest.TestCase):
         self.assertIn("kinds.app.role.light", str(raised.exception))
 
     def test_summarize_counts_role_mismatches_as_overs(self):
-        rows = [{**row("app", 30, 0.1), "pid": 501, "role": "foreground"}]
+        rows = [{**row("app", 30, 0.1), "pid": 501, "role": "default"}]
         result = {"processes": rows, "ends": ends(False, False)}
         entry = ib.summarize("minimized", result, ib.load_budget(ib.BUDGET_FILE))
-        self.assertIn(["app", "role", "foreground", "napped"], entry["over"])
+        self.assertIn(["app", "role", "default", "napped"], entry["over"])
         self.assertEqual(entry["role_mismatches"][0]["pids"], [501])
 
     def test_pool_pids_trusts_only_live_hosts(self):
@@ -795,9 +1089,9 @@ class RoleAuditTests(unittest.TestCase):
 
     def test_table_shows_roles(self):
         kinds = ib.aggregate({"processes": [{**row("app", 30, 0.1), **r} for r in role_rows({501: "app"})]})
-        text = ib.table("minimized", kinds, [("app", "role", "foreground", "napped")])
+        text = ib.table("minimized", kinds, [("app", "role", "default", "napped")])
         self.assertIn("| roles |", text)
-        self.assertTrue(text.rstrip().endswith("| **foreground** |"))
+        self.assertTrue(text.rstrip().endswith("| **default** |"))
 
 
 class EnergyTests(unittest.TestCase):

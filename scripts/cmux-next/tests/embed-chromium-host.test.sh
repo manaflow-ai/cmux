@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# embed-cef.sh puts the Chromium host (prototype) into Debug builds only:
+# embed-cef.sh puts the Chromium host (prototype) into Debug and bench builds only:
 # a Debug embed builds it with build-chromium-host.sh (not with the shim)
 # against the shim build and its artifact, and puts it at
 # Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
@@ -85,6 +85,15 @@ embed Release
 [[ ! -e "$remote_shim" ]] || fail "a Release embed keeps the remote shim"
 [[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
+
+# 2b. A bench build (Release with -DCMUX_BENCH_HOOKS, reload.sh --config bench) compiles
+# `debug.chromium_host` in, so it carries the host; a Release build after it drops it again.
+embed Release 'OTHER_SWIFT_FLAGS=-DDEBUG_UNRELATED -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS'
+[[ -f "$host_app" ]] || fail "a bench embed has no Chromium host"
+[[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a bench embed has not the host build's remote shim"
+embed Release 'OTHER_SWIFT_FLAGS=-DCMUX_BENCH_HOOKS_OFF'
+[[ ! -e "$host_app" ]] || fail "a Release embed whose flags only look like the bench flag keeps the host"
+rm -f "$TMP/host-builds"
 
 # 3. Debug with a host that does not build: the build still succeeds, says so,
 # and carries no host app (none left from step 1 either).

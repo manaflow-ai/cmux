@@ -23,9 +23,11 @@
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
-`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): one
-`ps -o pid=,pri=,nice=,flags=` and the kernel's darwinbg bit (`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit
-`taskinfo` prints). Neither read wakes the process.
+`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): the task's
+base priority (`proc_pidinfo(PROC_PIDTASKINFO)` pti_priority) and the kernel's darwinbg bit and nice
+(`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit `taskinfo` prints, and pbi_nice). Neither read wakes the
+process. `ps -o pri` is not used: it prints the highest priority of the process's threads (adv_cmds ps, ki->curpri),
+which follows thread QoS and boosts, not the task's role.
 
 GPU time per process is the IORegistry's `accumulatedGPUTime` of each GPU user client (what Activity
 Monitor's GPU Time column reads): `gpu_ms_per_s`, None when the registry cannot be read.
@@ -39,10 +41,10 @@ An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
 cmux daemons and terminal hosts, which outlive their parents), and every
 process macOS counts the main pid responsible for (Safari's and cmux's
-WebKit XPC processes).
+WebKit XPC processes), and the Computer Use helper started with `--owner-pid <main pid>`.
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
-`coalition_from_words`, `coalition_rates`, `window_totals`, `parse_priorities`) import and test on any OS.
+`coalition_from_words`, `coalition_rates`, `window_totals`, `priorities` with its reads passed) import and test on any OS.
 """
 from __future__ import annotations
 
@@ -331,8 +333,9 @@ PROC_FLAG_DARWINBG = 0x8000
 PROC_FLAG_EXT_DARWINBG = 0x10000
 
 
-def darwinbg(pid: int) -> bool | None:
-    """Whether the kernel runs `pid` darwin background now; None when it cannot be read (gone, not macOS)."""
+def bsd_state(pid: int):
+    """(darwinbg, nice) of `pid` now: whether the kernel runs it darwin background (pbi_flags) and its nice value
+    (pbi_nice); None when it cannot be read (gone, not macOS)."""
     try:
         libproc = _darwin().libproc
     except OSError:
@@ -342,36 +345,36 @@ def darwinbg(pid: int) -> bool | None:
     if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
                             ctypes.byref(info), ctypes.c_int(size)) != size:
         return None
-    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG))
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG)), info.pbi_nice
 
 
-def _leading_int(text: str, base: int = 10) -> int | None:
-    match = re.match(r"-?[0-9a-fA-F]+" if base == 16 else r"-?\d+", text)
-    return int(match.group(0), base) if match else None
+def task_priority(pid: int) -> int | None:
+    """The task's base priority (proc_pidinfo PROC_PIDTASKINFO pti_priority, bsd/kern/proc_info.c fill_taskprocinfo:
+    task->priority), the priority task_policy gives the task as a whole, not its busiest thread's; None when it
+    cannot be read."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return info.priority
 
 
-def parse_priorities(text: str) -> dict[int, dict]:
-    """`ps -o pid=,pri=,nice=,flags=` output -> {pid: {pri, nice, flags}}: the scheduling priority (31 default, 47
-    a foreground app, 46 a background-role app, below 31 suppressed: App Nap or task suppression; osfmk/kern/sched.h),
-    the nice value and the p_flag bits (ps prints them in hex). A column ps could not read is None."""
+def priorities(pids, task_priority_of=task_priority, bsd_state_of=bsd_state) -> dict[int, dict]:
+    """{pid: {base, nice, darwinbg}} of `pids` now: the task's base priority (task_priority) and its darwinbg bit
+    and nice (bsd_state). A pid with neither read (gone) is left out; one unread value is None. Tests pass the
+    reads."""
     found = {}
-    for line in text.splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[0].isdigit():
-            found[int(parts[0])] = {"pri": _leading_int(parts[1]), "nice": _leading_int(parts[2]),
-                                    "flags": _leading_int(parts[3], 16)}
-    return found
-
-
-def priorities(pids, ps_output: str | None = None, darwinbg_of=darwinbg) -> dict[int, dict]:
-    """{pid: {pri, nice, flags, darwinbg}} of `pids` now: one `ps` call plus the darwinbg bit per pid (None when
-    unreadable). Tests pass the `ps` output and the darwinbg read."""
-    wanted = set(pids)
-    if ps_output is None:
-        ps_output = subprocess.run(["ps", "-axo", "pid=,pri=,nice=,flags="], capture_output=True, text=True).stdout
-    found = {pid: values for pid, values in parse_priorities(ps_output).items() if pid in wanted}
-    for pid, values in found.items():
-        values["darwinbg"] = darwinbg_of(pid)
+    for pid in pids:
+        base = task_priority_of(pid)
+        bsd = bsd_state_of(pid)
+        if base is None and bsd is None:
+            continue
+        found[pid] = {"base": base, "darwinbg": bsd[0] if bsd else None, "nice": bsd[1] if bsd else None}
     return found
 
 
@@ -402,6 +405,39 @@ def main_pid(bundle: str) -> int | None:
     return min(pids) if pids else None
 
 
+# The Computer Use helper app (CuaHelperIdentity.appName), in a cmux bundle's Contents/Library or on its own.
+CUA_HELPER_APP = "/cmux Computer Use.app/Contents/MacOS/"
+# The crash watcher (CrashWatcher.swift): `zsh -f -c <script> cmux-crash-watcher <pid> <sample file> <seconds>`.
+CRASH_WATCHER = re.compile(r"^/bin/zsh -f -c .* cmux-crash-watcher \d+ ", re.S)
+# The standalone terminal holder's argv[0] (cmux-tui-platform host_exe.rs HOLDER_NAME); the built-in one runs as
+# `<host executable> __holder`.
+HOLDER_NAME = "cmux-holder"
+
+
+def is_holder(cmd: str) -> bool:
+    """Whether `cmd` is a terminal holder: the built-in (`__holder`) or the standalone `cmux-holder`."""
+    return "__holder" in cmd or os.path.basename(cmd.split(" --", 1)[0].strip()) == HOLDER_NAME
+
+
+class ProcessTree:
+    """The parents and commands of one `ps` table ([(pid, ppid, command)], process_table): what a process's
+    ancestry tells that its command line cannot (a terminal's job, an agent's harness)."""
+
+    def __init__(self, table):
+        self.parent = {pid: ppid for pid, ppid, _cmd in table}
+        self.command = {pid: cmd for pid, _ppid, cmd in table}
+
+    def ancestors(self, pid: int) -> list[tuple[int, str]]:
+        """[(pid, command)] of `pid`'s parents, nearest first, up to launchd; a parent not in the table ends it."""
+        out, seen = [], {pid}
+        parent = self.parent.get(pid)
+        while parent and parent not in seen and parent in self.command:
+            out.append((parent, self.command[parent]))
+            seen.add(parent)
+            parent = self.parent.get(parent)
+        return out
+
+
 def kind_of(cmd: str) -> str:
     """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
     chromium = process_type_kind(cmd)
@@ -420,6 +456,10 @@ def kind_of(cmd: str) -> str:
         return "cmux-tui"
     if "/bin/acpmux" in cmd:
         return "acpmux"
+    if CUA_HELPER_APP in cmd.split(" --", 1)[0]:
+        return "cua-helper"
+    if CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
     exe = cmd.split(" --", 1)[0].split(" -")[0]
     if " Helper" in exe:
         return "helper"
@@ -468,8 +508,9 @@ class Instance:
         self.roots = _roots(bundle)
         self.seen: set[int] = set()
 
-    def pids(self) -> dict[int, str]:
-        table = process_table()
+    def pids(self, table: list[tuple[int, int, str]] | None = None) -> dict[int, str]:
+        """{pid: command} of the instance in `table` (process_table rows; read now when None)."""
+        table = process_table() if table is None else table
         children: dict[int, list[int]] = {}
         commands = {}
         for pid, ppid, cmd in table:
@@ -488,10 +529,14 @@ class Instance:
                 found.add(pid)
             elif responsible is not None and pid != self.pid and responsible(pid) == self.pid:
                 found.add(pid)
-        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle.
+        # Terminal hosts and holders name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the
+        # Computer Use helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from
+        # another cmux.
         for pid, cmd in commands.items():
-            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd or is_holder(cmd) else None
             if owner and int(owner.group(1)) in found:
+                found.add(pid)
+            if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
                 found.add(pid)
         self.seen |= found
         return {pid: commands[pid] for pid in found}
