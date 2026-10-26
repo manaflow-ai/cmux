@@ -717,7 +717,12 @@ mod tests {
             "sort -u x | uniq -c",
             "uniq -c -- -in",
             "echo \"a b\" 'c'",
-            "printf '%s\\n' a",
+            "date +%s",
+            "date -u",
+            "diff -u a b",
+            "test -f x",
+            "rg -n foo",
+            "git log --oneline --stat -1",
         ] {
             assert!(is_read_only(script), "{script}");
         }
@@ -777,6 +782,31 @@ mod tests {
             "printf -vPATH . ; rg x",
             "cd /tmp && ls -la",
             "git -C a -C b status",
+            // Codex review at 066066a8.
+            "uniq -- in*",
+            "uniq in*",
+            "printf '%s\\n' a",
+            "printf '%n' PATH; ls",
+            "test -v 'BASH_VERSINFO[$(touch marker)0]'",
+            "[ -v 'a[$(id)]' ]",
+            "sort --out=result input",
+            "sort --compress=x a",
+            "file --comp -m magic",
+            "git grep -nOsh needle -- payload.sh",
+            "git diff --out=f",
+            "git diff --ext",
+            "rg -z needle file.gz",
+            "rg -nz needle",
+            "rg --search-z needle",
+            "git log --show-signature -1",
+            "git log --show-sig -1",
+            "git log --format=%G? -1",
+            "git show --pretty=format:%GS",
+            "diff --paginate a b",
+            "diff -ul a b",
+            "pwd\rx",
+            "pwd\u{0b}x",
+            "date 102612002026",
         ] {
             assert!(!is_read_only(script), "{script}");
         }
@@ -840,6 +870,8 @@ mod tests {
             &[("credential.helper", "!/tmp/x")],
             &[("include.path", "/tmp/x")],
             &[("remote.origin.uploadpack", "/tmp/x")],
+            // A lazy fetch writes objects and runs the transport.
+            &[("remote.origin.promisor", "true")],
         ] {
             let dir = repo(config);
             assert!(
@@ -960,6 +992,12 @@ mod tests {
         assert!(reads("ls", &with_path(&tools)));
         assert!(reads("pwd", &Env::new()), "a builtin needs no PATH");
         assert!(!reads("ls", &Env::new()), "no PATH finds no ls");
+        // A relative PATH entry is searched from the command's directory, not the daemon's.
+        for path in [".:/usr/bin:/bin", ":/usr/bin:/bin", "/usr/bin:bin:/bin"] {
+            let env = Env::from([("PATH".to_owned(), path.to_owned())]);
+            assert!(!reads("ls", &env), "{path}");
+            assert!(!reads("pwd", &env), "{path}");
+        }
         // The shell itself: an agent bash found first on PATH, or a $SHELL outside the system
         // directories, asks even for a builtin.
         {
@@ -994,6 +1032,7 @@ mod tests {
             "RIPGREP_CONFIG_PATH",
             "BASH_FUNC_pwd%%",
             "BASH_FUNC_git()",
+            "ZDOTDIR",
         ] {
             let mut env = system_env();
             env.insert(key.to_owned(), "/tmp/x".to_owned());
@@ -1004,6 +1043,45 @@ mod tests {
         env.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
         assert!(reads("git diff", &env));
         for d in [dir, tools] {
+            std::fs::remove_dir_all(d).unwrap();
+        }
+    }
+
+    /// The person's global config is read too: a key there that makes a read run a program asks.
+    #[test]
+    fn a_global_config_that_names_a_program_asks() {
+        let dir = repo(&[]);
+        let home = std::env::temp_dir().join(format!("acpmux-home-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&home).unwrap();
+        let mut env = system_env();
+        env.insert("HOME".to_owned(), home.display().to_string());
+        env.insert("XDG_CONFIG_HOME".to_owned(), home.join(".config").display().to_string());
+        let reads = |command: &str| request_is_read_only(&execute(json!(command)), &dir, &env);
+        for config in [
+            "[diff]\n\texternal = /tmp/hook\n",
+            "[diff \"x\"]\n\ttextconv = /tmp/hook\n",
+            "[filter \"x\"]\n\tclean = /tmp/hook\n",
+            "[core]\n\tfsmonitor = /tmp/hook\n",
+            "[log]\n\tshowSignature = true\n",
+        ] {
+            std::fs::write(home.join(".gitconfig"), config).unwrap();
+            assert!(!reads("git diff"), "{config}");
+            assert!(reads("pwd"), "{config}");
+        }
+        // The person's own settings that run nothing still pass.
+        std::fs::write(home.join(".gitconfig"), "[alias]\n\tst = status\n[core]\n\teditor = vim\n")
+            .unwrap();
+        assert!(reads("git diff"));
+        // git-lfs's own filter passes only when PATH finds git-lfs in a system directory.
+        std::fs::write(
+            home.join(".gitconfig"),
+            "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n",
+        )
+        .unwrap();
+        assert_eq!(reads("git diff"), resolve("git-lfs", &env).is_some());
+        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n").unwrap();
+        assert!(!reads("git diff"));
+        for d in [dir, home] {
             std::fs::remove_dir_all(d).unwrap();
         }
     }
