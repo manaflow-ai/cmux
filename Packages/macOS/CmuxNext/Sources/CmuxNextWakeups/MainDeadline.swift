@@ -1,18 +1,18 @@
 /// A main-thread deadline with a class, an owner and an alignment (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// section E): debounces, delayed show and hide, retries, polls and request timeouts on the main actor.
 ///
-/// It is Chromium's `base::OneShotTimer` / `base::RepeatingTimer` on a typed task runner: the wake comes from the
-/// app's one ``MainDeadlineScheduler`` (one sleep for every deadline, placed by ``TimerAlignment``), and the action is
-/// posted on the ``MainWorkScheduler`` in ``workClass`` with ``owner`` and the creating file and line, so it waits
-/// behind input and higher classes like any posted task, and the board names it while it runs.
+/// It is Chromium's `base::OneShotTimer` / `base::RepeatingTimer` on a typed task runner: the wake is an entry of the
+/// main thread's one ``MainWakeUpQueue``, placed by ``TimerAlignment`` through the app's ``MainDeadlineScheduler``,
+/// and the action is posted on the ``MainWorkScheduler`` in ``workClass`` with ``owner`` and the creating file and
+/// line, so it waits behind input and higher classes like any posted task, and the board names it while it runs.
 ///
 /// - ``schedule(after:_:)`` replaces a pending deadline (reset); ``scheduleIfIdle(after:_:)`` keeps it.
 /// - ``start(every:_:)`` repeats until ``cancel()``; the next fire is planned when the action runs, before it, as
 ///   `RepeatingTimer` does. A deadline scheduled again from its own action counts as repeating too.
 /// - ``cancel()`` drops it, also after its wake, while its action is still waiting in its class queue.
 ///
-/// Hold it while it may fire. A released deadline never runs: the scheduler holds it weakly and drops its wake at
-/// the next re-arm or at the wake itself (no deinit work, as ``FrameClient``); cancel first to drop the wake at once.
+/// Hold it while it may fire. A released deadline never runs: its wake holds it weakly and does nothing when it comes
+/// (no deinit work, as ``FrameClient``); cancel first to drop the wake.
 ///
 /// ```swift
 /// let hover = MainDeadline(owner: "Sidebar.hover", workClass: .visible, scheduler: deadlines)
@@ -38,13 +38,17 @@ public final class MainDeadline {
     /// Bumped by every schedule and cancel, so a wake or a posted action of an older plan does nothing.
     private var generation: UInt64 = 0
     private var runningAction = false
-    /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscription to its node: a flip re-plans the pending wake.
-    private var visibility: VisibilitySubscription?
+    /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscriptions to its node: a visibility flip, media starting
+    /// or stopping and a capture vote place the pending wake again.
+    private var subscriptions: [VisibilitySubscription] = []
 
     private struct Pending {
-        /// The scheduler's entry while the wake is pending; nil once the action is posted.
-        var entry: UInt64?
-        var wake: TimerAlignment.Wake
+        /// When it is due (uptime ns on the scheduler's queue).
+        let due: UInt64
+        /// The rule that placed the pending wake.
+        let rule: TimerAlignment.Wake.Rule
+        /// The wake on the queue or in the node's pool; nil once the action is posted.
+        var handle: MainDeadlineScheduler.Handle?
         let repeating: Bool
         /// The period of ``MainDeadline/start(every:_:)``.
         let interval: Duration?
@@ -69,16 +73,22 @@ public final class MainDeadline {
         taskOwner = scheduler.work.taskOwner(owner)
         self.file = file
         self.line = line
-        visibility = alignment.node?.subscribe(owner: owner) { [weak self] _ in self?.replan() }
+        if let node = alignment.node {
+            subscriptions = [
+                node.subscribe(owner: owner) { [weak self] _ in self?.replan() },
+                node.subscribeExemption(owner: owner) { [weak self] in self?.replan() },
+            ]
+        }
     }
 
     /// True from a schedule until its action runs or it is cancelled.
     public var isScheduled: Bool { pending != nil }
 
-    /// Where the pending wake fires (nil when none is pending or the action is already posted).
+    /// Where the pending wake fires if nothing else moves it (nil when none is pending or the action is already
+    /// posted). For a deadline in its node's wake-up budget, the fire is the budget's as of now.
     public var plannedWake: TimerAlignment.Wake? {
-        guard let pending, pending.entry != nil else { return nil }
-        return pending.wake
+        guard let pending, let handle = pending.handle else { return nil }
+        return scheduler.wake(handle, due: pending.due, rule: pending.rule)
     }
 
     /// Runs `action` once, no sooner than `delay` from now, replacing any pending deadline.
@@ -101,7 +111,7 @@ public final class MainDeadline {
     /// Drops the pending deadline, and its action if the wake already posted it.
     public func cancel() {
         generation &+= 1
-        if let entry = pending?.entry { scheduler.remove(entry) }
+        if let handle = pending?.handle { scheduler.remove(handle) }
         pending = nil
     }
 
@@ -110,31 +120,35 @@ public final class MainDeadline {
     private func plan(after delay: Duration, repeating: Bool, interval: Duration?,
                       _ action: @escaping @MainActor () -> Void) {
         cancel()
-        let wake = scheduler.wake(alignment, due: scheduler.now + max(delay, .zero), repeating: repeating)
-        pending = Pending(entry: nil, wake: wake, repeating: repeating, interval: interval, action: action)
-        arm()
+        place(due: Self.instant(after: delay, from: scheduler.now), repeating: repeating, interval: interval, action)
     }
 
-    /// Hands the pending wake to the scheduler.
-    private func arm() {
-        guard let wake = pending?.wake else { return }
-        pending?.entry = scheduler.insert(self, generation: generation, wake: wake)
+    /// Places the wake for `due` under the rule that applies now.
+    private func place(due: UInt64, repeating: Bool, interval: Duration?, _ action: @escaping @MainActor () -> Void) {
+        let rule = scheduler.rule(alignment, due: due, repeating: repeating)
+        let handle = scheduler.place(self, generation: generation, due: due, rule: rule)
+        pending = Pending(due: due, rule: rule, handle: handle, repeating: repeating, interval: interval, action: action)
     }
 
-    /// The node flipped: the same due instant, under the rule that applies now (a shown node's deadline fires
-    /// flexibly at once if it was due).
+    private static func instant(after delay: Duration, from now: UInt64) -> UInt64 {
+        let (due, overflow) = now.addingReportingOverflow(delay.nanosecondCount)
+        return overflow ? .max : due
+    }
+
+    /// The node flipped, or its media or capture state changed: the same due instant, under the rule that applies
+    /// now (a shown node's deadline fires flexibly at once if it was due). A wake whose rule stays is not touched.
     private func replan() {
-        guard let pending, let entry = pending.entry else { return }
-        let wake = scheduler.wake(alignment, due: pending.wake.due, repeating: pending.repeating)
-        self.pending?.wake = wake
-        scheduler.replan(entry, wake: wake)
+        guard let current = pending, let handle = current.handle else { return }
+        guard scheduler.rule(alignment, due: current.due, repeating: current.repeating) != current.rule else { return }
+        scheduler.remove(handle)
+        place(due: current.due, repeating: current.repeating, interval: current.interval, current.action)
     }
 
     /// The wake came: the action is posted in its class, with the node's state for the board's ledger. It is not held
     /// for a hidden node: the wake was already aligned for one.
     func wakeDidFire(_ generation: UInt64) {
-        guard generation == self.generation, pending != nil else { return }
-        pending?.entry = nil
+        guard generation == self.generation, pending?.handle != nil else { return }
+        pending?.handle = nil
         let work = scheduler.work
         var node = MainTaskPost.NodeState.none
         if let owningNode = alignment.node { node = MainTaskPost.NodeState(owningNode.effective) }
@@ -145,9 +159,8 @@ public final class MainDeadline {
     private func run(_ generation: UInt64) {
         guard generation == self.generation, let current = pending else { return }
         if let interval = current.interval {
-            let wake = scheduler.wake(alignment, due: scheduler.now + interval, repeating: true)
-            pending?.wake = wake
-            arm()
+            place(due: Self.instant(after: interval, from: scheduler.now), repeating: true, interval: interval,
+                  current.action)
         } else {
             pending = nil
         }

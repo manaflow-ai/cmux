@@ -1,33 +1,30 @@
 /// How a ``MainDeadline`` may move its wake-up (plans/cmux-next/chrome-parity/p06-scheduler.md, section E).
 ///
-/// The three cases follow Chromium's timer rules:
-/// - ``precise``: exactly at the deadline, as `subtle::DelayPolicy::kPrecise` (base/task/delay_policy.h). Only a
-///   delay below ``DelayPolicy/maxPreciseDelay`` (36 ms, `kDefaultMaxPreciseDelay` in base/task/task_features.cc)
-///   stays precise; a longer one is ``flexible``, as `MaybeOverrideDelayPolicy` does.
-/// - ``flexible`` (the default): no sooner than the deadline, snapped up to the next 8 ms boundary and slept with an
-///   8 ms tolerance (`kDefaultLeeway` and `kAlignWakeUps`, base/task/task_features.h).
-/// - ``whenHidden(_:)``: while the node is not visible, snapped up to the next 1 s boundary
-///   (`PageSchedulerImpl::kDefaultThrottledWakeUpInterval`, third_party/blink/renderer/platform/scheduler/main_thread/
-///   page_scheduler_impl.h). A repeating or self-re-arming deadline whose node has been hidden for 5 minutes at its due
-///   time wakes once a minute (`kIntensiveThrottledWakeUpInterval`, after
-///   `kIntensiveWakeUpThrottling_GracePeriodSeconds_Default`), with one 1 s-aligned wake allowed when the node had no
-///   wake in the last minute (`WakeUpBudgetPool::AllowLowerAlignmentIfNoRecentWakeUp`). A node that played media in the
-///   last 30 s (`kRecentAudioDelay`) or holds a capture vote is not aligned: it is ``flexible``.
+/// Each case resolves to an ``AlignedWakeups/Placement`` on the main thread's one ``MainWakeUpQueue``, whose grid is
+/// `CLOCK_UPTIME_RAW` and whose windows are ``WakeLeeway``'s, so a ``MainDeadline`` shares its wakes with every other
+/// main-thread deadline:
+/// - ``precise``: exactly at the deadline (`subtle::DelayPolicy::kPrecise`, base/task/delay_policy.h). Only a delay
+///   below ``DelayPolicy/maxPreciseDelay`` stays precise; a longer one is ``flexible`` (`MaybeOverrideDelayPolicy`).
+/// - ``flexible`` (the default): no sooner than the deadline, in ``WakeLeeway``'s window: the next 8 ms boundary below
+///   1 s (`kDefaultLeeway`, `kAlignWakeUps`), the whole uptime second with min(10%, 1 s) of leeway from 1 s on.
+/// - ``whenHidden(_:)``: while the node is not visible, the first whole uptime second at or after the deadline
+///   (``AlignedWakeups/Placement/hidden``; `kDefaultThrottledWakeUpInterval`, third_party/blink/renderer/platform/
+///   scheduler/main_thread/page_scheduler_impl.h). A repeating or self-re-arming deadline whose node has been hidden
+///   for 5 minutes at its due time joins its node's wake-up budget: one wake a minute for the whole node, or one
+///   1 s-aligned wake when the node had none in the last minute (`kIntensiveThrottledWakeUpInterval`,
+///   `WakeUpBudgetPool::AllowLowerAlignmentIfNoRecentWakeUp`). A node that played media in the last 30 s
+///   (`kRecentAudioDelay`) or is ``VisibilityNode/isCaptured`` is not aligned: it is ``flexible``.
 ///
 /// A deadline a person or a request waits on is ``precise`` or ``flexible``, never ``whenHidden(_:)``.
 public enum TimerAlignment: Sendable {
     /// Exactly at the deadline, no tolerance. A delay of 36 ms or more is ``flexible``.
     case precise
-    /// No sooner than the deadline, at most 8 ms after it. The default.
+    /// No sooner than the deadline, in ``WakeLeeway``'s window. The default.
     case flexible
     /// Like ``flexible`` while `node` is visible; aligned to 1 s (60 s for a repeating deadline hidden 5 minutes)
     /// while it is not.
     case whenHidden(VisibilityNode)
 
-    /// The flexible grid and the tolerance of every aligned sleep: Chromium's `kDefaultLeeway` (8 ms).
-    public static let leeway: Duration = WakeLeeway.defaultAlignment
-    /// The grid of a hidden node's deadlines (`kDefaultThrottledWakeUpInterval`).
-    public static let hiddenGrid: Duration = .seconds(1)
     /// The grid of a repeating deadline hidden for ``intensiveAfter`` (`kIntensiveThrottledWakeUpInterval`).
     public static let intensiveGrid: Duration = .seconds(60)
     /// How long a node is hidden, at a repeating deadline's due time, before that deadline wakes once a minute
@@ -48,17 +45,15 @@ public enum TimerAlignment: Sendable {
     ///   - delay: The time left until the deadline is due.
     ///   - repeating: The deadline repeats or re-armed itself from its own action.
     ///   - uptime: Now, on the clock of the node's tree (``VisibilityNode/hiddenSince``'s clock).
-    ///   - isCaptured: Whether a capture vote that does not stay hidden holds the node.
     @MainActor
-    public func rule(delay: Duration, repeating: Bool, uptime: Duration,
-                     isCaptured: @MainActor (VisibilityNode) -> Bool) -> Wake.Rule {
+    public func rule(delay: Duration, repeating: Bool, uptime: Duration) -> Wake.Rule {
         switch self {
         case .precise:
-            return delay < DelayPolicy.maxPreciseDelay ? .precise : .flexible
+            return DelayPolicy.precise.effective(for: delay) == .precise ? .precise : .flexible
         case .flexible:
             return .flexible
         case .whenHidden(let node):
-            guard !node.isVisible, !node.mediaActiveWithin(Self.recentMedia), !isCaptured(node) else { return .flexible }
+            guard !node.isVisible, !node.mediaActiveWithin(Self.recentMedia), !node.isCaptured else { return .flexible }
             guard repeating, let since = node.hiddenSince, uptime - since + max(delay, .zero) >= Self.intensiveAfter else {
                 return .hidden
             }
@@ -66,71 +61,68 @@ public enum TimerAlignment: Sendable {
         }
     }
 
-    /// Where one deadline wakes: its rule, the instant it fires and the tolerance of its sleep. Instants are offsets
-    /// on the ``MainDeadlineScheduler``'s timeline, so every grid is shared by all its deadlines.
+    /// Where one deadline wakes: its rule, when it is due, when it fires and how late the timer may fire for it.
+    /// Instants are `CLOCK_UPTIME_RAW` time on the ``MainWakeUpQueue``'s clock.
     public struct Wake: Sendable, Equatable {
         /// Which alignment rule placed the wake.
         public enum Rule: Sendable, Equatable {
             /// At the due instant.
             case precise
-            /// The next 8 ms boundary at or after the due instant.
+            /// ``WakeLeeway``'s window after the due instant.
             case flexible
-            /// The next 1 s boundary at or after the due instant.
+            /// The first whole uptime second at or after the due instant.
             case hidden
-            /// Once a minute, or at the next 1 s boundary when the node had no wake in the last minute.
+            /// The node's wake-up budget: once a minute, or at the next 1 s boundary when the node had no wake in
+            /// the last minute.
             case intensive
+
+            /// Where the rule puts a deadline on the queue; nil for ``intensive``, which the node's budget places.
+            var placement: AlignedWakeups.Placement? {
+                switch self {
+                case .precise: .precise
+                case .flexible: .flexible
+                case .hidden: .hidden
+                case .intensive: nil
+                }
+            }
         }
 
         /// The rule that placed it.
         public let rule: Rule
         /// When the deadline is due: it never fires before.
         public let due: Duration
-        /// When it fires.
+        /// When it fires if nothing else moves its wake.
         public let fire: Duration
-        /// How late the sleep may wake: zero for ``Rule/precise``, ``TimerAlignment/leeway`` otherwise.
+        /// How late after ``fire`` the timer may fire: the window's leeway (zero for ``Rule/precise``).
         public let tolerance: Duration
 
-        /// The wake of a deadline due at `due` under `rule`.
-        ///
-        /// - Parameters:
-        ///   - rule: The rule (``TimerAlignment/rule(delay:repeating:uptime:isCaptured:)``).
-        ///   - due: The due instant (a non-negative timeline offset).
-        ///   - lastIntensiveWake: The node's last wake under ``Rule/intensive``; nil when it had none. Only that rule
-        ///     reads it.
-        public init(rule: Rule, due: Duration, lastIntensiveWake: Duration? = nil) {
+        init(rule: Rule, due: UInt64, fire: UInt64, tolerance: Duration) {
             self.rule = rule
-            self.due = max(due, .zero)
-            tolerance = rule == .precise ? .zero : TimerAlignment.leeway
-            switch rule {
-            case .precise:
-                fire = self.due
-            case .flexible:
-                fire = Self.snap(self.due, to: TimerAlignment.leeway)
-            case .hidden:
-                fire = Self.snap(self.due, to: TimerAlignment.hiddenGrid)
-            case .intensive:
-                fire = Self.intensiveFire(due: self.due, lastWake: lastIntensiveWake)
-            }
+            self.due = .nanoseconds(Int64(clamping: due))
+            self.fire = .nanoseconds(Int64(clamping: fire))
+            self.tolerance = tolerance
         }
+    }
 
-        /// `WakeUpBudgetPool::GetNextAllowedRunTime` with a 60 s interval and a 1 s alignment when there was no
-        /// recent wake: the earlier of the next minute boundary and the first 1 s boundary a minute after the last wake.
-        private static func intensiveFire(due: Duration, lastWake: Duration?) -> Duration {
-            guard let lastWake else { return snap(due, to: TimerAlignment.hiddenGrid) }
-            let aligned = snap(max(due, lastWake + TimerAlignment.intensiveGrid), to: TimerAlignment.hiddenGrid)
-            return min(aligned, snap(due, to: TimerAlignment.intensiveGrid))
-        }
+    /// The fire of the node's wake-up budget for its earliest deadline, due at `due` (uptime ns), when the node's
+    /// last budget wake was at `lastWake`: `WakeUpBudgetPool::GetNextAllowedWakeUp` with a 60 s interval and a 1 s
+    /// alignment when there was no wake in the last minute. That is the earlier of the next minute boundary at or
+    /// after `due` and the first whole second at or after both `due` and a minute after the last wake. Both grids
+    /// are on uptime, phase zero (`SnappedToNextTick(TimeTicks(), interval)`).
+    static func intensiveFire(due: UInt64, lastWake: UInt64?) -> UInt64 {
+        let second = WakeLeeway.wholeSecondDelay.nanosecondCount
+        guard let lastWake else { return snap(due, to: second) }
+        let minute = intensiveGrid.nanosecondCount
+        let (afterBudget, overflow) = lastWake.addingReportingOverflow(minute)
+        let aligned = snap(max(due, overflow ? .max : afterBudget), to: second)
+        return min(aligned, snap(due, to: minute))
+    }
 
-        /// The first multiple of `grid` at or after `instant` (`TimeTicks::SnappedToNextTick`); a fraction of a
-        /// nanosecond counts as one more, so a wake is never early.
-        static func snap(_ instant: Duration, to grid: Duration) -> Duration {
-            let step = grid.nanosecondCount
-            guard step > 0 else { return instant }
-            let whole = instant.nanosecondCount
-            let value = Duration.nanoseconds(Int64(clamping: whole)) < instant ? whole + 1 : whole
-            let remainder = value % step
-            let snapped = remainder == 0 ? value : value + (step - remainder)
-            return .nanoseconds(Int64(clamping: snapped))
-        }
+    /// The first multiple of `step` at or after `instant` (uptime ns).
+    private static func snap(_ instant: UInt64, to step: UInt64) -> UInt64 {
+        let remainder = instant % step
+        guard remainder != 0 else { return instant }
+        let (snapped, overflow) = instant.addingReportingOverflow(step - remainder)
+        return overflow ? .max : snapped
     }
 }

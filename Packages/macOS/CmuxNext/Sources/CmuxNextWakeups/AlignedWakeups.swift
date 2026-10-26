@@ -78,6 +78,39 @@ public struct AlignedWakeups: Sendable {
         }
     }
 
+    /// ``schedule(owner:after:placement:_:)`` for a deadline given as an instant on the queue's clock
+    /// (uptime ns), so a deadline that moves to another placement keeps its due time. Callable from any
+    /// thread.
+    @discardableResult
+    func schedule(owner: String, at deadline: UInt64, placement: Placement,
+                  _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
+        if placement == .hidden { return Ticket(token: queue.insertHidden(owner: owner, at: deadline, action)) }
+        let window = self.window(placement, deadline: deadline)
+        return Ticket(token: queue.insert(owner: owner, at: deadline, window: window, action))
+    }
+
+    /// The window `placement` gives a deadline at `deadline` (uptime ns), from the time left now: the one
+    /// ``schedule(owner:at:placement:_:)`` places it in, whose ``WakeLeeway/fireTime(deadline:)`` is when
+    /// it fires alone.
+    func window(_ placement: Placement, deadline: UInt64) -> WakeLeeway {
+        let now = queue.now
+        let delay: Duration = deadline > now ? .nanoseconds(Int64(clamping: deadline - now)) : .zero
+        switch placement {
+        case .precise: return .window(delay: delay, policy: .precise, alignment: queue.alignment)
+        case .flexible: return .window(delay: delay, policy: .flexibleNoSooner, alignment: queue.alignment)
+        case .hidden: return .hidden(delay: delay)
+        }
+    }
+
+    /// Now on the queue's clock (uptime ns).
+    var now: UInt64 { queue.now }
+
+    /// The uptime the queue's timer is armed for (ns), for every user of the queue; nil while it is parked.
+    var nextFireDate: UInt64? { queue.armedDate }
+
+    /// The queue's ledger, for owners that run in a fire under another owner's entry.
+    var ledger: WakeupLedger { queue.ledger }
+
     /// Drops a pending deadline; false when it already ran or was cancelled. The queue's timer moves to the
     /// next deadline, or parks when this was the last one. Callable from any thread.
     @discardableResult

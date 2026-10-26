@@ -6,9 +6,9 @@ import CmuxNextCompat
 /// The first of {the work's result, the limit, the caller's cancellation} resumes the caller; the work is cancelled
 /// when it loses and its late result is dropped. A task group would instead wait for a loser that ignores
 /// cancellation, so its deadline could become a hang (check-concurrency's task-group rule). The limit sleeps on the
-/// injected clock with ``TimerAlignment/leeway`` of tolerance by default: a timeout is a flexible, no-sooner deadline,
-/// as a request deadline is in Chromium (`kFlexibleNoSooner`, base/task/delay_policy.h). Each expired limit is one
-/// wakeup in the ledger under its label.
+/// injected clock with ``WakeLeeway``'s tolerance for the limit by default, as ``DemandTimer`` does: a timeout is a
+/// flexible, no-sooner deadline, as a request deadline is in Chromium (`kFlexibleNoSooner`, base/task/delay_policy.h).
+/// Each expired limit is one wakeup in the ledger under its label.
 ///
 /// ```swift
 /// let reply = try await Deadline(.seconds(5)).run("daemon.hello") { try await connection.hello() }
@@ -27,19 +27,20 @@ public struct Deadline: Sendable {
 
     /// How long the work may take.
     public let limit: Duration
-    private let tolerance: Duration?
+    private let tolerance: Duration
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
 
     /// - Parameters:
     ///   - limit: How long the work may take.
-    ///   - tolerance: How late the limit may expire (nil: the clock's default).
+    ///   - tolerance: How late the limit may expire. nil (the default) is
+    ///     ``WakeLeeway/window(delay:policy:alignment:)``'s tolerance for `limit`; `.zero` asks for exact timing.
     ///   - clock: The clock the limit runs on (tests inject a manual one).
     ///   - ledger: Where an expired limit is counted.
-    public init(_ limit: Duration, tolerance: Duration? = TimerAlignment.leeway, clock: any Clock<Duration> = ContinuousClock(),
+    public init(_ limit: Duration, tolerance: Duration? = nil, clock: any Clock<Duration> = ContinuousClock(),
                 ledger: WakeupLedger = .shared) {
         self.limit = limit
-        self.tolerance = tolerance
+        self.tolerance = tolerance ?? WakeLeeway.window(delay: limit).tolerance
         self.clock = clock
         self.ledger = ledger
     }
@@ -125,8 +126,8 @@ public struct Deadline: Sendable {
             if ended { for task in tasks { task.cancel() } }
         }
 
-        /// Ends the race with `result` when it is the first outcome: runs `first`, resumes the caller and cancels the
-        /// racers. A later outcome is dropped.
+        /// Ends the race with `result` when it is the first outcome: runs `first`, cancels the racers, then resumes
+        /// the caller, so the caller never runs while a loser is still live. A later outcome is dropped.
         func finish(_ result: Result<T, any Error>, first: () -> Void = {}) {
             let won: (CheckedContinuation<T, any Error>?, [Task<Void, Never>])? = state.withLock { state in
                 guard !state.done else { return nil }
@@ -142,8 +143,8 @@ public struct Deadline: Sendable {
             guard let won else { return }
             let (continuation, tasks) = won
             first()
-            continuation?.resume(with: result)
             for task in tasks { task.cancel() }
+            continuation?.resume(with: result)
         }
     }
 }

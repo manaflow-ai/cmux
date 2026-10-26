@@ -53,8 +53,10 @@ public final class MainWakeUpQueue: Sendable {
     /// opposite order of their dates (a late arm would delay the earlier deadline). CFRunLoop calls a
     /// timer out with none of its own locks held, so the two locks are always taken in the same order.
     private let state = Mutex(State())
-    private let alignment: Duration
-    private let ledger: WakeupLedger
+    /// The sub-second grid and leeway of flexible entries.
+    let alignment: Duration
+    /// Where each fire and each owner that runs in it are counted.
+    let ledger: WakeupLedger
     private let uptime: @Sendable () -> UInt64
 
     /// Makes the queue and its one main run-loop timer, parked until the first insert.
@@ -90,6 +92,14 @@ public final class MainWakeUpQueue: Sendable {
     /// Entries waiting to run.
     public var count: Int { state.withLock { $0.heap.count + $0.hidden.count } }
 
+    /// Now, on the queue's clock (uptime ns): the base of every deadline it is given.
+    var now: UInt64 { uptime() }
+
+    /// The uptime the timer is armed for (ns); nil while it is parked. The earliest wake of every pending
+    /// entry: the next-fire value an idle period ends before (Blink's `IdleHelper` asks the same of its
+    /// thread's `NextScheduledRunTime`).
+    var armedDate: UInt64? { state.withLock { $0.armed?.date } }
+
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
     /// `policy` at the queue's alignment. Callable from any thread.
     @discardableResult
@@ -106,13 +116,20 @@ public final class MainWakeUpQueue: Sendable {
     /// as Blink throttles only delayed tasks. Callable from any thread.
     @discardableResult
     public func insertHidden(owner: String, after delay: Duration, _ action: @escaping Action) -> Token {
-        guard delay > .zero else {
-            return insert(owner: owner, at: deadline(after: delay), window: .window(delay: delay), action)
-        }
-        let at = deadline(after: delay)
+        insertHidden(owner: owner, at: deadline(after: delay), action)
+    }
+
+    /// ``insertHidden(owner:after:_:)`` for a deadline given as an instant (uptime ns), so a deadline that
+    /// moves between placements keeps its due time. One that has passed is not throttled and runs on the
+    /// next fire.
+    @discardableResult
+    func insertHidden(owner: String, at deadline: UInt64, _ action: @escaping Action) -> Token {
+        let now = uptime()
+        guard deadline > now else { return insert(owner: owner, at: deadline, window: .window(delay: .zero), action) }
+        let delay = Duration.nanoseconds(Int64(clamping: deadline - now))
         return state.withLock { state in
             let entry = MainWakeUpHeap<Action>.Entry(
-                id: nextID(&state), deadline: at, window: .hidden(delay: delay), owner: owner, payload: action
+                id: nextID(&state), deadline: deadline, window: .hidden(delay: delay), owner: owner, payload: action
             )
             state.hidden.insert(entry)
             rearm(&state)
