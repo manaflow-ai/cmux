@@ -1,6 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing

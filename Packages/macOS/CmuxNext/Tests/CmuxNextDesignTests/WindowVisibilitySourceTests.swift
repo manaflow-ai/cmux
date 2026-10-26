@@ -67,7 +67,7 @@ import Testing
         let sources = zip(windows, windowEvents).map { window, events in
             WindowVisibilitySource(window: window, name: "window", app: app.node, events: events) { _ in .visible }
         }
-        #expect(sources.allSatisfy(\.node.isVisible))
+        #expect(sources.allSatisfy { $0.node.isVisible })
         appCenter.post(name: NSApplication.didHideNotification, object: nil)
         #expect(sources.allSatisfy { $0.node.effective == .hidden })
         workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
@@ -75,7 +75,7 @@ import Testing
         // Unhidden while the displays sleep: laid out, not seen.
         #expect(sources.allSatisfy { $0.node.effective == .occluded })
         workspaceCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
-        #expect(sources.allSatisfy(\.node.isVisible))
+        #expect(sources.allSatisfy { $0.node.isVisible })
     }
 
     @Test func appStateHiddenWinsOverAsleep() {
