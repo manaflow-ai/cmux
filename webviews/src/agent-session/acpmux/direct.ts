@@ -1,4 +1,5 @@
 import type { SwitchPort } from "./harnessSwitch";
+import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
@@ -1319,6 +1320,7 @@ export class AcpmuxDirectClient {
   private foldingBelow: number | undefined;
   /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
   private olderRetryAt = 0;
+  private readonly olderDelay = new OlderPageDelay();
   /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
@@ -1680,6 +1682,7 @@ export class AcpmuxDirectClient {
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
+    this.olderDelay.cancel();
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
     // A page still in flight belongs to the session before; it is dropped when it lands.
@@ -5562,6 +5565,7 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
+    if (this.closed) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
     // at once read nothing, and the transcript that asked at the very top had no scroll left to
@@ -5570,13 +5574,13 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const read =
       wait > 0
-        ? new Promise<void>((resolve) => setTimeout(resolve, wait)).then(() =>
-            !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
+        ? this.olderDelay.wait(wait).then((ready) =>
+            ready && !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
           )
         : this.fetchOlder();
     const loading = read
       .catch((error: unknown) => {
-        this.olderRetryAt = Date.now() + 2_000;
+        if (!this.closed && generation === this.selectionGeneration) this.olderRetryAt = Date.now() + 2_000;
         throw error;
       })
       .finally(() => {
@@ -5586,7 +5590,7 @@ export class AcpmuxDirectClient {
     return loading;
   }
   private async fetchOlder(): Promise<void> {
-    if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
+    if (this.closed || !this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     const epoch = this.historyEpoch;
@@ -5611,7 +5615,7 @@ export class AcpmuxDirectClient {
         maxBytes: OLDER_PAGE_BYTES,
         kinds: ["transcript"],
       });
-      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       // The held transcript's older end moved while this read was out (a kept tail the attach
       // page did not continue): these records sit above a transcript the chat no longer holds. The
       // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
@@ -5802,6 +5806,7 @@ export class AcpmuxDirectClient {
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
     this.closed = true;
+    this.olderDelay.cancel();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
     this.snapshotHold = undefined;

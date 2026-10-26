@@ -90,7 +90,7 @@ import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { preserveScrollAnchorTop, scrollAnchorBase, settleFollowBottom } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1762,12 +1762,6 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
-function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
-  node.scrollTop = latest;
-  return true;
-}
-
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
@@ -2829,7 +2823,23 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
-  const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
+  const unplacedScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
+  // Select mounted rows at the offset this commit will place, before React reconciles them.
+  // Selecting at the old offset with the new layout removed the visible rows for a prepend,
+  // then the placement effect mounted fresh copies: details flashed and lost DOM identity.
+  const projectedTop =
+    !sessionSwitched && !following && previousLayout.current && previousLayout.current !== layout
+      ? preserveScrollAnchorTop({
+          oldLayout: previousLayout.current,
+          newLayout: layout,
+          oldRows: previousRows.current,
+          newRows: rows,
+          liveTop: unplacedScroll.top,
+          anchorTop: unplacedScroll.top,
+        })
+      : undefined;
+  const placementDelta = (projectedTop ?? unplacedScroll.top) - unplacedScroll.top;
+  const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop };
   const renderFollowing = sessionSwitched || following;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
@@ -2848,7 +2858,7 @@ export function VirtualTranscript({
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(renderScroll.top);
+  const warmTop = useDeferredValue(unplacedScroll.top) + placementDelta;
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -3157,8 +3167,8 @@ export function VirtualTranscript({
           jumpTarget.current = latest;
           node.scrollTo({ top: latest, behavior: "smooth" });
         }
-        const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
-        if (settled) followTrace.set(latest);
+        const settled = jumping ? clamped : settleFollowBottom(node) || clamped;
+        if (settled) followTrace.set(node.scrollTop);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -3173,7 +3183,13 @@ export function VirtualTranscript({
           liveTop: top,
           anchorTop: top,
         });
-        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) node.scrollTop = nextTop;
+        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
+          node.scrollTop = nextTop;
+          // A layout correction is not wheel velocity. Publish its final offset in this commit,
+          // before a row's measurement can render again against the old scroll state.
+          scrollPacer.current?.cancel();
+          setScrollAt(node.scrollTop, 0);
+        }
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -3617,9 +3633,8 @@ export function VirtualTranscript({
       !foldAnchor.current &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
-      const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      const settled = settleFollowBottom(node, latest);
-      const resting = settled ? latest : next;
+      const settled = settleFollowBottom(node);
+      const resting = settled ? node.scrollTop : next;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
       queueScroll(resting, true);
@@ -3648,9 +3663,13 @@ export function VirtualTranscript({
         scrollHeight: node.scrollHeight,
         clientHeight: node.clientHeight,
       });
+    // Entering follow by scrolling (rather than the jump button) also settles the last few
+    // pixels. It may not change the mounted range, so no placement effect need run afterward.
+    const resting = scrolledTo.current.atLatest && settleFollowBottom(node) ? node.scrollTop : next;
+    scrolledTo.current = { ...scrolledTo.current, top: resting };
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
-    seenAnchor.current = restingAnchor(next, scrolledTo.current.atLatest, layout, rows);
-    queueScroll(next, scrolledTo.current.atLatest);
+    seenAnchor.current = restingAnchor(resting, scrolledTo.current.atLatest, layout, rows);
+    queueScroll(resting, scrolledTo.current.atLatest);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
@@ -3842,7 +3861,7 @@ export function VirtualTranscript({
     // At the very top no scroll event comes to ask for it, and a check on every render would ask
     // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
     const settled = () => {
-      if (ask !== olderAsk.current) return;
+      if (ask !== olderAsk.current || !transcriptMounted.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
       olderRecheck.current = setTimeout(() => {
@@ -3859,7 +3878,17 @@ export function VirtualTranscript({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
-  useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  useEffect(
+    () => () => {
+      // A late page may settle after unmount or a session switch. Invalidate it before it can
+      // schedule another check; the selected client's generation drops the response itself.
+      olderAsk.current++;
+      olderAsking.current = false;
+      olderLoadRequested.current = undefined;
+      clearTimeout(olderRecheck.current);
+    },
+    [sessionKey],
+  );
   // A wheel up with the view already at the top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
