@@ -12,6 +12,7 @@ final class SurfaceResumeRunPromptBatch {
     private(set) var stickyDecision: StickyDecision?
     private var activePassDepth = 0
     private var claimedAgentRestoreKeys: Set<String> = []
+    private var ownedAgentRestoreKeysByPanelID: [UUID: String] = [:]
 
     private init() {}
 
@@ -21,13 +22,8 @@ final class SurfaceResumeRunPromptBatch {
 
     /// Outcome of claiming automatic startup for one agent checkpoint.
     enum AgentRestoreClaim: Equatable {
-        /// No restore pass is active, so nothing is tracked; ordinary panel
-        /// opens keep their existing admission behavior.
         case unscoped
-        /// This panel starts the checkpoint for the current restore pass.
         case owner
-        /// Another panel in this pass already starts the checkpoint, so this
-        /// one must not launch a second writer.
         case duplicate
     }
 
@@ -45,6 +41,18 @@ final class SurfaceResumeRunPromptBatch {
     func releaseAgentRestore(kind: String, sessionID: String) {
         guard activePassDepth > 0 else { return }
         claimedAgentRestoreKeys.remove(agentRestoreKey(kind: kind, sessionID: sessionID))
+    }
+
+    /// Associates an owned claim with the attached panel across container transfers.
+    func recordAgentRestoreOwner(panelID: UUID, kind: String, sessionID: String) {
+        guard activePassDepth > 0 else { return }
+        ownedAgentRestoreKeysByPanelID[panelID] = agentRestoreKey(kind: kind, sessionID: sessionID)
+    }
+
+    /// Releases only the claim this panel owned when its destination rejected it.
+    func releaseAgentRestore(panelID: UUID) {
+        guard let key = ownedAgentRestoreKeysByPanelID.removeValue(forKey: panelID) else { return }
+        claimedAgentRestoreKeys.remove(key)
     }
 
     private func agentRestoreKey(kind: String, sessionID: String) -> String {
@@ -65,6 +73,7 @@ final class SurfaceResumeRunPromptBatch {
             activePassDepth = 0
             stickyDecision = nil
             claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
+            ownedAgentRestoreKeysByPanelID.removeAll()
         }
     }
 
@@ -75,8 +84,9 @@ final class SurfaceResumeRunPromptBatch {
 
     func reset() {
         activePassDepth = 0
-        stickyDecision = nil
         claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
+        ownedAgentRestoreKeysByPanelID.removeAll()
+        stickyDecision = nil
     }
 }
 
