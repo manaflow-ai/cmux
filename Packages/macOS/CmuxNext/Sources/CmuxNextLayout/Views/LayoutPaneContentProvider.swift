@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+import CmuxNextInput
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -90,9 +90,9 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
-    /// The windows' frame-aligned input for divider drags (``LayoutRootView/dragFrameInput``); nil: each
-    /// drag event moves the divider at once.
-    var dragFrameInput: FrameInputCoalescers?
+    /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
+    /// nil: each drag event moves the divider at once.
+    var dragFrameInput: PointerFrameCoalescers?
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.

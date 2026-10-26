@@ -60,23 +60,21 @@ extension ScreenContentView {
             }
             model.setGestureActive(true)
             context.requestFrames()
-        case let .moved(windowPoint, samples):
-            // Every sample feeds the release velocity; the layout moves once, to the latest point.
-            if samples.isEmpty {
-                activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
-            } else {
-                for sample in samples { activeDrag?.sample(contentPoint(fromWindow: sample.point, kind: kind), at: sample.time) }
-            }
+        case let .sampled(windowPoint, time):
+            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
+        case let .moved(windowPoint, time):
+            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
-        case let .ended(windowPoint):
+        case let .ended(windowPoint, time):
             // A press and release with no move between them is a click, not a resize: saving
             // the ratio the divider is drawn at (clamped by a narrow window) would replace the
             // stored one.
             if activeDrag?.pointer == nil { return endDrag() }
             if case .split = kind, let drag = activeDrag {
-                // The layout this release makes springs on from the pointer's velocity.
-                releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+                // The layout this release makes springs on from the pointer's velocity, read at the
+                // release event's time (the samples' clock); the entry ages from when it is handled.
+                releasedDivider = (kind, drag.releaseVelocity(at: time), CACurrentMediaTime())
             }
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil

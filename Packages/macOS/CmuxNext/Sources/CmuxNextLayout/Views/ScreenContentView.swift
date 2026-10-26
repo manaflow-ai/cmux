@@ -370,7 +370,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.frameInput = { [weak self] in self?.context.dragFrameInput }
+                view.pointerFrames = { [weak self] in self?.context.dragFrameInput }
                 view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
                 // Ranked by `reconcileDock` (`ensureStacking`).
                 dividerParent(for: kind, inContainer: dividersInStripContainer).addSubview(view)

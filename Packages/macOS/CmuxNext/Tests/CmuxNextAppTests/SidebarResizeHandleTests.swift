@@ -2,19 +2,18 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
-import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The sidebar's resize edge once per frame (feature `pointerFrameDrags`, p04-input-031): with the
-/// window's frame-aligned input, a frame's drag events resize the sidebar once, to the latest point,
-/// and the release lands the pending resize first.
+/// The sidebar's resize edge at most twice per frame (feature `pointerFrameDrags`, p04-input-031):
+/// with the window's PointerFrameCoalescer (p04-input-030) the first drag event of a frame interval
+/// resizes in its own turn and the rest resize once more at the frame, to the latest point; the
+/// release lands the pending resize first.
 @MainActor @Suite(.serialized) struct SidebarResizeHandleTests {
     final class Harness {
         let model = SidebarModel()
         let container: SidebarContainerView
         let window: NSWindow
-        let scheduler: FrameScheduler
-        let coalescer: FrameInputCoalescer
+        let frames = PointerFrameTestRig()
         var changes: [CGFloat] = []
         var phases: [String] = []
 
@@ -28,10 +27,7 @@ import Testing
             window.isReleasedWhenClosed = false
             window.contentView = host
             host.layoutSubtreeIfNeeded()
-            scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in SidebarResizeFakeLink() }
-            let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: WakeupLedger())
-            self.coalescer = coalescer
-            container.resizeFrameInput = FrameInputCoalescers(make: { _ in coalescer })
+            container.resizeFrameInput = frames.coalescers
             let forward = container.handle.onDrag
             container.handle.onDrag = { [unowned self] phase in
                 switch phase {
@@ -52,15 +48,27 @@ import Testing
                                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         }
 
-        func frame() { scheduler.frameDidFire(timestamp: 1000, refreshInterval: 1.0 / 120) }
-
         func close() {
-            coalescer.invalidate()
+            frames.close()
             window.close()
         }
     }
 
-    /// Eight drag events in one frame resize the sidebar at most twice, to the last event's width.
+    /// The first drag event after an idle frame resizes in its own turn.
+    @Test func theFirstDragResizesInTheSameTurn() {
+        let harness = Harness()
+        defer { harness.close() }
+        let startWidth = harness.model.width
+        let startX: CGFloat = 200
+        harness.handle.mouseDown(with: harness.event(.leftMouseDown, x: startX))
+        harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + 6))
+        #expect(harness.changes == [6])
+        #expect(harness.model.width == startWidth + 6)
+        #expect(!harness.frames.coalescer.hasPending)
+    }
+
+    /// Eight drag events in one frame resize the sidebar twice: the first at once, the rest at the
+    /// frame, to the last event's width.
     @Test func eightDragsInOneFrameResizeAtMostTwice() {
         let harness = Harness()
         defer { harness.close() }
@@ -70,10 +78,9 @@ import Testing
         for step in 1...8 {
             harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + CGFloat(step) * 2))
         }
-        #expect(harness.changes.count <= 2)
-        harness.frame()
-        #expect(harness.changes.count >= 1 && harness.changes.count <= 2, "the frame resized \(harness.changes.count) times")
-        #expect(harness.changes.last == 16)
+        #expect(harness.changes == [2], "only the leading drag resized before the frame")
+        harness.frames.frame()
+        #expect(harness.changes == [2, 16], "the frame resized once more, to the latest point")
         #expect(harness.model.width == startWidth + 16)
     }
 
@@ -85,11 +92,15 @@ import Testing
         let startX: CGFloat = 200
         harness.handle.mouseDown(with: harness.event(.leftMouseDown, x: startX))
         harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + 5))
+        harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + 9))
         harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + 12))
         harness.handle.mouseUp(with: harness.event(.leftMouseUp, x: startX + 12))
-        #expect(harness.phases == ["began", "changed", "ended"])
+        #expect(harness.phases == ["began", "changed", "changed", "ended"])
+        #expect(harness.changes == [5, 12])
         #expect(harness.model.width == startWidth + 12)
-        #expect(!harness.coalescer.hasPending)
+        #expect(!harness.frames.coalescer.hasPending)
+        harness.frames.frame()
+        #expect(harness.phases.last == "ended", "nothing lands after the release")
     }
 
     /// A pending resize that hides the sidebar ends the drag: the release sends no second end.
@@ -98,10 +109,11 @@ import Testing
         defer { harness.close() }
         let startX: CGFloat = 400
         harness.handle.mouseDown(with: harness.event(.leftMouseDown, x: startX))
+        harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX - 4))
         harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX - 380))
         harness.handle.mouseUp(with: harness.event(.leftMouseUp, x: startX - 380))
         #expect(harness.model.presentation == .hidden)
-        #expect(harness.phases == ["began", "changed"])
+        #expect(harness.phases == ["began", "changed", "changed"])
         #expect(!harness.handle.isDragging)
     }
 
@@ -116,12 +128,6 @@ import Testing
             harness.handle.mouseDragged(with: harness.event(.leftMouseDragged, x: startX + CGFloat(step) * 2))
         }
         #expect(harness.changes.count == 8)
-        #expect(!harness.coalescer.hasPending)
+        #expect(!harness.frames.coalescer.hasPending)
     }
-}
-
-@MainActor
-private final class SidebarResizeFakeLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }
