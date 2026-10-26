@@ -37,9 +37,9 @@ import Testing
     @Test func aHiddenOmnibarStaysHiddenWhenThePageRendersAgain() async {
         let (chrome, page) = Self.chromeAndPage()
         chrome.toggleOmnibar()
-        // A page update renders the chrome again on a later main-actor turn (`ObservationLoop`).
+        // A page update renders the chrome again before waiting in a later main run loop pass (`ObservationLoop`).
         page.load(URL(string: "https://example.com/next")!)
-        for _ in 0..<10 { await Task.yield() }
+        await NewTabQuietLoadTests.rendered()
         #expect(chrome.isToolbarHidden, "a page update showed the hidden address bar again")
     }
 }

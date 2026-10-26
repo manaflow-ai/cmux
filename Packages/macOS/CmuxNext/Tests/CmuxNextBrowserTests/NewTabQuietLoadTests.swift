@@ -19,9 +19,14 @@ import Testing
         return chrome
     }
 
-    /// The chrome renders a state change on a later main-actor turn (`ObservationLoop`).
+    /// The chrome renders a state change before waiting in a later main run loop pass (`ObservationLoop`).
     static func rendered() async {
         for _ in 0..<10 { await Task.yield() }
+        spinRunLoop()
+    }
+
+    static func spinRunLoop() {
+        for _ in 0..<4 { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
     }
 
     static func progressBarOpacity(in view: NSView) -> Float? {

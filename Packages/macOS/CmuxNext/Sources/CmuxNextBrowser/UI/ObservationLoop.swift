@@ -1,10 +1,23 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 
 /// Re-runs `render` whenever any observable property it read changes.
-/// Changes made in one main-actor turn coalesce into one render.
+///
+/// A change marks the loop dirty and asks for one main run loop pass; `render` runs once in that
+/// pass's before-waiting stage, ahead of AppKit's display cycle and the Core Animation commit, so
+/// every change of the pass shows in the frame it commits, after the input the pass dispatched.
+/// This is Blink's model: a change only schedules a visual update
+/// (`PageAnimator::ScheduleVisualUpdate`, third_party/blink/renderer/core/page/page_animator.cc),
+/// and the lifecycle runs once before the next commit. An owner that has the app's scheduler uses
+/// `FrameObservation` instead.
 final class ObservationLoop {
+    /// After the input-response pass, so a change it applies renders in the same pass; before
+    /// AppKit's display cycle and the Core Animation commit (2,000,000).
+    static let renderOrder: CFIndex = InputResponsePass.order + 1
+
     private let render: () -> Void
     private var isActive = true
 
@@ -19,10 +32,14 @@ final class ObservationLoop {
 
     private func arm() {
         guard isActive else { return }
+        let order = Self.renderOrder
         withObservationTracking {
             render()
         } onChange: { [weak self] in
-            Task { @MainActor in self?.arm() }
+            MainRunLoopObserver.once(activities: .beforeWaiting, order: order) { [weak self] in self?.arm() }
+            // An observer never wakes the run loop: without this, a change made after the render
+            // stage (in AppKit's layout) would wait for the next unrelated event.
+            CFRunLoopWakeUp(CFRunLoopGetMain())
         }
     }
 }

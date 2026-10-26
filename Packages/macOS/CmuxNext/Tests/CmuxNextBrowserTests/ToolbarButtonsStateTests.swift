@@ -21,9 +21,15 @@ import Testing
         return window
     }
 
-    /// Lets the observation loops (one main-actor task each) render.
+    /// Lets the observation loops render: each renders before waiting in a main run loop pass
+    /// (`ObservationLoop`).
     static func settle() async {
         for _ in 0..<8 { await Task.yield() }
+        spinRunLoop()
+    }
+
+    static func spinRunLoop() {
+        for _ in 0..<4 { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
     }
 
     static func chromiumTab(_ actions: [CEFExtensionAction]) -> MockBrowserTab {
