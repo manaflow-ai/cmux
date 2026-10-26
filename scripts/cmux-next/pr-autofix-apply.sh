@@ -33,6 +33,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
+    plans/cmux-next/daemon-capabilities.json) return 0 ;; # daemon capability export
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
     # The settings exports and their source stamp: exactly the files regenerate-settings-exports.sh writes.
     schemas/settings/settings-schema.json|schemas/settings-export/settings-schema.sources.sha256) return 0 ;;

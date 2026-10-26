@@ -19,10 +19,13 @@ public nonisolated struct CEFSignInCallback: Equatable, Sendable {
 
 /// The sign-in tabs and their callbacks. The shim learns a tab's callback
 /// now, or when its browser attaches; its AUTH_CALLBACK events come back
-/// here (`CEFRuntime.handle`) and go to the tab's handler.
+/// here (`CEFRuntime.handle`) and go to the tab's handler. The App
+/// constructs one and passes it to the Chromium engine (which hands it to
+/// the runtime) and to the sign-in windows.
 @MainActor
 public final class CEFSignInCallbacks {
-    public static let shared = CEFSignInCallbacks()
+    /// An empty set of sign-in tabs.
+    public init() {}
 
     private struct Entry {
         weak var tab: CEFTab?

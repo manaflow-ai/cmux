@@ -48,6 +48,26 @@ import Testing
         await #expect(throws: FileBrowserError.self) { try await commands.rename(Self.item(file), to: "b.png", undo: nil) }
     }
 
+    /// Issue #24760: Rename's sheet crashed the app with "beginSheetModalForWindow may only be
+    /// invoked from the main thread" (the sheet was begun from an `async let` child task). The
+    /// sheet must begin on the main thread, and answering it renames the file. The window answers
+    /// the sheet itself (``AnsweringWindow``), so the test needs no WindowServer.
+    @Test(.timeLimit(.minutes(1))) func renameSheetBeginsOnTheMainThreadAndRenames() async throws {
+        _ = NSApplication.shared
+        let folder = try TemporaryFolder()
+        let file = try folder.write("a.png")
+        let window = AnsweringWindow(newName: "b.png")
+        defer { window.close() }
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator())
+
+        commands.perform(.rename, on: [Self.item(file)], in: window)
+        await commands.pendingRename?.value
+
+        #expect(window.sheetsBeganOnMain == [true], "the rename sheet must begin once, on the main thread")
+        #expect(FileManager.default.fileExists(atPath: folder.url.appendingPathComponent("b.png").path))
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
     /// Move to Trash runs the Files operation (no real Trash in a test) and Undo puts the items back.
     @Test func trashGoesThroughFilesAndUndoPutsBack() async throws {
         let files = RecordingFiles()
@@ -62,6 +82,34 @@ import Testing
         undo.undo()
         try await commands.pendingUndo?.value
         #expect(await files.putBack == [shot.url])
+    }
+}
+
+/// A window that answers each sheet at once: it types `newName` into the sheet's text field and
+/// presses the first button. NSAlert's `beginSheetModal(for:)` begins its sheet through
+/// `beginSheet(_:completionHandler:)`, so this records the thread each sheet began on.
+@MainActor final class AnsweringWindow: NSWindow {
+    private let newName: String
+    private(set) var sheetsBeganOnMain: [Bool] = []
+
+    init(newName: String) {
+        self.newName = newName
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled],
+                   backing: .buffered, defer: false)
+        isReleasedWhenClosed = false
+    }
+
+    override func beginSheet(_ sheet: NSWindow, completionHandler: ((NSApplication.ModalResponse) -> Void)? = nil) {
+        sheetsBeganOnMain.append(Thread.isMainThread)
+        Self.textField(in: sheet.contentView)?.stringValue = newName
+        completionHandler?(.alertFirstButtonReturn)
+    }
+
+    private static func textField(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let field = view as? NSTextField, field.isEditable { return field }
+        for child in view.subviews { if let found = textField(in: child) { return found } }
+        return nil
     }
 }
 

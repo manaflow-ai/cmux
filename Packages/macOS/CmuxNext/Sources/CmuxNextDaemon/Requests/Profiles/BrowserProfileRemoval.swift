@@ -5,7 +5,7 @@ import Foundation
 public struct MoveBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
     public static let command = "move-browser-profile"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.browserProfiles
+    public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String
     public var index: Int
     public init(id: String, index: Int) {
@@ -29,7 +29,7 @@ public struct DeleteBrowserProfileRequest: DaemonRequest {
         }
     }
     public static let command = "delete-browser-profile"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.browserProfiles
+    public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String
     public init(id: String) {
         self.id = id

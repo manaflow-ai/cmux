@@ -175,6 +175,7 @@ fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
         install: Optional::Missing,
         kind: Optional::Missing,
         name,
+        remote: Optional::Missing,
         user_id: Optional::Missing,
         version: Optional::Missing,
     })?;
