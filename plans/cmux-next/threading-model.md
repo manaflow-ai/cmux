@@ -509,7 +509,10 @@ its QoS and its target.
   `com.cmuxterm.next.retry-wake` (user-initiated; its socket-folder watch wakes the reconnect while terminals are
   disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>` (utility)
-- Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
+- Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`,
+  `com.cmuxterm.next.terminal.link-check` (user-initiated, concurrent, one per surface; `TerminalLinkFilter`'s file check of a
+  Cmd-hovered text: a check stalled on a slow volume holds no later check; a concurrent queue targets GCD's width-limited
+  root queue, so stalled checks park no more threads than the unnamed root queue did)
 - Settings and files: `com.cmuxterm.next.settings.watcher` (utility), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
@@ -537,17 +540,23 @@ its QoS and its target.
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
-  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
+  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request),
+  `com.cmuxterm.next.browser.certificate-probe` (the TLS probe's URLSession delegate queue, user-initiated, serial,
+  one per probe; the page load waits on it)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>` (user-initiated; the version handoff waits on the old daemon's exit),
   `cmux.next.agent-pane.acpmux-log-progress` (utility; a log watcher),
-  `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (user-initiated; the launch waits on the shell's exit),
+  `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (user-initiated; the launch waits on the shell's exit, `ChildExitWatch`),
   `cmux.next.agent-pane.acpmux-status` (user-initiated; the pane's connect waits on it),
   `cmux.acpmux.checked-line` (user-initiated; approvals, and callers wait on it with `sync`),
   `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle` (utility; a watcher),
   `com.cmuxterm.app.next.tasks.socket`,
   `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
-  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
+  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility),
+  `cmux.next.agent-pane.shell-reap.<pid>` (utility; a shell-mode command's exit source, `ChildExitWatch`),
+  `cmux.next.agent-pane.shell-complete-reap.<pid>` (user-initiated; a Tab completion shell's exit source, the Tab
+  waits on it). Each holds one process-exit source and runs one `waitpid` that returns at once; no thread waits
+  while the child runs (p02-threads-120)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
@@ -569,7 +578,16 @@ its QoS and its target.
   short-lived thread per allowlisted fix that only spawns its child, `Process.runOnOwnThread`; p02-threads-040)
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network` (utility),
   `cmux.home.fixture.video` (utility; Debug fixture media), `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
-  waits for the dropped files)
+  waits for the dropped files),
+  `com.cmuxterm.next.workspace-open` (user-initiated, concurrent, one per call; `NSWorkspace` opens and reveals, the person
+  waits for the app or the Finder window; concurrent so one slow LaunchServices call never holds the next and a burst
+  parks no more threads than GCD's width-limited root queue allows; moving it onto the system lane through an injected
+  `MayBlockRunner` is follow-up work: its callers across the packages take no runner today)
+- URLSession delegate queues (`OperationQueue.sessionDelegate`, serial, p02-threads-120): `com.cmuxterm.next.cloud.app-server`
+  and `com.cmuxterm.next.cloud.owner-api` (user-initiated; a Cloud action the person started waits on them),
+  `com.cmuxterm.next.icon-assets.download` (user-initiated; an icon the person asked for),
+  `com.cmuxterm.next.cloud.install-auth` (utility; install sign-in in the background),
+  `com.cmuxterm.next.backdrop.import` (utility; a long backdrop download written to disk)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 
