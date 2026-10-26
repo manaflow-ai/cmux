@@ -240,6 +240,17 @@ mod tests {
     ];
 
     #[test]
+    fn an_agent_that_died_of_a_refused_request_is_not_continued() {
+        let raw = "agent process closed";
+        let shown = "agent process closed (fake): HTTP 403 permission denied";
+        assert_eq!(resume_cause(raw, shown), None);
+        let shown = "agent process closed (claude): API Error: 400 invalid_request_error";
+        assert_eq!(resume_cause(raw, shown), None);
+        // Its last line naming its own process id or port is still a death to continue.
+        assert_eq!(resume_cause(raw, "agent process closed (claude): exited 4003"), Some("agent_exited"));
+    }
+
+    #[test]
     fn capacity_errors_are_continued_in_place() {
         for m in CAPACITY {
             assert!(!is_limit_error(m), "{m}");

@@ -191,3 +191,25 @@ async fn an_attempt_refused_before_its_turn_is_skipped_where_watchers_hear_it() 
     assert!(records[0]["error"].as_str().unwrap().contains("folder"), "{records:?}");
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
 }
+
+/// An agent that dies of a refused request (its last stderr line says 403) is not continued:
+/// sending it again would be refused the same way.
+#[tokio::test]
+async fn an_agent_that_dies_of_a_refused_request_is_not_continued() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
+    let id = new_session(&mut c, "refused-died").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "die: HTTP 403 permission denied"}]}),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("403"));
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let kinds: Vec<String> =
+        hub.events(&id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(!kinds.iter().any(|k| k.starts_with("auto_resume")), "{kinds:?}");
+    assert_eq!(records(&hub, &id, "user_message").len(), 1);
+    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+}
