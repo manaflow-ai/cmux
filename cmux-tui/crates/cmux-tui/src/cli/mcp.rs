@@ -20,7 +20,7 @@ mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
-mod caller_scope;
+use super::caller_scope;
 mod code_mode;
 mod config;
 mod keybinding_tools;

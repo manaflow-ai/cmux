@@ -115,6 +115,22 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
+    let socket_route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+    // `current` is the caller's own place and `focused` the person's
+    // (caller_place.rs); a browser tab's place waits for the app path below.
+    #[cfg(unix)]
+    if let Err(code) = place_caller(
+        global,
+        &mut plan,
+        &mut request,
+        &mut encoded,
+        &mut reader,
+        caller_route,
+        &socket_route,
+        true,
+    ) {
+        return code;
+    }
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
@@ -142,9 +158,24 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     ) {
         return code;
     }
+    // A browser tab no app opened goes to the terminal caller's own pane.
+    #[cfg(unix)]
+    if let Err(code) = place_caller(
+        global,
+        &mut plan,
+        &mut request,
+        &mut encoded,
+        &mut reader,
+        caller_route,
+        &socket_route,
+        false,
+    ) {
+        return code;
+    }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
-        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
+        if let Err(failure) =
+            super::resolve::apply(&mut reader, &mut plan, caller_route, &socket_route)
+        {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
             if let super::resolve::Failure::AppAction { action, target } = &failure {
@@ -213,6 +244,32 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         key_report.finish(global.output);
     }
     code
+}
+
+/// Puts the caller's own place in the request ([`super::caller_place`])
+/// and encodes it again when that changed it; `Err` is the exit code.
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn place_caller(
+    global: &GlobalArgs,
+    plan: &mut RequestPlan,
+    request: &mut Value,
+    encoded: &mut Vec<u8>,
+    reader: &mut BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    caller_route: bool,
+    socket: &super::resolve::SocketRoute<'_>,
+    app_may_open_browser: bool,
+) -> Result<(), i32> {
+    match super::caller_place::apply(global, plan, reader, caller_route, socket, app_may_open_browser)
+    {
+        Ok(true) => {
+            request["params"] = plan.params.clone();
+            *encoded = encode_request(request)?;
+            Ok(())
+        }
+        Ok(false) => Ok(()),
+        Err(failure) => Err(failure.report(global.output)),
+    }
 }
 
 pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {

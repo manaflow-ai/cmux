@@ -28,17 +28,17 @@ fn has(params: &Map<String, Value>, word: &str) -> bool {
 }
 
 /// Whether `params` has a `current` selector.
-pub(super) fn wants_caller(params: &Map<String, Value>) -> bool {
+pub(in crate::cli) fn wants_caller(params: &Map<String, Value>) -> bool {
     has(params, CURRENT)
 }
 
 /// Whether `params` has a `focused` selector.
-pub(super) fn wants_focus(params: &Map<String, Value>) -> bool {
+pub(in crate::cli) fn wants_focus(params: &Map<String, Value>) -> bool {
     has(params, FOCUSED)
 }
 
 /// Whether the app's `caller` names a workspace the caller is in.
-pub(super) fn is_placed(caller: &Value) -> bool {
+pub(in crate::cli) fn is_placed(caller: &Value) -> bool {
     caller.get("found").and_then(Value::as_bool) != Some(false)
         && caller.get("workspace").and_then(Value::as_str).is_some()
 }
@@ -50,7 +50,7 @@ pub(super) fn is_placed(caller: &Value) -> bool {
 /// names no object at that level, the daemon's `current` is sent: the
 /// active child of the object above. `caller` and `focus` are the app's
 /// answers, `None` when unknown.
-pub(super) fn apply(
+pub(in crate::cli) fn apply(
     params: &mut Map<String, Value>,
     caller: Option<&Value>,
     focus: Option<&Value>,
@@ -85,7 +85,7 @@ pub(super) fn apply(
 
 /// The error for a caller identity the app cannot place: the server will
 /// not guess the focused workspace in its stead.
-pub(super) fn unresolved(detail: &str) -> Value {
+pub(in crate::cli) fn unresolved(detail: &str) -> Value {
     json!({
         "code": "caller.unresolved",
         "message": format!(

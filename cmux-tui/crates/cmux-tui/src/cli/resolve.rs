@@ -238,7 +238,7 @@ pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
 /// How long a lookup waits for the caller's terminal to join its workspace.
 const CALLER_TERMINAL_WAIT: Duration = Duration::from_secs(3);
 
-/// [`caller_workspace`], waiting for the caller's terminal to be placed. A
+/// The workspace of [`caller_place`], waiting for the caller's terminal to be placed. A
 /// new tab's shell runs before the daemon commits the tab, so a command at
 /// its first prompt can ask for a terminal the daemon does not show yet.
 /// The wait follows the session's event stream on a second connection and
@@ -249,7 +249,19 @@ fn registered_caller_workspace(
     terminal: &str,
     socket: &SocketRoute<'_>,
 ) -> Result<String, Failure> {
-    match caller_workspace(reader, route, terminal) {
+    registered_caller_place(reader, route, terminal, socket)
+        .map(|place| place["workspace"].as_str().unwrap_or_default().to_owned())
+}
+
+/// [`caller_place`], waiting for the caller's terminal to be placed (see
+/// [`registered_caller_workspace`]).
+pub(super) fn registered_caller_place(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    terminal: &str,
+    socket: &SocketRoute<'_>,
+) -> Result<Map<String, Value>, Failure> {
+    match caller_place(reader, route, terminal) {
         Err(Failure::Resource(error)) if is_missing(&error, terminal) => {}
         settled => return settled,
     }
@@ -257,7 +269,7 @@ fn registered_caller_workspace(
     let mut events = session_events(socket, route, deadline);
     loop {
         let changed = events.as_mut().is_some_and(|events| next_event(events, deadline));
-        match caller_workspace(reader, route, terminal) {
+        match caller_place(reader, route, terminal) {
             Err(Failure::Resource(error)) if is_missing(&error, terminal) => {
                 if !changed {
                     return Err(unregistered_terminal(terminal));
@@ -330,18 +342,20 @@ fn next_event(events: &mut Reader, deadline: Instant) -> bool {
     matches!(read_envelope(events, false), Ok(Some(_)))
 }
 
-/// The workspace that holds `terminal`: terminal -> tab -> pane -> screen.
-fn caller_workspace(
+/// The tab, pane, screen and workspace that hold `terminal`, keyed by
+/// selector level: terminal -> tab -> pane -> screen -> workspace.
+fn caller_place(
     reader: &mut Reader,
     route: &Map<String, Value>,
     terminal: &str,
-) -> Result<String, Failure> {
+) -> Result<Map<String, Value>, Failure> {
+    let mut place = Map::new();
     let mut id = terminal.to_string();
-    for (operation, selector, parent) in [
-        (ResourceOperation::TerminalGet, "terminal", "tab_id"),
-        (ResourceOperation::TabGet, "tab", "pane_id"),
-        (ResourceOperation::PaneGet, "pane", "screen_id"),
-        (ResourceOperation::ScreenGet, "screen", "workspace_id"),
+    for (operation, selector, parent, level) in [
+        (ResourceOperation::TerminalGet, "terminal", "tab_id", "tab"),
+        (ResourceOperation::TabGet, "tab", "pane_id", "pane"),
+        (ResourceOperation::PaneGet, "pane", "screen_id", "screen"),
+        (ResourceOperation::ScreenGet, "screen", "workspace_id", "workspace"),
     ] {
         let mut params = route.clone();
         params.insert(selector.into(), Value::String(id));
@@ -357,8 +371,9 @@ fn caller_workspace(
                 "retryable": false,
             }))
         })?;
+        place.insert(level.to_owned(), Value::String(id.clone()));
     }
-    Ok(id)
+    Ok(place)
 }
 
 /// `Some(id)` when `value` is not an id but the exact name of one record.
