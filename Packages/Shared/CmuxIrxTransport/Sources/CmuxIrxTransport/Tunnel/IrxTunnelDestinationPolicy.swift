@@ -36,18 +36,23 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
 
     /// Canonical text (`inet_ntop`), usable as a connect target.
     public var text: String {
-        let (family, bytes, count): (Int32, [UInt8], Int) = switch self {
-        case .v4(let value): (AF_INET, value, 4)
-        case .v6(let value): (AF_INET6, value, 16)
+        switch self {
+        case .v4(let bytes): Self.presentation(family: AF_INET, address: SIMD4<UInt8>(bytes))
+        case .v6(let bytes): Self.presentation(family: AF_INET6, address: SIMD16<UInt8>(bytes))
         }
-        // A case built from too few or too many bytes is padded with zeros or cut,
-        // so inet_ntop always reads exactly `count` bytes.
-        let address: [UInt8] = Array(bytes.prefix(count)) + Array(repeating: 0, count: max(0, count - bytes.count))
+    }
+
+    /// `inet_ntop` over a fixed-size address. Every case is built from exactly 4 or
+    /// 16 bytes, so `SIMD4(bytes)` / `SIMD16(bytes)` trap when one is not, as a
+    /// fixed-extent `base::span` CHECKs its size (Chromium base/containers/span.h).
+    private static func presentation<Address: SIMD>(family: Int32, address: Address) -> String where Address.Scalar == UInt8 {
+        var address = address
         var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
-        // SAFETY: inet_ntop reads 4 (AF_INET) or 16 (AF_INET6) bytes, address.count by
-        // construction, and writes at most buffer.count bytes, the size passed, NUL
-        // included. Both arrays outlive the call.
-        guard unsafe inet_ntop(family, address, &buffer, socklen_t(clamping: buffer.count)) != nil else { return "" }
+        // SAFETY: inet_ntop reads 4 (AF_INET) or 16 (AF_INET6) bytes from `address`; `text`
+        // passes a SIMD4<UInt8> with AF_INET and a SIMD16<UInt8> with AF_INET6, exactly that
+        // many bytes. It writes at most buffer.count bytes, the size passed, NUL included.
+        // Both outlive the call.
+        guard unsafe inet_ntop(family, &address, &buffer, socklen_t(clamping: buffer.count)) != nil else { return "" }
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 

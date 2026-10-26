@@ -29,12 +29,14 @@ struct IrxTunnelIPAddressKernelTests {
         #expect(IrxTunnelIPAddress("[::1]")?.text == "::1")
     }
 
-    @Test("a case built from the wrong byte count prints padded or cut, never reads past it")
-    func malformedCaseText() {
-        #expect(IrxTunnelIPAddress.v4([10, 0]).text == "10.0.0.0")
-        #expect(IrxTunnelIPAddress.v4([1, 2, 3, 4, 5]).text == "1.2.3.4")
-        #expect(IrxTunnelIPAddress.v6([]).text == "::")
+    #if os(macOS)
+    @Test("a case built from the wrong byte count stops the process, never prints a wrong target")
+    func malformedCaseTraps() async {
+        await #expect(processExitsWith: .failure) { _ = IrxTunnelIPAddress.v4([1, 2, 3, 4, 5]).text }
+        await #expect(processExitsWith: .failure) { _ = IrxTunnelIPAddress.v4([10, 0]).text }
+        await #expect(processExitsWith: .failure) { _ = IrxTunnelIPAddress.v6([]).text }
     }
+    #endif
 
     @Test("strict parsing still refuses shorthand IPv4 and scoped IPv6")
     func strictParsing() {
