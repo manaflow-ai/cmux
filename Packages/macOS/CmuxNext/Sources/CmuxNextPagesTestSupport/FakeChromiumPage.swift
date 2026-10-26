@@ -74,6 +74,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var surfaceCopy: PageEncodedSnapshot?
     /// The size of every surface copy asked for, in order.
     public private(set) var surfaceCopies: [CGSize] = []
+    /// Every pane window the host moved the page to (``moveWindow(to:)``), in order.
+    public private(set) var moves: [PageChromiumWindow] = []
 
     /// One visibility or lifecycle call the host made (``setVisible(_:)``, ``setFrozen(_:)``).
     public enum LifecycleStep: Equatable, Sendable {
@@ -146,6 +148,9 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func setFocused(_ focused: Bool) {}
     /// Records `.visible(visible)` in ``lifecycleSteps``.
     public func setVisible(_ visible: Bool) { lifecycleSteps.append(.visible(visible)) }
+
+    /// Records the move (``moves``).
+    public func moveWindow(to window: PageChromiumWindow) { moves.append(window) }
 
     /// Records `.frozen(frozen)` in ``lifecycleSteps`` and answers ``freezes``; a closed page
     /// records nothing and answers false, as a CEF page does.
