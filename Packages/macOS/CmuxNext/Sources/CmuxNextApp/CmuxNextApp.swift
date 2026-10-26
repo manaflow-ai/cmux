@@ -1,10 +1,12 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLaunch
 import CmuxNextMallocZone
+import CmuxNextPalette
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -37,8 +39,11 @@ public struct CmuxNextApp {
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
-        // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        // The login shell's environment (`$SHELL -l -i`, 1-17 s) is each new terminal's env and is
+        // remembered for the next launch's daemon; capture it while AppKit starts. Nothing that
+        // connects the app waits for it. Pure launch work (action catalog, string tables) overlaps AppKit's start.
+        DaemonLauncher.prewarmLoginEnvironment()
+        LaunchWarmup(work: { _ = ActionCatalog.all; PaletteController.prewarmStrings() }).start()
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
