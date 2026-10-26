@@ -531,9 +531,9 @@ final class CEFRuntime {
         let context = Unmanaged.passUnretained(self).toOpaque()
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
-        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
+        // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
-        shim.setFocusRequestHandler(cefFocusRequestCallback)
+        installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
