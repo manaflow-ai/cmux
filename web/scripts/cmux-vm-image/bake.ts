@@ -24,6 +24,9 @@
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
  *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
+ *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
+ *   memory and task limits, and the user's systemd manager outlives a runaway session.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
@@ -67,6 +70,7 @@ import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPa
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -543,6 +547,14 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
+/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
+async function installMachineHealth(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  const out = await L.step(vm, "machine-health", machineHealthBakeCommand(), 120_000);
+  ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
@@ -629,6 +641,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
 /** Bakes one snapshot. Never throws: failures land in result.error; the builder is always deleted. */
@@ -665,6 +678,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
     if (options.devTree) await installDevTree(ctx);
+    await installMachineHealth(ctx);
     await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);

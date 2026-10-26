@@ -120,9 +120,25 @@
 .acpmux-chat-gallery-image img{display:block;width:100%;height:100%;object-fit:contain}
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail)}
-/* The chat's pull requests above the composer (summary/PullRequestDock.tsx): 26px chips as wide as their text on the composer's column, number and repository muted, the title truncating only when the column is full (then the repository, which gives way last), the state coloured as the header chip colours it, the dismiss button inside. */
+/* The chat's pull requests above the composer (summary/PullRequestDock.tsx). The default count is
+   a quiet text row that sends the user to Session Info's Changes; the gallery keeps the full and
+   one-line bar treatments for comparison. */
 .acpmux-pr-dock{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px}
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
+.acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
+.acpmux-pr-dock__compact{display:flex;align-items:center}
+.acpmux-pr-dock__list{display:contents}
+.acpmux-pr-dock__popover{max-width:min(480px,calc(100vw - 24px));max-height:var(--available-height,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-pr-dock__popover .acpmux-pr-dock__list{display:flex;flex-direction:column;gap:4px;outline:none}
+.acpmux-pr-dock__list[hidden]{display:none}
+.acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default}
+.acpmux-pr-dock__count>svg{color:var(--agent-muted)}
+.acpmux-pr-dock__count:hover{color:var(--agent-text);background:var(--acpmux-composer-hover)}
+.acpmux-pr-dock__count:hover>svg{color:var(--agent-text)}
+.acpmux-pr-dock__count:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-pr-dock[data-mode="collapsed"]{flex-direction:row;flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none}
+.acpmux-pr-dock[data-mode="collapsed"]::-webkit-scrollbar{display:none}
+.acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__chip{flex:0 0 auto}
 .acpmux-pr-dock__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
 .acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none;cursor:default}
 .acpmux-pr-dock__bar>svg{flex:none;color:var(--agent-muted)}

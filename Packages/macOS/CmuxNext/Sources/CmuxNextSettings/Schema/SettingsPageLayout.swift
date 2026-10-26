@@ -211,7 +211,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
-                group("settings.group.memory"), group("settings.group.remote"),
+                group("settings.group.import"), group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
         // Bring things over from other browsers, agents and terminals on this Mac.
