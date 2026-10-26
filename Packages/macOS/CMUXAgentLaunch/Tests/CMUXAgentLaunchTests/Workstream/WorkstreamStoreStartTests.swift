@@ -307,6 +307,54 @@ struct WorkstreamStoreStartTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("Bounded recovery keeps only the newest mutation for an event")
+    func boundedRecoveryDeduplicatesMutations() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-bounded-dedupe-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+
+        let id = UUID()
+        let pending = WorkstreamItem(
+            id: id,
+            workstreamId: "session",
+            source: .claude,
+            kind: .permissionRequest,
+            status: .pending,
+            payload: .permissionRequest(
+                requestId: "request",
+                toolName: "Write",
+                toolInputJSON: "{}",
+                pattern: nil
+            )
+        )
+        let resolved = WorkstreamItem(
+            id: id,
+            workstreamId: "session",
+            source: .claude,
+            kind: .permissionRequest,
+            status: .resolved(.permission(.once), at: Date()),
+            payload: pending.payload
+        )
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(pending)
+        try await persistence.append(resolved)
+
+        let store = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: tmp),
+            initialLoadLimit: 10,
+            startupHardBudgetNanoseconds: 0
+        )
+        await store.start()
+        await store.loadOlderItems()
+
+        #expect(store.items.count == 1)
+        #expect(store.items.first?.id == id)
+        #expect(store.items.first?.status == resolved.status)
+    }
+
     @Test("The store reports queued journal writes until they land")
     func pendingPersistenceWritesAreObservableUntilFlushed() async throws {
         let tmp = FileManager.default.temporaryDirectory
