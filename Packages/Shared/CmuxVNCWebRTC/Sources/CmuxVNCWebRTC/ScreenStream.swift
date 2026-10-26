@@ -896,7 +896,11 @@ final class NV12Converter {
 
     func nv12(_ source: CVPixelBuffer) -> CVPixelBuffer? {
         let width = CVPixelBufferGetWidth(source), height = CVPixelBufferGetHeight(source)
-        if session == nil { VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session) }
+        if session == nil {
+            // SAFETY: stores at most one +1 session in `session` (this object's field, not
+            // otherwise accessed during the call); the Swift import takes ownership of it.
+            _ = unsafe VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session)
+        }
         if pool == nil || size != (width, height) {
             let attributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
@@ -904,12 +908,16 @@ final class NV12Converter {
                 kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             ]
             pool = nil
-            CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 4] as CFDictionary, attributes as CFDictionary, &pool)
+            // SAFETY: stores at most one +1 pool in `pool` (this object's field, not otherwise
+            // accessed during the call); the Swift import takes ownership of it.
+            _ = unsafe CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 4] as CFDictionary,
+                                               attributes as CFDictionary, &pool)
             size = (width, height)
         }
         guard let session, let pool else { return nil }
         var output: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
+        // SAFETY: stores at most one +1 pixel buffer in the local `output`, live for this call.
+        _ = unsafe CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
         guard let output, VTPixelTransferSessionTransferImage(session, from: source, to: output) == noErr else { return nil }
         return output
     }
