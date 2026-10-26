@@ -35,8 +35,9 @@ final class CEFResizeFences {
     struct Commit {
         /// The context that commits `view`'s layer tree (its window's); nil outside a window.
         let context: (NSView) -> Context?
-        /// Runs `block` once after the current transaction committed.
-        let afterCommit: (_ block: @escaping @MainActor () -> Void) -> Void
+        /// Runs `block` once after the current transaction committed. False when the handler
+        /// was not added (the transaction is past that phase): `block` never runs.
+        let afterCommit: (_ block: @escaping @MainActor () -> Void) -> Bool
         /// Drops the app's send right to `fence`.
         let release: (_ fence: mach_port_t) -> Void
 
@@ -101,18 +102,25 @@ final class CEFResizeFences {
     }
 
     /// The open transaction's fence, made by `context` when none is open. The app's own right goes
-    /// after the commit on every path: the handler holds the port, not this object.
+    /// after the commit on every path: the handler holds the port, not this object. When the
+    /// transaction takes no handler, the right goes at once and this resize joins nothing, so no
+    /// commit waits on a fence the app keeps.
     private func currentFence(made context: Context) -> mach_port_t? {
         if let open { return open.fence }
         let fence = context.createFence()
         guard fence != 0 else { return nil }
-        open = Transaction(fence: fence)
         fencesMade += 1
         let release = commit.release
-        commit.afterCommit { [weak self] in
+        let added = commit.afterCommit { [weak self] in
             release(fence)
             self?.closed(fence)
         }
+        guard added else {
+            release(fence)
+            fencesReleased += 1
+            return nil
+        }
+        open = Transaction(fence: fence)
         return fence
     }
 

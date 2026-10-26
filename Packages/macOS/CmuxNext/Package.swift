@@ -1835,7 +1835,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).

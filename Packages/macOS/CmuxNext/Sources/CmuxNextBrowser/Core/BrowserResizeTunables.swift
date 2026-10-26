@@ -33,22 +33,23 @@ public nonisolated struct BrowserResizeTunables {
     /// displays (`CEFResizeSyncDeadline`: 8 ms at 60 Hz, 4 ms once a display
     /// runs at 120 Hz). A change applies at the page's next show or display change.
     /// 0: never wait (the page shows its last frame until the new one comes).
-    /// Forks with the resize fence (`CEFLayerHosting.resizeFenceForkAPI`) ignore it:
-    /// a pane resize puts the page's frame in a fence of 2 frames (`CEFResizeFences`)
-    /// and nothing waits on the main thread. Goes when the pin has that fork.
+    /// With the feature `cefResizeFence` on, forks with the resize fence
+    /// (`CEFLayerHosting.resizeFenceForkAPI`) ignore it: a pane resize puts the page's
+    /// frame in a fence of 2 frames (`CEFResizeFences`) and nothing waits on the main
+    /// thread. Goes when the pin has that fork and the feature is on by default.
     public static let syncDeadline = Tunable<Double>.number(
         "browserResize.syncDeadline", section, "Hosted page resize wait",
-        help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. Never more than half the shortest display frame (4 ms with a 120 Hz display). Applies at the page's next show. 0 never waits. Chromium forks with the resize fence ignore it.",
+        help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. Never more than half the shortest display frame (4 ms with a 120 Hz display). Applies at the page's next show. 0 never waits. Ignored while the resize fence feature is on with a Chromium fork that has it.",
         default: 0.008, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.syncDeadline")
 
     /// During the window's live resize, how long each Chromium page (hosted or
     /// not) may hold the window's frame for its frame at the new size (fork
     /// API 27; Chromium itself waited up to 500 ms), under the same cap as
-    /// `syncDeadline` (half the shortest display frame). 0 never waits. Forks with
-    /// the resize fence ignore it, as they ignore `syncDeadline`.
+    /// `syncDeadline` (half the shortest display frame). 0 never waits. Ignored
+    /// when `syncDeadline` is (the feature `cefResizeFence` on a fork with the fence).
     public static let liveResizeDeadline = Tunable<Double>.number(
         "browserResize.liveResizeDeadline", section, "Page wait during window resize",
-        help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws. Chromium forks with the resize fence ignore it.",
+        help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws. Ignored while the resize fence feature is on with a Chromium fork that has it.",
         default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
     public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }

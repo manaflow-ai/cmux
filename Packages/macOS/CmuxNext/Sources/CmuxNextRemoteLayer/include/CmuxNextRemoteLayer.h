@@ -32,19 +32,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable CAContext*)context;
 @end
 
-// Commit phases of the current transaction, as Chromium declares them
-// (ui/accelerated_widget_mac/ca_transaction_observer.mm).
+// Commit phases of the current transaction, as Chromium
+// (ui/accelerated_widget_mac/ca_transaction_observer.mm) and WebKit
+// (QuartzCoreSPI.h) declare them: PostCommit is 2.
 typedef enum {
   kCATransactionPhasePreLayout,
   kCATransactionPhasePreCommit,
-  kCATransactionPhasePostLayout,
   kCATransactionPhasePostCommit,
   kCATransactionPhaseNull = ~0u
 } CATransactionPhase;
 
 @interface CATransaction (CmuxNextRemoteLayer)
-// Runs `block` once when the current transaction reaches `phase`.
-+ (void)addCommitHandler:(void (^)(void))block forPhase:(CATransactionPhase)phase;
+// Runs `block` once when the current transaction reaches `phase`. NO when the
+// handler was not added (the phase has passed): `block` never runs.
++ (BOOL)addCommitHandler:(void (^)(void))block forPhase:(CATransactionPhase)phase;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -17,15 +17,16 @@ import AppKit
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
 ///
-/// With the fork's resize fence (``resizeFenceForkAPI``), each resize of the view
-/// (``viewDidResize()``: a divider drag, a step of the window's live resize, a
+/// With the fork's resize fence (``resizeFenceForkAPI``) and the default-off
+/// feature `cefResizeFence` (``CEFRuntime/resizeFences``), each resize of the shown
+/// view (``viewDidResize()``: a divider drag, a step of the window's live resize, a
 /// spring start) puts a hosted page's next frame at the new size into the
 /// transaction's one fence (``CEFResizeFences``, deadline 2 frames), so the page
 /// and the pane show the new size together; during the window's live resize a
 /// page in its own window joins too. The render server waits, the main thread
 /// never does, and no deadline reaches the fork.
 ///
-/// Older forks keep the API 27 behavior: while hosted, a resize of the page
+/// Older forks, and every fork while the feature is off, keep the API 27 behavior: while hosted, a resize of the page
 /// window may hold the process's commit for Chromium's frame at the new size, up
 /// to ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped
 /// at half the shortest frame of all displays. During the window's live resize
@@ -53,30 +54,37 @@ final class CEFLayerHosting {
         /// a fence never needs the commit to wait.
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
         /// `cmux_shim_browser_set_resize_fence` (``resizeFenceForkAPI``) and the
-        /// runtime's transactions; nil on older forks and in host mode.
+        /// runtime's transactions; nil on older forks, in host mode and while the
+        /// feature `cefResizeFence` is off.
         let resizeFence: ResizeFence?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
              resizeFence: ResizeFence? = nil) {
             self.setLayerHosting = setLayerHosting
-            self.setResizeSync = resizeFence == nil ? setResizeSync : nil
+            self.setResizeSync = setResizeSync
             self.resizeFence = resizeFence
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
         /// nothing changes and showing a tab costs nothing here. `fences` is
-        /// the runtime's one set of resize transactions, shared by every page.
-        init?(shim: CEFShimLibrary?, apiVersion: Int32, fences: CEFResizeFences) {
+        /// the runtime's one set of resize transactions, shared by every page;
+        /// nil while the feature `cefResizeFence` is off. A fence, when the fork
+        /// has one, takes the place of the API 27 deadline call.
+        init?(shim: CEFShimLibrary?, apiVersion: Int32, fences: CEFResizeFences?) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             let setFence = apiVersion >= CEFLayerHosting.resizeFenceForkAPI ? shim.browserSetResizeFence : nil
+            let resizeFence: ResizeFence? = fences.flatMap { fences in
+                setFence.map { call in
+                    ResizeFence(fences: fences, set: { browser, fence, frames in call(browser, fence, frames) == 1 })
+                }
+            }
+            let setResizeSync: ((Int32, Int32) -> Bool)? = resizeFence == nil && apiVersion >= CEFLayerHosting.resizeSyncForkAPI
+                ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
             self.init(
                 setLayerHosting: { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) },
-                setResizeSync: apiVersion >= CEFLayerHosting.resizeSyncForkAPI
-                    ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil,
-                resizeFence: setFence.map { call in
-                    ResizeFence(fences: fences, set: { browser, fence, frames in call(browser, fence, frames) == 1 })
-                })
+                setResizeSync: setResizeSync,
+                resizeFence: resizeFence)
         }
     }
 
@@ -99,8 +107,8 @@ final class CEFLayerHosting {
     static let forkAPI: Int32 = 26
     /// The first fork API with `cmux_browser_set_resize_sync`.
     static let resizeSyncForkAPI: Int32 = 27
-    /// The first fork API with `cmux_browser_set_resize_fence` (p03-rendering-042, the API 31
-    /// release train). Its pin makes `CEFResizeSyncDeadline` and the deadline tunables dead code
+    /// The first fork API with `cmux_browser_set_resize_fence` (p03-rendering-042): the API after
+    /// 30, the newest `cmux_cef_shim.h` names today; it follows 042's header when that lands. Its pin makes `CEFResizeSyncDeadline` and the deadline tunables dead code
     /// for every supported fork; they go then, not before (the API 27 forks still use them).
     static let resizeFenceForkAPI: Int32 = 31
 
@@ -236,10 +244,12 @@ final class CEFLayerHosting {
     /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
     /// live resize, a spring start). With the fork's resize fence the page window's next frame at
     /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
-    /// own window during the window's live resize only (the API 27 deadlines' rule). A view out of
-    /// every window has no context to hold.
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A hidden page
+    /// (a hidden tab, a parked pane, a hidden DevTools) draws no frame to wait for, and a view out
+    /// of every window has no context to hold.
     func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
-        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize else { return }
+        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
+              !view.isHiddenOrHasHiddenAncestor else { return }
         resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 

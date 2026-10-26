@@ -1,13 +1,15 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextRemoteLayer
 import Darwin
 import Testing
 
 /// Fork-seam tests of p03-rendering-043: one Core Animation fence per geometry transaction that
 /// resizes Chromium pages, given to every resized page with a 2-frame deadline, held once by each
 /// window context, and released by the app after the commit on every path (a browser closed in the
-/// transaction, the runtime gone). With the fence no main-thread wait reaches the fork; an older
-/// fork keeps the API 27 deadlines.
+/// transaction, the runtime gone, a transaction that takes no commit handler). With the fence no
+/// main-thread wait reaches the fork; an older fork, or the feature `cefResizeFence` off, keeps the
+/// API 27 deadlines.
 @MainActor
 @Suite struct CEFResizeFencesTests {
     /// Core Animation without a render server: contexts by view, fences made, held, released, and
@@ -19,6 +21,8 @@ import Testing
         private(set) var released: [mach_port_t] = []
         private var afterCommit: [@MainActor () -> Void] = []
         private var next: mach_port_t = 100
+        /// The open transaction is past its post-commit phase: it takes no handler.
+        var refusesHandlers = false
 
         /// `view` draws through the context of `window` (a stand-in object).
         func place(_ view: NSView, in window: AnyObject) {
@@ -35,7 +39,11 @@ import Testing
                         return next
                     }, holdCommit: { [self] fence in held.append((id, fence)) })
                 },
-                afterCommit: { [self] block in afterCommit.append(block) },
+                afterCommit: { [self] block in
+                    guard !refusesHandlers else { return false }
+                    afterCommit.append(block)
+                    return true
+                },
                 release: { [self] fence in released.append(fence) })
         }
 
@@ -139,6 +147,35 @@ import Testing
         #expect(ca.made.count == 1)
     }
 
+    /// A transaction that takes no post-commit handler: the app's right goes at once, nothing waits on
+    /// the fence, and the next transaction makes a new one.
+    @Test func aRefusedCommitHandlerReleasesTheFenceAtOnce() {
+        let fences = CEFResizeFences(commit: ca.commit)
+        let page = view()
+        ca.refusesHandlers = true
+        #expect(!fences.join(page, browser: 3, setFence: fork.set))
+        #expect(ca.released == ca.made)
+        #expect(ca.made.count == 1)
+        #expect(fences.fencesReleased == 1)
+        #expect(fork.calls.isEmpty)
+        #expect(ca.held.isEmpty)
+        ca.refusesHandlers = false
+        #expect(fences.join(page, browser: 3, setFence: fork.set))
+        #expect(ca.made.count == 2)
+        #expect(fork.calls.map(\.fence) == [ca.made[1]])
+        #expect(ca.held.map(\.fence) == [ca.made[1]])
+        ca.commitTransaction()
+        #expect(ca.released == ca.made)
+    }
+
+    /// The private phase enum matches Chromium's and WebKit's declarations: the handler runs after
+    /// the commit, not at another phase.
+    @Test func thePostCommitPhaseIsTheSPIValue() {
+        #expect(kCATransactionPhasePreLayout.rawValue == 0)
+        #expect(kCATransactionPhasePreCommit.rawValue == 1)
+        #expect(kCATransactionPhasePostCommit.rawValue == 2)
+    }
+
     @Test func aViewOutsideAWindowMakesNoFence() {
         let fences = CEFResizeFences(commit: ca.commit)
         #expect(!fences.join(NSView(frame: .zero), browser: 3, setFence: fork.set))
@@ -164,11 +201,10 @@ import Testing
 
     let window = NSObject()
 
-    /// The fork with both calls: the fence takes the place of the API 27 deadline.
+    /// A fence fork as the shim gives it (``CEFResizeFenceShimTests``): the fence and no deadline call.
     var fork: CEFLayerHosting.Fork {
-        let base = layerFork.fork
-        return CEFLayerHosting.Fork(setLayerHosting: base.setLayerHosting, setResizeSync: base.setResizeSync,
-                                    resizeFence: CEFLayerHosting.ResizeFence(fences: fences, set: fenceFork.set))
+        CEFLayerHosting.Fork(setLayerHosting: layerFork.fork.setLayerHosting, setResizeSync: nil,
+                             resizeFence: CEFLayerHosting.ResizeFence(fences: fences, set: fenceFork.set))
     }
 
     func makeHosting(enabled: Bool) -> CEFLayerHosting {
@@ -215,6 +251,31 @@ import Testing
         #expect(layerFork.syncs.isEmpty)
     }
 
+    /// A hidden page (a hidden tab, a parked pane) draws no frame at the new size: its resize never
+    /// holds the window, during a live resize either.
+    @Test func aHiddenPageDoesNotHoldTheWindow() {
+        let hosting = makeHosting(enabled: true)
+        hosting.pageWindowCreated(browser: 5, fork: fork)
+        view.isHidden = true
+        hosting.viewDidResize()
+        hosting.windowLiveResize(active: true)
+        hosting.viewDidResize()
+        #expect(fenceFork.calls.isEmpty)
+        #expect(ca.made.isEmpty)
+        #expect(ca.held.isEmpty)
+    }
+
+    @Test func aPageUnderAHiddenAncestorDoesNotHoldTheWindow() {
+        let hosting = makeHosting(enabled: true)
+        hosting.pageWindowCreated(browser: 5, fork: fork)
+        let parked = NSView(frame: view.frame)
+        parked.addSubview(view)
+        parked.isHidden = true
+        hosting.viewDidResize()
+        #expect(fenceFork.calls.isEmpty)
+        #expect(ca.made.isEmpty)
+    }
+
     @Test func aViewOutOfEveryWindowMakesNoFence() {
         let hosting = makeHosting(enabled: true)
         hosting.pageWindowCreated(browser: 5, fork: fork)
@@ -251,6 +312,14 @@ import Testing
         #expect(FenceSpy.calls.map(\.browser) == [9])
         #expect(FenceSpy.calls.map(\.frames) == [2])
         #expect(FenceSpy.calls.map(\.fence) == ca.made)
+    }
+
+    /// The feature `cefResizeFence` off (the runtime has no fences): a fence fork keeps the API 27
+    /// deadline call and makes no fence.
+    @Test func theFeatureOffKeepsTheDeadlineCallOnAFenceFork() throws {
+        let fork = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: nil))
+        #expect(fork.resizeFence == nil)
+        #expect(fork.setResizeSync != nil)
     }
 
     @Test func anOlderForkKeepsTheDeadlineCall() throws {
