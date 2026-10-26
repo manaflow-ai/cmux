@@ -76,7 +76,9 @@ struct MemorySamplerTests {
 
         let found = sampler.sample(snapshot, trigger: .report)
 
-        #expect(found == ["a": .clear(kibibytes: 9 * 1_024 * 5 / 6), "b": .clear(kibibytes: 9 * 1_024 / 6)])
+        let whole: Int64 = 9 * 1_024
+        let expected: [String: MemorySampler.Attribution] = ["a": .clear(kibibytes: whole * 5 / 6), "b": .clear(kibibytes: whole / 6)]
+        #expect(found == expected)
         #expect(Self.histogram(in: store)?.count == 2)
         #expect(Self.histogram(in: store)?.sum == 9 * 1_024)
         #expect(sampler.tally() == MemorySampler.Tally(recorded: [.report: 2]))

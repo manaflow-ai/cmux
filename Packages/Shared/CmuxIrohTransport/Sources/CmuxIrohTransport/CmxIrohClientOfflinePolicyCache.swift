@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 public import CMUXMobileCore
 public import Foundation
@@ -11,7 +12,7 @@ public actor CmxIrohClientOfflinePolicyCache {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivationCount = 0
     private var activeStorageMutationCount = 0
-    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var storageMutationDrainWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     public init(
         secureStore: any CmxIrohSecureCredentialStoring = CmxIrohKeychainCredentialStore(
@@ -242,7 +243,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         lifecycleEpoch &+= 1
         deactivationCount += 1
         defer { deactivationCount -= 1 }
-        await waitForStorageMutationsToDrain()
+        try await waitForStorageMutationsToDrain()
         try await secureStore.deleteAll()
     }
 
@@ -374,13 +375,13 @@ public actor CmxIrohClientOfflinePolicyCache {
         let waiters = storageMutationDrainWaiters
         storageMutationDrainWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
     }
 
-    private func waitForStorageMutationsToDrain() async {
+    private func waitForStorageMutationsToDrain() async throws(OnceContinuationError) {
         guard activeStorageMutationCount > 0 else { return }
-        await withCheckedContinuation { continuation in
+        try await withOnceContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
     }

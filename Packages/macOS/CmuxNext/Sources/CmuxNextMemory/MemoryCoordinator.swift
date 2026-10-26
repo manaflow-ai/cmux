@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+public import CmuxNextInputCore
 public import CmuxNextWakeups
 
 /// The app's one memory coordinator: it sets each registered ``MemoryConsumer``'s limit from the
@@ -43,16 +44,27 @@ public import CmuxNextWakeups
 ///   ``MemoryLimit/scale(_:inUse:)``. A release that kept some says when the first ages out
 ///   (``MemoryReleaseProgress/keptWorkingSet(agesOutIn:)``), and one ``MainDeadline`` one-shot then
 ///   asks those consumers for one more release at the same limit.
+/// - A ``MemorySaverModeConsumer`` (a planner whose proactive discards wait by the mode) gets the
+///   mode: at registration and after the limits of each mode change.
+/// - While no cmux window is visible (``isAppHidden``) there is no frame to protect, and the hidden
+///   app's frames come only on the frame scheduler's stall deadline (2 ms per 100 ms). Slices then
+///   take 8 ms each, back to back on main-queue turns from the injected ``MemoryReleaseTurns``.
+///   Input (``inputDidArrive()``) or a window that shows puts the next slice back on a frame, at 2 ms;
+///   once a frame slice passes with no input since the one before, a hidden app goes back to turns.
+///   ``followApp(windows:input:)`` feeds both from the app's windows and input tap.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
-/// schedule: the pressure events, the slicer's frames and the hysteresis and working-set one-shots
-/// are its only inputs. The level is also its vote in in-process Chromium's pressure aggregator
-/// (``pressureVote``, p07-memory-051), next to Chromium's own platform voter.
+/// schedule: the pressure events, the app's visibility and input calls, the slicer's frames and
+/// turns, and the hysteresis and working-set one-shots are its only inputs. The level is also its
+/// vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), next to
+/// Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(
-///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, releaseSink: MemoryReleaseSink())
+///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, turns: mainTurns,
+///     releaseSink: MemoryReleaseSink())
+/// coordinator.followApp(windows: appVisibility.shownWindows, input: inputTap)
 /// let cache = PreviewImageCache(sink: coordinator.releaseSink)
 /// registration = MemoryConsumerRegistration(
 ///     name: "preview-images", traits: traits, consumer: cache, registry: coordinator)
@@ -64,6 +76,16 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// How long the level must stay below ``limitLevel`` before lossless limits rise
     /// (p07-memory.md section 3.A).
     public nonisolated static let limitRiseDelay: Duration = .seconds(30)
+    /// The main-thread time one release slice may take while no cmux window is visible.
+    public nonisolated static let hiddenSliceBudget: Duration = .milliseconds(8)
+
+    /// How the release slices are paced.
+    public nonisolated enum ReleasePace: Hashable, Sendable {
+        /// One slice of at most ``MemoryCoordinator/sliceBudget`` per frame.
+        case frames
+        /// Slices of at most ``MemoryCoordinator/hiddenSliceBudget``, back to back on main-queue turns.
+        case hiddenTurns
+    }
 
     /// The level: ``pressureOverride`` when set, else ``kernelLevel``. Lossy limits, level consumers
     /// and the vote follow it at once; lossless limits follow ``limitLevel``.
@@ -87,15 +109,36 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// ``level`` is told to the vote's observers after the new limits and the level consumers.
     public var pressureVote: MemoryPressureLevel { level }
 
-    /// The `memory.saver` mode. Changing it changes only the limits of consumers that take a mode
-    /// share at the current level.
+    /// The `memory.saver` mode. Changing it changes the limits of consumers that take a mode share at
+    /// the current level, then hands the mode to every ``MemorySaverModeConsumer``.
     public var mode: MemorySaverMode {
         get { policy.mode }
         set {
             guard newValue != policy.mode else { return }
             policy.mode = newValue
             applyLimits()
+            for entry in consumers.liveEntries() {
+                (entry.liveConsumer as? any MemorySaverModeConsumer)?.memorySaverModeDidChange(newValue)
+            }
         }
+    }
+
+    /// Whether no cmux window is visible: none draws (`WindowDrawPolicy`) or the displays sleep.
+    /// ``followApp(windows:input:)`` sets it from the app's window nodes (a hidden app and sleeping
+    /// displays hide every one).
+    public var isAppHidden = false {
+        didSet {
+            guard isAppHidden != oldValue else { return }
+            inputHoldsFrames = false
+            inputSinceFrameSlice = false
+            paceInputsDidChange()
+        }
+    }
+
+    /// The pace of the next slice: ``ReleasePace/hiddenTurns`` while the app is hidden, no recent
+    /// input holds frames and a ``MemoryReleaseTurns`` was given; else ``ReleasePace/frames``.
+    public var pace: ReleasePace {
+        isAppHidden && !inputHoldsFrames && turns != nil ? .hiddenTurns : .frames
     }
 
     /// The registered consumers in ``MemoryReleaseOrder`` (equal orders in registration order),
@@ -107,12 +150,24 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     public let releaseSink: MemoryReleaseSink
 
     private var policy: MemoryLimitPolicy
-    private var isSliceScheduled = false
+    /// A consumer is over its limit, or a heap relief is due, and waits for a slice.
+    private var needsSlice = false
+    private var isFrameAsked = false
+    private var isTurnAsked = false
+    /// Input came while the app is hidden: slices stay on frames until a frame slice passes with no
+    /// input since the frame slice before it.
+    private var inputHoldsFrames = false
+    /// Input came since the last frame slice of a hidden app.
+    private var inputSinceFrameSlice = false
+    /// ``followApp(windows:input:)``'s subscriptions, kept for the coordinator's life.
+    private var appFollow: (windows: ShownWindowsObservation, input: InputSubscription)?
     /// Set by an escalation to critical; the slice that finishes that pass relieves the heap once.
     private var isHeapReliefDue = false
     private let slicer: any MemoryReleaseSlicer
+    private let turns: (any MemoryReleaseTurns)?
     private let clock: any Clock<Duration>
     private let sliceDuration: Duration
+    private let hiddenSliceDuration: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// Ends a hold of ``limitLevel``; nil raises limits with the level.
     private let limitRiseDeadline: MainDeadline?
@@ -134,8 +189,11 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     ///   - pressure: The process's one pressure source.
     ///   - mode: The `memory.saver` mode.
     ///   - slicer: Runs release slices on later frames.
+    ///   - turns: Runs release slices on later main-queue turns while the app is hidden; without it
+    ///     every slice waits for a frame.
     ///   - clock: Measures each slice's budget (`ContinuousClock` in the app, a fake in tests).
-    ///   - sliceBudget: The time one slice may take.
+    ///   - sliceBudget: The time one slice on a frame may take.
+    ///   - hiddenSliceBudget: The time one slice on a turn of a hidden app may take.
     ///   - releaseSink: Drops what consumers unlinked and relieves the heap, off the main thread.
     ///   - limitRiseDeadline: The one-shot that ends a hold of ``limitLevel`` after ``limitRiseDelay`` (the
     ///     app's is a background-class deadline on its one placer). Nil raises limits with the level: no
@@ -147,8 +205,10 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         pressure: MemoryPressureEvents,
         mode: MemorySaverMode = .medium,
         slicer: any MemoryReleaseSlicer,
+        turns: (any MemoryReleaseTurns)? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
         sliceBudget: Duration = MemoryCoordinator.sliceBudget,
+        hiddenSliceBudget: Duration = MemoryCoordinator.hiddenSliceBudget,
         releaseSink: MemoryReleaseSink = MemoryReleaseSink(),
         limitRiseDeadline: MainDeadline? = nil,
         workingSetDeadline: MainDeadline? = nil
@@ -162,8 +222,10 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         elapsed = Self.stopwatch(on: clock)
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
+        self.turns = turns
         self.clock = clock
         sliceDuration = sliceBudget
+        hiddenSliceDuration = hiddenSliceBudget
         consumers = MemoryConsumerList(orderedBy: { $0.order < $1.order })
         self.releaseSink = releaseSink
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
@@ -205,6 +267,35 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         return MemoryReport(level: level, mode: mode, budget: budget, consumers: rows)
     }
 
+    /// Notes that the person gave input: while the app is hidden, the next slice goes back to a frame
+    /// at ``sliceBudget``, and slices stay there until a frame slice passes with no input since the
+    /// one before it. Chromium's input use case likewise ends a fixed time after the last input
+    /// (`third_party/blink/renderer/platform/scheduler/main_thread/user_model.cc`); here that time is
+    /// counted in frames, with no timer. O(1): cheap enough for every input event.
+    public func inputDidArrive() {
+        guard isAppHidden else { return }
+        inputSinceFrameSlice = true
+        guard !inputHoldsFrames else { return }
+        inputHoldsFrames = true
+        paceInputsDidChange()
+    }
+
+    /// Follows the app from now on: ``isAppHidden`` while none of `windows` shows, and each key,
+    /// modifier, click, scroll or gesture from `input` is ``inputDidArrive()``. The coordinator keeps
+    /// both subscriptions. A launch that has made no window yet counts as shown, so the launch's own
+    /// work never shares the main thread with 8 ms slices.
+    ///
+    /// - Parameters:
+    ///   - windows: The app's window nodes (`AppVisibilitySource.shownWindows`).
+    ///   - input: The app's one input tap.
+    public func followApp(windows: ShownWindows, input: any InputObserving) {
+        isAppHidden = windows.trackedCount > 0 && !windows.anyShown
+        appFollow = (
+            windows: windows.observe { [weak self] anyShown in self?.isAppHidden = !anyShown },
+            input: input.observe([.key, .flags, .button, .scroll, .gesture]) { [weak self] _ in self?.inputDidArrive() }
+        )
+    }
+
     public func observePressureVote(_ handler: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void)
         -> MainActorHandlerRegistration<MemoryPressureLevel> {
         voteHandlers.add(handler)
@@ -216,6 +307,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         consumers.add(record)
         entry.liveConsumer?.updateMemoryLimit(current)
         (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(level)
+        (entry.liveConsumer as? any MemorySaverModeConsumer)?.memorySaverModeDidChange(mode)
         if record.needsRelease { scheduleSlice() }
     }
 
@@ -273,15 +365,61 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     }
 
     private func scheduleSlice() {
-        guard !isSliceScheduled else { return }
-        isSliceScheduled = true
-        slicer.scheduleSlice { [weak self] in self?.runSlice() }
+        needsSlice = true
+        askForSlice()
     }
 
-    /// One frame's release: the consumers over their limit, in order, until the slice's time is spent.
-    private func runSlice() {
-        isSliceScheduled = false
-        let isExpired = Self.deadline(on: clock, after: sliceDuration)
+    /// Asks the current pace's scheduler for a slice, unless one is asked for there already.
+    private func askForSlice() {
+        switch pace {
+        case .frames:
+            guard !isFrameAsked else { return }
+            isFrameAsked = true
+            slicer.scheduleSlice { [weak self] in self?.sliceDidCome(on: .frames) }
+        case .hiddenTurns:
+            guard !isTurnAsked, let turns else { return }
+            isTurnAsked = true
+            turns.scheduleTurn { [weak self] in self?.sliceDidCome(on: .hiddenTurns) }
+        }
+    }
+
+    /// A waiting slice moves to the new pace's scheduler; the one asked for on the old pace finds
+    /// the pace changed when it comes and does nothing.
+    private func paceInputsDidChange() {
+        if needsSlice { askForSlice() }
+    }
+
+    private func sliceDidCome(on arrived: ReleasePace) {
+        switch arrived {
+        case .frames: isFrameAsked = false
+        case .hiddenTurns: isTurnAsked = false
+        }
+        guard arrived == pace, needsSlice else { return }
+        switch arrived {
+        case .frames:
+            runSlice(for: sliceDuration)
+            frameSliceDidRun()
+        case .hiddenTurns:
+            runSlice(for: hiddenSliceDuration)
+        }
+    }
+
+    /// While input holds a hidden app's slices on frames, a frame slice with no input since the one
+    /// before it lets the next slice go back to turns.
+    private func frameSliceDidRun() {
+        guard isAppHidden, inputHoldsFrames else { return }
+        guard !inputSinceFrameSlice else {
+            inputSinceFrameSlice = false
+            return
+        }
+        inputHoldsFrames = false
+        paceInputsDidChange()
+    }
+
+    /// One slice's release: the consumers over their limit, in order, until `duration` is spent.
+    private func runSlice(for duration: Duration) {
+        needsSlice = false
+        let isExpired = Self.deadline(on: clock, after: duration)
         for record in consumers.liveRecords() where record.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()
@@ -307,7 +445,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
             }
         }
         // A consumer that registered during this slice may have asked for another; it ends the pass.
-        if isHeapReliefDue, !isSliceScheduled {
+        if isHeapReliefDue, !needsSlice {
             isHeapReliefDue = false
             releaseSink.relieveHeap()
         }

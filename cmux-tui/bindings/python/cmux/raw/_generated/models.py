@@ -5938,9 +5938,21 @@ class SendKeyRequest:
 
 
 @dataclass(frozen=True)
+class ServerBlockingRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/server-blocking/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerThreadsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/server-threads/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -8285,7 +8297,9 @@ __all__ = [
     'SendRequest',
     'SendResult',
     'SendKeyRequest',
+    'ServerBlockingRequest',
     'ServerStatsRequest',
+    'ServerThreadsRequest',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',

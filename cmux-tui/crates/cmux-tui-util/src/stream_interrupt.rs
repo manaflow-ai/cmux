@@ -229,7 +229,12 @@ mod tests {
         let source = InterruptSet::default();
         source.register(&interrupt);
         receiver.wake_on(&interrupt);
-        let waiter = std::thread::spawn(move || receiver.recv_until_interrupted(&interrupt));
+        let waiter = cmux_threads::spawn(
+            "stream-interrupt-test",
+            cmux_threads::ThreadQos::Utility,
+            move || receiver.recv_until_interrupted(&interrupt),
+        )
+        .unwrap();
         std::thread::sleep(Duration::from_millis(20));
         source.fire();
         assert_eq!(waiter.join().unwrap(), Err(RecvTimeoutError::Timeout));

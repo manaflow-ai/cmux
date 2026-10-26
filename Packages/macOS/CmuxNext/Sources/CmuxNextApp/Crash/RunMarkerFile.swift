@@ -3,6 +3,9 @@ import Darwin
 import Dispatch
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Writes `run.json` for `AppRunMarker` on a serial background queue, so
 /// the main thread never waits on the disk.
@@ -31,7 +34,7 @@ nonisolated final class RunMarkerFile: Sendable {
     private struct Waiter {
         var id: UInt64
         var ticket: UInt64
-        var continuation: CheckedContinuation<Bool, Never>
+        var continuation: OnceContinuation<Bool, OnceContinuationError>
     }
 
     private struct State {
@@ -75,16 +78,20 @@ nonisolated final class RunMarkerFile: Sendable {
         // timer-class-allow: off-main: the quit's bounded wait (flexible, no sooner) only resumes a continuation under the file's lock; it posts no main-thread job
         let deadline = DemandTimer(owner: "run-marker.write")
         defer { deadline.cancel() }
-        return await withCheckedContinuation { continuation in
+        // A waiter dropped unanswered (the file went away) answers as the deadline does.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let id: UInt64? = state.withLock { state in
                 if state.closed || state.completed >= ticket { return nil }
                 state.nextWaiter &+= 1
                 state.waiters.append(Waiter(id: state.nextWaiter, ticket: ticket, continuation: continuation))
                 return state.nextWaiter
             }
-            guard let id else { return continuation.resume(returning: true) }
+            guard let id else {
+                continuation.resume(returning: true)
+                return
+            }
             deadline.schedule(after: timeout) { [weak self] in self?.expire(id) }
-        }
+        }) ?? false
     }
 
     /// Removes `run.json` and `run.signal` after any write in progress, and

@@ -51,6 +51,7 @@ let package = Package(
                 "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxIrohTransport",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],

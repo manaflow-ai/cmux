@@ -21,6 +21,8 @@ struct SidebarRowViewPool {
     private var views: [SidebarRowKey: SidebarRowView] = [:]
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
+    /// Row views ``take(for:rebinding:)`` made new, since the pool was made (`SidebarModel.LaunchRows`).
+    private(set) var made = 0
 
     /// `key`'s parked view, reset; else, when `rebinding`, the oldest parked
     /// view of the same kind, reset for `key` (scroll realization: a long
@@ -38,6 +40,7 @@ struct SidebarRowViewPool {
             parked.prepareForReuse(key: key)
             return parked
         }
+        made += 1
         return rowClass.init(key: key)
     }
 

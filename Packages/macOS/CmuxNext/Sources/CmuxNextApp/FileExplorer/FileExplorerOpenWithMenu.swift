@@ -56,11 +56,15 @@ final class FileExplorerOpenWithMenu: NSObject {
         }
         // task-owner: one LaunchServices lookup off main; ends when the submenu is filled. The fill is the rest of the
         // person's right-click (userBlocking), posted in the common modes, so it runs while the menu tracks.
+        // The off-main task holds only Sendable values; the menu and its submenu stay in a main-actor closure.
         let mainWork = mainWork
-        Task { @concurrent [weak self, weak submenu] in
+        let fillLate: @MainActor @Sendable (OpenWithList) -> Void = { [weak self, weak submenu] list in
+            guard let self, let submenu else { return }
+            fill(submenu, with: list, arguments: arguments)
+        }
+        Task { @concurrent in
             let list = await apps.openWithList(forFileNamed: name, isDirectory: isFolder)
-            guard let menu = self, let submenu else { return }
-            mainWork.postFromAnyThread(.userBlocking, owner: "FileExplorerOpenWith.fill") { menu.fill(submenu, with: list, arguments: arguments) }
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileExplorerOpenWith.fill") { fillLate(list) }
         }
         return item
     }

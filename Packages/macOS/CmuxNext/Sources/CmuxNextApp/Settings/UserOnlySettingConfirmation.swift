@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The native sheet for `cmux settings set <user-only key> <value> --confirm` (SECURITY,
 /// agent_settable): it names the key and the value and needs a real click or key in the app, so
@@ -26,11 +29,12 @@ enum UserOnlySettingConfirmation {
         guard !Task.isCancelled else { return false }
         let shown = ShownDialog()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A sheet that goes without an answer (dismissed, dropped) is a no.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                 shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
                     continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
                 }
-            }
+            }) ?? false
         } onCancel: {
             Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
         }

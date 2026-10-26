@@ -337,11 +337,8 @@ fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
 }
 
 /// The class `spawn_outside_request`'s thread runs at, read in that thread.
-fn child_live(builder_name: &str) -> LiveOf {
-    spawn_outside_request(std::thread::Builder::new().name(builder_name.into()), live)
-        .expect("spawn")
-        .join()
-        .expect("child")
+fn child_live(name: &str) -> LiveOf {
+    spawn_outside_request(name, live).expect("spawn").join().expect("child")
 }
 
 #[cfg(target_vendor = "apple")]
@@ -372,6 +369,30 @@ fn qos_a_thread_started_in_a_request_runs_at_its_creators_own_class() {
         assert_eq!(inherited, at(ThreadQos::Utility), "the control: a plain thread inherits");
         assert_ne!(child, at(ThreadQos::Utility));
     }
+}
+
+#[test]
+fn qos_a_thread_started_in_a_request_is_registered_at_the_creators_declared_class() {
+    let (class, row) = cmux_threads::spawn("qos-spawn-row-probe", ThreadQos::Utility, || {
+        let request = WorkQos::enter(ThreadQos::UserInitiated);
+        let row = spawn_outside_request("qos-spawn-row-child", || {
+            cmux_threads::snapshot().into_iter().find(|row| row.name == "qos-spawn-row-child")
+        })
+        .expect("spawn")
+        .join()
+        .expect("child");
+        drop(request);
+        (outside_request_class(), row)
+    })
+    .expect("probe thread")
+    .join()
+    .expect("probe");
+    assert_eq!(class, ThreadQos::Utility);
+    let row = row.expect("the child is in the thread registry");
+    assert_eq!(row.declared, ThreadQos::Utility, "the creator's class, not the request's");
+    // A creator that declared no class starts its thread at Default.
+    let undeclared = std::thread::spawn(outside_request_class).join().expect("plain thread");
+    assert_eq!(undeclared, ThreadQos::Default);
 }
 
 #[test]
