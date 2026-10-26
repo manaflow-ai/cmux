@@ -1,0 +1,185 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "overlays-and-settings",
+  "suite": "journeys",
+  "title": "Open and close Settings, the profile menu, notifications, click hints and Accounts in a narrow window, zooming the window around the overlays",
+  "journey": "overlays-and-settings",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 800, "height": 900}},
+  "fixture": {"seed": "journey-overlays-and-settings-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one 800 x 900 pt window, one workspace, one terminal tab, no overlay"
+  ],
+  "requires": ["actions", "keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays", "settings"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "open-settings",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+,"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/keyWindow/kind", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "note": "Settings… (openSettings): the Settings window opens and becomes key"
+    },
+    {
+      "id": "settings-open",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-settings",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/keyWindow/kind", "equals": "window", "maxMs": 5000},
+      "note": "Cmd-W closes the key Settings window; the main window is key again"
+    },
+    {
+      "id": "profile-menu",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "sidebar.profileMenu"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "nonEmpty", "maxMs": 5000},
+      "note": "Show Profile Menu: the sidebar's profile menu opens above its control on the next main-actor turn"
+    },
+    {
+      "id": "menu-open",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "dismiss-menu",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape ends the menu's tracking; no catalog action runs"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "empty", "maxMs": 5000}
+    },
+    {
+      "id": "show-notifications",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "showNotifications"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "nonEmpty", "maxMs": 5000},
+      "note": "Show Notifications: the notifications panel opens over the window"
+    },
+    {
+      "id": "zoom-under-notifications",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000},
+      "note": "Zoom: the main window grows to the screen while the panel is open; the panel stays with its window"
+    },
+    {
+      "id": "notifications-wide",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "dismiss-notifications",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape closes the panel itself; no catalog action runs"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "empty", "maxMs": 5000}
+    },
+    {
+      "id": "unzoom",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000},
+      "note": "Zoom again: the window returns to its 800 pt frame"
+    },
+    {
+      "id": "show-hints",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "hints.show"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "nonEmpty", "maxMs": 5000},
+      "note": "Click by Hint: the key-hint labels show over the narrow window's controls"
+    },
+    {
+      "id": "hints-narrow",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "dismiss-hints",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape ends hint mode itself; no catalog action runs"},
+      "waitFor": {"pointer": "/overlays/stack", "predicate": "empty", "maxMs": 5000}
+    },
+    {
+      "id": "show-accounts",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "accounts.show"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/keyWindow/kind", "predicate": "changed", "maxMs": 5000},
+      "note": "Accounts…: the Settings window opens on its Accounts section"
+    },
+    {
+      "id": "accounts-open",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-accounts",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/keyWindow/kind", "equals": "window", "maxMs": 5000}
+    },
+    {
+      "id": "closed-all",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "overlays", "settings"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "each overlay is on the overlay stack of the main window while it shows, and the stack is empty after its dismiss",
+    "while Settings or Accounts shows, the key window is the Settings window; after Cmd-W the main window is key again and its focused pane is the one it had",
+    "zooming under an open panel keeps the panel open and owned by the same window; the window's frame returns to its launch fraction after the second zoom",
+    "no overlay changes a setting: the settings facet at closed-all equals the launch's",
+    "every mutation has one receipt or one typed error (I1)",
+    "the turn checkpoint of each key step is a prefix of its settled checkpoint (I3)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "outside dismissal by a click: the app driver has no pointer step",
+    "the update surface: Check for Updates… reaches the update feed over the network, and oracle cases run offline",
+    "resizing the Settings window itself: zoomWindow acts on the main window",
+    "the overlays' own controls: the ax suite (tests/oracle/corpus/ax/overlays-and-settings-*.json) records them at three widths"
+  ]
+}

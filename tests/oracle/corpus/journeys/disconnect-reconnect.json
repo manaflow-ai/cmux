@@ -1,0 +1,115 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "disconnect-reconnect",
+  "suite": "journeys",
+  "title": "Kill the local cmux-tui under two terminal tabs, retry the connection, and converge to the same workspace, tabs and terminals",
+  "journey": "disconnect-reconnect",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "journey-disconnect-reconnect-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab, connected to the tag's own cmux-tui"
+  ],
+  "requires": ["actions", "keys", "gui", "restart"],
+  "platforms": ["mac"],
+  "allow_crashes": [
+    {
+      "kind": "daemon",
+      "reason": "drop-connection kills the tag's cmux-tui owner on purpose to drop the app's connection",
+      "steps": ["drop-connection"],
+      "max": 1
+    }
+  ],
+  "steps": [
+    {
+      "id": "connected",
+      "op": "settle",
+      "waitFor": {"pointer": "/topology/topology/daemon_state", "equals": "connected", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "the launch's connection to the tag's cmux-tui is up"
+    },
+    {
+      "id": "new-tab",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["ctrl+`"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "note": "a second terminal tab, so two terminal hosts outlive the owner"
+    },
+    {
+      "id": "before-drop",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "terminals", "intents", "crashes"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "drop-connection",
+      "op": "kill",
+      "target": {"process": "daemon"},
+      "args": {"signal": "KILL"},
+      "expect": {"outcome": "ok", "noReceiptReason": "a killed process runs no action; the connection state the waitFor reads is the result"},
+      "waitFor": {"pointer": "/topology/topology/daemon_state", "predicate": "changed", "maxMs": 10000},
+      "checkpoint": ["before"],
+      "note": "SIGKILL of the cmux-tui owner (not its terminal hosts): the app sees the connection end and leaves connected"
+    },
+    {
+      "id": "retry-now",
+      "op": "cli",
+      "target": {"machine": "current"},
+      "args": {"argv": ["app", "call", "debug.daemon", "{\"action\":\"retry\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "debug.daemon retry is the recovery card's Retry Now, which runs no catalog action; the connection state the next step waits for is its result"},
+      "settleMaxMs": 30000,
+      "note": "Retry Now: the app ensures a new owner and connects at once; a no-op when the app already reconnected by itself"
+    },
+    {
+      "id": "reconnected",
+      "op": "settle",
+      "waitFor": {"pointer": "/topology/topology/daemon_state", "equals": "connected", "maxMs": 30000},
+      "settleMaxMs": 30000,
+      "note": "the new owner adopted the terminal hosts and the app has a fresh snapshot"
+    },
+    {
+      "id": "after-reconnect",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "terminals", "intents", "crashes"]},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "rename-after-reconnect",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "renameWorkspace", "params": {"name": "reconnected fixture"}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 5000},
+      "note": "a mutation on the new connection reaches the new owner and comes back in its snapshot"
+    },
+    {
+      "id": "converged",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "terminals", "intents", "crashes", "invariants"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "after-reconnect has the workspace, the two terminal tabs and the focused pane of before-drop with the same public ids: the new owner adopted the hosts",
+    "no intent is pending at after-reconnect and the rollback and refusal counters did not move: no mutation was dropped without a refusal",
+    "the crashes facet counts exactly one daemon exit, at drop-connection, and no holder exit",
+    "rename-after-reconnect changes only the workspace's name",
+    "0 debug.desync violations at converged (I5)",
+    "every mutation has one receipt or one typed error (I1)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "a mutation sent while disconnected: no barrier holds the disconnected state, so whether it lands before or after the reconnect is a race",
+    "a delayed (not dropped) connection: the app has no latency injection for its local daemon",
+    "the agent connection: the bench launch's mock agent pane has no connection to drop",
+    "the connection generation as the UI names it: topology.generation is volatile (schemas/oracle/README.md, Counters of commits)"
+  ]
+}
