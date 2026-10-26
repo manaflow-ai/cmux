@@ -31,7 +31,47 @@ nonisolated enum ChildWindowPageFallback {
     }
 }
 
-/// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`).
+/// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`), and again
+/// while a widget orders its page window in (`CEFPageWindowWidgets`).
 extension CEFHostView: ChildWindowContent {
-    var drawsInChildWindow: Bool { layerHosting.page == nil }
+    var drawsInChildWindow: Bool { layerHosting.page == nil || pageWindowWidgets.isShowingPageWindow }
+}
+
+/// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on the page
+/// window (``CEFNativeWidgetRoute/pageWindow``: autofill, print preview) order that window in, transparent and
+/// over the host view, for as long as one is open. Chrome hangs those on the Browser's widget; the page's
+/// pixels, input and the rest of its native UI stay in the attached view.
+///
+/// While one is open, the host draws in a child window again (``CEFHostView/drawsInChildWindow``): the layout
+/// moves its pane by frames, not by layer transforms a child window cannot follow, and the fork is told to
+/// place the window over the host at once (`changed`), not at the next move.
+@MainActor
+final class CEFPageWindowWidgets {
+    /// The widgets each browser of the pane shows on its page window now.
+    private(set) var open: [Int32: Set<CEFNativeWidget>] = [:]
+    /// Called when the page window starts or stops showing for a widget.
+    var changed: (() -> Void)?
+
+    /// Some widget keeps the page window ordered in.
+    var isShowingPageWindow: Bool { !open.isEmpty }
+
+    /// A ``CEFForkTabEvent/pageWindowWidget`` report for `browser`.
+    func report(_ event: CEFPageWindowWidgetEvent, browser: Int32) {
+        let wasShowing = isShowingPageWindow
+        var widgets = open[browser] ?? []
+        if event.shown {
+            guard widgets.insert(event.widget).inserted else { return }
+            CEFHostView.trackerStats.pageWindowWidgetShows += 1
+        } else {
+            guard widgets.remove(event.widget) != nil else { return }
+        }
+        open[browser] = widgets.isEmpty ? nil : widgets
+        if isShowingPageWindow != wasShowing { changed?() }
+    }
+
+    /// `browser` closed: its widgets went with its window.
+    func browserClosed(_ browser: Int32) {
+        guard open.removeValue(forKey: browser) != nil else { return }
+        if !isShowingPageWindow { changed?() }
+    }
 }

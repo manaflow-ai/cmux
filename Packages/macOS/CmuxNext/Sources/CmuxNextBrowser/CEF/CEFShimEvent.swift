@@ -211,6 +211,10 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// moved the device's screen area (fork API 24,
     /// `cmux_devtools_inspected_bounds`).
     case devToolsDeviceMode = 13
+    /// The fork ordered the page window of an attached page (Track B) in for a widget Chromium hangs on it
+    /// (autofill, print preview), or out after it closed; value = ``CEFPageWindowWidgetEvent`` (the kind
+    /// shifted left by one, bit 0 = shown).
+    case pageWindowWidget = 14
     case unknown = -1
 }
 

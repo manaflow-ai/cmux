@@ -37,6 +37,8 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
+    /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
+    let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
 
@@ -46,6 +48,8 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
+        // The page window ordered in or out for a widget: the fork places it over this view now.
+        pageWindowWidgets.changed = { [weak self] in self?.pagesNeedUpdate(force: true) }
         #if DEBUG
         Self.registerMotionSampler()
         #endif

@@ -29,6 +29,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Page update requests a page answered with no post: nothing the fork reads had changed
     /// since its last read (`CEFHostView.pagesNeedUpdate`).
     public var geometrySkips = 0
+    /// Widgets the fork showed on a page window ordered in for them (autofill, print preview), the per-widget
+    /// fallback of a page attached to its host view (`CEFPageWindowWidgets`): each is a page window ordered in.
+    public var pageWindowWidgetShows = 0
 
     public init() {}
 
