@@ -1647,8 +1647,12 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
     if run.get("status") == "completed":
-        if not (failed_only if refused is None else refused):
+        should_rerun = failed_only if refused is None else refused
+        if not should_rerun:
             return "not rescued: the run already finished"
+        if not failed_only:
+            api.rerun(target.run_id, target.attempt + 1)
+            return f"re-ran every job of run {target.run_id}; {next_attempt(target)}"
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
@@ -1822,13 +1826,33 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
+    if target.refusals_only and outcome == "rescue":
+        # A refusals-only cmux-next attempt deliberately stays on its owned
+        # label while it waits for the hook to refuse the job. A queue alarm
+        # is not the refusal: keep the watch alive until the job fails or the
+        # run finishes, otherwise the later refusal has no rescue owner.
+        remaining = max(0, int((deadline - clock()).total_seconds()))
+        if remaining == 0:
+            return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+        log(f"queue alarm while refusals-only; continuing until refusal or run finish ({remaining}s left)")
+        outcome, reason = watch(client, target, budget_seconds=max(effective_seconds, remaining),
+                                now=clock, sleep=sleep, log=log, deadline=deadline,
+                                floor_seconds=effective_seconds)
     if target.refusals_only and outcome != "refused":
         return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+    refusal_jobs: list[Mapping[str, Any]] | None = None
+    dev_compile = False
+    if outcome == "refused" and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        refusal_jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        dev_compile = any(str(job.get("name") or "") in {
+            "cmux NEXT DEV Release compile", "cmux-scheme-compile"
+        } for job in refusal_jobs)
     # A refusal re-runs the run's failed jobs. A side lane (found by the failed-run listing, sweep()) or a
     # refusals-only run that also failed on its own would re-run that failure on the minis too, so it is
     # left red; a nightly keeps its re-run (its build is the product).
     if outcome == "refused" and (target.refusals_only or target.side and not target.nightly):
-        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        jobs = refusal_jobs if refusal_jobs is not None else read(
+            lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
                  and not carried(job, target.attempt_started_at) and not refused(job)]
         if other:
@@ -1858,7 +1882,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
         # An E2E run always keeps what passed (see the module docstring).
-        failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
+        failed_only = (outcome == "refused" or target.attempt > 1 or target.e2e or target.side) and not dev_compile
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,
