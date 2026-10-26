@@ -72,6 +72,8 @@ use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
 pub mod release;
 mod request_origin;
+/// Blocking notes on request threads (`server-stats` `request_path_io`).
+mod request_path;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;

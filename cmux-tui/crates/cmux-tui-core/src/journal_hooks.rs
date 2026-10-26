@@ -937,6 +937,7 @@ fn execute_delivery_with_shutdown(
     }
     #[cfg(unix)]
     tree.configure(&mut command);
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
