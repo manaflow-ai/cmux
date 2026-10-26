@@ -66,4 +66,21 @@ import Testing
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", state: .cleared))
         #expect(board.targets.isEmpty)
     }
+
+    /// An ssh machine's sidebar tooltip line: its target's latest state, found by host whatever its
+    /// case, and none for a machine with no update state.
+    @Test @MainActor func theBoardGivesAnSSHMachinesTooltipLine() {
+        let board = DaemonUpdateBoard()
+        #expect(board.detail(sshHost: "cmux16") == nil)
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
+                                      state: .failed(reason: "disk full", rolledBack: false)))
+        let line = DaemonUpdateBoard.line(.failed(reason: "disk full", rolledBack: false))
+        #expect(line.contains("disk full"))
+        #expect(board.detail(sshHost: "CMUX16") == line)
+        #expect(board.detail(id: "acpmux-peer:cmux16") == line)
+        #expect(board.detail(sshHost: "huge-blue") == nil)
+        #expect(DaemonUpdateBoard.line(.updated(build: "abc123def 2026-10-20")).contains("abc123def 2026-10-20"))
+        #expect(DaemonUpdateBoard.line(.failed(reason: "new daemon reported 0123456ff", rolledBack: true)).contains("0123456ff"))
+        #expect(!DaemonUpdateBoard.line(.updating).isEmpty && !DaemonUpdateBoard.line(.retrying).isEmpty)
+    }
 }
