@@ -105,13 +105,11 @@ mod held {
             return;
         }
         let held_name = HELD.with(|held| held.borrow().first().map(|entry| entry.name));
-        if let Some(held_name) = held_name {
-            // crash-allow: the debug and test lock-order assertion; release builds compile it out.
-            panic!(
-                "lock admission would yield while this thread holds {held_name}: nothing \
-                 waits for another class while it holds a ranked lock"
-            );
-        }
+        debug_assert!(
+            held_name.is_none(),
+            "lock admission would yield while this thread holds {held_name:?}: nothing \
+             waits for another class while it holds a ranked lock"
+        );
     }
 
     pub(super) fn pop(id: u64) {
