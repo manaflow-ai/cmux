@@ -3,9 +3,10 @@
 # read from that owner, not copied here:
 #   stable Rust      cmux-tui/rust-toolchain.toml
 #   cargo-nextest    scripts/ci/cmux-tui-rust-check.sh (nextest_version, sha256)
-#   zig              ghostty-next/build.zig.zon at the recorded gitlink
+#   zig version      ghostty-next/build.zig.zon at the recorded gitlink
 #   Java minimum     plans/cmux-next/formal/tlc.sh ("Needs Java N or later")
-# Fuzz, sanitizer and Miri scripts read the nightly channel from this file.
+# The nightly below is the one setup-tools.sh installs. No fuzz, sanitizer or
+# Miri script reads it yet; when one is added it should read it from here.
 
 [nightly]
 channel = "nightly-2026-10-20"
@@ -20,3 +21,11 @@ cargo-fuzz = "0.13.2"
 # The OpenJDK major version (the cmux-mobile-ffi workflow also uses 17).
 [java]
 openjdk = 17
+
+# The sha256 of the ziglang.org tarball, per target, for the zig version that
+# ghostty-next/build.zig.zon names. setup-tools.sh fails on a version with no
+# pin. Before adding one, check the tarball's .minisig against zig's public
+# key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U.
+[zig."0.16.0"]
+x86_64-linux = "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+aarch64-linux = "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17"

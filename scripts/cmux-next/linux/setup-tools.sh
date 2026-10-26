@@ -100,9 +100,11 @@ setup_java() {
 # triple (clippy-x86_64-unknown-linux-gnu) or without (rust-src), and drops
 # a -preview suffix (llvm-tools-preview lists as llvm-tools-<triple>).
 ensure_toolchain() {
-  local channel="$1" profile="$2" component installed missing=() flags=()
+  local channel="$1" profile="$2" component toolchains installed missing=() flags=()
   shift 2
-  if ! rustup toolchain list | grep -q "^$channel-"; then
+  # Captured, not piped: grep -q's early exit would fail rustup under pipefail.
+  toolchains="$(rustup toolchain list)"
+  if [[ $'\n'"$toolchains" != *$'\n'"$channel-"* ]]; then
     for component in "$@"; do flags+=(--component "$component"); done
     rustup toolchain install "$channel" --profile "$profile" --no-self-update "${flags[@]}"
     changed "installed Rust $channel"
@@ -183,26 +185,40 @@ check_ghostty_next() {
     U) fail "ghostty-next has a merge conflict: $status" ;;
     +) note "warning: ghostty-next is checked out at another commit than ${gitlink:0:12}: $status" ;;
   esac
+  if ! git -C "$root/ghostty-next" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
+    git -C "$root/ghostty-next" fetch -q origin "$gitlink" \
+      || fail "ghostty-next does not have ${gitlink:0:12}; run git submodule update ghostty-next"
+  fi
   zig_want="$(git -C "$root/ghostty-next" show "$gitlink:build.zig.zon" \
     | sed -nE 's/^ *\.minimum_zig_version *= *"([^"]+)".*/\1/p')"
   [[ -n "$zig_want" ]] || fail "ghostty-next build.zig.zon at ${gitlink:0:12} has no minimum_zig_version"
 }
 
+# zig_pin VERSION TARGET prints the tarball sha256 that tool-versions.toml pins.
+zig_pin() {
+  python3 -I - "$pins" "$1" "$2" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    print(tomllib.load(f).get("zig", {}).get(sys.argv[2], {}).get(sys.argv[3], ""))
+PY
+}
+
 setup_zig() {
-  local have url sum dest
+  local have name dest sum
   have="$(zig version 2>/dev/null || true)"
   [[ "$have" == "$zig_want" ]] && return
-  dest="/opt/zig-$arch-linux-$zig_want"
+  name="zig-$arch-linux-$zig_want"
+  dest="/opt/$name"
   if [[ "$("$dest/zig" version 2>/dev/null || true)" != "$zig_want" ]]; then
-    read -r url sum < <(curl --fail --silent --show-error --location --retry 3 https://ziglang.org/download/index.json \
-      | python3 -I -c 'import json, sys; e = json.load(sys.stdin).get(sys.argv[1], {}).get(sys.argv[2], {}); print(e.get("tarball", ""), e.get("shasum", ""))' \
-        "$zig_want" "$arch-linux") || true
-    [[ -n "${url:-}" && -n "${sum:-}" ]] || fail "ziglang.org lists no release $zig_want for $arch-linux"
-    curl --fail --silent --show-error --location --retry 3 --max-time 600 --output "$workdir/zig.tar.xz" "$url"
-    [[ "$(sha256_of "$workdir/zig.tar.xz")" == "$sum" ]] || fail "zig $zig_want tarball sha256 is not ziglang.org's $sum"
+    sum="$(zig_pin "$zig_want" "$arch-linux")"
+    [[ "$sum" =~ ^[0-9a-f]{64}$ ]] \
+      || fail "tool-versions.toml pins no sha256 for zig $zig_want $arch-linux (add it under [zig.\"$zig_want\"])"
+    curl --fail --silent --show-error --location --retry 3 --max-time 600 --output "$workdir/zig.tar.xz" \
+      "https://ziglang.org/download/$zig_want/$name.tar.xz"
+    [[ "$(sha256_of "$workdir/zig.tar.xz")" == "$sum" ]] || fail "zig $zig_want tarball sha256 is not the pinned $sum"
     tar -xJf "$workdir/zig.tar.xz" -C "$workdir"
     as_root rm -rf "$dest"
-    as_root mv "$workdir/zig-$arch-linux-$zig_want" "$dest"
+    as_root mv "$workdir/$name" "$dest"
   fi
   as_root ln -sfn "$dest/zig" /usr/local/bin/zig
   hash -r
