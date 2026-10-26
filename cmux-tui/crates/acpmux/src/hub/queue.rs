@@ -779,8 +779,7 @@ impl Hub {
                             == Some("daemon_restart")
                             && let Some(id) = e.msg.get("promptId")
                         {
-                            order.retain(|o| o != id);
-                            order.insert(0, id.clone());
+                            order.prioritize_restart(id);
                         }
                         waiting.push(e);
                     }

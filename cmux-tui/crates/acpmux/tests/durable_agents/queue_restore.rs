@@ -6,6 +6,11 @@ use super::*;
 /// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
 /// for the test. A check a killed daemon left behind ends once the test removes its home.
 fn hold_startup(daemon: &Daemon) {
+    hold_startup_of(daemon, json!(["python3", FAKE]));
+}
+
+/// `hold_startup` with the fake agent run as `argv`.
+fn hold_startup_of(daemon: &Daemon, argv: Value) {
     let script = daemon.home.join("hold-startup.sh");
     let go = daemon.home.join("go");
     std::fs::write(
@@ -20,7 +25,7 @@ fn hold_startup(daemon: &Daemon) {
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     std::fs::write(
         daemon.home.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        json!({"harnesses": {"fake": {"argv": argv}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
 }

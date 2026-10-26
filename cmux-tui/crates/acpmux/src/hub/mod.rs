@@ -700,7 +700,7 @@ impl Hub {
         self.restore_queues();
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         for (session, prompt_id) in continued {
-            self.move_queued(&session, &prompt_id, 0);
+            let _ = self.move_queued(&session, &prompt_id, 0, None);
         }
         // A watched chat goes on following its transcript where it stopped (`watch.rs`).
         if tokio::runtime::Handle::try_current().is_ok() {
