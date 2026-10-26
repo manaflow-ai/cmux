@@ -15,6 +15,9 @@ final class MainPaneCardView: NSView {
     /// Called after the frame moves or resizes (the sidebar's animation
     /// moves it every frame), so the chrome shade follows in the same pass.
     var onFrameChange: (() -> Void)?
+    /// The window's Chromium pages (`ShellWindow.childPageGeometry`, set by `WindowController`): told when
+    /// the card's clip or corners change.
+    weak var pages: ChildPageGeometryRegistry?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -93,7 +96,7 @@ final class MainPaneCardView: NSView {
         CATransaction.setDisableActions(true)
         layer.masksToBounds = clips
         CATransaction.commit()
-        ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate()
+        pages?.pagesNeedUpdate()
         return true
     }
 
@@ -184,7 +187,7 @@ extension WindowRootView {
     func updateMainPaneShade() {
         let radius = mainPaneCornerRadius
         if contentHost.setCornerRadius(radius) {
-            ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate()
+            contentHost.pages?.pagesNeedUpdate()
         }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)

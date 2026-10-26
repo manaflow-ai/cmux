@@ -14,12 +14,16 @@ public protocol ChildPageGeometryHosting: AnyObject {
 /// It replaces the app-wide `browserChildWindowPagesNeedUpdate` broadcast. The
 /// window's layout owner calls ``pagesNeedUpdate(force:)`` after panes, dividers or
 /// the sidebar moved, a clip or corner changed, or the window moved or resized;
-/// only this window's registered pages hear it, and each re-applies only when what
-/// it shows changed since its last update (the dirty set), so moving one page of
-/// ten makes one fork geometry post. Chromium keeps the same split: the browser
-/// view tells only the `RenderWidgetHostView`s whose bounds changed
+/// only this window's registered pages hear it (no other window's), and each
+/// compares what it shows with its last update and tells the fork only on a change,
+/// so moving one page of ten makes one fork geometry post.
+///
+/// Not a dirty set: every request visits every page of the window, and each reads
+/// its geometry to find out whether it moved (a pane move does not reach the views
+/// inside it, and every request today is window-wide). Chromium tells only the
+/// `RenderWidgetHostView`s whose bounds changed
 /// (`content/browser/renderer_host/render_widget_host_view_mac.mm`,
-/// `SetBounds` / `UpdateScreenInfo`), never every widget of the process.
+/// `SetBounds` / `UpdateScreenInfo`); that needs the layout to name the panes it moved.
 @MainActor
 public final class ChildPageGeometryRegistry {
     /// A page's place in the registry: it stays registered while this object lives
@@ -42,6 +46,8 @@ public final class ChildPageGeometryRegistry {
     public init() {}
 
     /// The registry of `window`; nil for no window, or one with no Chromium page layout.
+    /// For views that do not know their window's type (pages and cards entering a
+    /// window); the layout owner gets its registry at init.
     public static func of(_ window: NSWindow?) -> ChildPageGeometryRegistry? {
         (window as? any ChildPageGeometryHosting)?.childPageGeometry
     }
@@ -59,8 +65,8 @@ public final class ChildPageGeometryRegistry {
     /// The pages registered now.
     public var count: Int { entries.count(where: { $0.registration != nil }) }
 
-    /// Every page of the window re-applies its geometry where it changed (`force`:
-    /// every page re-applies). Returns how many pages changed.
+    /// Every page of the window checks its geometry and re-applies it where it
+    /// changed (`force`: every page re-applies). Returns how many pages changed.
     @discardableResult
     public func pagesNeedUpdate(force: Bool = false) -> Int { // perf-hot: 0.5ms cef-geometry (once per layout change of the window)
         entries.removeAll { $0.registration == nil }

@@ -97,6 +97,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.keyRouter = services.keyRouter
+        root.contentHost.pages = window.childPageGeometry
         window.title = Strings.appName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -424,9 +425,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
-    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
     /// This window's Chromium pages and the cards over them; `overlayLayer` tells them when they moved.
     let childPageGeometry = ChildPageGeometryRegistry()
+    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self, pages: childPageGeometry)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()

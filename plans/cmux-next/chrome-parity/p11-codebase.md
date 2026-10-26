@@ -565,7 +565,7 @@ through the merge train, which also runs `swift build --build-tests` for affecte
 | 047 | Remaining stateful singletons by type | L | Q2 | 023, 042, 210 |
 | 048 | `?? .app` and `.app` factories | M | Q2b | 012 |
 | 050 | browserChildWindowPagesNeedUpdate to dirty set | M | Q3 | 010, 000h |
-| 051 | CEFHostView.geometryDidChange to delegate | S | Q3 | 000h |
+| 051 | CEFHostView.geometryDidChange to delegate (needs a fork call; p06-scheduler-046's second name) | S | Q3 | 000h |
 | 052 | reduceMotion/speed to AppearanceEnvironment | M | Q3 | 011, 020 |
 | 053 | hoverCards/inactiveDim to Appearance | S | Q3 | 052 |
 | 054 | Ghostty configDidChange to Signal | M | Q3 | 010, 028 |

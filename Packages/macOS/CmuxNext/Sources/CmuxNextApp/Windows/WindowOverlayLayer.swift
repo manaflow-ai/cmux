@@ -37,6 +37,8 @@ final class WindowOverlayLayer {
     enum Placement: String { case inWindow, overlayWindow }
 
     private unowned let window: NSWindow
+    /// The window's Chromium pages and the cards over them (its owner's `childPageGeometry`).
+    private let pages: ChildPageGeometryRegistry
     /// The window's overlay host: its panel holds the planes (below every
     /// presented overlay) and keeps the order above page windows.
     private var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
@@ -73,8 +75,9 @@ final class WindowOverlayLayer {
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
-    init(window: NSWindow) {
+    init(window: NSWindow, pages: ChildPageGeometryRegistry) {
         self.window = window
+        self.pages = pages
         catchers = DividerMouseCatchers(window: window)
         let center = NotificationCenter.default
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
@@ -393,7 +396,7 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate(force: force)
+        pages.pagesNeedUpdate(force: force)
     }
 
     // MARK: Diagnostics

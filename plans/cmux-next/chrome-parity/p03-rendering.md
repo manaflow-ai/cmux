@@ -345,7 +345,7 @@ Each check is run by an agent on the fleet or locally (`render-done-checks.py`);
   `debug.cef` tracker.hosted_pages = visible pages; a page whose window is never ordered in still produces frames.
 - DC8b pages are views (Track B, after task 045): `debug.layers` page windows ordered in = 0;
   DividerMouseCatchers.panelUpdates = 0 over pane-perf-terminal.py --browser;
-  `rg -c 'cmuxClipPath|cmuxOcclusionRects|browserChildWindowPagesNeedUpdate' Packages/macOS/CmuxNext/Sources
+  `rg -c 'cmuxClipPath|cmuxOcclusionRects|ChildPageGeometryRegistry|ChildPageGeometryHosting' Packages/macOS/CmuxNext/Sources
   --glob '!**/ChildWindowPageFallback.swift'` = 0; check-ime-input.py passes on a hosted page.
 - DC9 resize never blocks main: cef-resize-sync-bench.py (hosting on, fence path): main-thread wait per commit
   p99 = 0.0 ms; page frame at the new size within 2 display frames p95; light and STRESS; same result on the new
@@ -401,7 +401,7 @@ returns 0 hits or only annotated hits.
 - MQ-frame-observers: `rg -n 'frameDidChangeNotification|boundsDidChangeNotification|postsFrameChangedNotifications'
   Packages/macOS/CmuxNext/Sources`: 22 hits in 9 files. Tasks 037-039, 110.
 - MQ-loops: `rg -n 'repeatCount = \.infinity' Packages/macOS/CmuxNext/Sources`: 10 hits. Tasks 013, 070.
-- MQ-child-window-pages: `rg -n 'cmuxClipPath|cmuxOcclusionRects|browserChildWindowPagesNeedUpdate|postGeometryChange|cutouts'
+- MQ-child-window-pages: `rg -n 'cmuxClipPath|cmuxOcclusionRects|ChildPageGeometryRegistry|ChildPageGeometryHosting|postGeometryChange|cutouts'
   Packages/macOS/CmuxNext/Sources` outside ChildWindowPageFallback.swift, plus `rg -n 'addChildWindow'` (27 hits in
   21 files), each classified "page ordering (delete)" or "out-of-window popup (keep)". Tasks 051-053, 056.
 - MQ-window-per-frame: `rg -n '(window|panel|Window|Panel)\??\.alphaValue = |self\.alphaValue = ' Packages/macOS/CmuxNext/Sources`
@@ -1135,9 +1135,9 @@ every task that changes behavior or performance and is not repeated per row.
   `.../CmuxNextBrowserCore/Engine/BrowserWindowOcclusion.swift`, `.../CmuxNextBrowser/UI/PageFloatingOverlays.swift`,
   `.../CmuxNextApp/WindowRootView+MainPane.swift`, `.../CmuxNextLayout/Views/ScreenContentView+Dock.swift`,
   `.../CmuxNextBrowser/CEF/ChildWindowPageFallback.swift`.
-- Change: move cmuxClipPath, cmuxOcclusionRects, the browserChildWindowPagesNeedUpdate notification and cutouts into
+- Change: move cmuxClipPath, cmuxOcclusionRects, the ChildPageGeometryRegistry (once browserChildWindowPagesNeedUpdate) and cutouts into
   the fallback file behind the hosting-refused state; geometry messages only on rect change.
-- Acceptance: DC8b rg = 0 outside the fallback file; notification name not referenced elsewhere; tests pass.
+- Acceptance: DC8b rg = 0 outside the fallback file; the registry not referenced elsewhere; tests pass.
 - Test phase: cef-layer-ab.py; pane-perf-terminal.py --browser STRESS.
 - Size M. Depends: 045.
 
