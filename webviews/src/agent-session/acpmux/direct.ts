@@ -4763,7 +4763,8 @@ export class AcpmuxDirectClient {
     session?: string,
   ): Promise<void> {
     const sessionId = session ?? this.actingSessionId;
-    if (!sessionId) return;
+    // Nothing was sent, so the answer is refused: a card that waits on it lets the person answer again.
+    if (!sessionId) throw new Error("no chat to answer in");
     const ticket =
       optionId === undefined || answers !== undefined
         ? undefined
