@@ -575,6 +575,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Tooltips, toasts, popovers, menus, drag ghosts, dialogs and the agent cursor draw in a top layer view of the main window above its content; the overlay child panel and its child window re-ordering run only while a Chromium page child window shows.
+    public static let overlayTopLayer = Feature(
+        index: 32,
+        name: "overlayTopLayer",
+        owner: "PL-motion-cef",
+        description: "Tooltips, toasts, popovers, menus, drag ghosts, dialogs and the agent cursor draw in a top layer view of the main window above its content; the overlay child panel and its child window re-ordering run only while a Chromium page child window shows.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
         index: 33,
@@ -976,6 +993,7 @@ nonisolated extension Feature {
         .memoryTerminalLastFrames,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .overlayTopLayer,
         .pageLifecycle,
         .pageProcessGroups,
         .pageRendererAtFirstShow,
@@ -1034,6 +1052,7 @@ nonisolated extension Feature {
         .memoryTerminalLastFrames,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .overlayTopLayer,
         .pageLifecycle,
         .pageProcessGroups,
         .pageRendererAtFirstShow,
