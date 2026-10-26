@@ -8,7 +8,8 @@ import CmuxNextCompat
 /// line protocol (one v2 JSON request per line, one JSON response line per
 /// request, plus the v1 `ping` and `auth <password>` lines the CLI sends).
 ///
-/// All socket IO runs on private dispatch queues and never on the main
+/// All socket IO runs on private dispatch queues at utility QoS (automation,
+/// below the person's input; threading-model.md) and never on the main
 /// thread. Each connection handles its requests in order on one task;
 /// reads answer from the published snapshot and mutations go through the
 /// router's bounded main-actor work queue. Per-connection inbound and
@@ -86,7 +87,7 @@ public final class ControlSocketServer: Sendable {
 
     public let configuration: Configuration
     public let router: ControlRouter
-    private let acceptQueue = DispatchQueue(label: "com.cmuxterm.next.control.accept")
+    private let acceptQueue = DispatchQueue(label: "com.cmuxterm.next.control.accept", qos: .utility)
     private let state = Mutex(ServerState())
 
     struct ServerState {
@@ -126,6 +127,9 @@ public final class ControlSocketServer: Sendable {
     }
 
     public var isRunning: Bool { state.withLock { $0.listener != nil } }
+
+    /// The accept queue's QoS (tests).
+    var acceptQueueQoS: DispatchQoS.QoSClass { acceptQueue.qos.qosClass }
 
     /// Open client connections.
     public var connectionCount: Int { state.withLock { $0.connections.count } }
