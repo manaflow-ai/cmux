@@ -229,7 +229,8 @@ private final class FakeWireDaemon: Sendable {
 
     init(outputBytesPerAttach: Int, colorsBeforeOutput: Bool = false) throws {
         path = "/tmp/cnd-wire-\(UUID().uuidString.prefix(8).lowercased()).sock"
-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)  // a local: the closures below may not capture self
+        self.listener = listener
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8)
@@ -246,7 +247,6 @@ private final class FakeWireDaemon: Sendable {
             close(listener)
             throw POSIXError(.EADDRINUSE)
         }
-        let listener = listener
         let script = Script(outputBytes: outputBytesPerAttach, colors: colorsBeforeOutput)
         let thread = Thread {
             while true {
