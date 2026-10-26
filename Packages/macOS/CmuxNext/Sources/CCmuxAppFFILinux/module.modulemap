@@ -2,8 +2,10 @@
 // Linux mode of Package.swift (p15-oracle-002) as a C target with
 // publicHeadersPath ".". The four module names stay those of the xcframework,
 // so no Swift import changes. `scripts/cmux-next/build-app-ffi.sh --linux`
-// writes the module maps named here, with the crates' headers and the link
-// lines for .build-linux/ffi/lib/libcmux_app_ffi.a and its system libraries.
+// writes the module maps named here, with the crates' headers and `link`
+// lines for libcmux_app_ffi and its system libraries, which Swift autolinks.
+// A module map cannot carry a search path, so 002 must give this target
+// linkerSettings: [.unsafeFlags(["-L", Context.packageDirectory + "/.build-linux/ffi/lib"])].
 module CCmuxAppFFILinux {
     export *
 }

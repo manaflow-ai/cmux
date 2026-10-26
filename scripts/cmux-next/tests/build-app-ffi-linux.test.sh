@@ -6,18 +6,29 @@
 #  - the .a has no other globals: Rust and std symbols stay local, like the
 #    macOS slices;
 #  - each of the four modules has its pinned crate header and the link line,
-#    and Sources/CCmuxAppFFILinux/module.modulemap imports and links from C.
+#    and Sources/CCmuxAppFFILinux/module.modulemap imports and links from C
+#    with only the -L that Package.swift's Linux mode passes: the libraries
+#    come from the module maps' link lines, as Swift autolinks them;
+#  - the package folder holds only headers, lib and SOURCE_SHA (the pinned
+#    worktree and cargo target dir stay in the shared git common dir);
+#  - CMUX_APP_FFI_OUT is refused: the checked-in module map fixes the path.
 # Usage: build-app-ffi-linux.test.sh [--no-build]   (--no-build checks the last output)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 pkg="$root/Packages/macOS/CmuxNext"
-out="${CMUX_APP_FFI_OUT:-$pkg/.build-linux/ffi}"
+out="$pkg/.build-linux/ffi"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 [[ "$(uname -s)" == Linux ]] || { echo "skip: Linux only"; exit 0; }
 [[ "${1:-}" == --no-build ]] || bash "$root/scripts/cmux-next/build-app-ffi.sh" --linux
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+rc=0
+CMUX_APP_FFI_OUT="$tmp/elsewhere" bash "$root/scripts/cmux-next/build-app-ffi.sh" --linux >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 2 && ! -e "$tmp/elsewhere" ]] || fail "--linux with CMUX_APP_FFI_OUT exited $rc, not 2 (refused)"
+listing="$(cd "$out" && find . -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')"
+[[ "$listing" == "./.gitignore ./SOURCE_SHA ./headers ./lib " ]] || fail "unexpected files in $out: $listing"
 
 sha="$(grep -oE 'cmux-app-ffi-[0-9a-f]{40}/' "$pkg/Package.swift" | head -n 1 | grep -oE '[0-9a-f]{40}')"
 [[ "$(cat "$out/SOURCE_SHA")" == "$sha" ]] || fail "SOURCE_SHA $(cat "$out/SOURCE_SHA") is not the pin $sha"
@@ -49,6 +60,13 @@ for entry in cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI \
     || fail "CCmuxAppFFILinux does not name $module"
 done
 
+# A module map cannot carry a search path: once Package.swift declares the
+# target (002), it must pass the -L the link below uses.
+lflag='"/.build-linux/ffi/lib"'
+if grep -q 'CCmuxAppFFILinux' "$pkg/Package.swift"; then
+  grep -qF "$lflag" "$pkg/Package.swift" || fail "Package.swift declares CCmuxAppFFILinux without -L ...$lflag"
+fi
+
 if command -v clang >/dev/null 2>&1; then
   cat > "$tmp/t.m" <<'EOF'
 @import CCmuxRdFFI;
@@ -57,11 +75,17 @@ if command -v clang >/dev/null 2>&1; then
 @import CCmuxMotionFFI;
 int main(void) { return cmux_motion_ffi_abi_version() > 0 && cmux_rd_ffi_abi_version() > 0 ? 0 : 1; }
 EOF
-  libs="$(sed -nE 's/^ *link "([^"]+)"/-l\1/p' "$out/headers/CCmuxRdFFI/module.modulemap" | tr '\n' ' ')"
-  # shellcheck disable=SC2086 # one flag per word
   clang -x objective-c -fmodules -fmodules-cache-path="$tmp/mc" \
     -fmodule-map-file="$pkg/Sources/CCmuxAppFFILinux/module.modulemap" \
-    "$tmp/t.m" -L"$out/lib" $libs -o "$tmp/t" || fail "a C client of the module map does not build"
+    -c "$tmp/t.m" -o "$tmp/t.o" || fail "a C client of the module map does not compile"
+  # The libraries are the compiler's autolink entries (.linker-options: lib,
+  # name pairs), as Swift autolinks the module maps' link lines; the one
+  # search path is Package.swift's. No -l or -L of our own.
+  mapfile -t autolink < <(readelf -p .linker-options "$tmp/t.o" \
+    | awk '/^ *\[/ { if (n++ % 2 == 0) key = $NF; else if (key == "lib") print "-l" $NF }' | awk '!seen[$0]++')
+  [[ " ${autolink[*]} " == *" -lcmux_app_ffi "* ]] || fail "the object autolinks no cmux_app_ffi: ${autolink[*]}"
+  clang "$tmp/t.o" -L "$pkg/.build-linux/ffi/lib" "${autolink[@]}" -o "$tmp/t" \
+    || fail "a C client of the module map does not link with its autolink entries and the package -L"
   "$tmp/t" || fail "the ABI version calls returned 0"
 fi
 echo "ok: $(wc -l < "$tmp/required") FFI symbols called by Sources, all defined at $sha"
