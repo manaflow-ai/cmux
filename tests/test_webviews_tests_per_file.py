@@ -55,6 +55,12 @@ case "$file" in
     if [ -f "$BUN_CALLS.retry" ]; then sleep 60; fi
     touch "$BUN_CALLS.retry"
     echo "(fail) first attempt assertion"; exit 1 ;;
+  *flood*)
+    # One very long line models a browser/WPE diagnostic burst; the assertion at the end must still
+    # survive the runner's bounded public display and the retry's raw artifact copy.
+    printf '%*s' 350000 '' | tr ' ' F
+    printf '\n(fail) inspector-dead-clicks sentinel\n'
+    exit 1 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -199,6 +205,34 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(json.loads(results_path.read_text()), {
             "test/retry-hang.test.ts > first attempt assertion": False,
         }, "an incomplete retry must preserve the named first failure")
+
+    def test_a_flood_is_bounded_but_raw_retry_logs_and_named_failure_are_kept(self):
+        raw_logs = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        results_path = raw_logs / "results.json"
+        result, _, calls = self.run_runner(
+            ["test/inspector-dead-clicks-flood.test.ts"],
+            extra_env={
+                "CMUX_WEB_TEST_RETRIES": "1",
+                "CMUX_WEB_TEST_LOG_DISPLAY_BYTES": "4096",
+                "CMUX_WEB_TEST_RAW_LOG_DIR": str(raw_logs / "raw"),
+                "CMUX_WEB_TEST_RESULTS": str(results_path),
+            },
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/inspector-dead-clicks-flood.test.ts"] * 2)
+        self.assertLess(len(output.encode()), 12_000, output)
+        self.assertIn("output truncated; complete log is in the webviews raw-log artifact", output)
+        self.assertIn("(fail) inspector-dead-clicks sentinel", output)
+        self.assertEqual(
+            json.loads(results_path.read_text()),
+            {"test/inspector-dead-clicks-flood.test.ts > inspector-dead-clicks sentinel": False},
+        )
+        logs = list((raw_logs / "raw").glob("*.log"))
+        self.assertEqual(len(logs), 1, logs)
+        raw = logs[0].read_bytes()
+        self.assertGreater(len(raw), 700_000, len(raw))
+        self.assertIn(b"(fail) inspector-dead-clicks sentinel", raw)
 
     def test_retry_budget_expiring_during_limit_lookup_starts_no_retry(self):
         system_head = shutil.which("head")
