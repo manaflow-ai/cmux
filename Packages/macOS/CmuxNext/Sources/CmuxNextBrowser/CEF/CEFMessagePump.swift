@@ -1,3 +1,4 @@
+import CmuxNextTrace
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
@@ -17,11 +18,17 @@ import os
 /// `kRenderingStarved`) a pump with the guard runs one pass per late frame;
 /// the next waits for that link's tick (`afterLateFrame`), then runs on the
 /// next run loop pass.
+///
+/// Each pass runs with ``CrashKeySlot/inCEFPump`` set: the pump runs on the
+/// main thread, so a stall or hang inside it is a phase of the main thread's
+/// episode (the watchdog's records name it `cef_pump`), not a hang-watch scope.
 final class CEFMessagePump {
     private let work: () -> Void
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
+    /// Told when a pass runs (``CrashKeySlot/inCEFPump``).
+    private let crashKeys: any CrashKeyStore
     private var schedule: CEFPumpSchedule
     private var isRunning = false
     /// Why the timer is armed (for the wakeup ledger).
@@ -44,7 +51,8 @@ final class CEFMessagePump {
 
     /// `clock` is monotonic seconds (tests inject one). `starvation`: the app's
     /// rendering starvation guard; `CEFRuntime` passes none until the pump is
-    /// on the main-thread board (p06-scheduler task 048).
+    /// on the main-thread board (p06-scheduler task 048). `crashKeys`: the
+    /// process's crash-key page (tests pass a recorder).
     init(
         work: @escaping () -> Void,
         safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
@@ -52,9 +60,11 @@ final class CEFMessagePump {
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
-        starvation: RenderStarvationGuard? = nil
+        starvation: RenderStarvationGuard? = nil,
+        crashKeys: any CrashKeyStore = TraceRuntime.shared
     ) {
         self.work = work
+        self.crashKeys = crashKeys
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -142,7 +152,9 @@ final class CEFMessagePump {
         }
         rearm()
         pumpMark("pump-start")
+        crashKeys.setCrashKey(.inCEFPump, 1)
         work()
+        crashKeys.setCrashKey(.inCEFPump, 0)
         pumpMark("pump-end")
         let finished = clock()
         let elapsed = finished - started

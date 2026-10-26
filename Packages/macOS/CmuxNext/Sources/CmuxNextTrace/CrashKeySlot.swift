@@ -48,6 +48,10 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
     /// 64 words: the stalled main thread's frames, innermost first; each is the image's index in
     /// ``hangInProgressImages`` (high 16 bits) and the offset in that image (low 48 bits).
     case hangInProgressFrames = 56
+    /// The Mach port of the last thread a hang-watch scope reported hung (open 2 s past its budget), or 0.
+    case lastThreadHangPort = 120
+    /// When that scope's budget passed (uptime ns), or 0: a crash after it with no newer hang names it.
+    case lastThreadHangUptime = 121
 
     /// The number of 64-bit words the slot holds.
     public var wordCount: Int {
@@ -79,6 +83,8 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
         case .hangInProgressFrameCount: "hang_in_progress_frame_count"
         case .hangInProgressImages: "hang_in_progress_images"
         case .hangInProgressFrames: "hang_in_progress_frames"
+        case .lastThreadHangPort: "last_thread_hang_port"
+        case .lastThreadHangUptime: "last_thread_hang_uptime"
         }
     }
 

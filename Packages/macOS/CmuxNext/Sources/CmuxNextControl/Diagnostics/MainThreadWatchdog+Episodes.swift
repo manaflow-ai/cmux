@@ -1,5 +1,6 @@
 import os
 import CmuxNextCompat
+import CmuxNextTrace
 
 extension MainThreadWatchdog {
     /// Writes one file per hang episode (``HangEpisodeRecorder``): the main thread's stack at
@@ -31,16 +32,30 @@ extension MainThreadWatchdog {
         let recorder = episodes
         guard sink != nil || recorder != nil else { return }
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
-        // Taken only while the stall still runs: the beat is read while the main thread is suspended.
+        // Taken only while the stall still runs: the beat and the phase are read while the main thread
+        // is suspended (atomics only).
         var stillBlocked = true
-        let sampled = sampler?.sample { _ in stillBlocked = beatSequence.load(ordering: .acquiring) == beat } ?? []
+        var inCEFPump: UInt64 = 0
+        let crashKeys = crashKeySink.withLock { $0 }
+        let sampled = sampler?.sample { _ in
+            stillBlocked = beatSequence.load(ordering: .acquiring) == beat
+            inCEFPump = crashKeys?.crashKey(.inCEFPump) ?? 0
+        } ?? []
         let addresses = stillBlocked ? sampled : []
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
         recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others)
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
+            sink(Hang(duration: duration, addresses: addresses, otherThreads: others,
+                      phase: stillBlocked ? Self.phaseLabel(inCEFPump: inCEFPump) : nil))
         }
+    }
+
+    /// The main-thread phase a stall or hang record names, from ``CrashKeySlot/inCEFPump`` read while
+    /// the main thread was suspended: `cef_pump` while the Chromium message pump runs on it (it runs on
+    /// main, so it is a phase of the main thread's episode, not a hang-watch scope); nil otherwise.
+    static func phaseLabel(inCEFPump: UInt64) -> String? {
+        inCEFPump != 0 ? "cef_pump" : nil
     }
 
     /// A hang episode's checkpoint or end, to its file (``HangEpisodeTracker/Event/began``

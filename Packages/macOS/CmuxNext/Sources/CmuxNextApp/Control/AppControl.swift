@@ -68,8 +68,9 @@ final class AppControl {
     func startWatchdog() {
         watchdog.start()
         // Other threads' and lanes' hang-watch scopes (the process's slot table) are scanned on the
-        // watchdog's thread; each overrun goes to debug.hangs thread_hangs.
-        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch)
+        // watchdog's thread; each overrun goes to debug.hangs thread_hangs (a jank at its budget, a hang
+        // dump with the crash keys 2 s later). The crash keys also name the main thread's phase.
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.

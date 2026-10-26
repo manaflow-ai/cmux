@@ -84,6 +84,9 @@ public final class MainThreadWatchdog: Sendable {
         /// that waits on a lock or a reply shows only the wait, and the holder is in here
         /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
         public var otherThreads: [ThreadSample] = []
+        /// What the main thread was in when sampled, from the crash keys (``phaseLabel(inCEFPump:)``):
+        /// `cef_pump` inside the Chromium message pump; nil otherwise or with no crash keys attached.
+        public var phase: String?
     }
 
     public let configuration: Configuration
@@ -124,6 +127,9 @@ public final class MainThreadWatchdog: Sendable {
     /// The slot table ``attach(hangWatch:)`` connected; the watchdog thread reads the flag, then the sink once.
     let hangWatchSink = Mutex<HangWatch?>(nil)
     let hangWatchAttached = Atomic<Bool>(false)
+    /// The crash-key page ``attach(hangWatch:crashKeys:)`` connected: hang dumps carry its keys, and main
+    /// stall and hang records its phase.
+    let crashKeySink = Mutex<(any CrashKeyStore)?>(nil)
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
     /// when they move it, so host load adds no stall.
@@ -178,6 +184,8 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedTaskPacked = Atomic<UInt64>(0)
     private let publishedTaskStart = Atomic<UInt64>(0)
     private let publishedTaskBudget = Atomic<UInt64>(0)
+    /// ``CrashKeySlot/inCEFPump`` in that sample (``phaseLabel(inCEFPump:)``).
+    private let publishedInCEFPump = Atomic<UInt64>(0)
     /// The main-thread scheduler's board (``attach(board:)``).
     let boardSink = Mutex<MainTaskBoard?>(nil)
     /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
@@ -382,6 +390,7 @@ public final class MainThreadWatchdog: Sendable {
                 details = Self.details(of: task)
                 details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
             }
+            if let phase = Self.phaseLabel(inCEFPump: publishedInCEFPump.load(ordering: .relaxed)) { details["phase"] = .string(phase) }
         }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
                                 cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
@@ -428,9 +437,11 @@ public final class MainThreadWatchdog: Sendable {
                 sampledBeat = beat
                 if let sampler {
                     let board = boardSink.withLock { $0 }
+                    let crashKeys = crashKeySink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
                     _ = sampler.sample { count in
+                        publishedInCEFPump.store(crashKeys?.crashKey(.inCEFPump) ?? 0, ordering: .relaxed)
                         let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
                         publishedTaskPacked.store(task.packed, ordering: .relaxed)
                         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
