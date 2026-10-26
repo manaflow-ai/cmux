@@ -2,14 +2,11 @@
 //! through its capability bits ([`cmux_holder::wire::capability`],
 //! p09-observability-096): only a holder that granted TRACE_CONTROL gets
 //! TRACE_START and TRACE_STOP, only one that granted WRITE_FLOW a flow
-//! trailer. Any other holder is `holder_untraced`.
-
-// The daemon's trace.start, trace.stop and trace.status (p09-observability-015) and the exact
-// echo flow (p09-observability-018) call these.
-#![cfg_attr(not(test), expect(dead_code, reason = "called by p09-observability-015 and -018"))]
+//! trailer. Any other holder is `holder_untraced`. The daemon's
+//! `trace.start`, `trace.stop` and `trace.status` (p09-observability-015)
+//! and the exact echo flow (p09-observability-018) call these.
 
 use std::io;
-use std::sync::Arc;
 
 use cmux_holder::link::{HolderLink, TraceForward};
 use cmux_holder::wire::TraceStart;
@@ -18,24 +15,32 @@ use super::HolderService;
 use crate::panic_free::RecoverPoison;
 
 /// What the holder does for a daemon trace recording (`trace.status`). The
-/// holder is told only through [`cmux_holder::wire::capability::TRACE_CONTROL`],
-/// never through a guess from its version or its timing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// holder is told only through [`cmux_holder::wire::capability::TRACE_CONTROL`]
+/// and answers with its refusal, never through a guess from its version or
+/// its timing.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum HolderTrace {
-    /// The holder granted the capability: it got the frame.
+    /// The holder granted the capability and refused no control frame.
     Traced,
-    /// It did not (a holder of an older build): it got nothing.
+    /// It refused the last TRACE_START or TRACE_STOP (its tracer did not
+    /// start, the recording ring is over the budget, one already runs):
+    /// the holder's message.
+    Refused(String),
+    /// It did not grant the capability (a holder of an older build, or one
+    /// whose tracer does not run): it got nothing.
     Untraced,
     /// No holder link is open (none runs, or one is restarting): a holder
     /// that starts meanwhile gets the recording when its link is published.
     NotLinked,
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "trace.status, p09-observability-015"))]
 impl HolderTrace {
     /// The `trace.status` word.
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             HolderTrace::Traced => "holder_traced",
+            HolderTrace::Refused(_) => "holder_trace_failed",
             HolderTrace::Untraced => "holder_untraced",
             HolderTrace::NotLinked => "holder_not_linked",
         }
@@ -43,7 +48,9 @@ impl HolderTrace {
 
     fn of(link: Option<&HolderLink>) -> Self {
         match link {
-            Some(link) if link.traced() => HolderTrace::Traced,
+            Some(link) if link.traced() => {
+                link.trace_refusal().map_or(HolderTrace::Traced, HolderTrace::Refused)
+            }
             Some(_) => HolderTrace::Untraced,
             None => HolderTrace::NotLinked,
         }
@@ -51,53 +58,62 @@ impl HolderTrace {
 }
 
 impl HolderService {
-    /// Start the holder's trace recording of `categories` within `records`
-    /// (0: its role's default), and every later holder's while it runs.
-    /// Only a holder that granted TRACE_CONTROL gets the frame. Never
+    /// Start the holder's trace recording of `categories` within
+    /// `budget_bytes` ring bytes (0: no limit), and every later holder's
+    /// while it runs. Only a holder that granted TRACE_CONTROL gets the
+    /// frame; its refusal comes back later ([`Self::trace_state`]). Never
     /// connects or starts a holder.
-    pub(crate) fn trace_start(&self, categories: u64, records: u32) -> HolderTrace {
-        let link = {
-            let mut slot = self.link.lock().recover_poison();
-            slot.trace = Some(TraceStart { categories, records });
-            slot.link.clone().filter(|link| link.is_open())
-        };
-        self.forward_trace(link, |link| link.trace_start(categories, records))
+    #[cfg_attr(not(test), expect(dead_code, reason = "trace.start, p09-observability-015"))]
+    pub(crate) fn trace_start(&self, categories: u64, budget_bytes: u64) -> HolderTrace {
+        self.change_recording(Some(TraceStart { categories, budget_bytes }))
     }
 
     /// Stop the holder's trace recording. Never connects.
+    #[cfg_attr(not(test), expect(dead_code, reason = "trace.stop, p09-observability-015"))]
     pub(crate) fn trace_stop(&self) -> HolderTrace {
-        let link = {
-            let mut slot = self.link.lock().recover_poison();
-            slot.trace = None;
-            slot.link.clone().filter(|link| link.is_open())
-        };
-        self.forward_trace(link, HolderLink::trace_stop)
+        self.change_recording(None)
     }
 
-    /// Whether the holder takes trace control now (`trace.status`).
+    /// What the holder does for the recording now (`trace.status`).
+    #[cfg_attr(not(test), expect(dead_code, reason = "trace.status, p09-observability-015"))]
     pub(crate) fn trace_state(&self) -> HolderTrace {
         HolderTrace::of(self.open_link().as_deref())
     }
 
-    fn forward_trace(
-        &self,
-        link: Option<Arc<HolderLink>>,
-        send: impl FnOnce(&HolderLink) -> io::Result<TraceForward>,
-    ) -> HolderTrace {
+    /// Record `recording` and send it to the open link, both under
+    /// `trace_control`: a publish in between cannot reorder them.
+    fn change_recording(&self, recording: Option<TraceStart>) -> HolderTrace {
+        let _trace = self.trace_control.lock().recover_poison();
+        let link = {
+            let mut slot = self.link.lock().recover_poison();
+            slot.trace = recording;
+            slot.link.clone().filter(|link| link.is_open())
+        };
         let Some(link) = link else { return HolderTrace::NotLinked };
-        match send(&link) {
-            Ok(TraceForward::Sent) => HolderTrace::Traced,
-            Ok(TraceForward::Untraced) => HolderTrace::Untraced,
-            // The link broke: the next one gets the recording on publish.
-            Err(_) => HolderTrace::NotLinked,
+        let sent = match recording {
+            Some(start) => link.trace_start(start.categories, start.budget_bytes),
+            None => link.trace_stop(),
+        };
+        forwarded(sent)
+    }
+
+    /// Send a just-published link the running recording, if one runs
+    /// (`trace_control` held by the publish).
+    pub(super) fn send_recording(&self, link: &HolderLink) {
+        let Some(start) = self.link.lock().recover_poison().trace else { return };
+        if let Err(error) = link.trace_start(start.categories, start.budget_bytes) {
+            eprintln!("cmux-tui: start the terminal holder's trace: {error}");
         }
     }
 
-    /// Tell the holder the next output of `chan` answers key press `flow`:
-    /// the daemon wrote its input on its custody master, so only an empty
-    /// WRITE carries the flow, and only to a holder that granted
-    /// WRITE_FLOW. False when nothing was sent (no flow, no open link, or
-    /// a holder without the capability). Never connects.
+    /// Tell the holder the next output of `chan` answers key press `flow`,
+    /// for input the daemon writes on its custody master: call it before
+    /// that write. Only an empty WRITE carries the flow, and only to a
+    /// holder that granted WRITE_FLOW. Best effort: the holder may read the
+    /// echo before it handles the mark. False when nothing was sent (no
+    /// flow, no open link, or a holder without the capability). Never
+    /// connects.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the exact echo flow, p09-observability-018"))]
     pub(crate) fn mark_input_flow(&self, chan: u32, flow: u64) -> bool {
         if flow == 0 {
             return false;
@@ -108,17 +124,34 @@ impl HolderService {
     }
 }
 
+/// The state a trace control send leaves.
+fn forwarded(sent: io::Result<TraceForward>) -> HolderTrace {
+    match sent {
+        // A refusal comes back later: trace_state reads it.
+        Ok(TraceForward::Sent) => HolderTrace::Traced,
+        Ok(TraceForward::Untraced) => HolderTrace::Untraced,
+        // The link broke: the next one gets the recording on publish.
+        Err(_) => HolderTrace::NotLinked,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsRawFd;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
+    use std::sync::Arc;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use cmux_holder::wire::{self, Frame, Kind, capability};
+    use cmux_holder::holder::error_code;
+    use cmux_holder::wire::{self, Frame, Kind, Out, capability};
 
     use super::super::tests::{next_frame, stand_in_service, welcome_granting};
     use super::*;
+
+    /// A recording budget with room for a holder's ring.
+    const BUDGET: u64 = 16 << 20;
 
     fn temp_socket(prefix: &str) -> (PathBuf, PathBuf) {
         let stamp = std::time::SystemTime::now()
@@ -170,7 +203,7 @@ mod tests {
 
         let service = stand_in_service(socket);
         let link = service.link().unwrap();
-        assert_eq!(service.trace_start(0x4400, 8192), HolderTrace::Traced);
+        assert_eq!(service.trace_start(0x4400, BUDGET), HolderTrace::Traced);
         assert_eq!(service.trace_state().as_str(), "holder_traced");
         assert!(service.mark_input_flow(5, 42), "a granted holder takes the flow mark");
         assert!(!service.mark_input_flow(5, 0), "no flow, no frame");
@@ -179,7 +212,7 @@ mod tests {
         service.link().unwrap().signal(999, 0).unwrap();
         let (seen, restarted, second) = stand_in.join().expect("the stand-in saw both SIGNALs");
 
-        let start = TraceStart { categories: 0x4400, records: 8192 };
+        let start = TraceStart { categories: 0x4400, budget_bytes: BUDGET };
         assert_eq!(seen.len(), 2, "TRACE_START and one WRITE: {seen:?}");
         assert_eq!((seen[0].kind, seen[0].chan), (Kind::TraceStart as u16, 0));
         assert_eq!(TraceStart::decode(&seen[0].payload).unwrap(), start);
@@ -241,6 +274,55 @@ mod tests {
         link.signal(999, 0).unwrap();
         let (seen, stream) = stand_in.join().expect("the stand-in saw the test's SIGNAL");
         assert!(seen.is_empty(), "an older holder got a frame: {seen:?}");
+
+        service.superseded.store(true, Ordering::Release);
+        drop(link);
+        drop(service);
+        drop(stream);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// p09-observability-096: a holder that granted TRACE_CONTROL but
+    /// refused the recording (here: its tracer never started) is
+    /// `holder_trace_failed` with its message, never `holder_traced`.
+    #[test]
+    fn a_refused_recording_is_reported_failed() {
+        let (dir, socket) = temp_socket("chr");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let stand_in = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let mut reader = wire::Reader::default();
+            welcome_granting(&stream, &mut reader, &[], Some(capability::TRACE_CONTROL));
+            let start = next_frame(&stream, &mut reader, "TRACE_START");
+            assert_eq!(start.kind, Kind::TraceStart as u16);
+            let refusal = Out::default()
+                .u16(Kind::TraceStart as u16)
+                .u16(error_code::TRACE_FAILED)
+                .bytes(b"tracing is not initialised in this process")
+                .0;
+            let error = wire::encode(Kind::Error, 0, &refusal);
+            wire::send_all(stream.as_raw_fd(), &error, &[]).unwrap();
+            frames_until_sentinel(&stream, &mut reader);
+            stream
+        });
+
+        let service = stand_in_service(socket);
+        let link = service.link().unwrap();
+        assert_eq!(service.trace_start(0x4400, BUDGET), HolderTrace::Traced, "sent");
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while service.trace_state() == HolderTrace::Traced {
+            assert!(std::time::Instant::now() < deadline, "no refusal");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let state = service.trace_state();
+        assert_eq!(
+            state,
+            HolderTrace::Refused("tracing is not initialised in this process".to_string())
+        );
+        assert_eq!(state.as_str(), "holder_trace_failed");
+        link.signal(999, 0).unwrap();
+        let stream = stand_in.join().expect("the stand-in saw the test's SIGNAL");
 
         service.superseded.store(true, Ordering::Release);
         drop(link);

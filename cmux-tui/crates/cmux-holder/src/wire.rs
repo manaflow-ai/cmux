@@ -48,12 +48,14 @@ pub const MIN_VERSION: u16 = 1;
 /// stays 5. Bits are never reused.
 pub mod capability {
     /// [`super::Kind::TraceStart`] and [`super::Kind::TraceStop`]: the
-    /// daemon starts and stops this holder's trace recording.
+    /// daemon starts and stops this holder's trace recording. Granted only
+    /// by a holder whose tracer runs.
     pub const TRACE_CONTROL: u32 = 1 << 0;
     /// [`super::FLAG_FLOW`] on [`super::Kind::Write`]: the frame ends with
     /// the `flow u64` of the key press that wrote it.
     pub const WRITE_FLOW: u32 = 1 << 1;
-    /// Every bit this build serves.
+    /// Every bit this build knows (a holder serves TRACE_CONTROL only with
+    /// its tracer running).
     pub const SUPPORTED: u32 = TRACE_CONTROL | WRITE_FLOW;
 }
 /// Output a holder sends one terminal past the offset its daemon last
@@ -153,11 +155,12 @@ pub enum Kind {
     Adopted = 21,
     /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
     /// start this holder's trace recording: `categories u64` (the
-    /// `cmux_trace::category` bits to record), `records u32` (the most
-    /// records the daemon's total cap leaves this holder; 0: the role's
-    /// default). No path: the holder writes where its own trace directory
-    /// is. No answer when it started; an [`Kind::Error`] with
-    /// `TRACE_FAILED` when it did not.
+    /// `cmux_trace::category` bits to record), `budget_bytes u64` (the
+    /// most ring bytes the daemon's total cap leaves this holder, the unit
+    /// of `cmux_trace::Status::recording_bytes`; 0: no limit). No path: the
+    /// holder writes where its own trace directory is. No answer when it
+    /// started; an [`Kind::Error`] with `TRACE_FAILED` when it did not. The
+    /// recording ends with the link that started it.
     TraceStart = 22,
     /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
     /// stop the recording. Empty payload; an [`Kind::Error`] with
@@ -267,18 +270,19 @@ pub fn split_write(flags: u16, payload: &[u8]) -> io::Result<(&[u8], Option<u64>
 pub struct TraceStart {
     /// `cmux_trace::category` bits to record.
     pub categories: u64,
-    /// The most records the daemon's cap leaves this holder (0: the role's default).
-    pub records: u32,
+    /// The most recording ring bytes the daemon's total cap leaves this
+    /// holder (`cmux_trace::Status::recording_bytes`; 0: no limit).
+    pub budget_bytes: u64,
 }
 
 impl TraceStart {
     pub fn encode(self) -> Vec<u8> {
-        Out::default().u64(self.categories).u32(self.records).0
+        Out::default().u64(self.categories).u64(self.budget_bytes).0
     }
 
     pub fn decode(payload: &[u8]) -> io::Result<Self> {
         let mut input = In(payload);
-        Ok(Self { categories: input.u64()?, records: input.u32()? })
+        Ok(Self { categories: input.u64()?, budget_bytes: input.u64()? })
     }
 }
 

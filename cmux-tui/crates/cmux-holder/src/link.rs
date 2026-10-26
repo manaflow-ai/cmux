@@ -206,8 +206,9 @@ impl HolderLink {
     }
 
     /// Whether the holder takes TRACE_START and TRACE_STOP
-    /// ([`wire::capability::TRACE_CONTROL`]). One that does not is
-    /// `holder_untraced`: it never gets either frame.
+    /// ([`wire::capability::TRACE_CONTROL`], granted only while its tracer
+    /// records). One that does not is `holder_untraced`: it never gets
+    /// either frame.
     pub fn traced(&self) -> bool {
         self.granted & wire::capability::TRACE_CONTROL != 0
     }
@@ -218,11 +219,12 @@ impl HolderLink {
         self.granted & wire::capability::WRITE_FLOW != 0
     }
 
-    /// Start the holder's trace recording of `categories`, within `records`
-    /// records (0: its role's default). Sends nothing to a holder that did
-    /// not grant [`wire::capability::TRACE_CONTROL`].
-    pub fn trace_start(&self, categories: u64, records: u32) -> io::Result<TraceForward> {
-        let payload = wire::TraceStart { categories, records }.encode();
+    /// Start the holder's trace recording of `categories`, within
+    /// `budget_bytes` ring bytes (0: no limit). Sends nothing to a holder
+    /// that did not grant [`wire::capability::TRACE_CONTROL`]. The holder
+    /// stops it when this link ends.
+    pub fn trace_start(&self, categories: u64, budget_bytes: u64) -> io::Result<TraceForward> {
+        let payload = wire::TraceStart { categories, budget_bytes }.encode();
         self.trace_control(Kind::TraceStart, &payload)
     }
 
@@ -435,9 +437,11 @@ impl HolderLink {
     }
 
     /// [`Self::write`] for the key press `flow` (0: none): its last frame
-    /// carries the flow ([`wire::FLAG_FLOW`]), so the holder marks the next
-    /// output it reads with it. `bytes` may be empty: a flow mark for input
-    /// the daemon wrote on its custody master. A holder that did not grant
+    /// carries the flow ([`wire::FLAG_FLOW`]), so the holder marks the
+    /// first output it reads after these bytes reached the PTY. `bytes` may
+    /// be empty: a flow mark for input the daemon writes on its custody
+    /// master, sent before that write (best effort: the holder may read the
+    /// echo before it handles the mark). A holder that did not grant
     /// [`wire::capability::WRITE_FLOW`] gets the plain WRITE (none for empty
     /// `bytes`): never a trailer it would write into the shell.
     pub fn write_flow(&self, chan: u32, bytes: &[u8], flow: u64) -> io::Result<()> {
