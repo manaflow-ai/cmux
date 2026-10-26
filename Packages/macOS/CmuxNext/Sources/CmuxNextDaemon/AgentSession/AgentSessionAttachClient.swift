@@ -222,6 +222,7 @@ public actor AgentSessionAttachClient {
         } catch DaemonError.command(_, let message, let code, let details, _) {
             throw AgentSessionAttachError(code: code ?? "agent_session.refused", message: message, details: details)
         }
+        response.recorder?.decoded()  // Self.data(of:) parses the line
         return Self.data(of: response.line)
     }
 
@@ -244,12 +245,15 @@ public actor AgentSessionAttachClient {
 
     private func connect() async throws -> LineTransport {
         let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath, role: .agentSessionAttach)
+        let transport = try LineTransport(path: endpoint.socketPath, role: .agentSessionAttach, stats: endpoint.wireStats)
         let handler = handler
         let surface = surface
+        let recorder = transport.recorder
         transport.start(
             onEvent: { name, line, _ in
-                guard name.hasPrefix("agent-session-"), Self.surface(of: line) == surface else { return }
+                guard name.hasPrefix("agent-session-") else { return }
+                recorder?.decoded()  // Self.surface(of:) parses the line
+                guard Self.surface(of: line) == surface else { return }
                 handler.current?(name, line)
                 if name == "agent-session-closed" { handler.set(nil) }
             },

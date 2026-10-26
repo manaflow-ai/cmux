@@ -114,12 +114,13 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
+        // The local daemon's wire traffic, decodes, output copies and connections by role.
+        if let wireStats = services.wireStats { service.router.register([DaemonWireControl(stats: wireStats).method]) }
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
-            DaemonWireControl(stats: .process).method, // wire traffic, decodes, output copies, connections by role
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
             .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
                 let report = budget.report

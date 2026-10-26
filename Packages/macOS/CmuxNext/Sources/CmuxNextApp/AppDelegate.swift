@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
+    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    private let wireStats: DaemonWireStats?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -58,11 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
+        self.wireStats = wireStats
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
@@ -112,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.

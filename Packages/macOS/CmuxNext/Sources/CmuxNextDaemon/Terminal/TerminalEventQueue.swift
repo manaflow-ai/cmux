@@ -18,9 +18,9 @@ final class TerminalEventQueue: @unchecked Sendable {
     /// starts to block above `highWater`. Tests use it to observe
     /// backpressure without timing; it must not block or touch the queue.
     private let onReaderBlocked: (@Sendable () -> Void)?
-    /// Counts the output bytes this queue receives (each a decoded copy) and copies again when
-    /// it merges chunks (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
-    private let stats: DaemonWireStats
+    /// Counts the output bytes the queue copies when it merges chunks
+    /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
+    private let recorder: DaemonWireStats.Recorder?
 
     // All mutable state is guarded by `condition`.
     private let condition = NSCondition()
@@ -32,11 +32,11 @@ final class TerminalEventQueue: @unchecked Sendable {
     private var armed = false
 
     init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
-         stats: DaemonWireStats = .process, onReaderBlocked: (@Sendable () -> Void)? = nil) {
+         recorder: DaemonWireStats.Recorder?, onReaderBlocked: (@Sendable () -> Void)? = nil) {
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
-        self.stats = stats
+        self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
     }
 
@@ -49,7 +49,6 @@ final class TerminalEventQueue: @unchecked Sendable {
 
     /// Reader thread. May block while the consumer is behind.
     func push(_ event: TerminalChannelEvent) {
-        countDecodedOutput(event)
         condition.lock()
         guard !finished else {
             condition.unlock()
@@ -74,7 +73,6 @@ final class TerminalEventQueue: @unchecked Sendable {
     /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
     /// hold its own lock across it (a size state is pushed under the lock that orders generations).
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
-        countDecodedOutput(event)
         condition.lock()
         guard !finished else {
             condition.unlock()
@@ -167,7 +165,7 @@ final class TerminalEventQueue: @unchecked Sendable {
                 merged = true
             }
             // A merge writes every byte of the result into a new buffer.
-            if merged { stats.outputCopied(data.count) }
+            if merged { recorder?.outputCopied(data.count) }
             event = .output(data, colors: nil)
             outputBytes -= data.count
         } else {
@@ -179,11 +177,6 @@ final class TerminalEventQueue: @unchecked Sendable {
         }
         if outputBytes <= lowWater { condition.broadcast() }
         return event
-    }
-
-    /// An `output` event's bytes were decoded out of their JSON line into a buffer of the app's.
-    private func countDecodedOutput(_ event: TerminalChannelEvent) {
-        if case .output(let data, _) = event { stats.outputCopied(data.count) }
     }
 
     /// Bulk bytes: output and snapshot history. A READY, like a replay,

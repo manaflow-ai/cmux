@@ -41,8 +41,7 @@ public struct DaemonWireControl: Sendable {
             "lines_read": number(snapshot.linesRead),
             "lines_written": number(snapshot.linesWritten),
             "frames_read": .object(Dictionary(uniqueKeysWithValues: snapshot.framesRead.map { ($0.key.name, number($0.value)) })),
-            "envelope_decodes": number(snapshot.envelopeDecodes),
-            "consumer_decodes": number(snapshot.consumerDecodes),
+            "json_decodes": number(snapshot.jsonDecodes),
             "decodes_per_line": .number(snapshot.decodesPerLine),
             "output_bytes_copied_app": number(snapshot.outputBytesCopiedApp),
             "connections": .object([
