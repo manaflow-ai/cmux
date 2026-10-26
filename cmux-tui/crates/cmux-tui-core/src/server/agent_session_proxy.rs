@@ -51,11 +51,18 @@ pub(super) fn bind(
     )
 }
 
-pub(super) fn check(mux: &Mux, client: u64, object: &mut serde_json::Map<String, Value>) -> bool {
+/// The request's author, checked against the connection's binding: `Some(None)` for the
+/// owner's own client, `Some(Some(author))` for a bound teammate, `None` when refused. The
+/// caller uses this answer, never a later lookup a disconnect could empty.
+pub(super) fn check(
+    mux: &Mux,
+    client: u64,
+    object: &mut serde_json::Map<String, Value>,
+) -> Option<Option<Value>> {
     let supplied = object.remove("_host_author");
     match author(mux, client) {
-        Some(bound) => supplied.as_ref() == Some(&bound),
-        None => supplied.is_none(),
+        Some(bound) => (supplied.as_ref() == Some(&bound)).then_some(Some(bound)),
+        None => supplied.is_none().then_some(None),
     }
 }
 
@@ -114,6 +121,11 @@ mod tests {
             page: vec![json!({"sessionId": SESSION, "seq": 2, "at": 1, "dir": "mux",
                 "kind": "composer", "msg": {"text": "unsent"}})],
             watch: vec![json!({"sessionId": "acp_watched_child", "startedBy": SESSION})],
+            history: vec![
+                json!({"sessionId": SESSION, "seq": 1, "at": 1, "dir": "mux", "kind": "user_message"}),
+                json!({"sessionId": SESSION, "seq": 2, "at": 1, "dir": "mux", "kind": "composer",
+                    "msg": {"text": "older draft"}}),
+            ],
             ..Fixture::default()
         }
     }
@@ -148,6 +160,9 @@ mod tests {
         let mut client = Client::connect(&mux, "proxy-owner");
         let page = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
         assert_eq!(kinds(&page), ["user_message", "composer"]);
+        let older = client.request(json!({"cmd":"agent-session-events", "surface":surface,
+            "before_seq": 3}));
+        assert_eq!(kinds(&older), ["user_message", "composer"], "{older}");
         child_changes(&mut fake);
         for child in ["acp_watched_child", "acp_new_child"] {
             let change = client.named_event("agent-session-changed", WAIT).expect("a child change");
@@ -175,9 +190,18 @@ mod tests {
             json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
         let page = client.request(attach);
         assert_eq!(kinds(&page), ["user_message"], "the replayed draft is dropped");
+        let older = client.request(json!({"cmd":"agent-session-events", "surface":surface,
+            "before_seq": 3, "_host_author":author}));
+        assert_eq!(kinds(&older), ["user_message"], "a history page drops the draft: {older}");
         let record = |seq: u64, kind: &str| json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind});
         fake.notify("_acpmux/event", record(3, "composer"));
         child_changes(&mut fake);
+        // The chat's own change reaches the teammate, cut to what the chat shows.
+        fake.notify(
+            "_acpmux/session_changed",
+            json!({"sessionId": SESSION, "kind": "status", "session": {"sessionId": SESSION,
+                "status": "idle", "cwd": "/Users/owner/secret", "tags": {"lane": "x"}}}),
+        );
         fake.notify("_acpmux/event", record(4, "user_message"));
         // Every event up to the prompt record, in order (the fake's own replies may come first):
         // none is the draft, and none is a child's change.

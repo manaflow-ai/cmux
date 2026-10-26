@@ -134,6 +134,8 @@ impl Drop for FakeAcpmux {
 pub(super) struct Fixture {
     pub(super) page: Vec<Value>,
     pub(super) watch: Vec<Value>,
+    /// The records an `_acpmux/events` (history) page answers.
+    pub(super) history: Vec<Value>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
@@ -176,7 +178,9 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
             // The machine's whole list: the attached session's family and others
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
-            "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
+            "_acpmux/events" => {
+                Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
+            }
             "_acpmux/permission_respond" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),

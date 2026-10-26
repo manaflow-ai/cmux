@@ -471,12 +471,12 @@ pub(super) fn try_handle(
         return Some(proxy::bind(mux, client, object, writer));
     }
     // A peer cannot self-attribute: only the preface's fixed identity is accepted.
-    if !proxy::check(mux, client, &mut object) {
+    let Some(author) = proxy::check(mux, client, &mut object) else {
         return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
-    }
+    };
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
         let clean = Value::Object(object).to_string();
-        return agent_session_observe::try_handle(mux, client, &clean, writer);
+        return agent_session_observe::try_handle(mux, client, &clean, writer, author);
     }
     let cmd = match object.remove("cmd") {
         Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
@@ -501,7 +501,7 @@ pub(super) fn try_handle(
     };
     Some(match command {
         AgentSessionCommand::Attach(params) => {
-            attach(mux, client, id, socket, params, false, writer)
+            attach(mux, client, id, socket, params, false, author, writer)
         }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
@@ -628,6 +628,7 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attach(
     mux: &Arc<Mux>,
     client: u64,
@@ -635,6 +636,7 @@ fn attach(
     socket: PathBuf,
     params: PageParams,
     read_only: bool,
+    author: Option<Value>,
     writer: &MessageWriter,
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
@@ -653,9 +655,8 @@ fn attach(
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
-    // Read once, on the request: the worker stamps this author on the session watch too, so a
-    // disconnect while acpmux answers (which forgets the binding) never leaves a call unstamped.
-    let author = proxy::author(mux, client);
+    // The author `proxy::check` accepted for this request: the worker stamps it on the session
+    // watch too, so a disconnect (which forgets the binding) never leaves a call unstamped.
     if let Some(author) = &author {
         acpmux_params["_meta"]["acpmux"]["author"] = author.clone();
         // A teammate reads the transcript only, never raw wire records or other kinds, live or replayed.
