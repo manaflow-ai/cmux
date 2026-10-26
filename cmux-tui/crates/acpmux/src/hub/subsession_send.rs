@@ -59,12 +59,9 @@ impl Hub {
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
         let accepted = self
-            .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None)
-            .await;
-        if let Some(saved) = saved {
-            saved.settle_acceptance(&accepted).await;
-        }
-        Ok(sent_reply(target, &accepted?))
+            .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None, saved)
+            .await?;
+        Ok(sent_reply(target, &accepted))
     }
 }
 

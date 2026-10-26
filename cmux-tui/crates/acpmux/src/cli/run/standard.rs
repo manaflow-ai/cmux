@@ -571,9 +571,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let text = arg_or_stdin(&prompt)?;
             // With the text, the whole message fits one JSON-RPC message on every hop.
             if !prompt_id.attachments.is_empty() {
-                let mut blocks = vec![json!({"type": "text", "text": text})];
-                blocks.extend(prompt_id.attachments.iter().cloned());
-                crate::attach::check_wire(&blocks).map_err(|e| anyhow::anyhow!(e.message))?;
+                let request = prompt_id.params(&session, &text, steer, None);
+                crate::attach::check_wire(&request).map_err(|e| anyhow::anyhow!(e.message))?;
             }
             if no_wait {
                 return super::send_async::queue(

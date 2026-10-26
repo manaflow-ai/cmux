@@ -73,9 +73,7 @@ pub(super) async fn handle(
             .with_data(json!({"reason": "no_session", "session": target})));
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
-    if let Some(blocks) = request.get("prompt").and_then(Value::as_array) {
-        crate::attach::check_wire(blocks)?;
-    }
+    crate::attach::check_wire(&request)?;
     let mux = request
         .as_object_mut()
         .map(|r| r.entry("_meta").or_insert_with(|| json!({})))

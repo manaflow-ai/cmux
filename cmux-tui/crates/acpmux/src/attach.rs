@@ -316,15 +316,6 @@ impl Saved {
         }))
     }
 
-    /// [`Self::settle`] for an answer that is the prompt's acceptance (a family message,
-    /// `subsession_send.rs`).
-    pub async fn settle_acceptance(self, answer: &Result<Value, RpcError>) {
-        if answer.as_ref().is_ok_and(|v| v.get("duplicate") != Some(&Value::Bool(true))) {
-            self.accepted.store(true, Ordering::SeqCst);
-        }
-        self.settle(answer).await;
-    }
-
     /// Deletes the files nothing will read: the prompt was a resend the ledger answered with its
     /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
     /// it was refused before it reached the session, or it was queued and then left the queue

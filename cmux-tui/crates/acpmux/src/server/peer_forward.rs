@@ -138,7 +138,7 @@ async fn forward_inner(
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
         {
-            crate::attach::check_wire(blocks)?;
+            crate::attach::check_wire(params)?;
             if crate::attach::any(blocks) && !peer.supports_send_attach() {
                 return Err(crate::attach::peer_unsupported(&peer));
             }
