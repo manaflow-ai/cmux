@@ -29,14 +29,27 @@ extension PageWebView {
     /// - Returns: Chromium, or WebKit and why.
     public static func engineDecision(for descriptor: PageDescriptor, options: PageEngineOptions,
                                       hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting) -> PageEngineDecision {
+        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
+        // whose first page is a Chromium one still reads web-dev.json.
+        if hosting != nil { WebDevOverrideWatcher.shared.start() }
+        return engineDecisionNow(for: descriptor, options: options, hosting: hosting)
+    }
+
+    /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
+    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    ///
+    /// - Parameters:
+    ///   - descriptor: The page.
+    ///   - options: Its engine options.
+    ///   - hosting: The Chromium host; nil for WebKit only.
+    /// - Returns: Chromium, or WebKit and why.
+    static func engineDecisionNow(for descriptor: PageDescriptor, options: PageEngineOptions,
+                                  hosting: (any PageChromiumHosting)?) -> PageEngineDecision {
         guard let hosting else {
             // No Chromium host (a build or test without one): a page that could not run there keeps
             // its own reason, any other one is on WebKit because Chromium is missing.
             return PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: descriptor, options: options)
         }
-        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
-        // whose first page is a Chromium one still reads web-dev.json.
-        WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                 chromiumServes: hosting.serves(descriptor),
                                 liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
