@@ -70,6 +70,16 @@ struct CloudMachineUpdateFollowTests {
         #expect(offers(&follower, ("vm-1", "refused")) == [], "the same handshake once")
     }
 
+    /// Offered, then the toggles go off (the policy may drop what it queued) and on again: every
+    /// live handshake is offered once more.
+    @Test func anOfferIsMadeAgainAfterTheTogglesGoOffAndOn() {
+        var follower = HandshakeFollower()
+        #expect(offers(&follower, ("vm-1", "refused"), ("vm-2", "c2:7:1")) == ["vm-1", "vm-2"])
+        #expect(offers(&follower, enabled: false, ("vm-1", "refused"), ("vm-2", "c2:7:1")) == [])
+        #expect(offers(&follower, ("vm-1", "refused"), ("vm-2", "c2:7:1")) == ["vm-1", "vm-2"])
+        #expect(offers(&follower, ("vm-1", "refused"), ("vm-2", "c2:7:1")) == [])
+    }
+
     /// An offer not made (no `cmux` client yet) leaves the handshake due.
     @Test func anOfferNotMadeStaysDue() {
         var follower = HandshakeFollower()
