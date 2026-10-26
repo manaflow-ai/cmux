@@ -1,5 +1,4 @@
-import AppKit
-import CmuxNextCompat
+public import AppKit
 
 /// Whether an `NSMenu` tracks now (the menu bar, a context or a pop-up menu), from the menu's own
 /// begin and end tracking notifications, and the end of that tracking.
@@ -8,14 +7,14 @@ import CmuxNextCompat
 /// split divider, a scroller or a slider drag runs in it too, and no menu end follows them. Work
 /// that waits for a menu to close (`ChromiumWarmup`) reads this state instead.
 @MainActor
-final class MenuTrackingState {
+public final class MenuTrackingState {
     /// True between a menu's begin and end of tracking.
-    private(set) var isTracking = false
+    public private(set) var isTracking = false
     private let center: NotificationCenter
     private var observations: [MainActorObservation] = []
 
     /// - Parameter center: The center the menu notifications come from (tests pass their own).
-    init(center: NotificationCenter = .default) {
+    public init(center: NotificationCenter = .default) {
         self.center = center
         observations = [
             MainActorObservation(NSMenu.didBeginTrackingNotification, center: center) { [weak self] in self?.isTracking = true },
@@ -24,7 +23,7 @@ final class MenuTrackingState {
     }
 
     /// Calls `ended` at each end of menu tracking until the returned token is released.
-    func observeEnd(_ ended: @escaping @MainActor () -> Void) -> AnyObject {
+    public func observeEnd(_ ended: @escaping @MainActor () -> Void) -> AnyObject {
         MainActorObservation(NSMenu.didEndTrackingNotification, center: center, ended)
     }
 }
