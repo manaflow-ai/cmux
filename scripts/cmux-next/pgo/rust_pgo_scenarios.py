@@ -2,6 +2,7 @@
 """The Rust PGO scenarios (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 056).
 
   rust_pgo_scenarios.py ffi --lib LIB --repo REPO [--rounds N]
+  rust_pgo_scenarios.py coverage --lib LIB --repo REPO --profdata PROFILE --tool LLVM_PROFDATA
   rust_pgo_scenarios.py daemon --binary CMUX_TUI [--rounds N] [--tabs N]
   rust_pgo_scenarios.py ab --base CMUX_TUI --pgo CMUX_TUI [--rounds N] [--tabs N] [--json PATH]
 
@@ -10,9 +11,12 @@ ffi     the app's calls into cmux-app-ffi, through the C ABI of the instrumented
         app (install a snapshot's entries once per version, then one rank per query), the focus rule corpus
         recorded from the Swift reducer (type-ahead queue and child-window key decisions) and what each
         animation frame asks of cmux-motion (every spring stepped at 120 Hz to rest, the tab strip tweens with a
-        mid-flight retarget, easing samples, color mixes and the strip geometry). Every answer is checked, so a
-        wrong shape fails instead of training the profile on the error path. The remote desktop core is not
-        replayed: it needs a live peer.
+        mid-flight retarget, easing samples, color mixes and the strip geometry), then rust_pgo_ffi.py: the
+        sidebar document mirror, the window focus machine, the other reducer ops, the remote desktop core on
+        loopback and the remote tab client. Every answer is checked, so a wrong shape fails instead of training
+        the profile on the error path.
+coverage  fails unless every C ABI that the app's Swift sources call and the library exports has counts in the
+        merged FFI profile (rust-pgo.sh run checks it): LLVM compiles a function with no counts as cold code.
 daemon  a headless daemon on a private socket and state directory, driven as the app drives it: identify and the
         reads the app makes at connect, then per tab new-tab (as the app does, with its own terminal_id), send,
         read-screen and the list and layout reads, then close-terminal; it ends through shutdown-daemon so the
@@ -39,6 +43,8 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+sys.path.insert(0, HERE)
+import rust_pgo_ffi  # noqa: E402
 
 OK = 0
 ERR_BUFFER = -3
@@ -55,8 +61,7 @@ def _load_stats():
 pct = _load_stats().pct
 
 
-class ScenarioError(Exception):
-    pass
+ScenarioError = rust_pgo_ffi.ScenarioError
 
 
 # ---------- cmux-app-ffi ----------
@@ -279,14 +284,24 @@ def run_ffi(args):
     crates = os.path.join(args.repo, "cmux-tui", "crates")
     palette_corpus = load_json(os.path.join(crates, "cmux-palette-ranker", "tests", "corpus", "palette-corpus.json"))
     focus_corpus = load_json(os.path.join(crates, "cmux-layout-reducer-ffi", "tests", "focus", "corpus.json"))
-    lib = bind(ctypes.CDLL(os.path.abspath(args.lib)))
+    lib = rust_pgo_ffi.bind(bind(ctypes.CDLL(os.path.abspath(args.lib))))
+    corpora = rust_pgo_ffi.corpora(args.repo)
     totals = {"palette": 0, "focus": 0, "motion": 0}
     for _ in range(args.rounds):
         totals["palette"] += palette(lib, palette_corpus)
         totals["focus"] += focus(lib, focus_corpus)
         totals["motion"] += motion(lib)
+        for name, count in rust_pgo_ffi.run_round(lib, corpora).items():
+            totals[name] = totals.get(name, 0) + count
     print("ffi: " + ", ".join(f"{name} {count} calls" for name, count in totals.items()))
     # The profile is written by the instrumented library's exit handler when this process exits.
+    return 0
+
+
+def run_coverage(args):
+    lib = ctypes.CDLL(os.path.abspath(args.lib))
+    checked = rust_pgo_ffi.coverage(lib, args.repo, args.tool, args.profdata)
+    print(f"ffi coverage: each of the {checked} C ABIs the app calls has counts")
     return 0
 
 
@@ -483,6 +498,11 @@ def main(argv=None):
     ffi.add_argument("--lib", required=True, help="the instrumented libcmux_app_ffi shared library")
     ffi.add_argument("--repo", default=REPO, help="the cmux checkout holding the corpora")
     ffi.add_argument("--rounds", type=int, default=20)
+    cover = sub.add_parser("coverage", help="every app C ABI has counts in the FFI profile")
+    cover.add_argument("--lib", required=True, help="the instrumented libcmux_app_ffi shared library")
+    cover.add_argument("--repo", default=REPO, help="the cmux checkout whose Swift sources name the calls")
+    cover.add_argument("--profdata", required=True, help="the merged cmux-app-ffi profile")
+    cover.add_argument("--tool", required=True, help="llvm-profdata of the pinned rustc")
     daemon = sub.add_parser("daemon", help="a headless cmux-tui daemon")
     daemon.add_argument("--binary", required=True)
     daemon.add_argument("--rounds", type=int, default=20)
@@ -494,10 +514,10 @@ def main(argv=None):
     ab.add_argument("--tabs", type=int, default=8)
     ab.add_argument("--json", help="write the summary here")
     args = parser.parse_args(argv)
-    if args.rounds < 1 or getattr(args, "tabs", 1) < 1:
+    if getattr(args, "rounds", 1) < 1 or getattr(args, "tabs", 1) < 1:
         parser.error("--rounds and --tabs take a positive number")
     try:
-        return {"ffi": run_ffi, "daemon": run_daemon, "ab": run_ab}[args.scenario](args)
+        return {"ffi": run_ffi, "coverage": run_coverage, "daemon": run_daemon, "ab": run_ab}[args.scenario](args)
     except ScenarioError as error:
         print(f"rust_pgo_scenarios: {error}", file=sys.stderr)
         return 1

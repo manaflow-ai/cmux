@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """rust_pgo_scenarios.py (p08-startup-056): the daemon scenario over a fake daemon (the app's request sequence, the
 shutdown that lets an instrumented daemon write its profile, failures named), and the A/B summary (classes, p50 and
-p95 change, the -5 % target). The FFI scenario needs the instrumented library and runs in rust-pgo.sh run.
+p95 change, the -5 % target) and the FFI coverage check. The FFI scenarios need the instrumented library and run in
+rust-pgo.sh run.
 Runs on any OS with Unix sockets: python3 -I scripts/cmux-next/tests/test_rust_pgo_scenarios.py"""
 
 import importlib.util
@@ -128,6 +129,46 @@ class SummaryCase(unittest.TestCase):
     def test_bad_counts_are_usage_errors(self):
         with self.assertRaises(SystemExit):
             rps.main(["daemon", "--binary", "x", "--rounds", "0"])
+
+
+class CoverageCase(unittest.TestCase):
+    """rust-pgo.sh run fails when a C ABI the app's Swift calls has no counts: PGO would compile it as cold code."""
+
+    def setUp(self):
+        import subprocess
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = os.path.join(self.tmp.name, "repo")
+        os.makedirs(os.path.join(self.repo, "App"))
+        with open(os.path.join(self.repo, "App", "Mirror.swift"), "w") as handle:
+            handle.write("let m = cmux_sidebar_mirror_new()\ncmux_focus_send(m)\ncmux_iroh_endpoint_bind()\n")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        subprocess.run(["git", "-C", self.repo, "add", "-A"], check=True)
+        self.tool = os.path.join(self.tmp.name, "llvm-profdata")
+        # The library: exports the mirror and focus calls, not the iroh one (another library's).
+        self.lib = type("Lib", (), {"cmux_sidebar_mirror_new": 1, "cmux_focus_send": 1})()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def covered(self, *names):
+        with open(self.tool, "w") as handle:
+            handle.write("#!/bin/sh\n[ \"$1 $2\" = 'show --covered' ] || exit 2\n")
+            handle.write("".join(f"echo '{name}'\n" for name in names))
+        os.chmod(self.tool, 0o755)
+
+    def test_every_exported_app_call_with_counts_passes(self):
+        self.covered("cmux_sidebar_mirror_new", "cmux_focus_send", "crate;_ZN4core3fmt")
+        self.assertEqual(rps.rust_pgo_ffi.coverage(self.lib, self.repo, self.tool, "p.profdata"), 2)
+
+    def test_an_app_call_without_counts_fails_and_is_named(self):
+        self.covered("cmux_focus_send")
+        with self.assertRaisesRegex(rps.ScenarioError, "cold code.*cmux_sidebar_mirror_new"):
+            rps.rust_pgo_ffi.coverage(self.lib, self.repo, self.tool, "p.profdata")
+
+    def test_no_exported_app_call_proves_nothing(self):
+        self.covered("cmux_focus_send")
+        with self.assertRaisesRegex(rps.ScenarioError, "would prove nothing"):
+            rps.rust_pgo_ffi.coverage(type("Empty", (), {})(), self.repo, self.tool, "p.profdata")
 
 
 if __name__ == "__main__":

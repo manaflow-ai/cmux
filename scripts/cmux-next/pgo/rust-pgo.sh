@@ -9,10 +9,8 @@
 #   rust-pgo.sh generate [--out DIR]
 #   rust-pgo.sh run [--out DIR] [--rounds N] [--tabs N] [--storm-tag TAG]
 #   rust-pgo.sh merge [--out DIR] [--pin]
-#   rust-pgo.sh rustflags cmux-tui|cmux-app-ffi [--target TRIPLE]
-#   rust-pgo.sh build-use [--print-path]
-#   rust-pgo.sh bundle-source
-#   rust-pgo.sh ab [--out DIR] [--rounds N] [--tabs N]
+#   rust-pgo.sh rustflags cmux-tui|cmux-app-ffi [--target TRIPLE] [--strict]
+#   rust-pgo.sh ab [--out DIR] [--profile FILE] [--rounds N] [--tabs N]
 #
 # llvm-check  prints the llvm-profdata of the pinned rustc (rustup component llvm-tools) and fails unless its
 #             LLVM major is rustc's: rustc reads only profiles of its own LLVM (rustc book, "Profile-guided
@@ -20,33 +18,33 @@
 # generate    builds both parts with -Cprofile-generate into DIR/generate: cmux-tui, cmux-tui-host and
 #             libcmux_app_ffi.{dylib,so} (the static library linked whole into a shared library for the scenario
 #             driver). Each part writes its .profraw files into DIR/profraw/<part>, baked into the binary.
-# run         the scenarios (rust_pgo_scenarios.py). cmux-app-ffi: the palette ranker corpus, the focus rule corpus
-#             and the per-frame motion steps through the C ABI. cmux-tui: a headless daemon serving the app's
-#             requests (start, identify, new-tab, the list and layout reads, close-terminal, shutdown). With
-#             --storm-tag, the CLI storm against a running app of that tag that bundles the instrumented
+# run         the scenarios (rust_pgo_scenarios.py). cmux-app-ffi: every C ABI the app calls (the palette, the
+#             focus rules and machine, motion, the sidebar mirror and reducer ops, the remote desktop core and the
+#             remote tab client), then a check that each of them has counts. cmux-tui: a headless daemon serving
+#             the app's requests (start, identify, new-tab, the list and layout reads, close-terminal, shutdown).
+#             With --storm-tag, the CLI storm against a running app of that tag that bundles the instrumented
 #             cmux-tui. A scenario that leaves no profile fails the run.
 # merge       llvm-profdata merge per part into DIR/<part>.profdata, copied into the profile cache. --pin also
 #             writes the part's pointer (below) and names where to upload the profile.
 # rustflags   the RUSTFLAGS a Release build of the part adds: -Cprofile-use=<profile> when the part's pointer
 #             names a profile for this target (default: the host) and rustc's LLVM major, and the profile with
 #             that sha256 is in the cache or at its source. Otherwise nothing: no pointer silently (as before
-#             this script), a pointer that cannot be used with a warning. CMUX_RUST_PGO=off prints nothing.
-#             scripts/cmux-next/build-app-ffi.sh asks it for each target slice.
-# build-use   builds cmux-tui and cmux-tui-host with that flag into
-#             cmux-tui/target/rust-pgo-use/<tree key>-<profile sha256 12>/, next to the other companions of the
-#             same tree (build-cmux-tui-client.sh). Fails without a usable profile or with uncommitted cmux-tui
-#             changes.
-# bundle-source  prints that build's cmux-tui when it exists for this checkout's tree key, the pinned profile and
-#             this Mac's architecture, else nothing. The Release "Bundle cmux-tui" phase of cmux.xcodeproj bundles
-#             it through CMUX_NEXT_TUI_BIN; Debug never asks. It never runs cargo or rustc.
-# ab          the test phase: the regular and the PGO cmux-tui of this tree, built the same way, run the daemon
-#             scenario in alternation; prints p50/p95 per request and the change.
+#             this script), a pointer that cannot be used with a warning. --strict (the builds that publish)
+#             fails when the pinned profile for this target and LLVM cannot be fetched, so a published binary
+#             depends only on its tree. CMUX_RUST_PGO=off prints nothing. The builds that ask, per target:
+#             scripts/cmux-next/build-app-ffi.sh (the app FFI xcframework), and for the daemon
+#             scripts/ci/macos-cross.sh all and cmux-tui-build-package.yml (the published cmux-tui tree and commit
+#             artifacts the app bundles) and nightly.yml's fast build.
+# ab          the test phase: the regular cmux-tui of this checkout and one built the same way with the merged
+#             profile (default DIR/cmux-tui.profdata, so no pointer or commit is needed) run the daemon scenario
+#             in alternation; prints p50/p95 per request and the change.
 #
 # Pointers (key=value: sha256, llvm, rustc, target, commit), as Chrome's chrome/build/mac-arm.pgo.txt names one
-# profile per revision. None is committed until a profile is pinned, so every build is as before:
-#   cmux-tui      scripts/cmux-next/pgo/cmux-tui.pgo.txt
-#   cmux-app-ffi  cmux-tui/crates/cmux-app-ffi/pgo.txt (inside the crate: a new profile is an input of the app FFI
-#                 pin, scripts/cmux-next/check-app-ffi-pin.sh, so the next FFI release is built with it)
+# profile per revision. Each is inside its crate, so a new profile changes the inputs of what is built with it:
+# the cmux-tui tree key (scripts/ci/cmux_tui_tree_key.py) and the app FFI pin (scripts/cmux-next/check-app-ffi-pin.sh).
+# None is committed until a profile is pinned, so every build is as before:
+#   cmux-tui      cmux-tui/crates/cmux-tui/pgo.txt
+#   cmux-app-ffi  cmux-tui/crates/cmux-app-ffi/pgo.txt
 # Profiles: ${CMUX_PGO_CACHE_DIR:-~/Library/Caches/cmux/pgo}/rust/<part>/<sha256>.profdata, fetched when missing
 # from ${CMUX_RUST_PGO_SOURCE:-${CI_CACHE_R2_PUBLIC_URL:-https://ci-cache.cmux.com}/pgo}/<part>/<sha256>.profdata
 # (a URL or a directory). DIR defaults to cmux-tui/target/rust-pgo.
@@ -54,7 +52,7 @@
 # Cargo runs only on a build host (a fleet step, CI, nx-remote, or any machine that is not a Mac), never on a
 # person's Mac:
 #   cmux-ci run --class isolated --script "scripts/cmux-next/pgo/rust-pgo.sh generate" --ref SHA
-# Both builds pass an explicit --target, so RUSTFLAGS never reach build scripts or proc macros, and the generate
+# Every build passes an explicit --target, so RUSTFLAGS never reach build scripts or proc macros, and the generate
 # and use builds of a part differ only in the profile flag.
 set -euo pipefail
 
@@ -63,15 +61,13 @@ repo_root="$(cd "$script_dir/../../.." && pwd -P)"
 tui_root="$repo_root/cmux-tui"
 ffi_dir="$tui_root/crates/cmux-app-ffi"
 scenarios="$script_dir/rust_pgo_scenarios.py"
-pin_script="$repo_root/scripts/cmux-next/pin-cmux-tui.sh"
-client_script="$repo_root/scripts/cmux-next/build-cmux-tui-client.sh"
 rustc_bin="${RUSTC:-rustc}"
 
 die() { echo "error: rust-pgo: $*" >&2; exit 1; }
 warn() {
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then echo "::warning::rust-pgo: $*" >&2; else echo "warning: rust-pgo: $*" >&2; fi
 }
-usage() { sed -n '2,52p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,56p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
@@ -85,7 +81,7 @@ require_build_host() {
 
 pointer_of() {
   case "$1" in
-    cmux-tui) printf '%s\n' "$repo_root/scripts/cmux-next/pgo/cmux-tui.pgo.txt" ;;
+    cmux-tui) printf '%s\n' "$tui_root/crates/cmux-tui/pgo.txt" ;;
     cmux-app-ffi) printf '%s\n' "$ffi_dir/pgo.txt" ;;
     *) die "unknown part '$1' (cmux-tui or cmux-app-ffi)" ;;
   esac
@@ -151,12 +147,13 @@ cmd_llvm_check() {
 }
 
 cmd_rustflags() {
-  local part="${1:-}" target="" pointer sha llvm profiled profile rustc_major
+  local part="${1:-}" target="" strict=0 pointer sha llvm profiled profile rustc_major
   [[ -n "$part" ]] || die "rustflags needs a part (cmux-tui or cmux-app-ffi)"
   shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --target) target="${2:?--target needs a triple}"; shift 2 ;;
+      --strict) strict=1; shift ;;
       *) die "unknown argument: $1" ;;
     esac
   done
@@ -166,24 +163,34 @@ cmd_rustflags() {
   sha="$(field "$pointer" sha256)"
   llvm="$(field "$pointer" llvm)"
   profiled="$(field "$pointer" target)"
-  [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { warn "$pointer has no sha256; building $part without PGO"; return 0; }
+  if [[ ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+    [[ "$strict" -eq 0 ]] || die "$pointer has no sha256"
+    warn "$pointer has no sha256; building $part without PGO"
+    return 0
+  fi
   target="${target:-$(host_triple)}"
   # Chrome keeps one profile per target (mac-arm.pgo.txt, mac.pgo.txt): another target's code differs.
   if [[ "$target" != "$profiled" ]]; then
     echo "note: rust-pgo: the $part profile is for ${profiled:-no target}; building $target without PGO" >&2
     return 0
   fi
+  # A toolchain bump leaves the profile unreadable until it is refreshed; the tree key covers both.
   rustc_major="$(rustc_llvm_major)"
   if [[ "$llvm" != "$rustc_major" ]]; then
     warn "the $part profile is from LLVM ${llvm:-unknown}, rustc is LLVM ${rustc_major:-unknown}; building without PGO (refresh the profile)"
     return 0
   fi
   if ! profile="$(profile_path "$part" "$sha")"; then
+    [[ "$strict" -eq 0 ]] || die "the pinned $part profile $sha is not available; a published build never falls back"
     warn "the $part profile $sha is not available; building without PGO"
     return 0
   fi
   # RUSTFLAGS splits on whitespace.
-  [[ "$profile" != *[[:space:]]* ]] || { warn "profile path '$profile' has whitespace; building $part without PGO"; return 0; }
+  if [[ "$profile" == *[[:space:]]* ]]; then
+    [[ "$strict" -eq 0 ]] || die "profile path '$profile' has whitespace"
+    warn "profile path '$profile' has whitespace; building $part without PGO"
+    return 0
+  fi
   printf '%s\n' "-Cprofile-use=$profile"
 }
 
@@ -206,14 +213,17 @@ parse_out() {
 build_commit() { git -C "$repo_root" rev-parse HEAD; }
 ghostty_commit() {
   local vt=ghostty
-  git -C "$repo_root" rev-parse --verify -q HEAD:ghostty-next >/dev/null && vt=ghostty-next
+  git -C "$repo_root" rev-parse --verify -q HEAD:ghostty-next >/dev/null && vt="ghostty-next"
   git -C "$repo_root/$vt" rev-parse HEAD 2>/dev/null || true
 }
 
 # cargo_tui TARGET_DIR RUSTFLAGS TRIPLE: the daemon and its terminal host, as build-cmux-tui-client.sh builds
 # them, with an explicit --target.
 cargo_tui() {
-  (cd "$tui_root" && CMUX_TUI_BUILD_COMMIT="$(build_commit)" CMUX_TUI_GHOSTTY_COMMIT="$(ghostty_commit)" \
+  local commit ghostty
+  commit="$(build_commit)"
+  ghostty="$(ghostty_commit)"
+  (cd "$tui_root" && CMUX_TUI_BUILD_COMMIT="$commit" CMUX_TUI_GHOSTTY_COMMIT="$ghostty" \
     CARGO_TARGET_DIR="$1" RUSTFLAGS="$2" \
     cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target "$3" >&2)
 }
@@ -275,8 +285,15 @@ scenario() {
   rm -f "$marker"
 }
 
+# merge_part TOOL PART OUTPUT: every non-empty .profraw of the part into one indexed profile.
+merge_part() {
+  [[ -n "$(find "$out/profraw/$2" -name '*.profraw' -type f -size +0 2>/dev/null | head -n 1)" ]] \
+    || die "no $2 profiles in $out/profraw/$2; run rust-pgo.sh run first"
+  find "$out/profraw/$2" -name '*.profraw' -type f -size +0 -print0 | sort -z | xargs -0 "$1" merge -o "$3"
+}
+
 cmd_run() {
-  local rounds=20 tabs=8 storm_tag="" gen lib
+  local rounds=20 tabs=8 storm_tag="" gen lib tool
   parse_out "$@"
   set -- ${rest[@]+"${rest[@]}"}
   while [[ $# -gt 0 ]]; do
@@ -289,11 +306,17 @@ cmd_run() {
   done
   gen="$out/generate"
   [[ -x "$gen/cmux-tui" ]] || die "no instrumented build in $gen; run rust-pgo.sh generate first"
+  tool="$(cmd_llvm_check)"
   # The baked -Cprofile-generate directories hold every profile.
   unset LLVM_PROFILE_FILE
   lib="$gen/libcmux_app_ffi.dylib"
   [[ -f "$lib" ]] || lib="$gen/libcmux_app_ffi.so"
   scenario cmux-app-ffi ffi python3 "$scenarios" ffi --lib "$lib" --repo "$repo_root" --rounds "$rounds"
+  # A C ABI the app calls but no scenario reached has zero counts, and -Cprofile-use compiles it as cold code.
+  merge_part "$tool" cmux-app-ffi "$out/.ffi-coverage.profdata"
+  python3 "$scenarios" coverage --lib "$lib" --repo "$repo_root" --profdata "$out/.ffi-coverage.profdata" \
+    --tool "$tool" >&2 || die "the FFI scenarios leave a C ABI the app calls without counts (see above)"
+  rm -f "$out/.ffi-coverage.profdata"
   scenario cmux-tui daemon python3 "$scenarios" daemon --binary "$gen/cmux-tui" --rounds "$rounds" --tabs "$tabs"
   if [[ -n "$storm_tag" ]]; then
     scenario cmux-tui "cli storm" "$repo_root/scripts/cmux-next/bench-cli-storm.sh" "$storm_tag" \
@@ -317,10 +340,8 @@ cmd_merge() {
   [[ "$(field "$out/generate/build.txt" llvm)" == "$(rustc_llvm_major)" ]] \
     || die "the instrumented build is from another LLVM than this rustc; generate again"
   for part in cmux-tui cmux-app-ffi; do
-    [[ -n "$(find "$out/profraw/$part" -name '*.profraw' -type f -size +0 2>/dev/null | head -n 1)" ]] \
-      || die "no $part profiles in $out/profraw/$part; run rust-pgo.sh run first"
     merged="$out/$part.profdata"
-    find "$out/profraw/$part" -name '*.profraw' -type f -size +0 -print0 | sort -z | xargs -0 "$tool" merge -o "$merged"
+    merge_part "$tool" "$part" "$merged"
     sha="$(sha256_of "$merged")"
     cache="$(cache_root)/$part"
     mkdir -p "$cache"
@@ -341,92 +362,33 @@ cmd_merge() {
   done
 }
 
-# The use build of this tree and the pinned cmux-tui profile.
-use_dir() {
-  local sha
-  sha="$(field "$(pointer_of cmux-tui)" sha256)"
-  printf '%s\n' "$tui_root/target/rust-pgo-use/$("$pin_script" key)-${sha:0:12}"
-}
-
-tree_dirty() {
-  [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=normal -- cmux-tui first-party-apps/cloud/server ghostty-next 2>/dev/null \
-    | grep -v ' cmux-tui/target/' || true)" ]]
-}
-
-cmd_build_use() {
-  local print_path=0 flags triple dir stage companions name built target_dir
-  [[ "${1:-}" == --print-path ]] && print_path=1
-  require_build_host build-use
-  [[ -f "$(pointer_of cmux-tui)" ]] || die "no cmux-tui profile is pinned ($(pointer_of cmux-tui))"
-  tree_dirty && die "cmux-tui has uncommitted changes; a PGO build is keyed by the committed tree"
-  triple="$(host_triple)"
-  flags="$(cmd_rustflags cmux-tui --target "$triple")"
-  [[ -n "$flags" ]] || die "the pinned cmux-tui profile cannot be used here (see above)"
-  dir="$(use_dir)"
-  if [[ -f "$dir/complete" && -x "$dir/cmux-tui" ]]; then
-    echo "PGO cmux-tui already built: $dir" >&2
-  else
-    companions="$(dirname "$("$client_script" --print-path)")"
-    target_dir="${CMUX_RUST_PGO_USE_TARGET_DIR:-$tui_root/target/rust-pgo-use-target}"
-    echo "==> cmux-tui with $flags ($triple)" >&2
-    cargo_tui "$target_dir" "$flags" "$triple"
-    built="$target_dir/$triple/release"
-    stage="$(mktemp -d "$tui_root/target/.rust-pgo-use.XXXXXX")"
-    chmod 755 "$stage"
-    install -m 755 "$built/cmux-tui" "$stage/cmux-tui"
-    install -m 755 "$built/cmux-tui-host" "$stage/cmux-tui-host"
-    for name in cmux-app-host cmux-cloud cmux-browser-host cmux-holder cmux-agent-screen-detection; do
-      [[ -f "$companions/$name" ]] && install -m 755 "$companions/$name" "$stage/$name"
-    done
-    printf 'profile=%s\nkey=%s\ntarget=%s\n' "$(field "$(pointer_of cmux-tui)" sha256)" "$("$pin_script" key)" "$triple" \
-      > "$stage/complete"
-    rm -rf "$dir"
-    mkdir -p "$(dirname "$dir")"
-    mv "$stage" "$dir"
-    echo "built PGO cmux-tui: $dir" >&2
-  fi
-  [[ "$print_path" -eq 0 ]] || printf '%s\n' "$dir/cmux-tui"
-}
-
-cmd_bundle_source() {
-  local dir arch
-  [[ "${CMUX_RUST_PGO:-auto}" == off ]] && return 0
-  [[ -f "$(pointer_of cmux-tui)" ]] || return 0
-  dir="$(use_dir)"
-  if [[ ! -f "$dir/complete" || ! -x "$dir/cmux-tui" ]]; then
-    warn "no PGO cmux-tui for this tree and profile ($dir); bundling the regular one. Build it on a build host: scripts/cmux-next/pgo/rust-pgo.sh build-use"
-    return 0
-  fi
-  arch="${NATIVE_ARCH_ACTUAL:-$(uname -m)}"
-  [[ "$arch" == arm64 ]] && arch=aarch64
-  if [[ "$(field "$dir/complete" target)" != "$arch"-* ]]; then
-    warn "the PGO cmux-tui is for $(field "$dir/complete" target), not $arch; bundling the regular one"
-    return 0
-  fi
-  if tree_dirty; then
-    warn "cmux-tui has uncommitted changes; bundling the regular cmux-tui, not the PGO build of the committed tree"
-    return 0
-  fi
-  printf '%s\n' "$dir/cmux-tui"
-}
-
 cmd_ab() {
-  local rounds=15 tabs=8 triple base pgo
+  local rounds=15 tabs=8 profile="" triple base pgo
   parse_out "$@"
   set -- ${rest[@]+"${rest[@]}"}
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --profile) profile="${2:?--profile needs a file}"; shift 2 ;;
       --rounds) rounds="${2:?--rounds needs a number}"; shift 2 ;;
       --tabs) tabs="${2:?--tabs needs a number}"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
   done
+  profile="${profile:-$out/cmux-tui.profdata}"
+  [[ -f "$profile" ]] || die "no cmux-tui profile at $profile; run rust-pgo.sh merge first (or pass --profile)"
+  [[ "$profile" != *[[:space:]]* ]] || die "--profile must not contain whitespace (it becomes a rustc flag)"
   require_build_host ab
-  pgo="$(cmd_build_use --print-path)"
   triple="$(host_triple)"
-  echo "==> regular cmux-tui ($triple), built the same way without the profile" >&2
+  if [[ -f "$out/generate/build.txt" && "$(field "$out/generate/build.txt" llvm)" != "$(rustc_llvm_major)" ]]; then
+    die "the profile is from another LLVM than this rustc; generate again"
+  fi
+  # Both builds of this checkout, the same cargo invocation; only the profile flag differs.
+  echo "==> regular cmux-tui ($triple)" >&2
   cargo_tui "$out/target-base" "" "$triple"
+  echo "==> cmux-tui with -Cprofile-use=$profile ($triple)" >&2
+  cargo_tui "$out/target-pgo" "-Cprofile-use=$profile" "$triple"
   base="$out/target-base/$triple/release/cmux-tui"
+  pgo="$out/target-pgo/$triple/release/cmux-tui"
   python3 "$scenarios" ab --base "$base" --pgo "$pgo" --rounds "$rounds" --tabs "$tabs"
 }
 
@@ -438,8 +400,6 @@ case "$command" in
   run) cmd_run "$@" ;;
   merge) cmd_merge "$@" ;;
   rustflags) cmd_rustflags "$@" ;;
-  build-use) cmd_build_use "$@" ;;
-  bundle-source) cmd_bundle_source "$@" ;;
   ab) cmd_ab "$@" ;;
   -h|--help) usage ;;
   *) usage >&2; exit 2 ;;
