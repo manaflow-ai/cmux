@@ -4,9 +4,10 @@
 Every daemon process started with CMUX_DAEMON_BLOCKING_REPORT=<dir> appends one JSON
 line per (site, kind, thread) to <dir>/blocking-<pid>.jsonl
 (cmux-tui/crates/cmux-threads/src/blocking/report.rs). This script runs the suites with
-that set and groups the lines into the MQ-13 list: one task per (location, kind, thread).
+that set and groups the lines into the MQ-13 list: one task per (location, kind, thread
+class), where digits in a thread name are an instance number (surface-N-host).
 
-  daemon-blocking-sweep.py suites [--out DIR] [-p PKG ...] [-- CARGO_TEST_ARGS]
+  daemon-blocking-sweep.py suites [--out DIR] [-p PKG ...] [--binary-timeout S] [-- CARGO_TEST_ARGS]
       cargo test in record mode, then in panic mode (Debug): the record run lists the
       sites, the panic run is RUN-5 (no failure panic mode adds, 0 blocking panics, 0
       sites). A test that fails in both modes is an environment or base failure and is
@@ -33,6 +34,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -47,7 +49,9 @@ DEFAULT_NOISE = 0.05
 # PL-daemon: every daemon op under 2 ms p95 (p02-threads.md, RUN-5).
 DAEMON_P95_TARGET_MS = 2.0
 PANIC_LINE = re.compile(r"cmux_threads: blocking call \(([a-z-]+)\) at (\S+) on thread '([^']*)'")
-RUNNING = re.compile(r"^\s*Running (.+?) \((?:.*/)?([^/()]+?)(?:-[0-9a-f]{16})?\)\s*$")
+RUNNING = re.compile(r"^\s*Running (.+?) \((.+)\)\s*$")
+NO_RESULT = "<no test result: crashed, killed or hung>"
+DEFAULT_BINARY_TIMEOUT = 900
 FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$")
 CFG_TEST = re.compile(r"^\s*#\[cfg\(test\)\]")
 INLINE_MOD = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
@@ -131,19 +135,26 @@ def read_reports(directory: Path) -> list[dict]:
     return lines
 
 
+def thread_class(name: str) -> str:
+    """A thread's type, as Chrome's ThreadType names it: one instance number is not a new
+    thread. `surface-12-host` and `surface-3-host` are both `surface-N-host`."""
+    return re.sub(r"\d+", "N", name)
+
+
 def group(lines: list[dict]) -> list[dict]:
-    """One row per (location, kind, thread): the MQ-13 task key."""
+    """One row per (location, kind, thread class): the MQ-13 task key."""
     rows: dict[tuple, dict] = {}
     pids: dict[tuple, set] = defaultdict(set)
+    names: dict[tuple, set] = defaultdict(set)
     for line in lines:
         location = f'{line["file"]}:{line["line"]}:{line["column"]}'
-        key = (location, line["kind"], line["thread"])
+        key = (location, line["kind"], thread_class(line["thread"]))
         row = rows.setdefault(
             key,
             {
                 "location": location,
                 "kind": line["kind"],
-                "thread": line["thread"],
+                "thread": key[2],
                 "fixture": is_fixture(line["file"], line["line"]),
                 "modes": [],
                 "overflow": False,
@@ -153,8 +164,10 @@ def group(lines: list[dict]) -> list[dict]:
             row["modes"].append(line["mode"])
         row["overflow"] = row["overflow"] or bool(line.get("overflow"))
         pids[key].add(line["pid"])
+        names[key].add(line["thread"])
     for key, row in rows.items():
         row["processes"] = len(pids[key])
+        row["thread_names"] = len(names[key])
     return sorted(rows.values(), key=lambda row: (row["fixture"], -row["processes"], row["location"], row["kind"], row["thread"]))
 
 
@@ -184,16 +197,66 @@ def blocking_panics(log: str) -> list[tuple[str, str, str]]:
     return outside
 
 
+def binary_label(match: re.Match) -> str:
+    """`tests/cli.rs (cli)` for `Running tests/cli.rs (target/debug/deps/cli-0123456789abcdef)`."""
+    name = re.sub(r"-[0-9a-f]{16}$", "", Path(match.group(2)).name)
+    return f"{match.group(1)} ({name})"
+
+
 def failed_tests(log: str) -> set[tuple[str, str]]:
-    """(test binary, test name) of every failed test in a cargo test log."""
-    binary = "?"
+    """(test binary, test name) of every failed test in a cargo test log. A binary that
+    printed no `test result:` line crashed, was killed or hung: it counts as one failure,
+    NO_RESULT, since its own tests never said so."""
+    binary = None
+    finished = True
     failed = set()
     for line in log.splitlines():
         if match := RUNNING.match(line):
-            binary = f"{match.group(1)} ({match.group(2)})"
+            if not finished:
+                failed.add((binary, NO_RESULT))
+            binary, finished = binary_label(match), False
         elif match := FAILED_TEST.match(line):
-            failed.add((binary, match.group(1)))
+            failed.add((binary or "?", match.group(1)))
+        elif line.startswith("test result: "):
+            finished = True
+    if not finished:
+        failed.add((binary, NO_RESULT))
     return failed
+
+
+def stop_test_binary(path: str, limit: int) -> None:
+    """Ends a test binary that ran past its limit, and the daemons it started, so cargo
+    reports it failed and goes on (--no-fail-fast)."""
+    pids = subprocess.run(["pgrep", "-f", path], capture_output=True, text=True, check=False).stdout.split()
+    for pid in pids:
+        subprocess.run(["pkill", "-TERM", "-P", pid], check=False)
+        subprocess.run(["kill", "-TERM", pid], check=False)
+    print(f"SWEEP stopped {path} after {limit} s ({len(pids)} processes)", flush=True)
+
+
+def run_suite(command: list[str], env: dict, cwd: Path, log_path: Path, binary_timeout: int) -> tuple[int, str]:
+    """cargo test, logged, with each test binary stopped after `binary_timeout` seconds: in
+    panic mode a daemon thread that panics can leave a test waiting for a reply forever."""
+    print("+ " + " ".join(command), flush=True)
+    lines: list[str] = []
+    watchdog: threading.Timer | None = None
+    with subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as cargo:
+        assert cargo.stdout is not None
+        for line in cargo.stdout:
+            lines.append(line)
+            if match := RUNNING.match(line.rstrip("\n")):
+                if watchdog:
+                    watchdog.cancel()
+                watchdog = threading.Timer(binary_timeout, stop_test_binary, (match.group(2), binary_timeout))
+                watchdog.daemon = True
+                watchdog.start()
+            elif line.startswith("test result: ") and watchdog:
+                watchdog.cancel()
+        if watchdog:
+            watchdog.cancel()
+    log = "".join(lines)
+    log_path.write_text(log, encoding="utf-8")
+    return cargo.returncode, log
 
 
 def run_logged(command: list[str], env: dict, cwd: Path, log_path: Path) -> tuple[int, str]:
@@ -219,7 +282,7 @@ def run5_suites_verdict(record_log: str, panic_log: str, panic_rows: list[dict])
     }
 
 
-def suites(out: Path, packages: list[str], cargo_args: list[str]) -> int:
+def suites(out: Path, packages: list[str], cargo_args: list[str], binary_timeout: int) -> int:
     command = ["cargo", "test", "--no-fail-fast"]
     for package in packages:
         command += ["-p", package]
@@ -229,7 +292,7 @@ def suites(out: Path, packages: list[str], cargo_args: list[str]) -> int:
     for mode in ("record", "panic"):
         report = fresh_report_dir(out / mode)
         env = dict(os.environ, CMUX_DAEMON_BLOCKING=mode, CMUX_DAEMON_BLOCKING_REPORT=str(report))
-        code, logs[mode] = run_logged(command, env, TUI, out / f"{mode}.log")
+        code, logs[mode] = run_suite(command, env, TUI, out / f"{mode}.log", binary_timeout)
         rows[mode] = summarize(report)
         passed, failed = test_totals(logs[mode])
         print(f"SUITE mode={mode} cargo_exit={code} passed={passed} failed={failed}")
@@ -328,6 +391,12 @@ def main(argv: list[str]) -> int:
     run = commands.add_parser("suites")
     run.add_argument("--out", type=Path, default=TUI / "target" / "blocking-sweep")
     run.add_argument("-p", "--package", action="append", dest="packages")
+    run.add_argument(
+        "--binary-timeout",
+        type=int,
+        default=DEFAULT_BINARY_TIMEOUT,
+        help=f"seconds before a test binary is stopped as hung (default {DEFAULT_BINARY_TIMEOUT})",
+    )
     run.add_argument("rest", nargs=argparse.REMAINDER)
     measure = commands.add_parser("bench")
     measure.add_argument("--out", type=Path, default=ROOT / ".build" / "blocking-sweep")
@@ -345,7 +414,7 @@ def main(argv: list[str]) -> int:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     if args.command == "suites":
-        return suites(out, args.packages or list(DEFAULT_PACKAGES), rest)
+        return suites(out, args.packages or list(DEFAULT_PACKAGES), rest, args.binary_timeout)
     return bench(out, args.against or merge_base(args.base), args.noise, rest)
 
 

@@ -6,6 +6,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
+import sys
+import time
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -91,6 +94,22 @@ class GroupTests(unittest.TestCase):
             self.assertEqual(json.loads((root / "sites.json").read_text()), rows)
 
 
+    def test_instance_numbers_in_a_thread_name_are_one_thread_class(self) -> None:
+        reader = "crates/a/src/surface/hosted_reader.rs"
+        rows = SWEEP.group(
+            [
+                json.loads(line(1, reader, 5, "sqlite", "surface-2-host")),
+                json.loads(line(1, reader, 5, "sqlite", "surface-14-host")),
+                json.loads(line(2, reader, 5, "sqlite", "surface-2-host")),
+                json.loads(line(1, reader, 5, "sqlite", "surface-2-reader")),
+            ]
+        )
+        self.assertEqual(
+            [(r["thread"], r["thread_names"], r["processes"]) for r in rows],
+            [("surface-N-host", 2, 2), ("surface-N-reader", 1, 1)],
+        )
+
+
 class FixtureTests(unittest.TestCase):
     def test_test_files_are_fixtures(self) -> None:
         self.assertTrue(SWEEP.is_fixture("crates/a/tests/x.rs", 1))
@@ -126,8 +145,10 @@ RECORD_LOG = """\
      Running unittests src/lib.rs (target/debug/deps/cmux_tui_core-0123456789abcdef)
 test cloud::tests::needs_network ... FAILED
 test server::tests::ok ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored
      Running tests/remote.rs (target/debug/deps/remote-fedcba9876543210)
 test connects ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored
 """
 
 PANIC_LOG = """\
@@ -138,8 +159,10 @@ thread 'mux-conn' panicked at crates/cmux-threads/src/blocking.rs:350:5:
 cmux_threads: blocking call (fs) at crates/cmux-tui-core/src/mux/a.rs:7:13 on thread 'mux-conn', which disallows blocking
 cmux_threads: blocking call (fs) at crates/cmux-tui-core/src/mux/a.rs:7:13 on thread 'mux-conn', which disallows blocking
 cmux_threads: blocking call (sqlite) at crates/cmux-tui-core/tests/registry_blocking_panic.rs:20:5 on thread 'x', which disallows blocking
+test result: FAILED. 0 passed; 2 failed; 0 ignored
      Running tests/remote.rs (target/debug/deps/remote-fedcba9876543210)
 test connects ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored
 """
 
 
@@ -166,6 +189,46 @@ class SuitesVerdictTests(unittest.TestCase):
             [("tests/remote.rs (remote)", "connects"), (core, "cloud::tests::needs_network")],
         )
         self.assertEqual(result["verdict"], "fail")
+
+    def test_a_binary_with_no_result_is_a_failure_of_its_own(self) -> None:
+        log = (
+            "     Running tests/cli.rs (/t/debug/deps/cli-0123456789abcdef)\n"
+            "test a ... ok\n"
+            "     Running tests/setup.rs (/t/debug/deps/setup-0123456789abcdef)\n"
+            "test b ... FAILED\n"
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored\n"
+            "     Running tests/hang.rs (/t/debug/deps/hang-0123456789abcdef)\n"
+        )
+        self.assertEqual(
+            SWEEP.failed_tests(log),
+            {
+                ("tests/cli.rs (cli)", SWEEP.NO_RESULT),
+                ("tests/setup.rs (setup)", "b"),
+                ("tests/hang.rs (hang)", SWEEP.NO_RESULT),
+            },
+        )
+        # cli failed tests in record mode but hung in panic mode: that is panic mode's own.
+        record = log.replace("test a ... ok\n", "test a ... FAILED\ntest result: FAILED. 0 passed; 1 failed\n")
+        result = SWEEP.run5_suites_verdict(record, log, [])
+        self.assertEqual(result["panic_only_failures"], [("tests/cli.rs (cli)", SWEEP.NO_RESULT)])
+
+    def test_a_hung_test_binary_is_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake = f"{directory}/deps/hung-0123456789abcdef"
+            script = (
+                "import sys, time\n"
+                "print(f'     Running tests/hung.rs ({sys.argv[1]})', flush=True)\n"
+                "time.sleep(60)\n"
+            )
+            started = time.monotonic()
+            with redirect_stdout(io.StringIO()) as out:
+                code, log = SWEEP.run_suite(
+                    [sys.executable, "-c", script, fake], dict(os.environ), Path(directory), Path(directory) / "log", 1
+                )
+            self.assertLess(time.monotonic() - started, 30)
+            self.assertNotEqual(code, 0)
+            self.assertIn(f"SWEEP stopped {fake} after 1 s (1 processes)", out.getvalue())
+            self.assertEqual(SWEEP.failed_tests(log), {("tests/hung.rs (hung)", SWEEP.NO_RESULT)})
 
     def test_only_shared_failures_pass(self) -> None:
         result = SWEEP.run5_suites_verdict(RECORD_LOG, RECORD_LOG, [{"fixture": True}])
