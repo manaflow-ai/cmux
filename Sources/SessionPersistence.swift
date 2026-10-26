@@ -25,7 +25,7 @@ enum SessionSnapshotOmittedPanelContainer: Sendable {
     case windowDock
 
     /// Stable diagnostic token. The workspace log uses `warning(omittedCount:)`.
-    var logLabel: String {
+    nonisolated var logLabel: String {
         switch self {
         case .workspace:
             return "workspace"
@@ -38,7 +38,7 @@ enum SessionSnapshotOmittedPanelContainer: Sendable {
 
     /// User-facing restore warning. The 512 in the sentence is
     /// `SessionPersistencePolicy.maxPanelsPerWorkspace`.
-    func warning(omittedCount: Int) -> String {
+    nonisolated func warning(omittedCount: Int) -> String {
         switch self {
         case .workspace:
             return String(
@@ -80,35 +80,15 @@ enum SessionPersistencePolicy {
     static let maxWorkspacesPerWindow: Int = 128
     /// Panels kept for one workspace and for one Dock.
     ///
+    /// `SessionPanelCap` (CmuxWorkspaces) owns the value and the cap itself.
     /// Snapshot construction keeps this prefix and records anything past it
     /// as `omittedPanelCount` on the workspace or Dock snapshot. Restore
     /// cannot bring those panels back; it warns in the workspace log instead.
     /// Layout and focus stay limited to the panels that were saved. The
     /// bound is documented in `docs/session-snapshots.md`.
-    static let maxPanelsPerWorkspace: Int = 512
+    static let maxPanelsPerWorkspace: Int = SessionPanelCap.sessionSnapshotMaxPanels
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
-
-    /// The prefix of `panelIds` a workspace or Dock snapshot keeps, plus how
-    /// many ids past `maxPanelsPerWorkspace` were left out.
-    ///
-    /// Callers prune layout to `keptPanelIds` and clear focus when it names
-    /// an omitted panel. `omittedCount` is zero when every id fits.
-    static func cappedPanelIds<S: Sequence>(
-        _ panelIds: S
-    ) -> (keptPanelIds: [UUID], omittedCount: Int) where S.Element == UUID {
-        var keptPanelIds: [UUID] = []
-        keptPanelIds.reserveCapacity(maxPanelsPerWorkspace)
-        var omittedCount = 0
-        for panelId in panelIds {
-            if keptPanelIds.count < maxPanelsPerWorkspace {
-                keptPanelIds.append(panelId)
-            } else {
-                omittedCount += 1
-            }
-        }
-        return (keptPanelIds, omittedCount)
-    }
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
