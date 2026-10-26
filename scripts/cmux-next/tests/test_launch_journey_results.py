@@ -27,6 +27,7 @@ import plistlib
 import re
 import shutil
 import statistics
+import subprocess
 import sys
 import tempfile
 import types
@@ -216,7 +217,7 @@ class RelaunchSeamTests(unittest.TestCase):
         bench = self.stand_in(self.stand_in.app, out=os.path.join(self.folder, "out"))
         remembered = []
         bench.teardown = types.SimpleNamespace(remember=lambda: remembered.append(bench.process.pid),
-                                               install=lambda: None, end=lambda: None)
+                                               install=lambda: None, end=lambda: None, processes=lambda: [])
         with contextlib.redirect_stdout(io.StringIO()):
             bench.launch(timeout=20)
             with self.assertRaises(journey.StillRunning):
@@ -354,6 +355,43 @@ class ReadinessSoakTests(RecordingCase):
         self.assertEqual(result["snapshot_ms_p99"], journey.percentile([4.0] * 13, 0.99, digits=1))
         self.assert_story_contract("readiness-soak")
         self.assertEqual(sorted(self.ingest()), ["readiness-soak"])
+
+    def test_an_app_that_exits_during_the_loop_is_one_crash(self):
+        # BenchApp starts the app as this process's child: an exit with no crash report (SIGKILL, jetsam) leaves a
+        # zombie with the same PID, which the process table still lists.
+        app = subprocess.Popen([sys.executable, "-c", "import os, time; time.sleep(0.6); os._exit(0)"])
+        run = soak.Soak.__new__(soak.Soak)
+        run.args = types.SimpleNamespace(hours=2.5 / 3600, idle=0, turn_every=300, sample=0.2, app_config=None)
+        run.app, run.work, run.tag = os.path.join(self.folder, "cmux DEV gone.app"), self.folder, "gone"
+        run.quiet_file = os.path.join(self.folder, "quiet")
+        run.setup, run.events, run.agents, run.pids = {"identity": {"pid": app.pid}}, [], {}, {}
+        run.app_pid, run.app_exit, run.seen_pids, run.started = app.pid, None, set(), soak.time.time()
+        run.zombies, run.zombies_last, run.sanitizer, run.chromium_off = {}, set(), None, False
+        run.bench = types.SimpleNamespace(process=app)
+        run.samples = open(os.path.join(self.folder, "samples.jsonl"), "w")
+        run.crash_reports = lambda: []
+        run.sample = lambda before, kinds, wall: {}
+        run.check_control = lambda: (1.0, 4.0)
+        run.acp = types.SimpleNamespace(sessions=lambda: {})
+        try:
+            with mock.patch.object(soak, "usage", lambda pid: None), contextlib.redirect_stdout(io.StringIO()):
+                run.loop()
+        finally:
+            run.samples.close()
+            if app.poll() is None:
+                app.kill()
+                app.wait()
+        crashes = [e for e in run.events if e["kind"] == "crash"]
+        self.assertEqual(len(crashes), 1, run.events)
+        self.assertEqual(crashes[0]["returncode"], 0)
+        self.assertEqual(run.pids["app"], [])
+        self.assertNotIn(app.pid, run.kinds(), "an exited app's PID is not the app")
+        whole = self.soak(self.rows())
+        whole.events = run.events
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = whole.report()
+        self.assertIn("1 crash event(s)", result["failures"])
+        self.assertEqual(self.by_metric()["readiness_soak.events.crash"]["samples"], [1.0])
 
     def test_a_short_stopped_or_webkit_soak_writes_nothing_and_fails(self):
         for index, kwargs in enumerate(({"completed": False}, {"engine": "webkit"}, {"hours": 4.0})):

@@ -254,7 +254,7 @@ class WebKitMatcherTests(unittest.TestCase):
         ]
         responsible = {app_pid: app_pid, 90938: app_pid, 90940: app_pid, 7530: 2239, 1390: 1154}
         soak = soak_module.Soak.__new__(soak_module.Soak)
-        soak.setup = {"identity": {"pid": app_pid}}
+        soak.setup, soak.app_exit = {"identity": {"pid": app_pid}}, None
         soak.app = "/private/var/folders/x/cmux-soak-1/cmux NEXT DEV.app"
         soak.work = "/private/var/folders/x/cmux-soak-1"
         soak.tag = "next-soak1"

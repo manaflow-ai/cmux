@@ -420,6 +420,7 @@ class Soak:
         self.started = time.time()
         self.pids = {}
         self.app_pid = None
+        self.app_exit = None  # the app process's return code once it has exited (check_app_exit)
         self.seen_pids = set()  # every PID of this copy but WebKit's, for crash reports
         self.webkit_before = set()
         self.chromium_off = bool(args.app_config)
@@ -664,8 +665,9 @@ class Soak:
     # ---- sampling ------------------------------------------------------------------------
 
     def kinds(self):
-        """{pid: kind} for every process of this app copy and its agents."""
-        app_pid = self.setup["identity"].get("pid")
+        """{pid: kind} for every process of this app copy and its agents. An app that has exited has no row: its
+        PID may be an unreaped zombie's or another process's by now."""
+        app_pid = self.setup["identity"].get("pid") if self.app_exit is None else None
         found = {}
         tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
         acpmux = os.path.join(self.app, "Contents/Resources/bin/acpmux")
@@ -802,6 +804,21 @@ class Soak:
         self.zombies_last = now
         return len(lasting)
 
+    def check_app_exit(self):
+        """One crash event when the app this soak started has exited. BenchApp starts it as this process's child,
+        so an exit that writes no crash report (a jetsam or other SIGKILL, a plain exit) leaves a zombie with the
+        same PID: only the process's own state tells. poll() also reaps it. True when it has exited."""
+        if self.app_exit is not None:
+            return True
+        code = self.bench.process.poll() if self.bench.process is not None else None
+        if code is None:
+            return False
+        self.app_exit = code
+        how = f"signal {-code}" if code < 0 else f"status {code}"
+        self.event("crash", f"app {self.app_pid} exited ({how})", returncode=code)
+        self.pids["app"] = []
+        return True
+
     def track(self, kinds):
         """Remembers the PIDs whose crash reports are this copy's (not WebKit's: any app's)."""
         self.seen_pids.update(pid for pid, kind in kinds.items() if kind != "webkit")
@@ -845,6 +862,7 @@ class Soak:
             wall = time.monotonic() - tick
             tick = time.monotonic()
             processes = self.sample(before, kinds, wall)
+            self.check_app_exit()
             kinds = self.kinds()
             self.track(kinds)
             before = {pid: usage(pid) for pid in kinds}

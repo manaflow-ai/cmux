@@ -222,11 +222,12 @@ READER = r"""stty -echo; while :; do printf '\033[1;3'; read x; printf 'm got-%s
 
 
 def setup():
-    """Two workspaces, six terminals, the first workspace on two screens,
-    unless a previous run left them."""
+    """Two workspaces, six terminals, the first workspace on two screens. The first launch starts from an empty
+    session (BenchApp refuses a tag whose daemon an earlier run left), so workspaces of an earlier run here are
+    another run's: refused, never measured."""
     if "relaunch-2" in cli("list-workspaces").stdout:
-        print("reusing the session a previous run built")
-        return
+        sys.exit("the first launch restored workspace relaunch-2 of an earlier run (BENCH_LAUNCH_KEEP_STATE?); "
+                 "run on an empty session or a fresh tag")
     first = workspaces()[0]
     top = wait(lambda: surfaces(first), 20)[0][0]
     vim_ref = cli("new-split", "right", "--workspace", first, "--surface", top, "--focus", "false").stdout.split()[1]

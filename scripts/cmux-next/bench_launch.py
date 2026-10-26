@@ -1016,6 +1016,15 @@ class BenchApp:
                 pids.append(int(pid))
         return pids
 
+    def tag_processes(self):
+        """(pid, command) of every process of this tag (TagTeardown's rule: the bundle's executables, its daemon's
+        terminal hosts and holders): a daemon an earlier run left counts, which ``running_pids`` does not see."""
+        if self.teardown:
+            return self.teardown.processes()
+        sys.path.insert(0, HERE)
+        from tag_teardown import TagTeardown
+        return TagTeardown(self.app).processes()
+
     def session(self):
         """This account's GUI session now (the injected read, else ``gui_session``)."""
         return (self.read_session or gui_session)()
@@ -1179,7 +1188,15 @@ class BenchApp:
         note(f"bench-launch: {mute_output()}")
         running = self.running_pids()
         if not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
-            self.start_fresh()  # only with no app of the tag running: its state is not in use
+            left = self.tag_processes()
+            if left:
+                self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": [pid for pid, _ in left],
+                                          "log_tail": "",
+                                          "detail": f"processes of tag {self.tag} still run (pid "
+                                                    f"{', '.join(str(pid) for pid, _ in left)}): the launch would "
+                                                    "adopt that daemon and its session, not an empty one; end them "
+                                                    f"(tag_teardown.py \"{self.app}\") or pick a fresh tag"})
+            self.start_fresh()  # only with no process of the tag running: its state is not in use
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
                                       "detail": f"an app of {self.app} already runs (pid {', '.join(map(str, running))}); "

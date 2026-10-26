@@ -1,6 +1,6 @@
 {
   "id": "relaunch-e2e",
-  "tier": "T2",
+  "tier": "T1",
   "description": "Relaunch after a kill, a quit and a crash, 3 rounds on one tag whose daemon keeps top, vim, an output loop and readers waiting inside an escape sequence (relaunch-e2e.py): per end mode, the relaunch's spawn to its first answered system.ping, and the terminal checks that failed after the relaunches (attach live, new output shown, shell size equal to the grid).",
   "command": ["scripts/cmux-next/relaunch-e2e.py", "--story", "relaunch-e2e"],
   "session": "light",

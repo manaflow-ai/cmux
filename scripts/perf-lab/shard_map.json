@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 19300,
-            "T2": 36840
+            "T1": 20800,
+            "T2": 35340
           },
           "stories": {
             "T1": [
@@ -27,6 +27,7 @@
               "home-perf",
               "launch-cold",
               "launch-cold-realistic",
+              "launch-connect",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
@@ -44,6 +45,7 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "relaunch-e2e",
               "sidebar",
               "sidebar-doc",
               "sidebar-drag",
@@ -90,13 +92,11 @@
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
-              "launch-connect",
               "layout-loop-stress",
               "new-surfaces-stress",
               "pane-scale",
               "perceived-speed",
               "readiness-soak",
-              "relaunch-e2e",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
@@ -118,7 +118,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 36840
+            "T2": 35340
           },
           "stories": {
             "T2": [
@@ -150,13 +150,11 @@
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
-              "launch-connect",
               "layout-loop-stress",
               "new-surfaces-stress",
               "pane-scale",
               "perceived-speed",
               "readiness-soak",
-              "relaunch-e2e",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
@@ -178,7 +176,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9610
+            "T1": 10510
           },
           "stories": {
             "T0": [
@@ -200,6 +198,7 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "relaunch-e2e",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
@@ -216,7 +215,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 9690
+            "T1": 10290
           },
           "stories": {
             "T0": [
@@ -233,6 +232,7 @@
               "fullscreen-transition",
               "home-idle",
               "launch-cold",
+              "launch-connect",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
