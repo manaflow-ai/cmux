@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextWakeups
 import Foundation
@@ -138,28 +139,30 @@ extension AppOnboardingServices {
     /// `daemon` once it has a connection, within 20 seconds: woken by the
     /// connection itself, never by polling.
     func connected(_ daemon: DaemonService) async throws -> DaemonService {
-        if daemon.connection != nil { return daemon }
-        // The first of the connection appearing, the twenty-second SSH connect limit and
-        // cancellation resumes the wait once (no task group waits for a loser).
-        let outcome = FirstOutcome<Bool>()
-        let watch = Task { @MainActor in
-            for await ready in ObservationStream({ daemon.connection != nil }) where ready {
-                outcome.resolve(true)
-                return
-            }
-        }
-        let bound = DemandTimer(owner: "ClassicImport.sshConnect")
-        bound.schedule(after: .seconds(20)) { outcome.resolve(false) }
-        let ready = await withTaskCancellationHandler {
-            await outcome.value()
-        } onCancel: {
-            outcome.resolve(false)
-        }
-        watch.cancel()
-        bound.cancel()
+        await connected([daemon])
         try Task.checkCancellation()
-        guard ready, daemon.connection != nil else { throw DaemonError.notConnected }
+        guard daemon.connection != nil else { throw DaemonError.notConnected }
         return daemon
+    }
+
+    /// Returns once every one of `daemons` has a connection, after ``sshConnectLimit``, or when the
+    /// caller is cancelled, whichever comes first.
+    func connected(_ daemons: [DaemonService]) async {
+        await Self.awaitConnections(on: services.mainWork, deadlines: services.mainDeadlines) {
+            daemons.allSatisfy { $0.connection != nil }
+        }
+    }
+
+    /// The SSH connect limit of an imported remote workspace.
+    nonisolated static let sshConnectLimit = Duration.seconds(20)
+
+    /// Returns once `allConnected` holds, after ``sshConnectLimit``, or when the caller is cancelled
+    /// (recipe R-wait: the condition is read again only when a connection changes, as one `visible`
+    /// task, beside a `MainDeadline`).
+    static func awaitConnections(on mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                                 _ allConnected: @escaping @MainActor () -> Bool) async {
+        await ObservedCondition(owner: "ClassicImport.sshConnect", .visible, on: mainWork)
+            .until(timeout: sshConnectLimit, deadlines: deadlines, allConnected)
     }
 
     /// Rebuilds the imported topology through the same daemon builder used by
