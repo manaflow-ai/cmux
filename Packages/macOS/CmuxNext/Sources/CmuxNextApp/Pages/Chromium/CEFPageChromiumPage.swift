@@ -106,6 +106,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
+    /// No picture until p13-webui-078 binds the fork's `cmux_tab_copy_surface` (p13-webui-077) on the tab,
+    /// and none on a fork without it: the DevTools `Page.captureScreenshot` the window image uses would
+    /// attach an agent and end renderer sharing. A discarded page with no picture shows its pane's
+    /// background until the page draws again.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) { done(nil) }
+
     func load(_ url: URL) { tab.load(url) }
 
     func reload() { tab.reload() }

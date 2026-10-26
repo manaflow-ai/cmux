@@ -160,6 +160,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
+    /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
+    let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What `debug.webui` knows of this page (PageWebView+Debug.swift).
     var censusState = PageCensusState()
@@ -344,6 +346,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
+        installPageStateSave()
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }

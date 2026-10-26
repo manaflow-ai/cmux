@@ -148,6 +148,8 @@ struct PageLifecycleCacheTests {
         var lifecycleGroup: String? { nil }
         var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> { [] }
         func reportsReasonChanges(to lifecycle: PageLifecycle) {}
+        func keepHideSnapshot() {}
+        func dropHideSnapshot() {}
         func freeze() { log.lines.append("freeze \(name)") }
         func discard() { log.lines.append("discard \(name)") }
 

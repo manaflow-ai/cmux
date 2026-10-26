@@ -79,6 +79,18 @@ public protocol PageChromiumPage: AnyObject {
     /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
     ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
     func evaluate(_ script: String) async throws -> Any?
+    /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
+    /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
+    /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
+    /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
+    /// hides, before any freeze (``PageWebView/keepHideSnapshot()``). Never `Page.captureScreenshot`: one
+    /// DevTools agent ends main-frame renderer reuse for the whole browser.
+    ///
+    /// - Parameters:
+    ///   - maxPixelSize: The largest picture, in pixels.
+    ///   - done: Runs once on the main actor with the picture, or nil when the page has no surface or the
+    ///     fork has no surface copy.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void)
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -107,6 +119,24 @@ extension PageChromiumPage {
     public func devToolsEvaluate(_ script: String) async throws -> Any? {
         let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
         return try await ChromiumPageHostWire.value(devToolsReply: reply)
+    }
+}
+
+/// A picture of a page, encoded (PNG, alpha kept): what a page keeps of its last frame once it is
+/// discarded (``PageHideState``), copied by Chromium (``PageChromiumPage/copySurface(maxPixelSize:done:)``)
+/// or encoded from WebKit's frame by ``PageSnapshotEncoder``.
+public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
+    /// The encoded image.
+    public var data: Data
+    /// Its size in pixels.
+    public var pixelSize: CGSize
+
+    /// - Parameters:
+    ///   - data: The encoded image.
+    ///   - pixelSize: Its size in pixels.
+    public init(data: Data, pixelSize: CGSize) {
+        self.data = data
+        self.pixelSize = pixelSize
     }
 }
 
