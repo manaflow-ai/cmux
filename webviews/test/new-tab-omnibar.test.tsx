@@ -267,10 +267,12 @@ test("Down past the last row and Up past the top row come back to the field", as
 });
 
 // Lucas 2026-10-26: in a prompt of several lines ↑ cycled the rows, so the caret could not go up a
-// line. As in the chat's composer, ↑ and ↓ move the caret while there is a line to go to, and the
-// rows take them only from the first (↑) or last (↓) line.
-test("Up and Down move the caret between the lines of a prompt before they step the rows", async () => {
-  await render([]);
+// line. The top row stays selected while typing (the list has the arrows), ↑ from it goes back to the
+// text, and in the text ↑ and ↓ move the caret while there is a line to go to, as in the chat's
+// composer; ← and → in the list go back to the text and move the caret.
+test("in the text Up and Down move the caret between lines; in the list they step the rows", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
   const field = await type("first line\nsecond line");
   const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
   const press = async (key: string) => {
@@ -278,20 +280,28 @@ test("Up and Down move the caret between the lines of a prompt before they step 
     await act(async () => field.dispatchEvent(event));
     return event.defaultPrevented;
   };
-  expect(rows().length).toBeGreaterThan(1);
+  const count = rows().length;
+  expect(count).toBeGreaterThan(1);
   expect(highlighted()).toBe(0);
 
   field.setSelectionRange(field.value.length, field.value.length); // the second line
-  expect(await press("ArrowUp")).toBe(false); // the caret goes up: the browser moves it
-  expect(highlighted()).toBe(0);
-  expect(await press("ArrowDown")).toBe(true); // the last line: the rows step
-  expect(highlighted()).toBe(1);
-
-  field.setSelectionRange(3, 3); // the first line
-  expect(await press("ArrowDown")).toBe(false);
+  expect(await press("ArrowDown")).toBe(true); // the list: the next row
   expect(highlighted()).toBe(1);
   expect(await press("ArrowUp")).toBe(true);
-  expect(highlighted()).toBe(0);
+  expect(await press("ArrowUp")).toBe(true); // the top row: back to the text
+  expect(highlighted()).toBe(-1);
+
+  expect(await press("ArrowUp")).toBe(false); // the text: the caret goes up a line
+  expect(highlighted()).toBe(-1);
+  field.setSelectionRange(3, 3); // the first line
+  expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
+  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last
+  expect(highlighted()).toBe(count - 1);
+
+  expect(await press("ArrowLeft")).toBe(false); // the list: back to the text, the caret moves
+  expect(highlighted()).toBe(-1);
+  await press("Enter");
+  expect(calls).toEqual([["ask", "claude", "first line\nsecond line", undefined, "claude-opus-5-5"]]);
 });
 
 // Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside

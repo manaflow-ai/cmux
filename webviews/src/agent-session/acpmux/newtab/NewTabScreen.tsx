@@ -913,6 +913,12 @@ export function NewTabScreen(props: Props) {
       edit(completion);
       return;
     }
+    // ← and → in the list go back to the text, and the caret moves there at once (the default
+    // action: no preventDefault). Return then sends the prompt, until typing selects the top row.
+    if (plain && current >= 0 && rows.length && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      pick(-1);
+      return;
+    }
     if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
@@ -921,9 +927,10 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    // In a prompt of several lines ↑ and ↓ move the caret first, as in the chat's composer; the
-    // rows take them from the caret's first (↑) or last (↓) line.
-    const step = movesCaretInPrompt(event, input) ? undefined : listStep(event);
+    // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
+    // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
+    // list they always step the rows.
+    const step = current < 0 && movesCaretInPrompt(event, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
