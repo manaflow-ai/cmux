@@ -162,32 +162,12 @@ extension AppServices {
     /// Cloud, SSH or server machine's terminals are not the case's: a reconnecting remote must not fail the snapshot.
     func oracleTerminals() throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
         let connection = machines.local.connection
-        return try Self.oracleTerminals(in: machines.local.store.workspaces, attach: { [cache] tab in
+        return try OracleTerminalsFacet.terminals(in: machines.local.store.workspaces, attach: { [cache] tab in
             (cache.existingTerminal(tab)?.io).map { view in { @Sendable () -> OracleTerminalsFacet.Attach in view.attachPhase.oracleAttach } }
         }) { surface throws(OracleFacetError) -> @Sendable () async throws -> String in
             guard let connection else { throw OracleFacetError("no connection to the local daemon to read surface \(surface.rawValue)") }
             return { try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text }
         }
-    }
-
-    /// Every terminal tab's daemon mirror values, never a Ghostty surface; the attach state (its view's attach machine,
-    /// behind the driver's lock) and the screen are read off the main actor.
-    /// - Parameters:
-    ///   - attach: The attach state read of the view that shows a tab, nil when no view is made.
-    ///   - screen: The `read-screen` of a surface.
-    static func oracleTerminals(in workspaces: [WorkspaceModel], attach: (String) -> (@Sendable () -> OracleTerminalsFacet.Attach)?,
-                                screen: (SurfaceID) throws(OracleFacetError) -> @Sendable () async throws -> String)
-        throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
-        var terminals: [OracleTerminalsFacet.Terminal] = []
-        // A remote-terminal tab's terminal is another session's; a tab with no public terminal id has no terminal made yet.
-        for tab in workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && tab.remote == nil {
-            guard let id = tab.terminalResourceID?.rawValue else { continue }
-            let exitCode = tab.end.flatMap { $0.kind == .exited ? $0.code.map { Int($0) } : nil }
-            terminals.append(OracleTerminalsFacet.Terminal(terminal: id, tab: tab.id, cols: tab.size?.cols ?? 0, rows: tab.size?.rows ?? 0,
-                                                           title: tab.title, cwd: tab.cwd, ended: tab.dead, exitCode: exitCode,
-                                                           attach: attach(tab.id), screen: try screen(tab.surface)))
-        }
-        return terminals
     }
 
     nonisolated static func oracleSHA256(_ text: String) -> String {

@@ -47,7 +47,7 @@ import Testing
     /// detached, no view made) and leaves the rest out.
     @Test func theFacetListsTheLocalPtyTabsFromTheMirror() async throws {
         let services = seed()
-        let terminals = try AppServices.oracleTerminals(in: services.daemon.store.workspaces, attach: { _ in nil }) { surface in
+        let terminals = try OracleTerminalsFacet.terminals(in: services.daemon.store.workspaces, attach: { _ in nil }) { surface in
             { "screen \(surface.rawValue)" }
         }
         let facet = OracleTerminalsFacet(rewrite: .init(root: [], home: []), hash: { "hashed(\($0))" }, changes: nil) { terminals }
