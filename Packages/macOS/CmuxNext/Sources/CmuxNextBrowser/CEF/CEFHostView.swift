@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// UI must show above the page (find bar, prompt bar) or must get the mouse
 /// (the window's dividers and switcher, `BrowserWindowOcclusionProviding`),
 /// and masks it to `cmuxClipPath` (rounded pane and window corners).
-final class CEFHostView: NSView {
+final class CEFHostView: NSView, PaneRenderMoveObserving {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
         didSet {
@@ -36,9 +36,12 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
-    /// The pane spring the page is on with the `pageSpringResizeOnce` feature (`CEFTabContentView+SpringResize`);
-    /// nil at rest.
-    private(set) var spring: PageSpring?
+    /// Its pane springs with the `pageSpringResizeOnce` feature (`CEFTabContentView+SpringResize`): the gaps
+    /// beside the page show the page's background.
+    private(set) var isOnPageSpring = false
+    /// Its pane shows a render-server move with that feature (`PaneRenderMoveObserving`): a page in its own
+    /// window hides meanwhile (`ChildWindowPageFallback.hidesForSpring`).
+    private(set) var isOnRenderMove = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -83,7 +86,7 @@ final class CEFHostView: NSView {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize || spring != nil, let pageBackdrop {
+        if inLiveResize || isOnPageSpring || isOnRenderMove, let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
@@ -183,25 +186,30 @@ final class CEFHostView: NSView {
         }.map(\.element)
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
-        let resized = newSize != frame.size
-        super.setFrameSize(newSize)
-        if resized, let spring { layerHosting.pageResized(in: spring.fence) }
-    }
-
-    /// Another tab's container or pane took the view mid-spring: its pane's landing may never reach it.
+    /// Another tab's container or pane took the view mid-spring: its old pane's landing never reaches it, and
+    /// the new one may be springing on the render server already.
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        setSpring(nil)
+        setPageSpring(false)
+        paneRenderMoveDidChange((superview as? CEFTabContentView)?.springPlacement?.showsRenderMove ?? false)
     }
 
-    /// Sets ``spring``: while it is set the gaps show the page background, and a page in its own window may
-    /// hide (`ChildWindowPageFallback.hidesForSpring`); the fork re-reads the page's geometry when that changes.
-    func setSpring(_ spring: PageSpring?) {
+    /// Sets ``isOnPageSpring``.
+    func setPageSpring(_ on: Bool) {
+        guard on != isOnPageSpring else { return }
+        isOnPageSpring = on
+        updateBackground()
+    }
+
+    /// `PaneRenderMoveObserving`: a page in its own window is placed from this view's frame, which a
+    /// render-server spring sets at rest in its first turn, so it hides while its pane shows the move
+    /// (`ChildWindowPageFallback.hidesForSpring`), and the geometry update when the move ends orders it in where
+    /// the pane landed. A docked DevTools host hides the same.
+    func paneRenderMoveDidChange(_ showsRenderMove: Bool) {
+        guard showsRenderMove != isOnRenderMove else { return }
         let hid = ChildWindowPageFallback.hidesForSpring(self)
-        let wasSet = self.spring != nil
-        self.spring = spring
-        if wasSet != (spring != nil) { updateBackground() }
+        isOnRenderMove = showsRenderMove
+        updateBackground()
         if ChildWindowPageFallback.hidesForSpring(self) != hid { postGeometryChange() }
     }
 
@@ -263,6 +271,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     weak var tab: CEFTab?
     /// The size its pane's spring rests at, held at the top-left until it lands (`CEFTabContentView+SpringResize`).
     var springHold: SpringPageHold?
+    /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
+    /// feature, `RestingPlacement.pageResizing`), found once each time it moves (`placeInPane()`); nil
+    /// otherwise, so a layout without the feature walks no ancestors.
+    weak var springPlacement: (any RestingPlacement)?
     private let snapshotView = NSImageView()
 
     override init(frame: NSRect) {
@@ -289,8 +301,14 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         tab?.deviceEmulationViewDidResize()
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        placeInPane()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        placeInPane()
         guard let tab else { return }
         tab.pageThemeDidChange()
         // A tab parked hidden in its pane (PaneContentView+Parking) shows

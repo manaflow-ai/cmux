@@ -3,41 +3,52 @@ import AppKit
 import CmuxNextDesign
 import Foundation
 import Testing
+import WebKit
 
 /// p03-rendering-036: with the `pageSpringResizeOnce` feature a page in a springing pane resizes once, at the
-/// spring's start, to the size its pane rests at, and not again at the landing (F12: both engines); a hosted
-/// Chromium page's resize joins the window's one fence of the turn; a page in its own window hides for the
-/// spring instead of showing at the pane's rest place.
+/// spring's start, to the size its pane rests at, and not again at the landing (F12: both engines); a page in
+/// its own window hides while its pane shows a render-server move instead of showing at the pane's rest place.
+/// `PageSpringPaneHostTests` (CmuxNextAppTests) drives the same pages from a real `PaneHostView`.
 @MainActor @Suite(.serialized) struct PageSpringResizeTests {
-    /// A pane host as the layout makes it, reduced to what pages read: its spring flag, its rest size change
-    /// and the window's page resizing.
+    /// A pane host as the layout makes it, reduced to what pages read: its spring flag, its rest content size
+    /// (the change it reports is the rest less the content's current size, as `PaneHostView.restSizeChange`),
+    /// its render-server move and the feature's page resizing.
     final class Placement: NSView, RestingPlacement {
         var restOffset: CGVector = .zero
         var isOnLayoutSpring = false
-        var restContentSizeChange: CGSize?
-        var isOnRenderSpring = false
+        /// The content's size at rest while on a spring.
+        var rest: CGSize?
         let pageResizing: PageSpringResizing?
+        var showsRenderMove = false {
+            didSet { if showsRenderMove != oldValue { for view in subviews { view.notifyPaneRenderMoveChanged(showsRenderMove) } } }
+        }
 
-        init(frame: CGRect, mode: SpringPageResize, fence: ResizeFenceTurn) {
-            pageResizing = PageSpringResizing(mode: { mode }, fence: fence)
+        init(frame: CGRect, mode: SpringPageResize) {
+            pageResizing = PageSpringResizing(mode: { mode })
             super.init(frame: frame)
         }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-        /// A spring that will rest `change` larger starts.
-        func start(_ change: CGSize, in content: NSView) {
+        var restContentSizeChange: CGSize? {
+            guard isOnLayoutSpring, let rest, let now = subviews.first?.frame.size else { return nil }
+            let change = CGSize(width: rest.width - now.width, height: rest.height - now.height)
+            return abs(change.width) >= 0.5 || abs(change.height) >= 0.5 ? change : nil
+        }
+
+        /// A spring toward `rest` starts and tells the content (`PaneHostView.announceRest`).
+        func start(toward rest: CGSize) {
             isOnLayoutSpring = true
-            restContentSizeChange = change
-            content.notifyPaneMotionWillRest(sizeChange: change)
+            self.rest = rest
+            if let content = subviews.first, let change = restContentSizeChange { content.notifyPaneMotionWillRest(sizeChange: change) }
         }
 
         /// The spring lands.
-        func land(_ content: NSView) {
+        func land() {
             isOnLayoutSpring = false
-            restContentSizeChange = nil
-            content.notifyPaneMotionSettled()
+            rest = nil
+            for view in subviews { view.notifyPaneMotionSettled() }
         }
     }
 
@@ -50,126 +61,161 @@ import Testing
         }
     }
 
-    /// A turn's commit the test runs itself.
-    final class Commits {
-        var blocks: [@MainActor () -> Void] = []
-        func commit() {
-            let due = blocks
-            blocks = []
-            for block in due { block() }
+    /// The sizes a view took, from its frame change notifications (every `setFrameSize` that changed it).
+    @MainActor final class Sizes {
+        private(set) var sizes: [CGSize] = []
+        private var observer: (any NSObjectProtocol)?
+
+        init(_ view: NSView) {
+            sizes = [view.frame.size]
+            view.postsFrameChangedNotifications = true
+            observer = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { [weak self, weak view] _ in
+                MainActor.assumeIsolated { // main-proof: frame changes post on the thread that set the frame, the test's main thread
+                    guard let self, let size = view?.frame.size, size != self.sizes.last else { return }
+                    self.sizes.append(size)
+                }
+            }
         }
-    }
 
-    let commits = Commits()
-    /// Layer hosting's end-of-turn requests, run by the test.
-    let hostingTurn = HostingTurn()
-
-    final class HostingTurn {
-        private var blocks: [@MainActor @Sendable () -> Void] = []
-        func add(_ block: @escaping @MainActor @Sendable () -> Void) { blocks.append(block) }
-        func end() {
-            let due = blocks
-            blocks = []
-            for block in due { block() }
+        func stop() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
         }
-    }
-
-    /// Layer hosting of a page window over a new view (`views` keeps the view: hosting holds it weakly).
-    func makeHosting(enabled: Bool, views: inout [NSView]) -> CEFLayerHosting {
-        let turn = hostingTurn
-        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { turn.add($0) },
-                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) })
-        let view = NSView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
-        views.append(view)
-        hosting.view = view
-        return hosting
-    }
-
-    func fence(opened: @escaping () -> UInt32? = { nil }, released: @escaping (UInt32) -> Void = { _ in }) -> ResizeFenceTurn {
-        let commits = commits
-        return ResizeFenceTurn(port: ResizeFenceTurn.Port(open: opened, release: released), afterCommit: { commits.blocks.append($0) })
     }
 
     // MARK: WebKit
 
-    @Test func aWebKitPageResizesOnceAtTheSpringsStartAndNotAtItsLanding() {
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once, fence: fence())
+    func webKitPage(in pane: Placement) -> (Page, WebKitPageContainer) {
         let page = Page(frame: .zero)
         let container = WebKitPageContainer(page: page)
         container.frame = pane.bounds
         pane.addSubview(container)
+        return (page, container)
+    }
+
+    @Test func aWebKitPageResizesOnceAtTheSpringsStartAndNotAtItsLanding() {
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (page, container) = webKitPage(in: pane)
         #expect(page.sizes == [CGSize(width: 640, height: 600)])
 
         // Cmd-D: the pane will rest at half its width.
-        pane.start(CGSize(width: -320, height: 0), in: container)
+        pane.start(toward: CGSize(width: 320, height: 600))
         #expect(page.sizes.last == CGSize(width: 320, height: 600), "the page takes its rest size at the start")
         #expect(page.frame.origin == CGPoint(x: 0, y: 0), "held at the top-left")
         // The main thread's spring frames shrink the pane toward its rest.
         for width in [560.0, 480, 400, 320] { container.setFrameSize(NSSize(width: width, height: 600)) }
-        pane.land(container)
+        pane.land()
         #expect(page.sizes == [CGSize(width: 640, height: 600), CGSize(width: 320, height: 600)],
                 "one resize per Cmd-D, at the start; none per frame or at the landing")
         #expect(page.frame == container.bounds)
     }
 
     @Test func aGrowingWebKitPageStaysAtTheTopLeftWhileItsPaneGrows() {
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 320, height: 300), mode: .once, fence: fence())
-        let page = Page(frame: .zero)
-        let container = WebKitPageContainer(page: page)
-        container.frame = pane.bounds
-        pane.addSubview(container)
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 320, height: 300), mode: .once)
+        let (page, container) = webKitPage(in: pane)
 
-        pane.start(CGSize(width: 320, height: 300), in: container)
+        pane.start(toward: CGSize(width: 640, height: 600))
         container.setFrameSize(NSSize(width: 480, height: 450))
         // Not flipped: the top edge is maxY.
         #expect(page.frame == CGRect(x: 0, y: 450 - 600, width: 640, height: 600))
         container.setFrameSize(NSSize(width: 640, height: 600))
-        pane.land(container)
+        pane.land()
         #expect(page.sizes.count == 2)
         #expect(page.frame == container.bounds)
     }
 
     @Test func perFrameResizesTheWebKitPageWithItsPane() {
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .perFrame, fence: fence())
-        let page = Page(frame: .zero)
-        let container = WebKitPageContainer(page: page)
-        container.frame = pane.bounds
-        pane.addSubview(container)
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .perFrame)
+        let (page, container) = webKitPage(in: pane)
 
-        pane.start(CGSize(width: -320, height: 0), in: container)
+        pane.start(toward: CGSize(width: 320, height: 600))
         for width in [480.0, 320] { container.setFrameSize(NSSize(width: width, height: 600)) }
-        pane.land(container)
+        pane.land()
         #expect(page.sizes.map(\.width) == [640, 480, 320])
     }
 
-    /// The first frame of a main-thread spring resizes the pane before the spring's start reaches the page.
-    @Test func aWebKitPageResizedBeforeTheStartJoinsTheSpringOnce() {
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once, fence: fence())
-        let page = Page(frame: .zero)
-        let container = WebKitPageContainer(page: page)
-        container.frame = pane.bounds
-        pane.addSubview(container)
+    /// The first frame of a main-thread spring resizes the pane before the spring's start reaches the page:
+    /// the page joins at the true rest (the change is the rest less the content's size at that frame), once.
+    @Test func aWebKitPageResizedBeforeTheStartJoinsTheSpringAtItsRestOnce() {
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (page, container) = webKitPage(in: pane)
 
         pane.isOnLayoutSpring = true
-        pane.restContentSizeChange = CGSize(width: -240, height: 0)
+        pane.rest = CGSize(width: 400, height: 600)
         container.setFrameSize(NSSize(width: 560, height: 600))
-        pane.start(CGSize(width: -240, height: 0), in: container)
-        container.setFrameSize(NSSize(width: 320, height: 600))
-        pane.land(container)
-        #expect(page.sizes.map(\.width) == [640, 320])
+        #expect(page.frame.size == CGSize(width: 400, height: 600), "joined at the pane's rest, not at 560 - 240")
+        pane.start(toward: CGSize(width: 400, height: 600))
+        for width in [480.0, 400] { container.setFrameSize(NSSize(width: width, height: 600)) }
+        pane.land()
+        #expect(page.sizes.map(\.width) == [640, 400])
+        #expect(page.frame == container.bounds)
     }
 
     @Test func anAttachedInspectorEndsTheHold() {
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once, fence: fence())
-        let page = Page(frame: .zero)
-        let container = WebKitPageContainer(page: page)
-        container.frame = pane.bounds
-        pane.addSubview(container)
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (page, container) = webKitPage(in: pane)
 
-        pane.start(CGSize(width: -320, height: 0), in: container)
+        pane.start(toward: CGSize(width: 320, height: 600))
         container.addSubview(NSView(frame: .zero))
         #expect(container.springHold == nil, "the inspector owns the web view's frame")
         #expect(page.autoresizingMask == [.width, .height])
+    }
+
+    /// A device emulation set during a hold places the page itself, and the landing leaves it there.
+    @Test func anEmulationSetDuringTheHoldEndsIt() {
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (page, container) = webKitPage(in: pane)
+
+        pane.start(toward: CGSize(width: 320, height: 600))
+        container.emulation = BrowserEmulation(width: 200, height: 400, deviceScaleFactor: 2, userAgent: "", chromiumCallsJSON: "")
+        #expect(container.springHold == nil, "the emulation owns the web view's frame")
+        let emulated = page.frame
+        #expect(emulated.size == CGSize(width: 200, height: 400))
+        container.setFrameSize(NSSize(width: 320, height: 600))
+        pane.land()
+        #expect(page.frame.size == CGSize(width: 200, height: 400), "still the device's size after the landing")
+    }
+
+    /// A container moved to another pane mid-spring: the old pane's landing never reaches it, so the move ends
+    /// the hold and the page fills the container in its new pane.
+    @Test func aWebKitPageMovedToAnotherPaneMidSpringFillsItsContainer() {
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let other = Placement(frame: CGRect(x: 0, y: 0, width: 500, height: 600), mode: .once)
+        let (page, container) = webKitPage(in: pane)
+
+        pane.start(toward: CGSize(width: 320, height: 600))
+        other.addSubview(container)
+        container.setFrameSize(other.bounds.size)
+        #expect(container.springHold == nil)
+        #expect(page.frame == container.bounds)
+        #expect(page.autoresizingMask == [.width, .height])
+        #expect(container.layer?.backgroundColor == nil)
+    }
+
+    /// The gap beside a held page of a real WebKit tab (its `underPageBackgroundColor` is clear) shows the
+    /// document's background the tab read, and nothing for a see-through page.
+    @Test func theGapBesideAHeldWebKitTabShowsTheDocumentsBackground() throws {
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+        let tab = engine.makeWebKitTab()
+        defer { tab.close() }
+        #expect(tab.webView.underPageBackgroundColor.alphaComponent == 0, "the tab's under-page color is no source for the gap")
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 320, height: 300), mode: .once)
+        tab.container.frame = pane.bounds
+        pane.addSubview(tab.container)
+        #expect(tab.container.wantsLayer)
+        #expect(tab.container.springPlacement === pane)
+
+        tab.samplePageBackdrop()
+        #expect(tab.container.pageBackdrop == nil, "a blank page is see-through: no read, no fill")
+        pane.start(toward: CGSize(width: 640, height: 300))
+        #expect(tab.container.layer?.backgroundColor == nil)
+
+        // The document's background, as `samplePageBackdrop` sets it once read.
+        let documentColor = PageBackground.cgColor(argb: 0xFF10_2030)
+        tab.container.pageBackdrop = documentColor
+        #expect(tab.container.layer?.backgroundColor == documentColor)
+        pane.land()
+        #expect(tab.container.layer?.backgroundColor == nil)
     }
 
     @Test func withoutTheFeatureAWebKitPageResizesWithItsPane() {
@@ -178,6 +224,7 @@ import Testing
         let container = WebKitPageContainer(page: page)
         container.frame = pane.bounds
         pane.addSubview(container)
+        #expect(container.springPlacement == nil, "no pane with the feature: layouts walk no ancestors")
 
         container.notifyPaneMotionWillRest(sizeChange: CGSize(width: -320, height: 0))
         container.setFrameSize(NSSize(width: 480, height: 600))
@@ -186,50 +233,128 @@ import Testing
 
     // MARK: Chromium
 
-    /// A render-server spring sets the pane's frame at rest in its first turn: a page window placed from it
-    /// would show at the rest place for the whole spring, so it hides until the landing.
-    @Test func aChromiumPageInItsOwnWindowResizesOnceAndHidesUntilARenderServerSpringLands() throws {
+    /// Cmd-D on the main thread's spring frames: the page window follows the pane's frame, stays shown, and
+    /// its host view takes one size per Cmd-D, at the start, none per frame or at the landing.
+    @Test func aChromiumPageOnAMainThreadSpringResizesOnceAndStaysShown() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        var opened = 0
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once,
-                             fence: fence(opened: { opened += 1; return 5 }))
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
         let (host, tab) = try Self.shownTab(runtime, in: pane)
         let view = host.hostView
-        #expect(view.drawsInChildWindow, "hosting off: the page draws in its own window")
-        #expect(view.allOcclusionRects != [view.bounds])
+        let sizes = Sizes(view)
+        defer { sizes.stop() }
 
-        pane.isOnRenderSpring = true
-        pane.start(CGSize(width: -320, height: 0), in: tab.container)
-        #expect(view.frame == CGRect(x: 0, y: 0, width: 640 - 320, height: 600), "the page takes its rest size at the start")
-        #expect(view.allOcclusionRects == [view.bounds], "its window hides for the spring")
-        tab.container.setFrameSize(NSSize(width: 320, height: 600))
-        pane.isOnRenderSpring = false
-        pane.land(tab.container)
-        #expect(view.frame == CGRect(x: 0, y: 0, width: 320, height: 600), "no resize at the landing")
-        #expect(view.allOcclusionRects != [view.bounds], "it shows again at the landing")
-        #expect(opened == 0, "a page in its own window opens no fence")
-    }
-
-    /// On the main thread's spring frames the page window follows the pane's frame: it stays shown, held at
-    /// its rest size, and resizes once.
-    @Test func aChromiumPageOnAMainThreadSpringStaysShownAndResizesOnce() throws {
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once, fence: fence())
-        let (host, tab) = try Self.shownTab(runtime, in: pane)
-        let view = host.hostView
-
-        pane.start(CGSize(width: -320, height: 0), in: tab.container)
+        pane.start(toward: CGSize(width: 320, height: 600))
         #expect(view.allOcclusionRects != [view.bounds])
         for width in [560.0, 480, 400] {
             tab.container.setFrameSize(NSSize(width: width, height: 600))
             #expect(view.frame == CGRect(x: 0, y: 0, width: 320, height: 600), "held at its rest size, at the top-left")
         }
         tab.container.setFrameSize(NSSize(width: 320, height: 600))
-        pane.land(tab.container)
+        pane.land()
         #expect(view.frame == tab.container.bounds)
-        #expect(view.spring == nil)
+        #expect(sizes.sizes == [CGSize(width: 640, height: 600), CGSize(width: 320, height: 600)])
+        #expect(!view.isOnPageSpring)
+    }
+
+    /// Two Chromium pages a Cmd-D resizes (the new pane's and its neighbour's): each takes its rest size once,
+    /// in the start's turn, so a hosted page's resize joins that turn's one fence (p03-rendering-043), and the
+    /// landing resizes neither.
+    @Test func twoChromiumPagesResizeInTheStartsTurnOnlyAndNotAtTheLanding() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let left = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let right = Placement(frame: CGRect(x: 0, y: 0, width: 200, height: 600), mode: .once)
+        let (leftHost, leftTab) = try Self.shownTab(runtime, in: left, browser: 10)
+        let (rightHost, rightTab) = try Self.shownTab(runtime, in: right, browser: 11)
+        let leftSizes = Sizes(leftHost.hostView), rightSizes = Sizes(rightHost.hostView)
+        defer { leftSizes.stop(); rightSizes.stop() }
+
+        left.start(toward: CGSize(width: 320, height: 600))
+        right.start(toward: CGSize(width: 320, height: 600))
+        #expect(leftSizes.sizes.count == 2 && rightSizes.sizes.count == 2, "one resize each in the start's turn")
+        for step in 1...3 {
+            leftTab.container.setFrameSize(NSSize(width: 640 - 80 * CGFloat(step), height: 600))
+            rightTab.container.setFrameSize(NSSize(width: 200 + 40 * CGFloat(step), height: 600))
+        }
+        left.land()
+        right.land()
+        #expect(leftSizes.sizes == [CGSize(width: 640, height: 600), CGSize(width: 320, height: 600)])
+        #expect(rightSizes.sizes == [CGSize(width: 200, height: 600), CGSize(width: 320, height: 600)])
+    }
+
+    /// A render-server spring sets the pane's frame at rest in its first turn: a page window placed from it
+    /// would show at the rest place for the whole spring, so it hides while the pane shows the move, also for
+    /// a move that keeps the size (a column shifting after a close), and shows again when the move lands.
+    @Test func aChromiumPageInItsOwnWindowHidesWhileItsPaneShowsARenderServerMove() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (host, _) = try Self.shownTab(runtime, in: pane)
+        let view = host.hostView
+        let sizes = Sizes(view)
+        defer { sizes.stop() }
+        #expect(view.drawsInChildWindow, "hosting off: the page draws in its own window")
+        #expect(view.allOcclusionRects != [view.bounds])
+
+        pane.showsRenderMove = true
+        #expect(view.allOcclusionRects == [view.bounds], "its window hides for the move")
+        #expect(ChildWindowPageFallback.hidesForSpring(view))
+        pane.showsRenderMove = false
+        #expect(view.allOcclusionRects != [view.bounds], "it shows again where the pane landed")
+        #expect(sizes.sizes == [CGSize(width: 640, height: 600)], "a move resizes nothing")
+    }
+
+    /// The main thread took the render spring back (a structural change mid-spring): the page window follows
+    /// the pane's frames again, so it shows while the pane is still on its layout spring.
+    @Test func aRenderSpringTakenBackShowsThePageWindowBeforeTheLanding() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let (host, _) = try Self.shownTab(runtime, in: pane)
+        let view = host.hostView
+
+        pane.showsRenderMove = true
+        pane.start(toward: CGSize(width: 320, height: 600))
+        #expect(view.allOcclusionRects == [view.bounds])
+        pane.showsRenderMove = false
+        #expect(pane.isOnLayoutSpring)
+        #expect(view.allOcclusionRects != [view.bounds])
+        pane.land()
+    }
+
+    /// A tab shown while its pane already shows a render-server move missed the start: its page window hides
+    /// as it takes the pane's host view.
+    @Test func aChromiumTabShownMidRenderMoveHides() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        pane.showsRenderMove = true
+        let (host, _) = try Self.shownTab(runtime, in: pane)
+        #expect(host.hostView.allOcclusionRects == [host.hostView.bounds])
+        pane.showsRenderMove = false
+        #expect(host.hostView.allOcclusionRects != [host.hostView.bounds])
+    }
+
+    /// A tab's container moved to another pane mid-spring: the move ends the hold, and the page fills its
+    /// container at rest there.
+    @Test func aChromiumTabMovedToAnotherPaneMidSpringFillsItsContainer() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pane = Placement(frame: CGRect(x: 0, y: 0, width: 640, height: 600), mode: .once)
+        let other = Placement(frame: CGRect(x: 0, y: 0, width: 500, height: 600), mode: .once)
+        let (host, tab) = try Self.shownTab(runtime, in: pane)
+
+        pane.showsRenderMove = true
+        pane.start(toward: CGSize(width: 320, height: 600))
+        #expect(tab.container.springHold != nil)
+        other.addSubview(tab.container)
+        tab.container.setFrameSize(other.bounds.size)
+        #expect(tab.container.springHold == nil)
+        #expect(host.hostView.frame == tab.container.bounds)
+        #expect(!host.hostView.isOnPageSpring)
+        #expect(host.hostView.allOcclusionRects != [host.hostView.bounds], "the new pane shows no render move")
+        #expect(tab.container.springPlacement === other)
     }
 
     @Test func withoutTheFeatureAChromiumPageResizesWithItsPane() throws {
@@ -237,63 +362,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let pane = NSView(frame: CGRect(x: 0, y: 0, width: 640, height: 600))
         let (host, tab) = try Self.shownTab(runtime, in: pane)
+        #expect(tab.container.springPlacement == nil, "no pane with the feature: layouts walk no ancestors")
 
         tab.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: -320, height: 0))
+        tab.container.notifyPaneRenderMoveChanged(true)
+        tab.container.notifyPaneRenderMoveChanged(false)
         tab.container.setFrameSize(NSSize(width: 480, height: 600))
         #expect(host.hostView.frame.size == CGSize(width: 480, height: 600))
         #expect(host.hostView.allOcclusionRects != [host.hostView.bounds])
-    }
-
-    /// Every hosted page a spring's start resizes joins one fence, released after the turn's commit; the next
-    /// turn opens its own.
-    @Test func hostedPagesResizedInOneTurnShareOneFence() {
-        var opened: [UInt32] = [], released: [UInt32] = []
-        var next: UInt32 = 40
-        let turn = fence(opened: { next += 1; opened.append(next); return next }, released: { released.append($0) })
-        var joins: [(browser: Int32, fence: UInt32, frames: UInt32)] = []
-        var views: [NSView] = []
-        let left = makeHosting(enabled: true, views: &views), right = makeHosting(enabled: true, views: &views)
-        for (hosting, browser) in [(left, Int32(3)), (right, 4)] {
-            hosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 },
-                                                                                 setResizeFence: { id, port, frames in
-                                                                                     joins.append((id, port, frames))
-                                                                                     return true
-                                                                                 }))
-        }
-        hostingTurn.end()
-        #expect(left.page != nil && right.page != nil)
-
-        left.pageResized(in: turn)
-        right.pageResized(in: turn)
-        #expect(opened == [41], "one fence per spring start")
-        #expect(joins.map(\.browser) == [3, 4])
-        #expect(joins.allSatisfy { $0.fence == 41 && $0.frames == 2 })
-        #expect(released.isEmpty, "held until the turn commits")
-        commits.commit()
-        #expect(released == [41])
-
-        left.pageResized(in: turn)
-        #expect(opened == [41, 42], "the next turn opens its own")
-        #expect(left.fencedResizes == 2)
-        #expect(views.count == 2)
-    }
-
-    @Test func aPageInItsOwnWindowOrWithoutTheForkAPIJoinsNoFence() {
-        var opened = 0
-        let turn = fence(opened: { opened += 1; return 9 })
-        var views: [NSView] = []
-        let offHosting = makeHosting(enabled: false, views: &views)
-        offHosting.pageWindowCreated(browser: 3, fork: CEFLayerHosting.Fork(setLayerHosting: { _, _ in 0 }, setResizeFence: { _, _, _ in true }))
-        let oldFork = makeHosting(enabled: true, views: &views)
-        oldFork.pageWindowCreated(browser: 4, fork: CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }))
-        hostingTurn.end()
-        #expect(offHosting.page == nil, "hosting off: the page draws in its own window")
-        #expect(oldFork.page != nil, "the old fork's page is hosted")
-
-        offHosting.pageResized(in: turn)
-        oldFork.pageResized(in: turn)
-        #expect(opened == 0)
-        #expect(views.count == 2)
     }
 
     // MARK: Fixture
@@ -305,8 +381,8 @@ import Testing
         return (runtime, root)
     }
 
-    /// A Chromium tab shown in `pane`, its browser (10) live in its own window.
-    private static func shownTab(_ runtime: CEFRuntime, in pane: NSView) throws -> (CEFPaneHost, CEFTab) {
+    /// A Chromium tab shown in `pane`, its browser live in its own window.
+    private static func shownTab(_ runtime: CEFRuntime, in pane: NSView, browser: Int32 = 10) throws -> (CEFPaneHost, CEFTab) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         host.endOfTurn = { $0() }
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
@@ -316,8 +392,9 @@ import Testing
         host.add(tab)
         host.present(tab, in: tab.container)
         host.createDeferred()
-        runtime.handle(.afterCreated(browser: 10, request: try #require(runtime.pendingWindows.keys.first), window: 1))
-        #expect(tab.browserID == 10)
+        let request = try #require(runtime.pendingWindows.keys.first)
+        runtime.handle(.afterCreated(browser: browser, request: request, window: browser))
+        #expect(tab.browserID == browser)
         #expect(host.hostView.frame == tab.container.bounds)
         return (host, tab)
     }

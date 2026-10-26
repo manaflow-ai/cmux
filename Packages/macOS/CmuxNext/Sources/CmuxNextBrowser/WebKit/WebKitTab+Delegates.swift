@@ -111,6 +111,7 @@ extension WebKitTab: WKNavigationDelegate {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
         pageDidCommit()
+        resetPageBackdrop()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -127,6 +128,7 @@ extension WebKitTab: WKNavigationDelegate {
         forgetNavigation(navigation)
         apply(.finished(id))
         pageDidFinish()
+        samplePageBackdrop()
         // The load ended: a document with no contentful paint (an empty body) shows as it is.
         removeStandIn()
         syncHistory()

@@ -20,17 +20,17 @@ public protocol RestingPlacement: NSView {
     var restContentSizeChange: CGSize? { get }
     /// What pages in the view do while it springs (``PageSpringResizing``); nil: they resize with it.
     var pageResizing: PageSpringResizing? { get }
-    /// Whether Core Animation shows the view springing while its frame is already at rest (a render-server
-    /// spring): content placed from its frame in another window (a Chromium page window) is at the rest
-    /// place, not where the view shows.
-    var isOnRenderSpring: Bool { get }
+    /// Whether Core Animation shows the view moving or resizing away from its frame, which is already at rest
+    /// (a render-server spring): content placed from its frame in another window (a Chromium page window) is
+    /// at the rest place, not where the view shows. Its changes reach ``PaneRenderMoveObserving`` views.
+    var showsRenderMove: Bool { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
     var pageResizing: PageSpringResizing? { nil }
-    var isOnRenderSpring: Bool { false }
+    var showsRenderMove: Bool { false }
 }
 
 public extension NSView {

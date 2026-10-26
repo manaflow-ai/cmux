@@ -20,8 +20,10 @@ extension PaneHostView {
     /// ``springToRest(_:spring:inPlane:landed:)``, after the plane placed the host's chrome at rest
     /// (`LayoutViewContext.overlaySyncNow`).
     func placeAtRest(_ move: SplitMotion.RenderMove, laysOut: Bool) {
-        // On the render server before the frame moves: the content is never held (`contentFrame(in:)`).
+        // On the render server before the frame moves: the content is never held (`contentFrame(in:)`), and a
+        // page in its own window hides while the frame still shows where it was (`showsRenderMove`).
         renderSpringsInFlight += 1
+        if move.from != move.to || !move.velocity.isZero { showsRenderMove = true }
         restSize = move.to.size
         isOnLayoutSpring = true
         announceRest()
@@ -44,7 +46,10 @@ extension PaneHostView {
         let finish: RenderSpring.Completion = { [weak self] _ in
             if let self {
                 renderSpringsInFlight -= 1
-                if renderSpringsInFlight == 0 { chrome.rideEnded() }
+                if renderSpringsInFlight == 0 {
+                    chrome.rideEnded()
+                    showsRenderMove = false
+                }
             }
             landed()
         }
@@ -85,5 +90,6 @@ extension PaneHostView {
     func stopRenderMoves() {
         if let layer { ScreenContentView.stopMoveSprings(layer) }
         chrome.stopRide()
+        showsRenderMove = false
     }
 }

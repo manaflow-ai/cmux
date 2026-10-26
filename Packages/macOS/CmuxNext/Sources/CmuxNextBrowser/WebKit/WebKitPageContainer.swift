@@ -22,6 +22,8 @@ final class WebKitPageContainer: NSView {
     init(page: NSView) {
         self.page = page
         super.init(frame: .zero)
+        // Layer-backed for the gutter beside a held page (`WebKitPageContainer+SpringResize`).
+        wantsLayer = true
         page.frame = bounds
         page.autoresizingMask = [.width, .height]
         page.translatesAutoresizingMaskIntoConstraints = true
@@ -67,6 +69,8 @@ final class WebKitPageContainer: NSView {
     var emulation: BrowserEmulation? {
         didSet {
             guard emulation != oldValue else { return }
+            // The emulation owns the web view's frame from now on: no spring holds it.
+            endSpringHold()
             placeEmulatedPage()
         }
     }
@@ -95,6 +99,28 @@ final class WebKitPageContainer: NSView {
 
     /// The size its pane's spring rests at, held at the top-left until it lands (`WebKitPageContainer+SpringResize`).
     var springHold: SpringPageHold?
+    /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
+    /// feature), found once each time it moves (`placeInPane()`); nil otherwise, so a resize without the
+    /// feature walks no ancestors.
+    weak var springPlacement: (any RestingPlacement)?
+    /// The document's own background, for the gap beside a held page (`WebKitTab+SpringBackdrop`); nil for a
+    /// see-through page (blank, the New Tab page, a document that has not painted) and before it is read.
+    var pageBackdrop: CGColor? {
+        didSet { if springHold != nil, pageBackdrop != oldValue { layer?.backgroundColor = pageBackdrop } }
+    }
+    /// Asks the tab to read ``pageBackdrop`` (`WebKitTab.samplePageBackdrop`): the container joined a pane
+    /// whose pages hold their size in springs.
+    var needsPageBackdrop: (() -> Void)?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        placeInPane()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        placeInPane()
+    }
 
     private var isScaledForEmulation = false
     /// A fit's backdrop, bounds hairline and bar (below the page), nil otherwise.

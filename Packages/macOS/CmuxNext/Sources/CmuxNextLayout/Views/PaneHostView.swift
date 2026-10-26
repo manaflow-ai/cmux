@@ -32,6 +32,17 @@ final class PaneHostView: NSView, RestingPlacement {
     /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
     var renderSpringsInFlight = 0
 
+    /// `RestingPlacement`: Core Animation shows the host moving or resizing away from its frame, which is at rest
+    /// (`PaneHostView+RenderSpring.swift`). With page resizing (`pageResizing`, the `pageSpringResizeOnce`
+    /// feature) its changes reach the content's `PaneRenderMoveObserving` views, so a page in its own window
+    /// hides for the move; without it they reach nothing.
+    var showsRenderMove = false {
+        didSet {
+            guard showsRenderMove != oldValue, pageResizing != nil else { return }
+            content.notifyPaneRenderMoveChanged(showsRenderMove)
+        }
+    }
+
     /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
     /// default: live resize). Injected so tests pin it without the shared tunable store.
     private let holdsContentInMotion: () -> Bool
@@ -130,6 +141,7 @@ final class PaneHostView: NSView, RestingPlacement {
         if superview == nil {
             // Its render-server springs end now; their landings still run (``springToRest(_:spring:inPlane:landed:)``).
             if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            showsRenderMove = false
             isOnLayoutSpring = false
         }
         // Another screen (or none) places it now: its clip, overlay and covers are computed afresh.

@@ -11,11 +11,10 @@ import CmuxNextLayout
 // settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
     /// `LayoutPaneContentProvider`: with the `pageSpringResizeOnce` feature, a page in a springing pane resizes as
-    /// `browserResize.springPageResize` says, inside the window's one fence per turn (p03-rendering-036). Read once
-    /// per pane host, as it is made.
+    /// `browserResize.springPageResize` says (p03-rendering-036). Read once per pane host, as it is made.
     var pageSpringResizing: PageSpringResizing? {
         services.features.isEnabled(.pageSpringResizeOnce)
-            ? PageSpringResizing(mode: { BrowserResizeTunables.springPageResize.value }, fence: state.pageResizeFence) : nil
+            ? PageSpringResizing(mode: { BrowserResizeTunables.springPageResize.value }) : nil
     }
 
     func handle(_ intent: LayoutIntent) {
