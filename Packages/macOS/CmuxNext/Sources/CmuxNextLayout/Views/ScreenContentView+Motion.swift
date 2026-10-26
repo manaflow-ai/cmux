@@ -1,6 +1,17 @@
 import AppKit
 import CmuxNextDesign
 extension ScreenContentView {
+    // MARK: Motion backends
+
+    /// This screen's render-server motion variants, one per kind (``LayoutMotionKind``), in the order
+    /// their motions start. A task that moves a kind to the render server adds its one line here and
+    /// writes its variant in its own file; a kind not listed, or every kind while `motion.renderServer`
+    /// is off (the default), steps on the main thread in ``step(_:policy:)``.
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [] }
+
+    /// The backend each of this screen's motion kinds runs on.
+    var motionBackends: MotionBackends<ScreenContentView> { MotionBackends(Self.renderServerMotions) }
+
     // MARK: Animation
     var hasMotion: Bool {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
@@ -64,7 +75,11 @@ extension ScreenContentView {
     /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
     /// frame that drops the closed pane already shows its neighbours covering some of its space,
     /// and the shift the close needs (the last column or row closed) already under way.
+    ///
+    /// The kinds on the render server start here first (``motionBackends``): each takes its motion
+    /// in the change's turn, so the CPU springs below find it at rest.
     func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
+        motionBackends.begin(on: self, policy: policy)
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
