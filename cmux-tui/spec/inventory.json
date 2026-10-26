@@ -34,6 +34,8 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "chief.automation.list",
+    "chief.automation.update",
     "chief.engine.get",
     "chief.engine.set",
     "chief.profile.adopt",

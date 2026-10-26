@@ -255,8 +255,9 @@ fn agent_refused(what: &str, marker: &str) -> Value {
 /// `chief.*` operation (a profile write, `chief.engine.set`, `chief.stop`,
 /// and any later one) is a write the person makes, so a new daemon `chief.*`
 /// read must be added here too.
-const AGENT_READS: [&str; 5] = [
+const AGENT_READS: [&str; 6] = [
     "chief.engine.get",
+    "chief.automation.list",
     "chief.profile.list",
     "chief.profile.get",
     "chief.profile.avatar.get",

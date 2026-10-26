@@ -959,6 +959,17 @@ impl Brain {
         }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A run whose report reaches the Chief is an `agent_done` event
+        // (automations.rs); a quiet or held one is not done yet.
+        if !held && !stopped {
+            let title = self.state.sub(id).map(|(_, s)| s.title.clone()).unwrap_or_default();
+            self.automation_event(crate::automations::Event::AgentDone {
+                id: id.to_owned(),
+                title,
+                run_ms,
+                report: report.clone(),
+            });
+        }
         // A tell that could not reach its run goes as its next prompt.
         self.flush_inbox(id);
         self.start_queued();

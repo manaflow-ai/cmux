@@ -1670,6 +1670,14 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Automation { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn escalate_auth(
         &self,
         agent: &str,

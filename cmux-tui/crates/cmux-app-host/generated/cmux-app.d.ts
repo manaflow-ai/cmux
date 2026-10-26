@@ -627,6 +627,12 @@ interface CmuxGlobal {
     }
   }
   chief: {
+    automation: {
+      /** `chief.automation.list` (read, scope `chief:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.JsonValue>
+      /** `chief.automation.update` (mutation, scope `chief:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; chief?: string; automation: string; action: "pause" | "resume" | "delete" | "run" }, Cmux.MutationResult<Cmux.JsonValue>>
+    }
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
     create: CmuxOp<{ display_name?: string; is_default?: boolean; brain_place?: Cmux.ChiefBrainPlace; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
     engine: {

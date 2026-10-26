@@ -150,6 +150,13 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// The automations the person asked for (automations.rs), oldest
+    /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub automations: Vec<crate::automations::Automation>,
+    /// The number of the next automation id (`au<N>`), unique for this home.
+    #[serde(default)]
+    pub next_automation: u64,
 }
 
 /// How many pending wakes `HostState::wakes` keeps.

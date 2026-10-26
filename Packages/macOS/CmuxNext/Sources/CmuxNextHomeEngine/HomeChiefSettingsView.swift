@@ -19,6 +19,8 @@ import UniformTypeIdentifiers
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
 /// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
+/// - Automations: what the Chief runs on a schedule or an event, with Pause, Resume and Delete
+///   (``HomeChiefAutomationRows``), for a brain that keeps them.
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
 ///   behind a closed disclosure.
@@ -62,6 +64,9 @@ public final class HomeChiefSettingsView: NSView {
     let failure = ThemedLabel(wrappingLabelWithString: "")
     /// Whether a tapback can wake this Chief, and the classifier that decides (``HomeChiefReactionRows``).
     let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
+    /// The Chief's automations (issue 25573): hidden for a brain that keeps none (a hosted cloud Chief).
+    let automationsHeader = ThemedLabel(labelWithString: HomeEngineStrings.automationsSection)
+    let automationRows = HomeChiefAutomationRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
     let appearanceRows = NSStackView()
     let diagnosticsToggle = NSButton()
@@ -190,6 +195,14 @@ public final class HomeChiefSettingsView: NSView {
         reactionRows.onResize = { [weak self] in self?.onResize() }
         addFullWidth(reactionRows)
         stack.setCustomSpacing(Metrics.space4, after: reactionRows)
+        // Automations: what the Chief runs on a schedule or an event; pause, resume and delete here.
+        automationsHeader.font = Typography.header
+        automationsHeader.ink = .secondary
+        addFullWidth(automationsHeader)
+        automationRows.onAction = { [weak self] id, action in self?.changeAutomation(id, action) }
+        addFullWidth(automationRows)
+        stack.setCustomSpacing(Metrics.space4, after: automationRows)
+        showsAutomations = false
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary

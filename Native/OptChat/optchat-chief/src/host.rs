@@ -1300,6 +1300,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Automations(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Automations { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::Restart(names) => {
                 let (reply, answer) = channel();
                 tx.send(Input::RestartSubagents { names, reply })
@@ -1665,6 +1674,11 @@ fn start(
             std::time::Duration::from_secs(30),
         );
     }
+    // `ci_red` automations read failed runs with the person's `gh` login.
+    brain.set_ci_runs(
+        Some(std::sync::Arc::new(crate::ci::GhRuns::find())),
+        crate::ci::CI_EVERY,
+    );
     brain.set_agent_keys(agent_keys, crate::agent_keys::REVOKE_AFTER_DONE);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(

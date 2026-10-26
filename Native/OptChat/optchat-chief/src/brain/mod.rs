@@ -22,6 +22,8 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod automations;
+pub use automations::{AutomationsRequest, UPDATE_ACTIONS};
 mod children;
 mod control;
 mod drafts;
@@ -266,6 +268,23 @@ pub enum Input {
     Sleep {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
+    },
+    /// `automation(action, ...)` (automations.rs): the Chief's tool.
+    Automation {
+        call: crate::automations::AutomationCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// chief.automation.list / chief.automation.update from Home.
+    Automations {
+        request: AutomationsRequest,
+        reply: Sender<serde_json::Value>,
+    },
+    /// The failed CI runs of `repo` (`branch`) a `ci_red` automation waits
+    /// for (ci.rs), read off the brain thread.
+    CiRead {
+        repo: String,
+        branch: Option<String>,
+        result: Result<Vec<crate::automations::CiRun>, String>,
     },
     /// A message from a Chief on another machine (peer_chiefs.rs), already
     /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
@@ -751,6 +770,12 @@ pub struct Brain {
     fleet_every: std::time::Duration,
     fleet_polled_ms: u64,
     fleet_polling: std::collections::BTreeSet<String>,
+    /// Where `ci_red` automations read failed CI runs (ci.rs), how often,
+    /// when next, and the reads in flight (repository, branch).
+    ci: Option<std::sync::Arc<dyn crate::ci::CiRuns>>,
+    ci_every: std::time::Duration,
+    ci_read_at: Option<Instant>,
+    ci_polling: std::collections::BTreeSet<(String, Option<String>)>,
     /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
     /// keyed subagent is done, and the revokes in flight.
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
@@ -959,6 +984,10 @@ impl Brain {
             fleet_every: std::time::Duration::from_secs(30),
             fleet_polled_ms: 0,
             fleet_polling: Default::default(),
+            ci: None,
+            ci_every: crate::ci::CI_EVERY,
+            ci_read_at: None,
+            ci_polling: Default::default(),
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
@@ -1223,6 +1252,7 @@ impl Brain {
             let timer = [
                 self.next_timer(),
                 self.next_wake(),
+                self.next_automation_due(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
             ]
@@ -1235,6 +1265,7 @@ impl Brain {
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        self.fire_automations_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
@@ -1368,6 +1399,17 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::Automation { call, reply } => {
+                let _ = reply.send(self.automation(call));
+            }
+            Input::Automations { request, reply } => {
+                let _ = reply.send(self.automations_control(request));
+            }
+            Input::CiRead {
+                repo,
+                branch,
+                result,
+            } => self.ci_read(&repo, branch.as_deref(), result),
             Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,

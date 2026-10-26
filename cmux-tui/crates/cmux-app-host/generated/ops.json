@@ -53,6 +53,8 @@
     "calendar.event.create",
     "calendar.event.respond",
     "calendar.events.list",
+    "chief.automation.list",
+    "chief.automation.update",
     "chief.create",
     "chief.engine.get",
     "chief.engine.set",

@@ -128,6 +128,10 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.automation.list")]
+    ChiefAutomationList,
+    #[serde(rename = "chief.automation.update")]
+    ChiefAutomationUpdate,
     #[serde(rename = "chief.profile.list")]
     ChiefProfileList,
     #[serde(rename = "chief.profile.get")]

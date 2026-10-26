@@ -219,9 +219,9 @@ public enum ChiefControlError: Error, Sendable, Equatable {
     }
 }
 
-/// `chief.engine.get` / `chief.engine.set` / `chief.stop` on one daemon
-/// connection. Its own type, not a `DaemonConnection` extension (that
-/// type's line budget is frozen).
+/// `chief.engine.get` / `chief.engine.set` / `chief.stop` /
+/// `chief.automation.list|update` on one daemon connection. Its own type,
+/// not a `DaemonConnection` extension (that type's line budget is frozen).
 public struct ChiefControlClient: Sendable {
     public let connection: DaemonConnection
 
@@ -310,6 +310,33 @@ public struct ChiefControlClient: Sendable {
             return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<ChiefRestart>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.automation.list`: the Chief's automations, oldest first (issue 25573). `chief` as
+    /// in `chiefEngine(chief:)`.
+    public func chiefAutomations(chief: String? = nil) async throws(ChiefControlError) -> [ChiefAutomation] {
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.automation.list", params: Self.naming(chief, [:]))
+            }, as: ChiefAutomationList.self).automations
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.automation.update`: pauses, resumes, deletes or runs automation `id` now; the
+    /// list after the change. `chief` as in `chiefEngine(chief:)`.
+    public func updateChiefAutomation(_ id: String, _ action: ChiefAutomationAction,
+                                      chief: String? = nil) async throws(ChiefControlError) -> [ChiefAutomation] {
+        let key = "cmux-next-chief-automation-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["automation": .string(id), "action": .string(action.rawValue)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.automation.update", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefAutomationList>.self).value.automations
         } catch {
             throw ChiefControlError(error)
         }

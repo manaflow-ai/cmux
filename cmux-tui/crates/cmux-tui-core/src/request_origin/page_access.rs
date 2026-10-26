@@ -357,6 +357,8 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefAutomationList
+        | Op::ChiefAutomationUpdate
         // A page reads and edits the person's Chiefs only where its
         // page-router entry lists the operation (home-channels,
         // chief-profile-ws-v1); create, delete, the grant, instructions and

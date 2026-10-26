@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
+    AUTOMATION_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
     PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
     SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
     STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION,
@@ -115,6 +115,18 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
             "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
           "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "automation", "description": AUTOMATION_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": crate::automations::ACTIONS, "description": "add: make one; list: see them all; pause, resume, delete, run (now): one by id."},
+            "id": {"type": "string", "minLength": 1, "description": "pause, resume, delete, run: the automation (au<N>)."},
+            "name": {"type": "string", "minLength": 1, "maxLength": crate::automations::NAME_MAX, "description": "add: a short name the person sees in Chief settings, e.g. \"Morning PR summary\"."},
+            "prompt": {"type": "string", "minLength": 1, "maxLength": crate::automations::PROMPT_MAX, "description": "add: the whole task you do at each fire, standing alone (you will not see this turn then)."},
+            "cron": {"type": "string", "minLength": 1, "description": "add, a schedule: five fields in this Mac's time zone (minute hour day-of-month month day-of-week), e.g. \"0 9 * * *\" every day at 9, \"0 9 * * 1-5\" weekdays; or @hourly, @daily, @weekly."},
+            "event": {"type": "string", "enum": crate::automations::EVENTS, "description": "add, an event instead of cron: agent_done (one of your subagents finished), ci_red (a GitHub Actions run of `repo` failed). Each event fires it once."},
+            "repo": {"type": "string", "minLength": 3, "description": "ci_red: owner/name."},
+            "branch": {"type": "string", "minLength": 1, "description": "ci_red: only this branch."},
+            "match": {"type": "string", "minLength": 1, "description": "agent_done: only subagents whose title has this text."}},
+          "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": crate::remember::REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -224,6 +236,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::Sleep(_)
                     | Call::Remember { .. }
                     | Call::Control(_)
+                    | Call::Automation(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }
                         if backend.subagent() =>

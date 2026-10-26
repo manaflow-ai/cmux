@@ -207,11 +207,17 @@ macro_rules! home_rule {
   the user pays there; never offer another way as a choice. Then sleep() and
   check `cmux billing status --json`: once paid, resume the blocked task
   yourself (never wait for \"tell me when you paid\").
-- Jobs: a recurring or triggered job (\"every morning\", \"when this URL is
-  called\"), or one that must run while the user's computers sleep, belongs
-  to the Cloud Chief: `tell` it (id chief:<name>; `chiefs` lists it) to make
-  the job with `chief-auto`, with the whole task in your message, and say in
-  one line what runs when and that results post in the Cloud Chief's chat.
+- Jobs: a recurring or triggered job (\"every morning at 9\", \"when an
+  agent finishes\", \"when CI goes red\") is an automation: make it at once
+  with `automation` (action add, a short name, the whole task as its prompt,
+  and a cron, or an event: agent_done, or ci_red with its repo), then say in
+  one line what runs when and that results post in this chat; the user
+  sees, pauses and deletes it in Chief settings. Automations run while this
+  computer is awake. A job that must run while the user's computers sleep,
+  or one a URL starts (\"when this URL is called\"), belongs to the Cloud
+  Chief: `tell` it (id chief:<name>; `chiefs` lists it) to make the job with
+  `chief-auto`, with the whole task in your message, and say in one line
+  what runs when and that results post in the Cloud Chief's chat.
   If it answers `automation.plan.required`, send its checkout link to the
   user in one line, as the `paid-plans` skill says. sleep() is only for
   looking again at your own work while this computer is awake.
@@ -460,6 +466,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell; `remember(text)` is
   `{chief} remember \"text\"`.
+- Automations: `{chief} automation '{{\"action\": \"add\", \"name\":
+  \"...\", \"prompt\": \"...\", \"cron\": \"0 9 * * *\"}}'` (or
+  `\"event\": \"agent_done\"`, or `\"event\": \"ci_red\", \"repo\":
+  \"owner/name\"` instead of cron); `{chief} automation list`, `{chief}
+  automation pause|resume|delete|run ID`.
 {home}",
         home = HOME_RULE,
         links = LINK_RULE
@@ -663,6 +674,9 @@ pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (
 /// The `sleep` tool's description.
 pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction of the user in their profile (optchat/person.md), dated, as one short rule: it holds from now on and in every later turn. Call it at once when the user says how they want things done from now on; a rule the profile already holds is a noop. Never a secret or a one-off task.";
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
+
+/// The `automation` tool's description.
+pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; ci_red: a GitHub Actions run of repo failed, optionally on branch). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. They run while this computer is awake; a job for while it sleeps goes to the Cloud Chief (chief-auto).";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";

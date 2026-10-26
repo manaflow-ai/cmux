@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "da1a9033970bf951cb7f5b5528805e476e508e4093d8e19e333447d8da4687c7",
+  "catalog_sha256": "2931bab4737692eed9db8cccbd44a2f4e95c0d0dbfd8fcbbe86ac7aefc16d741",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,12 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "chief.automation.list": {
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "class": "mutation"
     },
     "chief.engine.get": {
       "class": "read"
