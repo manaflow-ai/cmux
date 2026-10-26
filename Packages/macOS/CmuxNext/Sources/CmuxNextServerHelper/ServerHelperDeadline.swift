@@ -85,6 +85,10 @@ public struct ServerHelperDeadline {
 }
 
 /// One allowlisted child process, killable from the deadline.
+///
+/// The spawn runs on a dedicated utility thread, never the request's thread or Swift's cooperative pool
+/// (Chromium's launcher thread, content/browser/child_process_launcher_helper.cc), and the child runs at
+/// utility QoS too.
 final nonisolated class FixChild: @unchecked Sendable {
     private let process = Process()
     private let pipe = Pipe()
@@ -106,9 +110,7 @@ final nonisolated class FixChild: @unchecked Sendable {
                 let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
                 continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
             }
-            do {
-                try process.run()
-            } catch {
+            Process.runOnOwnThread(qos: .utility, name: "com.cmuxterm.server-helper.fix", { [self] in process }) { error in
                 continuation.resume(throwing: error)
             }
         }

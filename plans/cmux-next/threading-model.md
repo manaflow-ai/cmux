@@ -453,7 +453,8 @@ its QoS and its target.
 - Lanes and processes (CmuxNextWakeups): `com.cmuxterm.next.work.<lane>.<slot>` (BackgroundWork slot queues, the
   item's QoS), `com.cmuxterm.next.process.<name>` (ProcessRun, the run's QoS), ProcessLauncher queues
   `com.cmuxterm.next.sleepy-lock` (user-initiated), `com.cmuxterm.next.now-playing` (default),
-  `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (user-initiated)
+  `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (user-initiated),
+  `com.cmuxterm.next.daemon.process` (ProcessRunner, one per run, the caller's QoS; p02-threads-040)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`,
   `com.cmuxterm.next.daemon.path.<machine>` (utility), `com.cmuxterm.next.daemon.exit.<pid>` (user-initiated;
   the reconnect waits on the old daemon's exit before it starts the next one),
@@ -504,7 +505,8 @@ its QoS and its target.
   `slow_requests` ring's short lock, and one append to `owner-hangs-<session>.jsonl` per hang (each scope is
   written once, at its 2 s or 1 s hang tier).
 - Server helper (the root `cmux-server-helper` process): `com.cmuxterm.server-helper.files` (user-initiated;
-  `FileFixPriorStore` reads and writes, one item per request)
+  `FileFixPriorStore` reads and writes, one item per request), `com.cmuxterm.server-helper.fix` (utility; one
+  short-lived thread per allowlisted fix that only spawns its child, `Process.runOnOwnThread`; p02-threads-040)
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network` (utility),
   `cmux.home.fixture.video` (utility; Debug fixture media), `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
   waits for the dropped files)

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 
@@ -104,22 +105,21 @@ nonisolated public struct WebUpdateStore: Sendable {
     }
 
     /// `tar -xzf` into `folder`. The archive's digest was checked against the signed pointer first.
-    @concurrent static func unpack(_ archive: URL, into folder: URL) async throws(WebUpdateRefusal) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let status: Int32? = await withCheckedContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(returning: nil)
-            }
+    ///
+    /// The spawn runs off the caller through ``AsyncProcess``, and tar at the caller's priority's `processQoS`.
+    /// A cancel lets tar finish: the caller removes `folder` after this returns, never while tar writes into it.
+    @concurrent static func unpack(_ archive: URL, into folder: URL,
+                                   processes: AsyncProcess = AsyncProcess()) async throws(WebUpdateRefusal) {
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tar"),
+                                     ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"],
+                                     onCancel: .finish)
+        let outcome: ProcessOutcome
+        do {
+            outcome = try await processes.run(request)
+        } catch {
+            throw .integrity("the archive did not unpack")
         }
-        guard status == 0 else { throw .integrity("the archive did not unpack") }
+        guard outcome.succeeded else { throw .integrity("the archive did not unpack") }
     }
 }
 
