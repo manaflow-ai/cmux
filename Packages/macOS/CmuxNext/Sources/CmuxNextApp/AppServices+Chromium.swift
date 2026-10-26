@@ -12,9 +12,9 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
-    /// Starts the launch preload and the likelihood observers.
+    /// Starts the launch preload and the pages spare's engine follow; the likelihood hint is its own launch start
+    /// (``LaunchStart/chromiumLikely``), after the reveal with feature `launchStartDeferral`.
     func startChromiumWarmup() {
-        let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
         // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
@@ -34,6 +34,13 @@ extension AppServices {
                 for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
             })
         }
+        runLaunchStart(.chromiumLikely) { [weak self] in self?.followChromiumLikely() }
+    }
+
+    /// The Chromium likelihood hint: a Chromium tab in any window, and the palette's Chromium entries.
+    private func followChromiumLikely() {
+        let machines = machines
+        let preference = cache.browserTabs.preference
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
             // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the

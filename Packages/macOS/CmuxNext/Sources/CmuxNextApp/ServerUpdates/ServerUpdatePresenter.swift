@@ -32,11 +32,15 @@ final class ServerUpdatePresenter {
                                           snoozes: ServerUpdateSnoozeStore(defaults: defaults))
     }
 
-    /// Follows the daemon's handshakes and the notices until the app quits, and binds
-    /// Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the same confirm.
-    func start(registry: ActionRegistry) {
-        guard observers.isEmpty else { return }
+    /// Binds Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the toast's confirm.
+    func bind(registry: ActionRegistry) {
         registry.bind("palette.restartServer", run: { [weak self] _ in self?.confirmRestart() })
+    }
+
+    /// Follows the daemon's handshakes and the notices until the app quits. The first frame needs
+    /// neither (`LaunchStart.serverUpdates`): each handshake reads the tailnet address with a CLI run.
+    func follow() {
+        guard observers.isEmpty else { return }
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in

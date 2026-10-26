@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextFeatures
 import CmuxNextLaunch
 import CmuxNextWakeups
 
@@ -28,6 +29,26 @@ extension AppServices {
                                      rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
         let warmup = AgentPageWarmupSlot(startup: startup) { [weak self] in DebugTimings.markLaunch(self.map { $0.agentPageWarmup.start(webUI: $0.webUI) } == true ? "launch.agent_page_warmup" : "launch.agent_page_warmup_not_needed") }
         windows.whenRestored { [weak self] in warmup.restored(showsWebKitAgentChat: self?.showsWebKitAgentChat == true) }
+    }
+
+    /// Runs one launch start by its class (p06-scheduler-049, `LaunchStart`): a first-frame start now; a start the first
+    /// frame does not need as an afterStartup post on ``launchStartup`` with feature `launchStartDeferral`, else now.
+    /// With no launch scheduler (a test's services) it runs now and reads no feature, so a test may still set ``features``.
+    func runLaunchStart(_ start: LaunchStart, _ work: @escaping @MainActor @Sendable () -> Void) {
+        guard let launchStartup, start.startClass != .firstFrame else { return work() }
+        start.run(on: launchStartup, deferring: features.isEnabled(.launchStartDeferral), work)
+    }
+
+    /// Restart cmux-tui… is bound now (the CLI and palette may run it any time); the handshake follow, its toasts and
+    /// its tailnet address read are ``LaunchStart/serverUpdates``.
+    func startServerUpdates() {
+        serverUpdates.bind(registry: registry)
+        runLaunchStart(.serverUpdates) { [weak self] in self?.serverUpdates.follow() }
+    }
+
+    /// The installed-update card in the Feed (``LaunchStart/updateFeed``; following it builds the Feed).
+    func followUpdateFeed() {
+        runLaunchStart(.updateFeed) { [weak self] in if let self { updateFeedObservation = UpdateFeedPosting.follow(self) } }
     }
 
     /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit.

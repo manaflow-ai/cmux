@@ -702,7 +702,7 @@ final class AppServices {
         terminalDelegate.services = self
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
-        serverUpdates.start(registry: registry)
+        startServerUpdates()
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

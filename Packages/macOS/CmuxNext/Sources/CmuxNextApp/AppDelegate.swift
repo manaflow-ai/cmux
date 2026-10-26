@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
-        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
+        LaunchStart.energy.runNow { services.startEnergy() }  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
+        LaunchStart.localDaemon.runNow { services.startLocalDaemon(prestart: daemonPrestart) }  // the painted terminal colors first (OSC 10/11/12)
         FeaturePolicyEnforcer(services: services).start()
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -250,8 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
+        LaunchStart.bookmarks.runNow { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) }
+        LaunchStart.historyPages.runNow { services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) }
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
@@ -264,11 +264,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
-        services.observeBorders()
-        services.observeGlass()
-        services.updateFeedObservation = UpdateFeedPosting.follow(services)
+        LaunchStart.borders.runNow { services.observeBorders() }
+        LaunchStart.glass.runNow { services.observeGlass() }
+        services.followUpdateFeed()
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        services.startChromiumRuntime()
+        LaunchStart.chromiumRuntime.runNow { services.startChromiumRuntime() }
         services.postLaterTabWarmups(on: order.startup)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
@@ -363,12 +363,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.followMacScreenSettings(settings)
-        services.startDeviceHub(settings)
+        services.runLaunchStart(.deviceHub) { [weak services] in services?.startDeviceHub(settings) }  // it restores the sign-in
         services.updater.follow(settings)
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
-        services.startHibernation(settings: settings)
+        LaunchStart.hibernation.runNow { services.startHibernation(settings: settings) }
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
