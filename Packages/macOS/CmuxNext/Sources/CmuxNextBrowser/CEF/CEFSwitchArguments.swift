@@ -4,7 +4,7 @@ import Darwin
 /// NULL that ends the list, owned as long as the runtime keeps this (it keeps the argv Chromium
 /// started with for its life), and freed once when it goes.
 @safe
-final class CEFSwitchArguments {
+nonisolated final class CEFSwitchArguments {
     private let copies: [UnsafeMutablePointer<CChar>?]
     /// The NULL-terminated argv; each entry stays valid while this lives.
     let argv: [UnsafePointer<CChar>?]

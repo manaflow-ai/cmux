@@ -39,9 +39,31 @@ extension CEFTab: BrowserProcessReporting {
     }
 
     /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab; a hidden tab reloads when it is shown.
+    /// pane shows the sad tab; a hidden tab reloads when it is shown. Chromium
+    /// reported it, so the crash log records a renderer.
     func rendererTerminated(_ exit: BrowserProcessExit) {
-        guard !isClosed else { return }
+        guard showProcessExit(exit) else { return }
+        runtime.recordRendererExit(exit, tab: self)
+    }
+
+    /// The Chromium Host ended with this page's browser in it (`CEFRuntime.hostEnded`): the sad tab
+    /// as for a renderer's end, and the browser is gone, so the page waits for a new one from the
+    /// next host (``reload()`` re-attaches first). The runtime records the host's end once; no
+    /// renderer record, since Chromium reported none.
+    func hostEnded(_ exit: BrowserProcessExit) {
+        // Unlike `browserDidClose`, the tab stays: its agent session and open questions end, and its
+        // page waits stay for the page the next host loads.
+        (browserID, isCreationPending) = (nil, false)
+        agentRelay.browserEnded()
+        dismissPrompts()
+        showProcessExit(exit)
+    }
+
+    /// The page's process ended: the sad tab shows, and a hidden tab reloads when it is shown. False
+    /// for a closed tab, which shows nothing.
+    @discardableResult
+    private func showProcessExit(_ exit: BrowserProcessExit) -> Bool {
+        guard !isClosed else { return false }
         // A new renderer need not keep the old one's media emulation, so forget
         // what the dead one was told: whichever way the page comes back (Reload
         // here, or a hidden tab reloading when shown), the restarted renderer's
@@ -60,7 +82,7 @@ extension CEFTab: BrowserProcessReporting {
         firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
-        runtime.recordRendererExit(exit, tab: self)
+        return true
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

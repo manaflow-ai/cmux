@@ -31,6 +31,8 @@ final class CEFHostStart {
     /// The attached host maps the ids cmux mints (``CEFAttachedHost/mapsClientIDs``); set by
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
+    /// The attached host ended (``hostEnded()``) and no new one is attached yet.
+    private(set) var hostGone = false
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -54,8 +56,16 @@ final class CEFHostStart {
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome { (remote, mapsClientIDs) = (host.remote, host.mapsClientIDs) }
+        if case .success(let host) = outcome { (remote, mapsClientIDs, hostGone) = (host.remote, host.mapsClientIDs, false) }
         return outcome
+    }
+
+    /// The attached host ended (`CEFRuntime.hostEnded`): the remote shim releases its wire and the
+    /// attach is dropped, so the next ``attached()`` asks the supervisor again and serves the host it
+    /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
+    func hostEnded() {
+        remote?.detach()
+        (task, remote, mapsClientIDs, hostGone) = (nil, nil, false, true)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;

@@ -30,9 +30,6 @@ public protocol PageRelayStream: AnyObject, Sendable {
     var epoch: PageRelayEpoch { get }
     /// False once the stream ended: closed, or its connection lost or replaced.
     var isOpen: Bool { get async }
-    /// The params `origin.confirmation.issue` binds a token to: this stream's connection, and the
-    /// stream itself where the daemon has page streams.
-    var confirmationBinding: [String: JSONValue] { get }
     /// One `cmux.protocol/2` op on this stream; `origin` is the page's claim (`page`, or `user`
     /// with a confirmation token).
     func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,

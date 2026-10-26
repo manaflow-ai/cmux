@@ -82,6 +82,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
     /// `cmux_shim_set_energy_saver(enabled, exempt_scheme)` (``CEFEnergySaver``); 1 when the fork took it.
     let setEnergySaver: (Int32, String?) -> Int32
+    /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
+    let memoryPressureVote: @convention(c) (Int32) -> Int32
 
     let createWindow: (Int32, CEFParentView?, Int32, Int32, String?, String?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
@@ -250,6 +252,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
+    /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0
+    /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
+    /// mode, where no view pointer crosses the process.
+    let browserAttachView: ((Int32, CEFParentView?) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {

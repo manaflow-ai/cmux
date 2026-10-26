@@ -84,8 +84,13 @@ public final class MockBrowserTab: BrowserTab {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind
     public let profileID: BrowserProfileID
-    public let presentation: BrowserPresentation = .inView
+    /// `.childWindow` stands in for a page drawn in its own window (a Chromium page).
+    @ObservationIgnored public var presentation: BrowserPresentation = .inView
     public var completesNavigationsImmediately: Bool
+    /// The page's first content frame (``simulateFirstContentFrame()``, `MockBrowserTab+FirstContent`).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
+    /// A view shows in the page's place (``BrowserPageCovering``).
+    @ObservationIgnored public var isPageCovered = false
 
     public var state: BrowserTabState { machine.state }
     public var favicon: NSImage?
@@ -107,6 +112,8 @@ public final class MockBrowserTab: BrowserTab {
     public var pageText = ""
     /// Canned result for `evaluate`.
     public var evaluationResult: BrowserJSValue = .null
+    /// The history a hibernation would save (`MockBrowserTab+Hibernation`); nil: the page cannot hibernate.
+    @ObservationIgnored public var hibernationRestore: BrowserRestoreState?
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
@@ -301,6 +308,7 @@ public final class MockBrowserTab: BrowserTab {
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         pageWaiters.pageEnded()
+        firstContentFrame.closed()
     }
 
     // MARK: Private

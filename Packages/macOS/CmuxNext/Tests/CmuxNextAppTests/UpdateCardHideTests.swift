@@ -56,7 +56,7 @@ import Testing
         let defaults: UserDefaults
         let sidebar: SidebarView
         let window: NSWindow
-        let feed: Task<Void, Never>
+        let feed: ServiceObservation<SidebarCardFeed.Cards>
         var card: SidebarUpdateCardView { sidebar.updateCardView }
 
         /// Lays the sidebar out until `condition` holds (it follows the model on a task).
@@ -97,7 +97,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
-        let feed = SidebarCardFeed.start(model: model, updater: updater)
+        let feed = SidebarCardFeed.start(model: model, updater: updater, on: MainWorkScheduler(budget: MainFrameBudget()))
         let harness = Harness(updater: updater, defaults: defaults, sidebar: sidebar, window: window, feed: feed)
         await harness.wait { !harness.card.isHidden && harness.card.card != nil }
         return harness

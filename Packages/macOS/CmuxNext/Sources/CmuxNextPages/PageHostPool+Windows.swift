@@ -53,7 +53,7 @@ extension PageHostPool {
             parking.autoresizingMask = [.width, .height]
             content.addSubview(parking, positioned: .below, relativeTo: nil)
         }
-        if host.window?.firstResponder === host.webKitView { host.window?.makeFirstResponder(nil) }
+        if let view = host.webKitPieces?.view, host.window?.firstResponder === view { host.window?.makeFirstResponder(nil) }
         host.frame = parking.bounds
         host.autoresizingMask = [.width, .height]
         if host.superview !== parking { parking.addSubview(host) }

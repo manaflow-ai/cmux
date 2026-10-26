@@ -45,6 +45,7 @@ nonisolated extension CEFShimLibrary {
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         let cSetEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_set_energy_saver")
         setEnergySaver = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cSetEnergySaver(a0, s1) } }
+        memoryPressureVote = try r("cmux_shim_memory_pressure_vote")
         let cCreateWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 =
             try unsafe r("cmux_shim_create_window")
         createWindow = { a0, parent, a2, a3, a4, a5 in
@@ -241,6 +242,12 @@ nonisolated extension CEFShimLibrary {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        let cBrowserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)? = r.hostExports == nil ? unsafe r.optional("cmux_shim_browser_attach_view") : nil
+        if let c = unsafe cBrowserAttachView {
+            browserAttachView = { browser, parent in unsafe c(browser, parent?.pointer) }
+        } else {
+            browserAttachView = nil
+        }
         let cSetContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32 = try unsafe r("cmux_shim_set_context_proxy")
         setContextProxy = { a0, a1 in unsafe Self.withCString(a0) { s0 in unsafe cSetContextProxy(s0, a1) } }
         let cContextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_context_proxy_state")
