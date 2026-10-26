@@ -7,6 +7,7 @@
     "agent-session-attach-v1",
     "agent-session-children-v1",
     "agent-session-observe-v1",
+    "agent-session-presence-v1",
     "agent-session-start-keyed-reason-v1",
     "agent-session-start-v1",
     "agent-session-tabs-v1",
