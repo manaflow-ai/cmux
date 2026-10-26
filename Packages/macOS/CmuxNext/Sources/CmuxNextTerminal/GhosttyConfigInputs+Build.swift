@@ -75,7 +75,7 @@ nonisolated extension GhosttyConfigInputs {
         // SAFETY: the live config.
         unsafe ghostty_config_finalize(config)
         // SAFETY: the live config.
-        unsafe Runtime.loadImageStorageDefaultIfUnset(into: config)
+        unsafe Runtime.loadImageStorageDefaultIfUnset(imageStorageBytes, into: config)
         var diagnostics: [String] = []
         // SAFETY: the live config.
         let count = unsafe ghostty_config_diagnostics_count(config)

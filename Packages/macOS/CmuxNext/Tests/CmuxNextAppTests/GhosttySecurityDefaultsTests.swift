@@ -1,3 +1,4 @@
+import CmuxNextMemory
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -37,6 +38,7 @@ struct GhosttySecurityDefaultsTests {
         #expect(try resolvedString("clipboard-write", configText: "", themeText: "clipboard-write = deny\n") == "deny")
     }
 
+    /// The app's budget on a 16 GB Mac (`SubsystemBudget.kittyImageBytesPerSurface`): today's bounded viewer default.
     @Test func cmuxUsesABoundedViewerImageDefault() throws {
         #expect(try resolvedUInt32("image-storage-limit", configText: "") == 5_000_000)
     }
@@ -80,7 +82,9 @@ struct GhosttySecurityDefaultsTests {
         }
         try Data(configText.utf8).write(to: file)
 
-        let built = try #require(GhosttyConfigInputs.testing(configFile: file.path).buildConfig())
+        var inputs = GhosttyConfigInputs.testing(configFile: file.path)
+        inputs.imageStorageBytes = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false).kittyImageBytesPerSurface
+        let built = try #require(inputs.buildConfig())
         defer { built.free() }
         let config = try #require(built.config)
         return try read(config)

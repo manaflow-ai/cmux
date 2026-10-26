@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLaunch
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -74,6 +75,30 @@ final class LaunchSettle {
         let waiting = waiters
         waiters = []
         for work in waiting { work() }
+    }
+
+    /// Runs `work` once, when the launch settled and no agent page waits behind its last frame (`images` clear,
+    /// as ``settled(within:images:)`` waits), with no limit: the launch's reads of the last quit's frames go then.
+    ///
+    /// - Parameters:
+    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
+    ///   - work: Runs on the main actor.
+    func whenSettledAndClear(images: LaunchImageHold, _ work: @escaping @MainActor () -> Void) {
+        whenSettled { images.whenClear(work) }
+    }
+
+    /// `memorySmallAppStores` (default off): once the launch settled and no agent pane draws its last page, the
+    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
+    ///
+    /// - Parameters:
+    ///   - services: The app's services, whose stores hold the reads.
+    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
+    func dropLaunchReads(of services: AppServices, images: LaunchImageHold) {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        whenSettledAndClear(images: images) { [weak services] in
+            services?.terminalLaunchFrames.dropLaunchRead()
+            services?.agentTabs.launchDidSettle()
+        }
     }
 
     private func whenSettled(_ work: @escaping @MainActor () -> Void) {

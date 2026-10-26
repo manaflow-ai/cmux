@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextUpdater
@@ -41,6 +42,8 @@ final class ChangelogPageProvider: PageProvider {
     private var spentGesture: TimeInterval?
     /// The page view, so a link opens from the pane that shows it (nil: the active window's pane).
     var anchor: @MainActor () -> NSView? = { nil }
+    /// ``media``'s inlined pictures in the memory coordinator, for the page's life (`memorySmallAppStores`).
+    var mediaMemory: AsyncMemoryConsumerRegistration?
 
     init(source: (any ChangelogSource)?, currentBuild: String, media: ReleaseMediaStore? = nil,
          links: AgentPaneReplyLinks = AgentPaneReplyLinks(),

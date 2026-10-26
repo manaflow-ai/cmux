@@ -85,6 +85,7 @@ struct AppMemoryConsumers {
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
+        registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
@@ -290,5 +291,18 @@ struct AppMemoryConsumers {
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+    }
+
+    /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's
+    /// terminal frames one lossy consumer, and the terminals' Kitty image budget halves below normal pressure
+    /// (p07-memory-083). The changelog page's pictures register with each page (`PageFactory.changelogPage`), and the
+    /// launch reads go at the settle (`LaunchSettle.dropLaunchReads`).
+    private func registerSmallAppStores() {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        let coordinator = services.memoryCoordinator
+        GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
+        services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
+        let kittyBytes = SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface
+        services.lifetimeFollowers.append(GhosttyImageStorageConsumer.registered(fullBytes: kittyBytes, runtime: .shared, with: coordinator))
     }
 }
