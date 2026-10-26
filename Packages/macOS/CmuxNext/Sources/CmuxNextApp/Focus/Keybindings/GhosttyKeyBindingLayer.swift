@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextTerminal
 import CmuxNextFocusUI
+import CmuxNextLaunch
 
 /// The Ghostty config's keybinds as binding table entries (GHOSTTY-CONFIG,
 /// plans/cmux-next/ghostty-config.md "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-
