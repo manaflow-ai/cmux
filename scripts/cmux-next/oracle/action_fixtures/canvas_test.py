@@ -242,10 +242,17 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(dict(self.family.prepare), {"canvasZoomReset": (("canvasZoomIn", {}),)})
 
     def test_closes_every_canvas_layout_gap(self):
+        # Holds before and after p15-oracle-087 applies the gap closures to every-action-gaps.json: each closed id
+        # is still listed with the canvasLayout reason or gone, and no canvasLayout gap is left outside CLOSES.
+        self.assertEqual(len(set(canvas.CLOSES)), 13)
+        self.assertEqual(sorted(self.family.closes), sorted(canvas.CLOSES))
         gaps = json.loads(GAPS.read_text())["gaps"]
-        canvas_gaps = sorted(i for i, why in gaps.items() if why.endswith(f": {canvas.CONTEXT}"))
-        self.assertEqual(len(canvas_gaps), 13)
-        self.assertEqual(sorted(self.family.closes), canvas_gaps)
+        reason = f"needs context the sweep does not set up: {canvas.CONTEXT}"
+        for ident in canvas.CLOSES:
+            with self.subTest(ident=ident):
+                self.assertEqual(gaps.get(ident, reason), reason)
+        stray = sorted(i for i, why in gaps.items() if why.endswith(f": {canvas.CONTEXT}") and i not in canvas.CLOSES)
+        self.assertEqual(stray, [])
 
     def test_the_sweep_plans_the_canvas_rows_with_the_family(self):
         # The checked-in catalog has no canvas rows yet: plan each id as action.list gives it (requires canvasLayout,
