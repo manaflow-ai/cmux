@@ -400,7 +400,9 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
         .filter(|e| e.seq > failover)
         .filter(|e| {
             let meta = e.msg.pointer("/params/update/_meta/acpmux");
-            meta.is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+            meta.is_some_and(|m| {
+                m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some()
+            })
         })
         .collect();
     assert!(late.is_empty(), "a breakdown or limits were logged after the failover: {late:?}");
