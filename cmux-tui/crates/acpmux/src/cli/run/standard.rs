@@ -68,7 +68,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -78,6 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 cwd,
                 policy,
                 effort,
+                tags,
                 json_out,
             )
             .await
@@ -294,8 +295,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::New(args) if args.parent.is_some() => super::parent::run(args, json_out).await,
+        Command::New(args) if args.parent.is_some() => super::parent::run(*args, json_out).await,
         Command::New(args) => {
+            let args = *args;
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
             let client = connect(true).await?;
@@ -338,6 +340,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
+            }
+            meta["argv"] = json!(crate::cli::entry::original_args());
+            if let Some(prompt) = &launch.file_prompt {
+                meta["promptFileText"] = json!(prompt);
+            }
+            if !args.tags.is_empty() {
+                meta["tags"] = orchestrate::parse_tags(&args.tags)?;
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
@@ -417,7 +426,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
                 if let Some(group) = &args.group {
-                    let title = launch.title.as_deref().unwrap_or(&name);
+                    // Only explicit names opt into the app's predecessor-row reuse.
+                    // Generated names can be identical on independent peers.
+                    let title =
+                        launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
                     if let Err(e) = launch::show_in_group(&id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }
@@ -554,20 +566,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
+            attach,
         } => {
-            let client = connect(true).await?;
             if let Some(delivery) = status {
+                let client = connect(true).await?;
                 return super::send_async::status(&client, &delivery, json_out).await;
             }
+            // Read and checked before the daemon is asked anything (or started): a message past
+            // a cap sends nothing.
+            let attachments = crate::attach::blocks_from_paths(&attach)?;
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
+            prompt_id.attachments = attachments;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let text = arg_or_stdin(&prompt)?;
+            // With the text, the whole message fits one JSON-RPC message on every hop.
+            if !prompt_id.attachments.is_empty() {
+                let request = prompt_id.params(&session, &text, steer, None);
+                crate::attach::check_wire(&request).map_err(|e| anyhow::anyhow!(e.message))?;
+            }
+            let client = connect(true).await?;
             if no_wait {
                 return super::send_async::queue(
                     &client,

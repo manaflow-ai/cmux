@@ -1071,7 +1071,7 @@ jobs:
         with:
           name: ios-simulator-build-log
           path: ${{ env.IOS_DERIVED_DATA }}/logs/*.log
-          retention-days: 7
+          retention-days: 3
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which
