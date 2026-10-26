@@ -785,4 +785,104 @@ mod tests {
         assert!(backup.join("session.json").exists(), "the moved-aside store is the receive's");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn harness_hub(dir: &Path) -> Arc<Hub> {
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir).unwrap())
+    }
+
+    fn harness_meta(id: &str, agent: &str) -> Value {
+        json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": agent,
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        })
+    }
+
+    /// Review of #25676: a marker write that fails before its rename takes its temporary file
+    /// with it, so the next write of that marker (a retry's) is not refused as occupied.
+    #[test]
+    fn a_failed_marker_write_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let marker = dir.join(".agent-0004.durable-transfer-state");
+        // A non-empty directory where the marker goes: the rename fails.
+        std::fs::create_dir_all(marker.join("in-the-way")).unwrap();
+        let written = write_json_atomic(&marker, &json!({"phase": "staged"}));
+        assert!(written.is_err(), "the rename onto a directory went through");
+        let tmp = dir.join(".agent-0004.durable-transfer-state.importing");
+        assert!(!tmp.exists(), "the failed write left its temporary file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #25676: a prepared marker that is renamed into place before the directory sync
+    /// fails is this import's own, so the failed preparation does not leave it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_prepared_marker_whose_directory_sync_fails_does_not_stay() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0005")).unwrap();
+        // Write and search but no read: the marker is written and renamed, the sync's open fails.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o300)).unwrap();
+        if std::fs::read_dir(&root).is_ok() {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: this user reads a directory without its read bit");
+            return;
+        }
+        let prepared = hub.prepare_harness_state(&meta, false);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(prepared.is_err(), "the directory sync went through");
+        let marker = root.join(".agent-0005.durable-transfer-state");
+        assert!(!marker.exists(), "the failed preparation left its marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #25676: a rollback that cannot put a journal back keeps its marker, the backup
+    /// and the chat's store (whose session.json names the owner), so a restart finishes it.
+    #[tokio::test]
+    async fn a_rollback_that_cannot_put_a_journal_back_keeps_its_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        std::fs::create_dir_all(root.join(&id)).unwrap();
+        let owner = harness_meta(&id, "agent-0006").to_string();
+        std::fs::write(root.join(&id).join("session.json"), owner).unwrap();
+        let journal_dir = root.join("agent-0006");
+        // The journal's path is a non-empty directory: the backup cannot be renamed back.
+        std::fs::create_dir_all(journal_dir.join("journal.ndjson").join("in-the-way")).unwrap();
+        let backup = journal_dir.join("journal.ndjson.transfer-backup");
+        std::fs::write(&backup, "the journal before the import\n").unwrap();
+        let marker = root.join(".agent-0006.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0006", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0006", "piFilename": "agent-0006.jsonl",
+            "journalDirWasPresent": true, "hadJournal": true, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        let _ = hub.recover_durable_marker(&root, &marker, "agent-0006");
+        assert!(marker.exists(), "the rollback failed but its marker went");
+        assert!(backup.exists(), "the journal's backup went");
+        assert!(root.join(&id).join("session.json").exists(), "the owner's store went");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
