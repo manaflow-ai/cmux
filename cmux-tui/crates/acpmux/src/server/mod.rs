@@ -1064,6 +1064,7 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    let Some(_client) = hub.clients.connect() else { return }; // exiting idle (daemon_lifecycle)
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -1247,10 +1248,9 @@ async fn serve_connection_from(
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
-    // Leases first: ending one is cheap and synchronous, while the ephemeral
-    // release awaits each session's kill. A leased peer must not keep
-    // reconnecting to a forward port its bridge already closed, which another
-    // process could bind (`hub/peer_lease.rs`).
+    // Leases first: ending one is cheap and synchronous, while the ephemeral release awaits each
+    // session's kill. A leased peer must not keep reconnecting to a forward port its bridge already
+    // closed, which another process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
