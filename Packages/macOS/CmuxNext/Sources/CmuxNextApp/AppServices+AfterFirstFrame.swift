@@ -6,7 +6,7 @@ import CmuxNextWakeups
 extension AppServices {
     /// The free-tier attest, SSH, server reach and the updater (Sparkle).
     func postNonPaintServices(on startup: StartupScheduler) {
-        let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true })
+        let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
         LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") }).post(on: startup)
     }

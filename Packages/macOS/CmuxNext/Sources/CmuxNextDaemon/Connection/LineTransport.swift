@@ -180,8 +180,8 @@ final class LineTransport: Sendable {
         if closed { recorder?.connectionClosed(role) }
     }
 
-    /// Starts the reader thread. Call once.
-    func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
+    /// Starts the reader thread, handing each event its envelope cause. Call once.
+    func start(onCausedEvent onEvent: @escaping CausedEventHandler, onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
         let thread = Thread { [self] in
             readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
@@ -342,7 +342,7 @@ final class LineTransport: Sendable {
         }
     }
 
-    private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
+    private func readLoop(fd: Int32, onEvent: CausedEventHandler, onClose: CloseHandler) {
         let decoder = self.decoder
         let recorder = self.recorder
         // An attach connection carries the terminal's output: the splitter's copies of its bytes
@@ -390,12 +390,12 @@ final class LineTransport: Sendable {
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
     /// the same way, base/threading/hang_watcher.cc).
-    private func handle(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
+    private func handle(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
         guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
         hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
     }
 
-    private func route(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
+    private func route(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else {
             recorder?.lineRead(.ignored)
             return
@@ -431,7 +431,7 @@ final class LineTransport: Sendable {
                 return state.eventCount
             }
             recorder?.lineRead(streamed ? streamKind : .event)
-            onEvent(name, line, index)
+            onEvent(name, line, index, envelope.cause)
             return
         }
         guard envelope.ok != nil || envelope.id != nil else {

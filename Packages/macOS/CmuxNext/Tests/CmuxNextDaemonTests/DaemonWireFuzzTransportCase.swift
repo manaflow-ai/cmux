@@ -86,7 +86,7 @@ struct WireFuzzTransportCase {
             lines.append(try WireFuzzLine.random(&rng, requests: requests))
         }
         let terminated = !rng.oneIn(5)
-        var stream = lines.flatMap { $0.bytes + [0x0A] }
+        var stream: [UInt8] = lines.flatMap { $0.bytes + [0x0A] }
         if !terminated, !stream.isEmpty { stream.removeLast() }
         var chunks: [[UInt8]] = []
         let tiny = stream.count < 4096 && rng.oneIn(4)

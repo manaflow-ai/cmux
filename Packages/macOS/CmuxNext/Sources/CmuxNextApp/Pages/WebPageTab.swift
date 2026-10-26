@@ -14,13 +14,14 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
-    /// When a hidden tab's page may go (`memoryDiscardInternalPages`); its next show makes a new one.
+    /// When a hidden tab's page may go (`memoryDiscardInternalPages`); its next show makes a new
+    /// one. Never unless the page's owner chose a policy for it (the protocol's default).
     let policy: ContentDiscardPolicy
     private let make: () -> PageWebView?
     private var pages: [String: PageWebView] = [:]
 
     init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String,
-         discardPolicy: ContentDiscardPolicy = .standard, make: @escaping () -> PageWebView?) {
+         discardPolicy: ContentDiscardPolicy = .never, make: @escaping () -> PageWebView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon
@@ -39,8 +40,12 @@ final class WebPageTab: InternalPageProvider {
 
     func discardPolicy(for key: String) -> ContentDiscardPolicy { policy }
 
-    /// The tab's page went (the tab store closed it); the next view makes its own.
-    func viewDiscarded(_ key: String) { pages.removeValue(forKey: key) }
+    /// The tab stays and its page goes, closed as at ``tabClosed(_:)`` (the tab store only takes
+    /// the view out): its routes, bridge and engine page end. The next show makes a new page.
+    func viewDiscarded(_ key: String) { pages.removeValue(forKey: key)?.close() }
+
+    /// Whether tab `key` has a page now (tests).
+    func hasPage(_ key: String) -> Bool { pages[key] != nil }
 }
 
 // The view state of a page tab that shows a React page (Settings, Keyboard Shortcuts, the
@@ -74,5 +79,25 @@ extension PageWebView {
     func restoreDiscardViewState(_ state: ContentViewState) {
         guard route == nil, let saved = state.values[Self.discardRouteKey] else { return }
         open(route: saved)
+    }
+}
+
+// The place a discarded App Store or Cloud tab showed (``discardViewState()``'s fragment), given to
+// the page its next show makes before that page's first paint, so it never paints one place and
+// moves to another.
+extension PageWebView {
+    /// The fragment the document shows now (``discardViewState()``), with the page's
+    /// ``InternalPageTabStore/pictureVersion(_:)`` before the read.
+    func readShownPlace() async -> (version: Int, fragment: String?) {
+        let version = InternalPageTabStore.pictureVersion(self)
+        return (version, await discardViewState().values[Self.discardRouteKey])
+    }
+
+    /// The fragment this page's next page opens on once it goes: the `read` its discard took while
+    /// the page has not changed since (the person's input, a paint, a host route), else ``route``;
+    /// nil for the page's default place.
+    func discardedPlace(read: (version: Int, fragment: String?)?) -> String? {
+        guard let read, read.version == InternalPageTabStore.pictureVersion(self) else { return route }
+        return read.fragment
     }
 }

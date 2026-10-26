@@ -255,16 +255,22 @@ replace Mojo's backpressure. This reason goes into webui-DESIGN.md (task 004).
   show's own turn, before the page is visible, then the held events go out as one batch.
 - A built-in command or `evaluate()` to a frozen page (Cmd-F focusSearch, a palette page command) thaws the page
   in the same turn first, then delivers. No PageCallDeadline fires because of a freeze.
-- Discarded after 300 s hidden (60 s at warning, 10 s at critical, by the ranker): Chromium in-place
-  WebContents::Discard (018/031; close on older forks), WebKit drops the WKWebView. Discard makes no call into
-  the page. The shell keeps descriptor, route, scroll, the state blob and the snapshot. Show draws the snapshot
+- Discarded after 300 s hidden (60 s at warning, 10 s at critical, by the ranker; never sooner than a number of
+  minutes the person wrote in `browser.hibernation`, at each pressure as for browser tabs). The named modes keep
+  timing browser tabs only: with the page-lifecycle controller on (022, default-off), an idle chat goes at 300 s
+  where AgentPageHibernation waited 30 minutes ("moderate").
+  Chromium in-place WebContents::Discard (018/031; close on older forks), WebKit drops the WKWebView. Discard
+  makes no call into the page. The shell keeps descriptor, route, scroll, the state blob and the snapshot. Show draws the snapshot
   in the key's frame and loads behind it.
 - Keep reasons. Block freeze and discard: visible, loading (until load and first paint), recentlyVisible (10 s),
-  mostRecentlyUsed (the 1 most recently hidden page), Web Inspector or DevTools open, focused, file drop pending,
-  popup or confirmation sheet open, dictation or capture, an agent turn running (until acpmux can send a
-  snapshot resync). Block discard only: userEdits and formInteraction (detected for every page, 089),
-  beforeunload listener, an agent unsent draft or attachments, pinned (with the setting), a shell command ran,
-  waiting on the person, a remote chat, and every PL-memory Memory Saver reason that applies. Page JS can only
+  Web Inspector or DevTools open, focused, file drop pending, popup or confirmation sheet open, dictation or
+  capture, an agent turn running (until acpmux can send a snapshot resync). Block freeze only: mostRecentlyUsed
+  (the 1 most recently hidden page, discarded pages included, so a discard never hands the role to an older
+  frozen page), as Chrome's kMostRecentlyUsed (components/performance_manager/public/freezing/cannot_freeze_reason.h)
+  and D3's "all 9 hidden pages discarded at 300 s"; and `browser.freezeHiddenTabs` "off" (a number there times
+  browser tabs; pages freeze at 10 s). Block discard only: userEdits and formInteraction (detected for every
+  page, 089), beforeunload listener, an agent unsent draft or attachments, pinned (with the setting), a shell
+  command ran, waiting on the person, a remote chat, and every PL-memory Memory Saver reason that applies. Page JS can only
   add keep reasons.
 - Delivery policy per provider, a protocol requirement with no default: `.latest`, `.resync`, `.queue(limit)`
   or `.ordered` (never dropped; when the provider's own buffer is half full the page leaves Frozen but stays
