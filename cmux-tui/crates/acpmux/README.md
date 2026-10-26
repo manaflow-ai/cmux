@@ -161,7 +161,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
+| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host self-update` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -879,10 +879,17 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
-One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
-host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
-`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
-so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
+A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
+`host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
+daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
+when the installed binary differs, checks its sha256 and updates the daemon the same way, rollback
+included. A build pushed by hand is replaced by the channel's at the next run;
+`host setup --no-auto-update` (the file `~/.acpmux/no-auto-update`) keeps a host off the timer.
+One update of a host runs at a time: the timer, `host update`, `host setup` and `host enroll --fix`
+take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection or the timer's
+process; it needs `flock` or `perl` on the host), and one that finds it held changes nothing
+(`host update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
+connection dropped stops (`lockLost`). The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
@@ -1099,6 +1106,7 @@ Extensions:
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
@@ -1118,6 +1126,22 @@ records such as `user_message`, `status`, `turn_result`, `permission_request`),
 recordKind, seq, session}` (kind `queue` for queue changes, `permission_resolved` for automatic
 approvals) and `_acpmux/permission_pending` with `via: "watch"` for sessions they are not
 attached to.
+
+<a id="chat-presence"></a>Chat presence (chat multiplayer, `hub/presence.rs`): attached
+connections hear `_acpmux/presence {sessionId, participants: [{id, name, devices, viewing,
+typing}]}` on every change, and `_acpmux/attach` answers the same object as `presence`. An entry
+is kept per connection and author: `_acpmux/view` and `_acpmux/typing` name their person in
+`_meta.acpmux.author {id, name, login?, node?}`, which only the unix socket and a peer daemon
+forwarding for its own unix socket or app may send (`author.origin_refused` otherwise); a caller
+with no author is `owner`, and a visible attach is the owner viewing. A view with an author
+changes only presence, never `unread`, so a link that carries other people attaches with
+`visible: false` and names each of them in `_acpmux/view`. An entry goes when it neither views
+nor types, when its connection detaches or closes. At most 32 people besides the owner per chat
+(`presence.full`).
+Presence is never written to the log, `_acpmux/events` or an export. Only a daemon's own chats
+have it: a peer daemon's link carries all of that daemon's clients, so it makes no entry, its
+`_acpmux/typing` and authored `_acpmux/view` answer `presence.peer_unsupported`, and a chat that
+lives on a peer attaches with no participants.
 
 Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
 and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:

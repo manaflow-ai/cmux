@@ -29,6 +29,10 @@ fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
 }
 
+/// The `clientInfo.name` a peer link gives in `initialize`: the daemon it connects to keeps no
+/// presence for it, whatever it serves the link as (`server/view.rs`).
+pub const CLIENT_NAME: &str = "acpmux-peer";
+
 /// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
 /// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
 /// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
@@ -375,6 +379,12 @@ impl Peer {
         })
     }
 
+    /// How the peer said at its last handshake that it serves this daemon: `peer`, `remote`
+    /// (as a Web client), or None from a peer too old to say.
+    pub fn served_as(&self) -> Option<String> {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
@@ -662,7 +672,7 @@ impl Peer {
             let init = me
                 .link_request(
                     method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
                 )
                 .await?;
             let v = init

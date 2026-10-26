@@ -186,7 +186,7 @@ pub(super) fn check_cut(
 }
 
 /// Up to a fifth more than `delay`, the same for a chat each time.
-fn staggered(delay: u64, session_id: &str) -> u64 {
+pub(super) fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     session_id.hash(&mut h);
@@ -386,8 +386,11 @@ impl Hub {
                 return Err(stopped());
             }
         }
-        *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
-        Ok(())
+        // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
+        let prompt_id = turn.prompt_id.clone();
+        self.subagent_retries.start(&session.id, &prompt_id, || {
+            *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+        })
     }
 
     /// Sets the wait of the chat's continuation of `cut_turn`, when it still waits: what the

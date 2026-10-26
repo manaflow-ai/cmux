@@ -481,7 +481,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 print_json(&info);
             } else if !one_shot {
-                println!("created {name} ({})", &id[..8.min(id.len())]);
+                let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
+                let line =
+                    crate::cli::session_folder::created_line(&name, &id, host.as_deref(), folder);
+                println!("{line}");
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
                     println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));

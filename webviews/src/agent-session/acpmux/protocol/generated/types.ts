@@ -45,7 +45,32 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
+  presence: PresenceNote;
   session: SessionDetail;
+} & Record<string, unknown>;
+
+/**
+ * The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted
+ * them, and accepted only from the unix socket or a peer forwarding for its own.
+ */
+export interface Author {
+  /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
+  id: string;
+  login?: (string | null);
+  /** One line of 1 to 64 characters. */
+  name: string;
+  node?: (string | null);
+}
+
+export type AuthorMeta = {
+  acpmux?: (AuthorMetaFields | null);
+} & Record<string, unknown>;
+
+/** `_meta.acpmux` of a request that may name its person; other fields pass. */
+export type AuthorMetaFields = {
+  /** None: the chat's owner. */
+  author?: (Author | null);
 } & Record<string, unknown>;
 
 export type ChangedSession = (SessionSummary | PurgedSession);
@@ -255,6 +280,19 @@ export type McpServerSummary = {
 
 export type MessageRole = "agent" | "user";
 
+/**
+ * One person in a chat. The hub never marks the caller's own entry: a connection may carry
+ * several people, so the client compares ids (a caller with no author is `owner`).
+ */
+export type Participant = {
+  /** How many connections carry this person in the chat. */
+  devices: number;
+  id: string;
+  name: string;
+  typing: boolean;
+  viewing: boolean;
+} & Record<string, unknown>;
+
 export type PermissionBatching = {
   maxItems: number;
   maxPendingGroups: number;
@@ -360,6 +398,8 @@ export type PermissionPending = {
 
 export interface PermissionRespondParams {
   _meta?: (RequestMeta | null);
+  /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
+  annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
@@ -369,6 +409,16 @@ export interface PermissionRespondParams {
 }
 
 export type PermissionRespondResult = Record<string, unknown>;
+
+/**
+ * `_acpmux/presence`, to every connection attached to the chat on each change, and
+ * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
+ */
+export type PresenceNote = {
+  /** One per person, by id; at most 32 besides the owner. */
+  participants: Participant[];
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
@@ -873,7 +923,22 @@ export type TurnSummary = {
   turnSeq: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`
+ * lapses after 8 s. The connection must be attached to the chat.
+ */
+export interface TypingParams {
+  _meta?: (AuthorMeta | null);
+  on: boolean;
+  sessionId: string;
+}
+
 export interface ViewParams {
+  /**
+   * An author changes only that person's presence (`hub/presence.rs`), not whether the
+   * chat counts as shown.
+   */
+  _meta?: (AuthorMeta | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;
