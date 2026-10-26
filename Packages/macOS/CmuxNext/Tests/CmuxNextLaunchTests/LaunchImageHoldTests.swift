@@ -5,7 +5,7 @@ import Testing
 
 /// Deferred launch work waits for the agent panes' launch images (cx-z9kz0).
 @MainActor
-@Suite struct LaunchImageHoldTests {
+@Suite(.timeLimit(.minutes(1))) struct LaunchImageHoldTests {
     @Test func workRunsAtOnceWhenNoImageIsShown() {
         let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: ManualClock()))
         var ran = 0
@@ -34,41 +34,46 @@ import Testing
     @Test func anImageThatNeverEndsReleasesTheWorkAtTheBackstop() async throws {
         let clock = ManualClock()
         let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: clock))
-        var ran = 0
         hold.began()
-        hold.whenClear { ran += 1 }
+        let released = Flag()
+        // One waiter only: each whenClear resets the backstop.
+        let waiter = Task { @MainActor in
+            await hold.clear()
+            released.isSet = true
+        }
         try await clock.waitForSleeper()
         clock.advance(by: LaunchImageHold.imageLimit)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(ran == 0)
+        #expect(clock.sleeperCount == 1)
+        #expect(!released.isSet)
         clock.advance(by: .seconds(1))
-        for _ in 0..<50 where ran == 0 { await Task.yield() }
-        #expect(ran == 1)
+        await waiter.value
+        #expect(released.isSet)
+        #expect(clock.sleeperCount == 0)
     }
 
-    @Test func theLastImageEndingCancelsTheBackstop() async throws {
-        let clock = ManualClock()
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: clock))
+    @Test func theLastImageEndingCancelsTheBackstop() {
+        let backstop = DemandTimer(owner: "test", clock: ManualClock())
+        let hold = LaunchImageHold(backstop: backstop)
         var ran = 0
         hold.began()
         hold.whenClear { ran += 1 }
-        try await clock.waitForSleeper()
+        #expect(backstop.isScheduled)
         hold.ended()
         #expect(ran == 1)
-        clock.advance(by: LaunchImageHold.imageLimit + .seconds(1))
-        for _ in 0..<20 { await Task.yield() }
-        #expect(ran == 1)
+        #expect(!backstop.isScheduled)
     }
 
-    @Test func clearReturnsOnceTheImageEnds() async {
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: ManualClock()))
+    @Test func clearReturnsOnceTheImageEnds() async throws {
+        let clock = ManualClock()
+        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: clock))
         hold.began()
         let cleared = Flag()
         let waiter = Task { @MainActor in
             await hold.clear()
             cleared.isSet = true
         }
-        for _ in 0..<20 { await Task.yield() }
+        // clear() has registered once its backstop sleeps.
+        try await clock.waitForSleeper()
         #expect(!cleared.isSet)
         hold.ended()
         await waiter.value

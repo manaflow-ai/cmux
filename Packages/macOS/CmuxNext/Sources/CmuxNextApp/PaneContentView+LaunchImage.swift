@@ -1,6 +1,11 @@
 import AppKit
 import CmuxNextLaunch
 
+extension LaunchImageHold {
+    /// The app's one hold, shared by the panes that show launch images and the work that waits for them.
+    static let shared = LaunchImageHold()
+}
+
 extension PaneContentView {
     /// Draws `image` (an agent page's last frame, `AgentPaneLaunchImages`)
     /// under the content, top-left at its point size, until the live page

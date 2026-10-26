@@ -11,9 +11,6 @@ public final class LaunchImageHold {
     /// How long a launch image may stay when its page never reports a first frame.
     public static let imageLimit: Duration = .seconds(3)
 
-    /// The app's one hold, shared by the panes that show launch images and the work that waits for them.
-    public static let shared = LaunchImageHold()
-
     private var shown = 0
     private var waiters: [@MainActor () -> Void] = []
     /// A pane that went away with its image up never ends it: the waiters run by then anyway.
