@@ -17,17 +17,32 @@ pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
         return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
     }
     let bytes = serde_json::to_vec(value)?;
-    {
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    // The temporary file is this call's own (`create_new`): a failure before the rename takes it
+    // away, so the next write of `path` is not refused as occupied.
+    let written = (|| -> std::io::Result<()> {
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
     }
-    std::fs::rename(&tmp, path)?;
     if let Some(parent) = path.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
     Ok(())
+}
+
+/// Whether the durable marker at `marker` stands for the chat `outer_id`.
+fn marker_names(marker: &Path, outer_id: &str) -> bool {
+    std::fs::read(marker)
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
 }
 
 pub(super) fn is_plain_id(id: &str) -> bool {
@@ -197,7 +212,7 @@ impl Hub {
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         if let Err(e) = self.store.save(&meta) {
-            self.abort_harness_state(&meta);
+            let _ = self.abort_harness_state(&meta);
             return Err(RpcError::internal(e.to_string()));
         }
         // Copy events verbatim, preserving seq. A partial transcript is not
@@ -206,14 +221,12 @@ impl Hub {
         {
             Ok(last) => last,
             Err(e) => {
-                self.abort_harness_state(&meta);
-                let _ = self.store.delete(&meta.id);
+                self.drop_failed_import(&meta);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
-            self.abort_harness_state(&meta);
-            let _ = self.store.delete(&meta.id);
+            self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         let restored = match guarded {
@@ -227,8 +240,7 @@ impl Hub {
                 match restored {
                     Ok(n) => n,
                     Err(e) => {
-                        self.abort_harness_state(&meta);
-                        let _ = self.store.delete(&meta.id);
+                        self.drop_failed_import(&meta);
                         return Err(RpcError::new(-32000, format!("transfer.native: {e:#}")));
                     }
                 }
@@ -340,7 +352,7 @@ impl Hub {
         if std::fs::symlink_metadata(&marker).is_ok() {
             return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
         }
-        write_json_atomic(
+        let prepared = write_json_atomic(
             &marker,
             &json!({
                 "outerId": meta.id,
@@ -348,25 +360,38 @@ impl Hub {
                 "replaceDurable": replace_durable,
                 "phase": "prepared",
             }),
-        )
+        );
+        if prepared.is_err() && marker_names(&marker, &meta.id) {
+            // Renamed into place before a later step failed: no marker was here before, so it is
+            // this import's, and the failed preparation must not leave it.
+            let _ = std::fs::remove_file(&marker);
+        }
+        prepared
     }
 
     /// Undo a failed import's durable state as a restart would (`recover_durable_marker`), so a
     /// retry on this daemon finds no marker of it. Before its store goes: that names the owner.
-    fn abort_harness_state(&self, meta: &SessionMeta) {
+    /// False when the rollback could not finish: its marker stays, and so must the store, for the
+    /// restart's sweep to finish it.
+    #[must_use]
+    fn abort_harness_state(&self, meta: &SessionMeta) -> bool {
         if meta.harness != "cmux-harness" {
-            return;
+            return true;
         }
-        let Some(agent_id) = meta.agent_session_id.as_deref() else { return };
-        let Some(session_dir) = self.store.session_dir(&meta.id) else { return };
-        let Some(root) = session_dir.parent() else { return };
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return true };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return true };
+        let Some(root) = session_dir.parent() else { return true };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
-        let ours = std::fs::read(&marker)
-            .ok()
-            .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-            .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(meta.id.as_str()));
-        if ours {
-            self.recover_durable_marker(root, &marker, agent_id);
+        !marker_names(&marker, &meta.id) || self.recover_durable_marker(root, &marker, agent_id)
+    }
+
+    /// A failed import's store goes once its durable state is rolled back. A rollback that could
+    /// not finish keeps it: its `session.json` names the marker's owner for the restart's sweep.
+    fn drop_failed_import(&self, meta: &SessionMeta) {
+        if self.abort_harness_state(meta) {
+            let _ = self.store.delete(&meta.id);
+        } else {
+            tracing::warn!(session = %meta.id, "a failed import's durable rollback did not finish; a restart finishes it");
         }
     }
 
