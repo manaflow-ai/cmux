@@ -390,7 +390,7 @@ impl Work {
         let config = Arc::new(config);
         let launcher = Launcher::start(&config)?.map(Arc::new);
         Ok(Work {
-            delayed: delayed::Delayed::new(Arc::clone(&config)),
+            delayed: delayed::Delayed::new(Arc::clone(&config), launcher.clone()),
             lanes: Lane::ALL.map(|lane| {
                 Arc::new(LaneShared::new(
                     lane,
@@ -418,8 +418,10 @@ impl Work {
 
     /// Queues `body` on `lane` at `priority` once `delay` has passed and returns at once, as Chrome's
     /// `PostDelayedTask` (base/task/thread_pool/delayed_task_manager.cc). A retry reposts itself this
-    /// way instead of sleeping on a thread between tries. Shutdown drops a waiting item unless it is a
-    /// block item, which then runs at once.
+    /// way instead of sleeping on a thread between tries. A delayed item never blocks shutdown: with a
+    /// delay, [`Shutdown::BlockShutdown`] is [`Shutdown::SkipOnShutdown`], shutdown drops a waiting
+    /// item and refuses a new one, as Chrome refuses a delayed task once shutdown has started
+    /// (base/task/thread_pool/task_tracker.cc `WillPostTask`). A zero delay is [`Work::post`].
     pub fn post_delayed<F>(
         &self,
         delay: Duration,
@@ -705,12 +707,12 @@ impl LaneShared {
                     self.spawn_worker(class);
                     continue;
                 };
-                if let Err(mpsc::SendError(Launch { lane, class })) =
-                    launcher.requests.send(Launch { lane: Arc::clone(self), class })
+                if let Err(mpsc::SendError(launch)) =
+                    launcher.requests.send(Launch::Worker { lane: Arc::clone(self), class })
                 {
                     // The launcher is gone only if it panicked: start the worker here, at this
                     // thread's nice value, rather than strand its item.
-                    lane.spawn_worker(class);
+                    launch.start();
                 }
             }
         }

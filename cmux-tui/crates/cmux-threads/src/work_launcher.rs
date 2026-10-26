@@ -4,6 +4,7 @@ use std::io;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
+use super::delayed::{self, DelayShared};
 use super::{LaneShared, WorkConfig, WorkerClass};
 use crate::qos::{LiveQos, ThreadQos};
 
@@ -16,14 +17,27 @@ pub(super) fn can_start_at(qos: ThreadQos) -> bool {
     }
 }
 
-pub(super) struct Launch {
-    pub(super) lane: Arc<LaneShared>,
-    pub(super) class: WorkerClass,
+/// A thread the launcher starts.
+pub(super) enum Launch {
+    /// One worker of `lane`, counted live and idle already.
+    Worker { lane: Arc<LaneShared>, class: WorkerClass },
+    /// The `<label>-delay` service thread of the delayed items (`work_delayed.rs`).
+    Delay { shared: Arc<DelayShared>, config: Arc<WorkConfig> },
 }
 
-/// The thread that starts the workers a thread above their nice value may not start (see
+impl Launch {
+    /// Starts the thread on the calling thread.
+    pub(super) fn start(self) {
+        match self {
+            Launch::Worker { lane, class } => lane.spawn_worker(class),
+            Launch::Delay { shared, config } => delayed::start_thread(&shared, &config),
+        }
+    }
+}
+
+/// The thread that starts the threads a thread above their nice value may not start (see
 /// [`can_start_at`]). It keeps the nice value of the thread that built the [`Work`], waits for
-/// requests with no timeout, and exits once every lane is gone.
+/// requests with no timeout, and exits once every lane and the delayed items are gone.
 pub(super) struct Launcher {
     pub(super) requests: Sender<Launch>,
 }
@@ -36,8 +50,8 @@ impl Launcher {
             format!("{}-launch", config.label),
             ThreadQos::UserInitiated,
             Box::new(move || {
-                for Launch { lane, class } in inbox {
-                    lane.spawn_worker(class);
+                for launch in inbox {
+                    launch.start();
                 }
             }),
         )?;

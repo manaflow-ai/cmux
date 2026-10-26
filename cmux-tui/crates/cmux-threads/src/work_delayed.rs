@@ -5,18 +5,24 @@
 //!
 //! - The thread starts with the first delayed item and waits with no timeout while none is queued,
 //!   so an idle [`super::Work`] has 0 wakeups from it.
-//! - [`super::Work::shutdown`] drops every waiting item except block items, which go to their lane at
-//!   once (the lane runs them at `UserBlocking`), and refuses new ones the same way. Dropping the
-//!   `Work` drops the waiting items and ends the thread.
+//! - A delayed item never holds shutdown back: a block item posted with a delay is queued as a skip
+//!   item, and [`super::Work::shutdown`] drops every waiting item and refuses new ones, as Chrome's
+//!   `TaskTracker::WillPostTask` refuses every delayed task once shutdown has started
+//!   (base/task/thread_pool/task_tracker.cc). So no block item is ever outside both this queue and
+//!   its lane's count while shutdown waits. Dropping the `Work` drops the waiting items and ends the
+//!   thread.
+//! - The thread runs at `UserInitiated`. When the posting thread's nice value is above that (Linux),
+//!   the [`super::Work`]'s launcher starts it, as it starts the lanes' workers.
 //! - If the thread cannot start, a delayed item goes to its lane at once: a retry that runs early is
 //!   harmless, one that never runs is not.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::sync::mpsc::SendError;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use super::{Job, LaneShared, Refused, Shutdown, WorkConfig};
+use super::{Job, LaneShared, Launch, Launcher, Refused, Shutdown, WorkConfig, can_start_at};
 use crate::qos::ThreadQos;
 
 /// One waiting item.
@@ -55,13 +61,14 @@ struct DelayState {
     next_seq: u64,
     /// The service thread is running or being started.
     started: bool,
-    /// Shutdown has started: non-block items are refused.
+    /// Shutdown has started: new items are refused.
     closed: bool,
     /// The `Work` is gone: the service thread exits.
     released: bool,
 }
 
-struct DelayShared {
+/// The queue the service thread serves; the launcher gets it to start that thread.
+pub(super) struct DelayShared {
     // Lock carve-out: a short critical section over the queue; no item body, no lane lock and no
     // thread spawn runs under it.
     state: Mutex<DelayState>,
@@ -79,35 +86,36 @@ impl DelayShared {
 pub(super) struct Delayed {
     shared: Arc<DelayShared>,
     config: Arc<WorkConfig>,
+    launcher: Option<Arc<Launcher>>,
 }
 
 impl Delayed {
-    pub(super) fn new(config: Arc<WorkConfig>) -> Delayed {
+    pub(super) fn new(config: Arc<WorkConfig>, launcher: Option<Arc<Launcher>>) -> Delayed {
         Delayed {
             shared: Arc::new(DelayShared {
                 state: Mutex::new(DelayState::default()),
                 changed: Condvar::new(),
             }),
             config,
+            launcher,
         }
     }
 
-    /// Queues `job` for `lane` once `delay` has passed.
+    /// Queues `job` for `lane` once `delay` has passed; a block item is queued as a skip item.
     pub(super) fn post(
         &self,
         delay: Duration,
         lane: &Arc<LaneShared>,
-        job: Job,
+        mut job: Job,
     ) -> Result<(), Refused> {
+        if job.shutdown == Shutdown::BlockShutdown {
+            job.shutdown = Shutdown::SkipOnShutdown;
+        }
         let mut state = self.shared.lock();
         if state.closed {
             drop(state);
-            // A block item still runs: the lane takes it after close.
-            return if job.shutdown == Shutdown::BlockShutdown {
-                lane.submit(job)
-            } else {
-                Err(Refused)
-            };
+            drop(job);
+            return Err(Refused);
         }
         let at = Instant::now() + delay;
         let seq = state.next_seq;
@@ -129,8 +137,8 @@ impl Delayed {
         self.shared.lock().queue.len()
     }
 
-    /// Starts shutdown: drops the waiting non-block items (returned, so the caller drops them outside
-    /// every lock) and hands the block items to their lanes now.
+    /// Starts shutdown: refuses new items and returns the waiting ones (none is a block item), so the
+    /// caller drops them outside every lock.
     pub(super) fn close(&self) -> Vec<Job> {
         let waiting = {
             let mut state = self.shared.lock();
@@ -138,35 +146,44 @@ impl Delayed {
             std::mem::take(&mut state.queue)
         };
         self.shared.changed.notify_one();
-        let mut dropped = Vec::new();
-        for Due { lane, job, .. } in waiting.into_sorted_vec().into_iter().rev() {
-            if job.shutdown == Shutdown::BlockShutdown {
-                // A lane takes a block item open or closed.
-                let _ = lane.submit(job);
-            } else {
-                dropped.push(job);
-            }
-        }
-        dropped
+        waiting.into_vec().into_iter().map(|Due { job, .. }| job).collect()
     }
 
+    /// Starts the service thread here, or through the launcher when this thread's nice value is
+    /// above `UserInitiated` ([`can_start_at`]).
     fn start_thread(&self) {
-        let shared = Arc::clone(&self.shared);
-        let started = self.config.spawner.spawn(
-            format!("{}-delay", self.config.label),
-            ThreadQos::UserInitiated,
-            Box::new(move || run(&shared)),
-        );
-        if started.is_err() {
-            // Early beats never: every waiting item goes to its lane now; the next post tries again.
-            let waiting = {
-                let mut state = self.shared.lock();
-                state.started = false;
-                std::mem::take(&mut state.queue)
-            };
-            for Due { lane, job, .. } in waiting.into_sorted_vec().into_iter().rev() {
-                let _ = lane.submit(job);
-            }
+        let launcher = self.launcher.as_ref().filter(|_| !can_start_at(ThreadQos::UserInitiated));
+        let Some(launcher) = launcher else {
+            start_thread(&self.shared, &self.config);
+            return;
+        };
+        let request =
+            Launch::Delay { shared: Arc::clone(&self.shared), config: Arc::clone(&self.config) };
+        if let Err(SendError(request)) = launcher.requests.send(request) {
+            // The launcher is gone only if it panicked: start the thread here, at this thread's
+            // nice value, rather than strand the waiting items.
+            request.start();
+        }
+    }
+}
+
+/// Starts the service thread of `shared`. If it cannot start, every waiting item goes to its lane
+/// now (early beats never) and the next post tries again.
+pub(super) fn start_thread(shared: &Arc<DelayShared>, config: &WorkConfig) {
+    let thread_shared = Arc::clone(shared);
+    let started = config.spawner.spawn(
+        format!("{}-delay", config.label),
+        ThreadQos::UserInitiated,
+        Box::new(move || run(&thread_shared)),
+    );
+    if started.is_err() {
+        let waiting = {
+            let mut state = shared.lock();
+            state.started = false;
+            std::mem::take(&mut state.queue)
+        };
+        for Due { lane, job, .. } in waiting.into_sorted_vec().into_iter().rev() {
+            let _ = lane.submit(job);
         }
     }
 }
@@ -210,7 +227,7 @@ fn run(shared: &DelayShared) {
             }
         }
         for Due { lane, job, .. } in due.drain(..) {
-            // A lane closed since (shutdown) refuses a non-block item, which drops it.
+            // A lane closed since (shutdown) refuses the item, which drops it.
             let _ = lane.submit(job);
         }
     }
