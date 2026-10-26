@@ -685,6 +685,16 @@ impl Hub {
             }),
             ..Default::default()
         };
+        // A sub-session is a new session: it needs room on this host (`admission.rs`).
+        let who = format!("session {}", parent.id);
+        let _admitted = self
+            .admit_new(super::admission::Ask {
+                force: false,
+                person: false,
+                who: &who,
+                local: true,
+            })
+            .await?;
         let probe = self.new_session(request).await?;
         // From here every refusal closes the child: it never runs unchecked.
         if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
