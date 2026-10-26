@@ -89,6 +89,8 @@ const RELEASE_USER_FACING = [
   "Redesign changelog page with feature highlights",
   // What's New has its own release headings; a fix to them is news.
   "fix(next): release headings show the day they belong to",
+  "fix(changelog): the popup's footer counts the changes it shows",
+  "fix(updates): channel tracks read verdicts and pulls beside the cmux NEXT appcast on DEV and legacy feeds",
 ];
 
 test("release and changelog tooling is internal work; the What's New page's changes are not", () => {

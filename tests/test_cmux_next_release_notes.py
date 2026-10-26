@@ -231,7 +231,7 @@ class ReleaseNotesTests(unittest.TestCase):
         # Any subject: every file it touches is CI or tooling.
         self.touch("fix: headings of one day stay in order (#9001)",
                    "webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts")
-        self.touch("fix: feeds check twice as often (#9002)", ".github/workflows/next.yml", "scripts/ci/feed.py")
+        self.touch("fix: feeds check twice as often (#9002)", ".github/workflows/next.yml", "scripts/ci/tests/feed.test.sh")
         self.touch("fix(sidebar): rows keep their order after a rename (#9003)",
                    "webviews/src/pages/sidebar/Rows.tsx", "webviews/test/sidebar-rows.test.ts")
         notes = self.build(since, build="10")
@@ -247,7 +247,7 @@ class ReleaseNotesTests(unittest.TestCase):
         # commit keeps its own files.
         since = self.head
         self.touch("fix: rows \x1e keep \x1f order (#9101)", "webviews/src/pages/sidebar/A B.tsx")
-        self.touch("fix: tabs keep their names (#9102)", "scripts/ci/odd\nname.py", "tests/odd\tname.py")
+        self.touch("fix: tabs keep their names (#9102)", "scripts/ci/tests/odd\nname.py", "tests/odd\tname.py")
         # A file named like the next commit's hash cannot take that commit's files.
         self.touch("fix: panes keep their size (#9103)", "tests/" + self.head)
         notes = self.build(since, build="11")
@@ -264,21 +264,33 @@ class ReleaseNotesTests(unittest.TestCase):
                       [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
                       ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"],
                       ["scripts/install-git-hooks.sh"], ["scripts/cmux-next/guardrails.py"],
-                      ["scripts/cmux-next/bench_launch.py"], ["webviews/scripts/check-glass-never-opaque.ts"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
-                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"],
-                      ["scripts/ci/tests/ensure-web-bundles.test.sh"]):
+                      ["scripts/cmux-next/check-app-bundle.sh"], ["webviews/scripts/check-glass-never-opaque.ts"],
+                      ["scripts/ci/tests/ensure-web-bundles.test.sh"], ["scripts/measure/split-spring.sh"],
+                      ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
+                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
             self.assertTrue(notes.tooling_only(paths), paths)
         for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
                       ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
                       ["webviews/src/pages/changelog/Localizable.xcstrings"],
                       # #25001 fixed the agent pane by changing only the script that bundles it.
                       ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"],
-                      # The Embed CEF phase builds the browser from these.
+                      # The Embed CEF phase builds the browser from these; CI builds and stages what ships with these.
                       ["scripts/cmux-next/fetch-ublock.sh"], ["scripts/cmux-next/merge-cef-universal.sh"],
-                      ["scripts/cmux-next/cef-manifest.json"],
-                      # CI builds and bundles what ships with these.
-                      ["scripts/ci/cmux-remote-browser-host-build.sh"], ["scripts/ci/ensure-web-bundles.sh"]):
+                      ["scripts/cmux-next/cef-manifest.json"], ["scripts/ci/cmux-remote-browser-host-build.sh"],
+                      ["scripts/ci/ensure-web-bundles.sh"], ["scripts/ci/macos-cross.sh"],
+                      ["scripts/ci/stage-agent-detector.sh"], ["scripts/whats-new/sync-app-bundle.py"]):
             self.assertFalse(notes.tooling_only(paths), paths)
+
+    def test_a_move_counts_at_both_ends(self):
+        # A shipping file moved into tests/ is not a tooling-only commit.
+        self.touch("feat: tab rows (#9201)", "webviews/src/pages/sidebar/Rows.tsx")
+        since = self.head
+        os.makedirs(os.path.join(self.repo, "tests"), exist_ok=True)
+        git(self.repo, "mv", "webviews/src/pages/sidebar/Rows.tsx", "tests/Rows.tsx")
+        git(self.repo, "commit", "-q", "-m", "fix: rows move (#9202)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="12")
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]], [(9202, False)])
 
     def check(self, notes_path):
         return subprocess.run([sys.executable, SCRIPT, "check", "--notes", notes_path],

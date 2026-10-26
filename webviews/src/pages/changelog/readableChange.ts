@@ -23,8 +23,8 @@ export const INTERNAL_TYPES = new Set([
   "bench",
   "gallery",
 ]);
-/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app. Release and
-    changelog tooling too (nightly 4037632091801 read "Fixed: validate release headings within their
+/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app; the release
+    notes and the feed too (nightly 4037632091801 read "Fixed: validate release headings within their
     day", #25533). */
 export const INTERNAL_SCOPES = new Set([
   "ci",
@@ -55,7 +55,6 @@ export const INTERNAL_SCOPES = new Set([
   "deps",
   "cmux-git",
   "cmux-tui-core",
-  "changelog",
   "release-notes",
   "appcast",
 ]);
@@ -69,7 +68,7 @@ export const INTERNAL_WORDS = new RegExp(
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
     String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|` +
-    String.raw`appcast\w*|fits the validator|validates? release headings|release[- ]notary|notes check)\b`,
+    String.raw`fits the validator|validates? release headings|release[- ]notary|notes check)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */

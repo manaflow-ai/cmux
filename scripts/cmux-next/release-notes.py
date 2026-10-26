@@ -63,7 +63,7 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
                    "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
-                   "cmux-git", "cmux-tui-core", "changelog", "release-notes", "appcast"}
+                   "cmux-git", "cmux-tui-core", "release-notes", "appcast"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
@@ -74,7 +74,7 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
-    r"appcast\w*|fits the validator|validates? release headings|release[- ]notary|notes check)\b", re.I | re.A)
+    r"fits the validator|validates? release headings|release[- ]notary|notes check)\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -87,28 +87,24 @@ PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
 SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
-# Files no user runs: CI, tests, docs, plans, release notes and their checkers, galleries, and the
-# scripts that only measure, lint or guard the code. A commit that touches only these is internal
-# whatever its subject says (nightly 4037632091801 read "Fixed: validate release headings within
-# their day", #25533: notesCheck.ts and its test). Other scripts can build what ships (the agent
-# pane's bundle, the CEF embed), so scripts/ is tooling only in these places.
+# Files no user runs: CI workflows, tests, docs, plans, release notes and their checker, galleries,
+# and the scripts that only measure, lint, guard or check the code. A commit that touches only these
+# is internal whatever its subject says (nightly 4037632091801 read "Fixed: validate release headings
+# within their day", #25533: notesCheck.ts and its test). The list is short on purpose: other scripts,
+# scripts/ci/ included, can build or stage what ships (the CEF embed, the remote browser host, the
+# agent pane bundle), and a change the list misses only stays news.
 TOOLING_PATHS = re.compile(
     r"^(?:\.github/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
-    r"|scripts/(?:ci|measure|fuzz|gallery-matrix|git-hooks|whats-new)/|scripts/cmux-next/(?:tests|media|arch_rules)/)"
+    r"|scripts/(?:measure|fuzz|gallery-matrix|git-hooks)/|scripts/(?:ci|cmux-next)/tests/|scripts/cmux-next/media/)"
     r"|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
     r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
-    r"|^(?:webviews/)?scripts/(?:[\w-]+/)*(?:check|lint|guard|bench|perf|gallery|install-git-hooks|prepush|arch|"
-    r"codebase-health|every-action|release-notes|check-release-notes)[\w.-]*$")
-
-
-# Even there, a script that builds, bundles, embeds or signs what ships is not tooling
-# (scripts/ci/cmux-remote-browser-host-build.sh, ensure-web-bundles.sh); its tests still are.
-SHIPPING_SCRIPTS = re.compile(r"^(?!.*(?:/tests?/|\.test\.))(?:webviews/)?scripts/.*(?:build|bundle|embed|sign|notar)[^/]*$", re.I)
+    r"|^(?:webviews/)?scripts/(?:cmux-next/)?(?:check[-_]|lint[-_]|guardrails|bench[-_]|perf-(?:gate|cron)|prepush-gate"
+    r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")
 
 
 def tooling_only(paths):
     """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
-    return bool(paths) and all(TOOLING_PATHS.search(p) and not SHIPPING_SCRIPTS.search(p) for p in paths)
+    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
 
 
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -487,7 +483,8 @@ def span_commits(since, head, limit=MAX_CHANGES):
     paths, current = {sha: [] for sha, _, _ in commits}, None
     # "-z --name-only": each commit's marked hash, then "\n" and its files, every field ended by NUL.
     # The marker (\x01) keeps a file named like a hash from passing for a commit.
-    for field in git("log", "--no-merges", "-z", "--name-only", "--format=%x01%H%x01", span).split("\0"):
+    # --no-renames: a moved file counts at both ends, so a move into tests/ is not tooling alone.
+    for field in git("log", "--no-merges", "--no-renames", "-z", "--name-only", "--format=%x01%H%x01", span).split("\0"):
         name = field[1:] if field.startswith("\n") else field
         marked = name[1:-1] if len(name) == 42 and name[0] == name[-1] == "\x01" else None
         if marked in paths:
