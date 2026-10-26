@@ -8,9 +8,10 @@
 // - An answer acpmux takes says nothing, and a held key never answers twice.
 // - Each answer names its own ask: once the card shows the next ask, a key answers the next ask
 //   with that ask's option, and the first ask's late refusal never shows on it.
-// - A key and a click answer an ask once between them, and a late reply to an answer before never
-//   changes the card (Codex review of #25236: replies out of order, a key then a click).
-// - Any refusal shows: a thenable's, a throw's, and a deny with feedback that rejects.
+// - A key and a click answer an ask once between them, an ask shown again while its answer is out
+//   is not answered twice, and a late reply to an answer before never changes the card (Codex
+//   review of #25236: replies out of order, a key then a click, A then B then A).
+// - Any refusal shows: a thenable's, a throw's, and a deny with feedback that rejects or throws.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
@@ -194,16 +195,35 @@ test("a late reply to an answer before never changes the card", async () => {
   await card.key("1");
   await card.render(ask("p2", "p2-allow"));
   await card.key("1");
-  // p2's refusal lands first, then p1's: the card still names p2's, and p2's keys stay armed.
-  await card.settle(1, false);
+  await card.render(ask("p3", "p3-allow"));
+  await card.key("1");
+  // p3's refusal lands first, then p1's: the card still names p3's, and p3's keys stay armed.
+  await card.settle(2, false);
   await card.settle(0, false);
   expect(card.alert()).toBe(translate("permission.error.refused"));
   await card.key("1");
-  expect(card.sent.at(-1)).toMatchObject({ permissionId: "p2", optionId: "p2-allow" });
-  // p2's third answer is out: the first's late success changes nothing either.
-  await card.settle(0, true);
+  expect(card.sent.at(-1)).toMatchObject({ permissionId: "p3", optionId: "p3-allow" });
+  // p3's answer is out again: p2's late success neither clears it nor frees p3's keys.
+  await card.settle(1, true);
   await card.key("1");
-  expect(card.sent).toHaveLength(3);
+  expect(card.sent).toHaveLength(4);
+  await card.unmount();
+});
+
+test("an ask shown again while its answer is out is not answered twice", async () => {
+  const card = await mount(ask("p1"));
+  await card.key("1");
+  await card.render(ask("p2", "p2-allow"));
+  await card.key("1");
+  await card.render(ask("p1"));
+  await card.key("1");
+  await card.click(translate("permission.allowOnce"));
+  expect(card.sent.map((s) => s.optionId)).toEqual(["p1-yes", "p2-allow"]);
+  // Its answer was refused: now it may go again, once.
+  await card.settle(0, false);
+  await card.key("1");
+  await card.key("1");
+  expect(card.sent.map((s) => s.optionId)).toEqual(["p1-yes", "p2-allow", "p1-yes"]);
   await card.unmount();
 });
 
@@ -230,13 +250,20 @@ test("a thenable's refusal and a throw both show, and free the ask", async () =>
   await card.unmount();
 });
 
-test("a deny with feedback that rejects keeps the text and frees the ask", async () => {
+for (const [how, fail] of [
+  ["rejects", (optionId: string, text: string, denies: string[]) => {
+    denies.push(`${optionId}:${text}`);
+    return Promise.reject(new Error("connection dropped"));
+  }],
+  ["throws", (optionId: string, text: string, denies: string[]) => {
+    denies.push(`${optionId}:${text}`);
+    throw new Error("no chat to answer in");
+  }],
+] as const)
+test(`a deny with feedback that ${how} keeps the text and frees the ask`, async () => {
   const denies: string[] = [];
   const card = await mount(ask("p1"), {
-    onDenyWithFeedback: async (optionId, text) => {
-      denies.push(`${optionId}:${text}`);
-      throw new Error("connection dropped");
-    },
+    onDenyWithFeedback: (optionId, text) => fail(optionId, text, denies),
   });
   await card.key("3");
   const field = card.host.querySelector("textarea")!;
@@ -255,5 +282,33 @@ test("a deny with feedback that rejects keeps the text and frees the ask", async
   await card.click(translate("permission.feedbackSend"));
   await card.flush();
   expect(denies).toHaveLength(2);
+  await card.unmount();
+});
+
+test("a deny with feedback refused late never touches the next ask's field", async () => {
+  const replies: Array<(ok: boolean) => void> = [];
+  const card = await mount(ask("p1"), {
+    onDenyWithFeedback: () => new Promise<boolean>((resolve) => replies.push(resolve)),
+  });
+  const type = (text: string) =>
+    act(async () => {
+      const field = card.host.querySelector("textarea")!;
+      const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(field, text);
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  await card.key("3");
+  await type("not that");
+  await card.click(translate("permission.feedbackSend"));
+  // The agent asks again before p1's deny is answered; the person starts telling p2 something else.
+  await card.render(ask("p2"));
+  await card.key("3");
+  await type("try the cache");
+  await act(async () => replies[0]!(false));
+  await card.flush();
+  const field = card.host.querySelector("textarea");
+  expect(field?.value).toBe("try the cache");
+  expect(field?.readOnly).toBe(false);
+  expect(card.alert()).toBeUndefined();
   await card.unmount();
 });
