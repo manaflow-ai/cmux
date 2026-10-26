@@ -89,7 +89,7 @@ import Testing
         page.notePainted()
         rig.show()
         rig.hide()
-        await rig.pages.discarding?.pictures[rig.key]?.task?.value
+        await rig.pages.discardRecords.pictures[rig.key]?.task?.value
         #expect(rig.cache.previews.image(for: rig.key) != nil, "the hide took no picture of the painted page")
         let captures = { web.hosting.made.flatMap(\.calls).filter { $0.method == "Page.captureScreenshot" }.count }
         #expect(captures() == 1)
@@ -274,7 +274,7 @@ import Testing
         rig.discards.replan()
         await rig.discards.settled()
         #expect(rig.cache.pageDiscards == nil)
-        #expect(rig.pages.discarding == nil)
+        #expect(rig.pages.discards == nil)
         #expect(!rig.discards.hasDeadline)
         #expect(rig.pages.existingView(rig.key) != nil)
     }

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -43,9 +44,11 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
-    /// Page tab discards (`memoryDiscardInternalPages`; nil while off): when views go, and what each
-    /// discarded tab keeps until its view is made again (InternalPageTabStore+Show).
-    @ObservationIgnored var discarding: InternalPageDiscards?
+    /// Page tab discards (`memoryDiscardInternalPages`; nil while off): when views go, on `cache`'s
+    /// lifecycle, and what each discarded tab keeps by provider key (InternalPageTabStore+Show).
+    @ObservationIgnored var discards: ContentDiscardScheduler?
+    @ObservationIgnored weak var cache: TabContentCache?
+    @ObservationIgnored let discardRecords = ContentDiscardRecords()
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -140,7 +143,7 @@ final class InternalPageTabStore {
     /// under its last picture until then.
     private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider,
                           window: WindowController?) -> InternalPageView {
-        let gone = discarding?.discarded.removeValue(forKey: key)
+        let gone = discardRecords.discarded.removeValue(forKey: key)
         if let route = gone?.route { provider.restore(route, for: key) }
         let content = provider.makeView(for: key, in: window)
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
@@ -357,7 +360,7 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperview()
-        discarding?.forget(key)
+        discardRecords.forget(key)
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }

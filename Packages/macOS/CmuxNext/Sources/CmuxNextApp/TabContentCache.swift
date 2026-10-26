@@ -33,7 +33,7 @@ final class TabContentCache {
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
-    weak var pageDiscards: (any PageTabLifecycleHandling)? // page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
+    weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()

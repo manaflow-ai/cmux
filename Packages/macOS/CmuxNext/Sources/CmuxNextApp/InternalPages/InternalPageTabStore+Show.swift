@@ -116,75 +116,20 @@ extension AppServices {
 // `TabLifecycleUnit::Discard`). A page tab hidden past its provider's policy saves its view state
 // and route, and its provider tears its view down; its next show makes the view again, under the
 // picture taken when it hid, with the route and state put back. `discards` (a
-// ContentDiscardScheduler) decides when; the content cache's lifecycle carries it, through its
-// ``PageTabLifecycleHandling`` seam: show and hide are a page tab's `reveal` and `conceal`, the
-// discard is its `hibernate` event and `release` effect, a show of a discarded tab its `restore`
-// effect, all under the lifecycle's tokens. The cache names a tab by its strip id: an app-only
+// ContentDiscardScheduler) decides when, `discardRecords` keeps what each discarded tab needs; the
+// content cache's lifecycle carries it, through the `pageDiscards` it is given: show and hide are a
+// page tab's `reveal` and `conceal`, the discard is its `hibernate` event and `release` effect, a
+// show of a discarded tab its `restore` effect, all under the lifecycle's tokens. The cache names a tab by its strip id: an app-only
 // tab's key, or a store page tab's id, whose view lives under a provider key.
-
-/// Page tab discards while `memoryDiscardInternalPages` is on: when views go (`scheduler`), on whose
-/// lifecycle (`cache`), and what each tab keeps meanwhile, by provider key.
-@MainActor
-final class InternalPageDiscards {
-    /// What a discarded page tab keeps until its view is made again.
-    struct Record {
-        /// What its view showed besides its route.
-        var state: ContentViewState
-        /// ``InternalPageProvider/route(for:)`` at the discard, given back before the next view.
-        var route: String?
-    }
-
-    /// The picture of a page tab taken at a hide: the capture on its way, then what it shows.
-    struct Picture {
-        var task: Task<Void, Never>?
-        /// ``InternalPageTabStore/pictureVersion(_:)`` of the page the stored picture shows.
-        var version: Int?
-    }
-
-    let scheduler: ContentDiscardScheduler
-    weak var cache: TabContentCache?
-    var discarded: [String: Record] = [:]
-    var pictures: [String: Picture] = [:]
-
-    init(scheduler: ContentDiscardScheduler, cache: TabContentCache) {
-        self.scheduler = scheduler
-        self.cache = cache
-    }
-
-    /// Tab `key` closed: nothing of it stays.
-    func forget(_ key: String) {
-        discarded[key] = nil
-        pictures.removeValue(forKey: key)?.task?.cancel()
-    }
-}
-
-/// The content lifecycle's effects on page tabs, which ``TabContentCache`` hands to its
-/// `pageDiscards` (set only while `memoryDiscardInternalPages` is on). Each returns false for a
-/// tab that is no page tab, which then takes the cache's own path.
-@MainActor
-protocol PageTabLifecycleHandling: AnyObject {
-    /// A `mount`: whether `tab` is a page tab whose view exists, so it is live.
-    func adoptPage(_ tab: String) -> Bool
-    /// A `reveal`.
-    func pageDidShow(_ tab: String) -> Bool
-    /// A `conceal` under `token`.
-    func pageDidHide(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool
-    /// A `release` under `token`: the view goes.
-    func releasePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool
-    /// A `restore` under `token`: the view is back.
-    func restorePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool
-}
 
 extension InternalPageTabStore {
     /// Turns page tab discards on: `scheduler` says when views go, on `cache`'s lifecycle.
     func enableDiscards(_ scheduler: ContentDiscardScheduler, on cache: TabContentCache) {
-        discarding = InternalPageDiscards(scheduler: scheduler, cache: cache)
+        discards = scheduler
+        self.cache = cache
         scheduler.host = self
         cache.pageDiscards = self
     }
-
-    var discards: ContentDiscardScheduler? { discarding?.scheduler }
-    var cache: TabContentCache? { discarding?.cache }
 
     /// The provider key of `tab`: a store page tab's, else `tab` itself.
     func providerKey(ofTab tab: String) -> String { storeKey(of: tab) ?? tab }
@@ -193,7 +138,7 @@ extension InternalPageTabStore {
     func provider(ofTab tab: String) -> (any InternalPageProvider)? { page(ofTab: tab).flatMap { self.provider($0) } }
 
     /// Whether `tab`'s view was discarded and not made again yet.
-    func isDiscarded(_ tab: String) -> Bool { discarding?.discarded[providerKey(ofTab: tab)] != nil }
+    func isDiscarded(_ tab: String) -> Bool { discardRecords.discarded[providerKey(ofTab: tab)] != nil }
 
     /// Lets `tab`'s view go and keeps the tab (strip place, title, icon), its route and `state`,
     /// given back to the view made at its next show. The provider tears the view down
@@ -201,10 +146,10 @@ extension InternalPageTabStore {
     @discardableResult
     func discardView(ofTab tab: String, state: ContentViewState) -> Bool {
         let key = providerKey(ofTab: tab)
-        guard let discarding, let view = takeView(key) else { return false }
+        guard discards != nil, let view = takeView(key) else { return false }
         view.removeFromSuperview()
         let owner = LocalPageTab.page(of: key).flatMap { self.provider($0) }
-        discarding.discarded[key] = InternalPageDiscards.Record(state: state, route: owner?.route(for: key))
+        discardRecords.discarded[key] = ContentDiscardRecords.Record(state: state, route: owner?.route(for: key))
         owner?.viewDiscarded(key)
         return true
     }
@@ -229,23 +174,26 @@ extension InternalPageTabStore {
     /// tab's latest transition and the tab still has this view.
     private func takePicture(of tab: String, provider: any InternalPageProvider, token: ContentLifecycle<String>.Token) {
         let key = providerKey(ofTab: tab)
-        guard let discarding, let cache = discarding.cache, provider.discardPolicy(for: key) != .never,
+        guard discards != nil, let cache, provider.discardPolicy(for: key) != .never,
               let view = existingView(tab), let page = view.content as? PageWebView, page.hasPainted else { return }
         let version = Self.pictureVersion(page)
-        if discarding.pictures[key]?.version == version, cache.previews.image(for: tab) != nil { return }
-        discarding.pictures[key]?.task?.cancel()
-        // task-owner: discarding.pictures[key]; cancelled by the next hide's capture or the tab's close
-        let task = Task { [weak self, weak view, weak cache] in
+        let records = discardRecords
+        if records.pictures[key]?.version == version, cache.previews.image(for: tab) != nil { return }
+        records.pictures[key]?.task?.cancel()
+        // task-owner: discardRecords.pictures[key]; cancelled by the next hide's capture or the tab's close
+        let task = Task { [weak self, weak view, weak cache, weak records] in
             guard let image = await view?.lastPicture(), !Task.isCancelled, let self, let cache,
                   cache.lifecycle.accepts(tab, token), self.existingView(tab) === view else { return }
             cache.previews.insert(image, for: tab)
-            self.discarding?.pictures[key]?.version = version
+            records?.pictures[key]?.version = version
         }
-        discarding.pictures[key] = InternalPageDiscards.Picture(task: task, version: discarding.pictures[key]?.version)
+        records.pictures[key] = ContentDiscardRecords.Picture(task: task, version: records.pictures[key]?.version)
     }
 }
 
-extension InternalPageTabStore: PageTabLifecycleHandling {
+// The content lifecycle's effects on page tabs, which the cache hands to its `pageDiscards`. Each
+// returns false for a tab that is no page tab, which then takes the cache's own path.
+extension InternalPageTabStore {
     /// A page tab's memory is the discards' to manage, never the terminal warm set's.
     func adoptPage(_ tab: String) -> Bool {
         guard existingView(tab) != nil else { return false }
@@ -310,7 +258,7 @@ extension InternalPageTabStore: ContentDiscardHost {
         guard let view = existingView(key), let provider = self.provider(ofTab: key), let cache,
               let record = cache.lifecycle.record(key), record.phase == .mountedHidden else { return nil }
         let pageKey = providerKey(ofTab: key)
-        await discarding?.pictures[pageKey]?.task?.value
+        await discardRecords.pictures[pageKey]?.task?.value
         let state = await provider.saveViewState(for: pageKey, content: view.content)
         guard cache.lifecycle.record(key)?.generation == record.generation, existingView(key) === view,
               provider.keepReasons(for: pageKey).isEmpty else { return nil }
