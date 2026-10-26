@@ -3,6 +3,10 @@
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
+// A losing answer is told the first one (`respond_permission`).
+#[path = "permission_settled.rs"]
+pub(super) mod settled;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -652,8 +656,9 @@ impl Hub {
         if let Some(by) = answered_by {
             decision["answeredBy"] = by;
         }
-        self.append(session, "mux", "permission_decision", decision);
-        let state = session.permissions.lock().unwrap();
+        self.append(session, "mux", "permission_decision", decision.clone());
+        let mut state = session.permissions.lock().unwrap();
+        state.settled.remember(permission_id, decision.get("answeredBy"), &decision["outcome"]);
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
             && !self.secrets.waiting_in(&session.id)
@@ -678,11 +683,17 @@ impl Hub {
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
-        let pending = {
-            let mut state = session.permissions.lock().unwrap();
+        let (pending, answered_by) = {
+            let mut guard = session.permissions.lock().unwrap();
+            let state = &mut *guard;
             let map = &mut state.pending;
+            // Answered already: the first answer won, and this one is told who gave it and how.
             let p = map.get(permission_id).ok_or_else(|| {
-                RpcError::not_found(format!("no pending permission {permission_id}"))
+                let lost = RpcError::not_found(format!("no pending permission {permission_id}"));
+                match state.settled.lost(permission_id) {
+                    Some(data) => lost.with_data(data),
+                    None => lost,
+                }
             })?;
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
@@ -805,11 +816,20 @@ impl Hub {
                 }
             }
             let p = map.remove(permission_id).unwrap();
+            // A person's answer names them beside any device (`author.rs`), after the person
+            // rule above, which it never satisfies.
+            let answered_by = crate::author::answered_by(answered_by, answerer.author);
+            let decided = match &option_id {
+                Some(o) => json!({"outcome": "selected", "optionId": o}),
+                None => json!({"outcome": "cancelled"}),
+            };
+            // Told to a later answer at once, before the asking task logs the decision.
+            state.settled.remember(permission_id, answered_by.as_ref(), &decided);
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            p
+            (p, answered_by)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -834,6 +854,8 @@ impl Hub {
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
+                // Told to a later answer at once (`permission_settled.rs`): no one answered.
+                state.settled.remember(id, None, &json!({"outcome": "cancelled"}));
                 if let Some(group) = state.finish_item(&session.id, id, true) {
                     self.append(session, "mux", "permission_group", json!({"group":group}));
                 }
