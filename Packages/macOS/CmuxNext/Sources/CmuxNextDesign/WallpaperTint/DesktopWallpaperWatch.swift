@@ -18,7 +18,7 @@ import Foundation
 /// ``tintEnabled``. Registered material views re-apply at once (the Desktop Wallpaper art) and
 /// again when the color lands. One decode runs at a time. While nothing of the app shows (hidden,
 /// or no visible window) it does nothing: the first event after it shows again (the unhide, a
-/// window becoming key) reads once. It reads the main screen (the one with the key window); every
+/// window's visibility changing) reads once. It reads the main screen (the one with the key window); every
 /// window takes that screen's color. Inert until ``start()``, so tests and windows built before
 /// launch see no tint. The app's watch belongs to ``BackdropImageStore/shared``.
 ///
@@ -136,7 +136,8 @@ public final class DesktopWallpaperWatch {
             MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSApplication.didUnhideNotification) { [weak self] in self?.refresh() },
+            // A window shown, unhidden or uncovered (a panel that never becomes key too).
+            MainActorObservation(NSWindow.didChangeOcclusionStateNotification) { [weak self] in self?.refresh() },
             MainActorObservation(NSWindow.didBecomeKeyNotification) { [weak self] in self?.refresh() },
             MainActorObservation(NSWindow.didChangeScreenNotification) { [weak self] in self?.refresh() },
         ]
@@ -177,7 +178,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled, let reading = current, published != reading else { return false }
+        guard tintEnabled, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -195,7 +196,8 @@ public final class DesktopWallpaperWatch {
     }
 
     /// A sample ended: its color is kept for its reading, and shown only when that reading is
-    /// still the desktop and the tint is on; otherwise the reading shown now is sampled.
+    /// still the desktop, the tint is on and the app shows; otherwise the reading shown now is
+    /// sampled (the next refresh, once the app shows again).
     private func sampled(_ color: WallpaperTint?, for reading: Reading) {
         sampling = nil
         if colors.count >= 32 { colors.removeAll() }
