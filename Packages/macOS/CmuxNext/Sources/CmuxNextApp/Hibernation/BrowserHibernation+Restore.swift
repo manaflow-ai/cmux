@@ -4,9 +4,9 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextHibernation
 import CmuxNextInput
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
-import Observation
 
 /// Restoring a hibernated page: the `restore` effect recreates its engine page from the saved
 /// history, and each wake is timed (`wakeLog`, `debug.surfaces` `wakes`) from the effect to the
@@ -52,6 +52,8 @@ extension BrowserHibernation {
             configuration.restoreState = history
             let make = cache.makeCEFTab
             let tab = cache.tabModel(key)
+            // task-owner: one page restore; the lifecycle's token drops a restore that lands after a close or a newer wake
+            // main-hop-allow: the cache's Chromium configuration and page make are main-actor async; the restore finishes in their resume
             Task { @MainActor [weak self, weak cache] in
                 do {
                     // The remote-localhost store and guard, as for any Chromium page.
@@ -121,19 +123,25 @@ extension BrowserHibernation {
     }
 
     /// Records when the woken page's load ends (finished or failed), bounded: a page that is
-    /// still loading after 15 s records none.
+    /// still loading after 15 s records none. R-wait: the page's keyed phase wait (`PageWaiters`), read only
+    /// on a load-phase change, never on a title or progress tick; the record lands in one background task.
     private func timeLoad(_ key: String, page: any BrowserTab) {
-        Task { @MainActor [weak self, weak page] in
-            let ended = try? await ControlDeadline.shared.run(method: "hibernation.wake", deadline: .now + .seconds(15)) { @MainActor in
-                for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
-                return false
+        guard let waiting = page as? any BrowserPageWaiting else { return wakeLog.loaded(key, ended: Self.loadEnded(page.state.phase)) }
+        let mainWork = mainWork
+        // task-owner: one load timing, bounded by the wait's 15 s; the page's close ends the wait at once
+        Task { @concurrent [weak self] in
+            let ended = await waiting.when(phase: { phase in BrowserHibernation.loadEnded(phase) }, timeout: Self.loadTimingLimit) != nil
+            await mainWork.apply(.background, owner: "BrowserHibernation.wakeLoaded") { [weak self, weak waiting] in
+                guard let self, let waiting, cache?.browsers[key]?.tab === waiting else { return }
+                wakeLog.loaded(key, ended: ended)
             }
-            guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
-            self.wakeLog.loaded(key, ended: ended == true)
         }
     }
 
-    private static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
+    /// How long a woken page's load is timed before it records none.
+    nonisolated static let loadTimingLimit: Duration = .seconds(15)
+
+    private nonisolated static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
         switch phase {
         case .finished, .failed: true
         case .idle, .provisional, .committed: false
