@@ -59,6 +59,32 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn copy_legacy_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(dst).is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "migration destination is occupied",
+        ));
+    }
+    let name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("state");
+    let tmp = dst.with_file_name(format!(".{name}.migrating"));
+    if std::fs::symlink_metadata(&tmp).is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "migration staging path is occupied",
+        ));
+    }
+    copy_legacy_tree(src, &tmp)?;
+    if let Some(parent) = dst.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    std::fs::rename(&tmp, dst)?;
+    if let Some(parent) = dst.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 fn migrate_legacy_harness_state(
     new_root: &Path,
     agent_id: &str,
@@ -75,14 +101,26 @@ fn migrate_legacy_harness_state(
             let target = new_root.join(old_pi.file_name().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
             })?);
-            copy_legacy_tree(&old_pi, &target)?;
+            copy_legacy_atomic(&old_pi, &target)?;
         }
     }
     let new_store = new_root.join(agent_id);
     if !std::fs::symlink_metadata(&new_store).is_ok()
         && std::fs::symlink_metadata(&legacy_store).is_ok()
     {
-        copy_legacy_tree(&legacy_store, &new_store)?;
+        copy_legacy_atomic(&legacy_store, &new_store)?;
+    }
+    let legacy_events = home.join(".cmux-harness").join("events");
+    let new_events = new_root.parent().unwrap_or(new_root).join("events");
+    for suffix in ["continuity.jsonl", "events.jsonl"] {
+        let source = legacy_events.join(format!("{agent_id}.{suffix}"));
+        if std::fs::symlink_metadata(&source).is_ok() {
+            std::fs::create_dir_all(&new_events)?;
+            let target = new_events.join(format!("{agent_id}.{suffix}"));
+            if std::fs::symlink_metadata(&target).is_err() {
+                copy_legacy_atomic(&source, &target)?;
+            }
+        }
     }
     Ok(())
 }

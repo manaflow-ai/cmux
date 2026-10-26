@@ -226,7 +226,17 @@ impl Hub {
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
-        let replacing_durable = old.is_some();
+        let replacing_durable = old.as_ref().is_some_and(|existing| {
+            let existing_meta = existing.meta();
+            existing_meta.harness == bundle_meta.harness
+                && existing_meta.agent_session_id == bundle_meta.agent_session_id
+        });
+        if old.is_some() && !replacing_durable {
+            return Err(transfer_error(
+                "exists",
+                "closed session identity does not match transfer bundle",
+            ));
+        }
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -250,8 +260,7 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
-        if let Some(old) = old {
-            // A guarded move never replaces a copy from a folder outside its roots.
+        if let Some(old) = old.as_ref() {
             if let Some(g) = &guard
                 && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
             {
@@ -260,7 +269,6 @@ impl Hub {
                     format!("chat {id} is here already, in a folder outside the move's roots"),
                 ));
             }
-            // Only once the chat can live here: a failed import keeps the closed copy's log.
             let cwd = text("cwd").map(PathBuf::from).or_else(|| {
                 let raw = std::fs::read(bundle.join("session.json")).ok()?;
                 let meta: Value = serde_json::from_slice(&raw).ok()?;
@@ -271,7 +279,7 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             old.replaced.store(true, Ordering::SeqCst);
-            self.kill(&old, true).await?;
+            self.kill(old, false).await?;
         }
         let name = text("name").map(str::to_owned);
         let guarded = guard

@@ -133,7 +133,11 @@ impl Hub {
         let _reservation = {
             let sessions = self.sessions.lock().unwrap();
             let mut importing = self.importing.lock().unwrap();
-            if sessions.contains_key(&meta.id) || !importing.insert(meta.id.clone()) {
+            let existing_moved =
+                sessions.get(&meta.id).is_some_and(|session| self.moved_away(session));
+            if (sessions.contains_key(&meta.id) && !(replace_durable && existing_moved))
+                || !importing.insert(meta.id.clone())
+            {
                 return Err(RpcError::invalid_params(format!(
                     "session {} already exists here",
                     meta.id
@@ -218,7 +222,10 @@ impl Hub {
     /// Append every record of a bundle's `events/*.ndjson` to the store, in
     /// file order. Returns the highest sequence copied. Under a guard's `control`, the
     /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
-    fn harness_pi_session(root: &Path, agent_id: &str) -> Result<(PathBuf, Vec<u8>)> {
+    fn harness_pi_session_optional(
+        root: &Path,
+        agent_id: &str,
+    ) -> Result<Option<(PathBuf, Vec<u8>)>> {
         if !plain_agent_session(agent_id) {
             return Err(anyhow::anyhow!("invalid cmux-harness ACP session id"));
         }
@@ -243,7 +250,12 @@ impl Hub {
                 found = Some((path, bytes));
             }
         }
-        found.ok_or_else(|| anyhow::anyhow!("Pi session file for ACP session id is missing"))
+        Ok(found)
+    }
+
+    fn harness_pi_session(root: &Path, agent_id: &str) -> Result<(PathBuf, Vec<u8>)> {
+        Self::harness_pi_session_optional(root, agent_id)?
+            .ok_or_else(|| anyhow::anyhow!("Pi session file for ACP session id is missing"))
     }
 
     fn rebind_harness_pi_session(bytes: &[u8], agent_id: &str, cwd: &Path) -> Result<Vec<u8>> {
@@ -284,8 +296,19 @@ impl Hub {
         };
         let root =
             session_dir.parent().ok_or_else(|| anyhow::anyhow!("invalid session store root"))?;
-        let journal = root.join(agent_id).join("journal.ndjson");
-        let (pi_session_path, session_bytes) = Self::harness_pi_session(root, agent_id)?;
+        let legacy_root = dirs::home_dir()
+            .map(|home| home.join(".cmux-harness").join("sessions"))
+            .filter(|legacy| legacy != root);
+        let (state_root, pi_session_path, session_bytes) =
+            match Self::harness_pi_session(root, agent_id) {
+                Ok((path, bytes)) => (root.to_path_buf(), path, bytes),
+                Err(error) => {
+                    let legacy = legacy_root.ok_or(error)?;
+                    let (path, bytes) = Self::harness_pi_session(&legacy, agent_id)?;
+                    (legacy, path, bytes)
+                }
+            };
+        let journal = state_root.join(agent_id).join("journal.ndjson");
         let pi_filename = pi_session_path
             .file_name()
             .and_then(|name| name.to_str())
@@ -358,11 +381,16 @@ impl Hub {
         };
         let journal_bytes = checked("journal", "harness/journal.ndjson")?;
         let session_bytes = checked("session", "harness/session.jsonl")?;
-        let pi_filename = spec
+        let pi_filename_owned;
+        let mut pi_filename = spec
             .get("session")
             .and_then(|v| v.get("filename"))
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("missing Pi session filename"))?;
+            .unwrap_or("");
+        if pi_filename.is_empty() {
+            pi_filename_owned = format!("{agent_id}.jsonl");
+            pi_filename = &pi_filename_owned;
+        }
         if pi_filename.is_empty()
             || pi_filename.len() > 256
             || !pi_filename.ends_with(".jsonl")
@@ -394,6 +422,9 @@ impl Hub {
             if owner.file_type().is_symlink() {
                 return Err(anyhow::anyhow!("target durable owner lock is symlinked"));
             }
+        }
+        if !replace_durable && Self::harness_pi_session_optional(root, agent_id)?.is_some() {
+            return Err(anyhow::anyhow!("target already has a Pi session for this ACP id"));
         }
         let pi_target = if replace_durable {
             Self::harness_pi_session(root, agent_id)?.0
