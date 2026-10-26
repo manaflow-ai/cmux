@@ -40,6 +40,7 @@ final class SidebarPriorityPanelView: NSView {
     private var dragPointerOffset: CGFloat = 0
     /// Whether the left button is held now (`endReleasedGesture`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    private lazy var autoscrollClient = FrameClient(owner: "Sidebar.priority.autoscroll", view: self) { [weak self] tick in self?.autoscrollTick(tick) ?? false }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -221,6 +222,7 @@ final class SidebarPriorityPanelView: NSView {
             draggingID = row.entry.id
             dragScrollStart = scrollStart
             dragPointerOffset = offset - (scrollY - scrollStart)
+            if let point = row.heldWindowPoint { updateAutoscroll(windowPoint: point) }
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
                 row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
@@ -261,6 +263,7 @@ final class SidebarPriorityPanelView: NSView {
         for row in rows.values { row.cancelPress() }
         dragScrollStart = nil
         guard let id = draggingID else { return }
+        autoscrollClient.deactivate()
         draggingID = nil
         rows[id]?.layer?.zPosition = 0
     }
@@ -313,6 +316,34 @@ final class SidebarPriorityPanelView: NSView {
 
     override func cancelOperation(_ sender: Any?) {
         endPointerGesture()
+    }
+
+    private func updateAutoscroll(windowPoint: NSPoint) {
+        guard draggingID != nil else { autoscrollClient.deactivate(); return }
+        let clip = scroll.contentView
+        let point = clip.convert(windowPoint, from: nil)
+        let bounds = clip.bounds
+        let speed = SidebarAutoscroll.velocity(pointY: point.y, visibleMinY: bounds.minY, visibleMaxY: bounds.maxY,
+                                               zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
+        if speed == 0 { autoscrollClient.deactivate() } else { autoscrollClient.activate() }
+    }
+
+    private func autoscrollTick(_ tick: FrameTick) -> Bool {
+        guard let id = draggingID, let row = rows[id], let point = row.heldWindowPoint else { return false }
+        let clip = scroll.contentView
+        let bounds = clip.bounds
+        let pointInClip = clip.convert(point, from: nil)
+        let speed = SidebarAutoscroll.velocity(pointY: pointInClip.y, visibleMinY: bounds.minY, visibleMaxY: bounds.maxY,
+                                               zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
+        guard speed != 0 else { return false }
+        let maximum = max(0, document.frame.height - bounds.height)
+        let next = min(max(bounds.minY + speed * tick.elapsed, 0), maximum)
+        guard next != bounds.minY else { return false }
+        clip.scroll(to: NSPoint(x: bounds.minX, y: next))
+        scroll.reflectScrolledClipView(clip)
+        guard let offset = row.dragOffset(at: point) else { return false }
+        drag(row, offset: offset, ended: false)
+        return true
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.
