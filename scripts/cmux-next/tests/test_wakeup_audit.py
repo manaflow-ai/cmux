@@ -1122,6 +1122,144 @@ class CxxAndZigTests(unittest.TestCase):
         self.assertEqual(sorted(h["file"] for h in hits), sorted([f"{HOST}/b.h", f"{SHIM}/a.cc"]))
         self.assertEqual(sorted(h["group"] for h in hits), ["cxx:host/b", "cxx:shim/a"])
 
+    def cxx_shapes(self, text: str, name: str = "case.mm") -> dict[int, tuple[str, str, str]]:
+        write(self.root, f"{SHIM}/{name}", text)
+        return self.by_line("cxx", f"CEFShim/src/{name}")
+
+    def test_cxx_waits_given_a_timeout_or_wnohang_do_not_block(self) -> None:
+        self.assertEqual(self.cxx_shapes("""\
+            void Reap(pid_t p) {
+              int s;
+              for (;;) { if (waitpid(p, &s, WNOHANG) > 0) break;
+                usleep(1000); }
+            }
+            void Queue(int kq, struct timespec ts) {
+              for (;;) { kevent(kq, NULL, 0, &ev, 1, &ts); Tick(); }
+            }
+            void Epoll(int ep) {
+              for (;;) { epoll_wait(ep, evs, 8, 100); Tick(); }
+            }
+            void Port(mach_msg_header_t* m) {
+              for (;;) { mach_msg(m, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, 64, port, 100, MACH_PORT_NULL); Tick(); }
+            }
+            void Child(pid_t p) {
+              int s;
+              for (;;) { if (waitpid(p, &s, 0) < 0) return; Restart(); }
+            }
+            void Events(int kq, int ep, mach_msg_header_t* m) {
+              for (;;) { kevent(kq, NULL, 0, &ev, 1, NULL); Tick(); }
+              while (true) { epoll_wait(ep, evs, 8, -1); Tick(); }
+              for (;;) { mach_msg(m, MACH_RCV_MSG, 0, 64, port, 0, MACH_PORT_NULL); Tick(); }
+            }
+            """), {
+            3: ("spin-loop", "loop", "hit"), 4: ("sleep", "loop", "hit"),  # waitpid WNOHANG: a 1 kHz poll
+            7: ("spin-loop", "loop", "hit"),                                # kevent with a timespec
+            10: ("spin-loop", "loop", "hit"),                               # epoll_wait 100 ms
+            13: ("spin-loop", "loop", "hit"),                               # MACH_RCV_TIMEOUT
+            17: ("spin-loop", "blocking", "blocking"),                      # waitpid flags 0
+            20: ("spin-loop", "blocking", "blocking"),                      # kevent NULL timeout
+            21: ("spin-loop", "blocking", "blocking"),                      # epoll_wait -1
+            22: ("spin-loop", "blocking", "blocking"),                      # mach_msg without a timeout
+        })
+
+    def test_cxx_spin_loop_is_judged_by_its_own_body(self) -> None:
+        self.assertEqual(self.cxx_shapes("""\
+            void Step() {
+              for (;;) step();
+            }
+            void After(int fd) {
+              char b[1];
+              for (int i = 0; i < 4; i++) { read(fd, b, 1); }
+              while (true) { compute(); }
+            }
+            void DoRead(int fd) {
+              char c;
+              do { if (read(fd, &c, 1) <= 0) return; Handle(c); } while (true);
+            }
+            void DoSpin() {
+              do { compute(); } while (1);
+            }
+            """), {
+            2: ("spin-loop", "loop", "hit"),            # unbraced: no body to find a wait in
+            7: ("spin-loop", "loop", "hit"),            # not the earlier for-loop's read
+            11: ("spin-loop", "blocking", "blocking"),  # do { read } while (true)
+            14: ("spin-loop", "loop", "hit"),
+        })
+
+    def test_cxx_hit_after_a_loop_is_judged_by_its_own_place(self) -> None:
+        self.assertEqual(self.cxx_shapes("""\
+            void Later() {
+              for (int i = 0; i < 4; i++) { Work(i); }
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ Run(); });
+            }
+            void Reader(int fd) {
+              for (int i = 0; i < 4; i++) { Work(i); }
+              while (true) { char c; if (read(fd, &c, 1) <= 0) return; Handle(c); }
+            }
+            """), {
+            3: ("dispatch-after", "oneshot", "hit"),
+            7: ("spin-loop", "blocking", "blocking"),
+        })
+
+    def test_objc_methods_that_rearm_themselves_are_loops(self) -> None:
+        self.assertEqual(self.cxx_shapes("""\
+            @implementation Pump
+            - (void)tick {
+              [self performSelector:@selector(tick) withObject:nil afterDelay:1.0];
+            }
+            - (void)fire:(NSTimer*)t {
+              [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(fire:) userInfo:nil repeats:NO];
+            }
+            - (void)arm {
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [self arm]; });
+            }
+            - (void)start {
+              [self performSelector:@selector(again) withObject:nil afterDelay:0.5];
+            }
+            - (void)again {
+              [self start];
+            }
+            - (void)once {
+              [self performSelector:@selector(done) withObject:nil afterDelay:2.0];
+            }
+            - (void)done {
+            }
+            @end
+            """), {
+            3: ("after-delay", "loop", "hit"),      # @selector(tick) inside tick
+            6: ("ns-timer", "loop", "hit"),         # repeats:NO, re-armed from fire:
+            9: ("dispatch-after", "loop", "hit"),   # [self arm] in its block
+            12: ("after-delay", "loop", "hit"),     # again calls [self start]
+            18: ("after-delay", "oneshot", "hit"),  # done does not re-arm
+        })
+
+    def test_objc_method_that_blocks_on_a_read_makes_its_caller_block(self) -> None:
+        self.assertEqual(self.cxx_shapes("""\
+            @implementation Wire
+            - (ssize_t)readOne:(int)fd {
+              char c;
+              return read(fd, &c, 1);
+            }
+            - (void)run:(int)fd {
+              for (;;) { if ([self readOne:fd] <= 0) return; }
+            }
+            - (void)spin {
+              while (YES) { [self poke]; }
+            }
+            - (void)poke {
+            }
+            @end
+            """), {
+            7: ("spin-loop", "blocking", "blocking"),
+            10: ("spin-loop", "loop", "hit"),
+        })
+
+    def test_objc_selector_names(self) -> None:
+        objc_selector = load_audit_module().objc_selector
+        self.assertEqual(objc_selector("- (void)tick"), "tick")
+        self.assertEqual(objc_selector("- (ssize_t)readOne:(int)fd"), "readOne:")
+        self.assertEqual(objc_selector("+ (instancetype)with:(id)a block:(void (^)(int))done"), "with:block:")
+
     # zig ----------------------------------------------------------------------------------------------------
 
     def test_zig_timers_are_named_by_field_and_rearming_callbacks_are_loops(self) -> None:
@@ -1134,6 +1272,23 @@ class CxxAndZigTests(unittest.TestCase):
             51: ("sleep", "loop", "hit"),
         })
         self.assertEqual({h["group"] for h in self.audit.hits("--lang", "zig")}, {"zig:renderer"})
+
+    def test_zig_hit_after_a_loop_is_judged_by_its_own_place(self) -> None:
+        write(self.root, f"{GHOSTTY}/termio/Scroll.zig", """\
+            const xev = @import("xev");
+            scroll: xev.Timer,
+            fn schedule(self: *Self) void {
+                for (self.items) |it| {
+                    it.mark();
+                }
+                self.scroll.run(&self.loop, &self.scroll_c, 25, Self, self, scrollCallback);
+            }
+            fn scrollCallback(self_: ?*Self, _: *xev.Loop, _: *xev.Completion, _: xev.Timer.RunError!void) xev.CallbackAction {
+                _ = self_;
+                return .disarm;
+            }
+            """)
+        self.assertEqual(self.by_line("zig", "termio/Scroll.zig"), {7: ("xev-timer:scroll", "oneshot", "hit")})
 
     def test_zig_skips_tests_benchmarks_gtk_and_build(self) -> None:
         sleep = "fn f() void {\n    std.Thread.sleep(1);\n}\n"
@@ -1160,6 +1315,8 @@ class CxxAndZigTests(unittest.TestCase):
 
     def test_lang_of_maps_the_paths_each_audit_reads(self) -> None:
         lang_of = load_audit_module().lang_of
+        for package in ("Packages/Shared/CmuxLinked", "Packages/macOS/CmuxUpdater", "Packages/iOS/CmuxMobileRPC"):
+            (self.root / package / "Sources").mkdir(parents=True, exist_ok=True)
         self.assertEqual(lang_of(f"{SHIM}/shim_process.mm"), "cxx")
         self.assertEqual(lang_of(f"{HOST}/browser_host_main.mm"), "cxx")
         self.assertEqual(lang_of("Packages/macOS/CmuxNext/CEFShim/tests/t.cc"), None)
@@ -1170,6 +1327,21 @@ class CxxAndZigTests(unittest.TestCase):
         self.assertEqual(lang_of("webviews/src/pages/home/poll.ts"), "web")
         self.assertEqual(lang_of("webviews/src/pages/home/poll.test.ts"), None)
         self.assertEqual(lang_of(f"{GHOSTTY}/renderer/Thread.zig"), None)  # report-only: no guardrail
+        # Only cmux-tui/crates/<crate>/src, as sources() reads it.
+        self.assertEqual(lang_of("cmux-tui/crates/core/src/sub/deep.rs"), "rust")
+        self.assertEqual(lang_of("cmux-tui/crates/x/tests/fixtures/src/a.rs"), None)
+        self.assertEqual(lang_of("cmux-tui/src/main.rs"), None)
+        # swift-shared: the packages CmuxNext's Package.swift links, Sources/ without Tests/.
+        self.assertEqual(lang_of("Packages/Shared/CmuxLinked/Sources/CmuxLinked/Lease.swift"), None)
+        self.assertEqual(lang_of("Packages/Shared/CmuxLinked/Sources/CmuxLinked/Lease.swift", self.root),
+                         "swift-shared")
+        self.assertEqual(lang_of("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/Check.swift", self.root),
+                         "swift-shared")
+        self.assertEqual(lang_of("Packages/Shared/CmuxLinked/Sources/Mock/Fake.swift", self.root), "swift-shared")
+        self.assertEqual(lang_of("Packages/Shared/CmuxLinked/Tests/CmuxLinkedTests/T.swift", self.root), None)
+        self.assertEqual(lang_of("Packages/Shared/CmuxLinked/Sources/X/Tests/T.swift", self.root), None)
+        self.assertEqual(lang_of("Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/R.swift", self.root), None)
+        self.assertEqual(lang_of("Packages/Shared/Unlinked/Sources/U/U.swift", self.root), None)
 
 
 class CheckoutTests(unittest.TestCase):

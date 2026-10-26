@@ -20,10 +20,13 @@ animation in the code that runs while the app is idle:
 The Swift rules are check-concurrency.sh's WAKEUP_RULES (read from that file, one definition), plus
 TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`. The cxx rules are
 dispatch_after, NSTimer, CFRunLoopTimer, dispatch timer sources, performSelector afterDelay:, PostDelayedTask /
-CefPostDelayedTask, sleeps, timed condition waits and `for (;;)` / `while (true)`; such a loop whose looping path
-blocks on a read (`read(`, `recv(`, `accept(`, a function of the same file that does) has status `blocking`:
-reported, never open. The zig rules are `.run(` / `.reset(` of an `xev.Timer` (named by its field or variable,
-`Struct.field` inside a nested struct) and sleeps; a timer re-armed from its own callback is a `loop`.
+CefPostDelayedTask, sleeps, timed condition waits and `for (;;)` / `while (true)`; such a loop whose own braced
+body (or `do { }` body) blocks on its looping path has status `blocking`: reported, never open. Blocking is an
+untimed wait: `read(`, `recv(`, `accept(`, waitpid without WNOHANG, kevent with a NULL timeout, epoll_wait with -1,
+mach_msg without MACH_RCV_TIMEOUT, or a call of a function or `[self method]` of the same file that makes one. A
+timer re-armed from its own function or ObjC method (`@selector(tick)` in `tick`) is a `loop`. The zig rules are
+`.run(` / `.reset(` of an `xev.Timer` (named by its field or variable, `Struct.field` inside a nested struct) and
+sleeps; a timer re-armed from its own callback is a `loop`.
 
 A hit is escaped by a comment `wakeup-allow: <word> <reason>` on its statement's lines or in the comment
 block directly above the statement (text inside a string literal is not an escape). The word is one of
@@ -54,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import functools
 import json
 import os
 import re
@@ -176,7 +180,8 @@ CXX_RULES = [
     Rule("dispatch-after", "dispatch_after (post on the event; a deadline only for a one-shot timeout)",
          re.compile(r"\bdispatch_after(?:_f)?\("), literal="dispatch_after"),
     Rule("ns-timer", "NSTimer (post on the event; a one-shot deadline through the app's MainWakeUpQueue)",
-         re.compile(r"\bNSTimer\b|\bscheduledTimerWithTimeInterval\b"), literal="Timer"),
+         re.compile(r"\[\s*NSTimer\s+\w|\b(?:scheduledTimerWith|timerWith)TimeInterval\b|\binitWithFireDate:"),
+         literal="Timer"),
     Rule("cf-timer", "CFRunLoopTimer (post on the event; a one-shot deadline through the app's MainWakeUpQueue)",
          re.compile(r"\bCFRunLoopTimerCreate(?:WithHandler)?\("), literal="CFRunLoopTimerCreate"),
     Rule("dispatch-timer", "dispatch timer source (post on the event; a one-shot deadline)",
@@ -386,12 +391,16 @@ class Block:
     close: int
     kind: str  # loop | boundary | plain
     function: bool = False  # a boundary that is a function body (`fn`, `func`, `init`)
-    name: str = ""  # the function's name, when it has one
+    name: str = ""  # the function's name, when it has one (an ObjC method's: its selector, `run:with:`)
+    objc: bool = False  # an ObjC method: called as `[self name]`, named by `@selector(name)`
+    # A loop whose condition comes after its `}`: Swift's `repeat { } while c`, C's `do { } while (c);`.
+    repeat: bool = False
 
 
 _RUST_LOOP = re.compile(r"\bloop\s*$|^(?:'\w+\s*:\s*)?(?:while\b|for\b.*\bin\b)", re.S)
 _RUST_BOUNDARY = re.compile(r"\bfn\b|\|[^|]*\|\s*(?:->\s*[^{]+)?$|\|\|\s*$|\basync(?:\s+move)?\s*$", re.S)
 _SWIFT_LOOP = re.compile(r"^(?:\w+\s*:\s*)?(?:while\b|repeat\s*$|for\b.*\bin\b)", re.S)
+_SWIFT_REPEAT = re.compile(r"(?:\w+\s*:\s*)?repeat\s*$")
 _SWIFT_CONTROL = re.compile(r"^(?:if|else|guard|switch|case|default|do|catch|defer|while|for|repeat)\b|\belse\s*$|"
                             r"\belse\s+if\b", re.S)
 _SWIFT_FUNCTION = re.compile(r"\b(?:func|init|deinit)\b")
@@ -406,6 +415,12 @@ _CXX_CONTROL = re.compile(r"^(?:if|else|switch|case|default|try|catch|@try|@catc
 # A function (`) const {`, `) -> T {`) or an ObjC method (`- (void)run:(int)x {`).
 _CXX_FUNCTION = re.compile(r"\)\s*(?:const|override|final|noexcept|volatile|&|\s)*(?:->\s*[^{]+)?$|^[-+]\s*\(", re.S)
 _CXX_PREPROCESSOR = re.compile(r"^\s*#.*$", re.M)
+# ObjC container lines: a method's header after `@implementation X` is the method's.
+_OBJC_CONTAINER = re.compile(r"^\s*@(?:implementation|interface|protocol|end)\b.*$", re.M)
+_OBJC_METHOD = re.compile(r"^[-+]\s*\(")
+_OBJC_TYPE = re.compile(r"\([^()]*\)")
+_OBJC_KEYWORD = re.compile(r"(\w+)\s*:")
+_CXX_DO = re.compile(r"^(?:\w+\s*:\s*)?do$")
 # A loop statement or a loop expression (`const pid = while (true) {`, `outer: while (x) {`).
 _ZIG_LOOP = re.compile(r"(?:^|[=:]\s*|\breturn\s+)(?:inline\s+)?(?:while|for)\s*\(", re.S)
 _ZIG_TEST = re.compile(r"(?m)^[ \t]*test\b[^{;]*\{")
@@ -426,9 +441,23 @@ def swift_statement(header: str) -> str:
     return "\n".join(lines[max(first, 0):])
 
 
-def _classify(header: str, lang: str) -> tuple[str, bool, str]:
-    """(kind, is a function, the function's name) of the block whose header (the code since the last `{`, `}`
-    or `;`) is HEADER."""
+def objc_selector(header: str) -> str:
+    """The selector of an ObjC method header: `run:with:` for `- (void)run:(int)a with:(id)b`, `tick` for
+    `- (void)tick`."""
+    rest = _OBJC_METHOD.sub("(", header, count=1)
+    while (bare := _OBJC_TYPE.sub(" ", rest)) != rest:
+        rest = bare
+    keywords = _OBJC_KEYWORD.findall(rest)
+    if keywords:
+        return "".join(k + ":" for k in keywords)
+    word = re.search(r"\w+", rest)
+    return word.group() if word else ""
+
+
+def _classify(header: str, lang: str) -> Block:
+    """The block (kind, function, name, objc, repeat; no position yet) whose header (the code since the last
+    `{`, `}` or `;`) is HEADER."""
+    objc = repeat = False
     if lang == "rust":
         kind = "loop" if _RUST_LOOP.search(header) else "boundary" if _RUST_BOUNDARY.search(header) else "plain"
         function = kind == "boundary" and bool(_RUST_FUNCTION.search(header))
@@ -436,21 +465,26 @@ def _classify(header: str, lang: str) -> tuple[str, bool, str]:
         kind = "loop" if _ZIG_LOOP.search(header) else "boundary" if _ZIG_FUNCTION.search(header) else "plain"
         function = kind == "boundary"
     elif lang == "cxx":
-        header = _CXX_PREPROCESSOR.sub("", header).strip()
+        header = _OBJC_CONTAINER.sub("", _CXX_PREPROCESSOR.sub("", header)).strip()
         if _CXX_LOOP.search(header):
-            kind, function = "loop", False
+            kind, function, repeat = "loop", False, bool(_CXX_DO.search(header))
         elif _CXX_LAMBDA.search(header):
             kind, function = "boundary", False
         elif _CXX_CONTROL.search(header) or not _CXX_FUNCTION.search(header):
             kind, function = "plain", False
         else:
-            kind, function = "boundary", True
+            kind, function, objc = "boundary", True, bool(_OBJC_METHOD.search(header))
     else:
         header = swift_statement(header)
         kind = "loop" if _SWIFT_LOOP.search(header) else "plain" if _SWIFT_CONTROL.search(header) else "boundary"
         function = kind == "boundary" and bool(_SWIFT_FUNCTION.search(header))
-    name = _FUNCTION_NAME[lang].search(header) if function else None
-    return kind, function, name.group(1) if name else ""
+        repeat = bool(_SWIFT_REPEAT.match(header))
+    if objc:
+        name = objc_selector(header)
+    else:
+        found = _FUNCTION_NAME[lang].search(header) if function else None
+        name = found.group(1) if found else ""
+    return Block(0, 0, 0, kind, function, name, objc, repeat)
 
 
 def blocks(code: str, lang: str) -> list[Block]:
@@ -470,8 +504,9 @@ def blocks(code: str, lang: str) -> list[Block]:
         if c == "{":
             outer.append(parens)
             parens = 0
-            kind, function, name = _classify(code[boundary:at].strip(), lang)
-            stack.append(Block(boundary, at, len(code), kind, function, name))
+            block = _classify(code[boundary:at].strip(), lang)
+            block.header_start, block.open, block.close = boundary, at, len(code)
+            stack.append(block)
             out.append(stack[-1])
         elif c == "}":
             parens = outer.pop() if outer else 0
@@ -669,28 +704,76 @@ def _timed_read(e: int, code: str, all_blocks: list[Block], lang: str) -> bool:
     return bool(TIMED_READ[lang].search(code, scope.open, scope.close))
 
 
+_CXX_TIMED_CALL = re.compile(r"(waitpid|kevent|epoll_wait|mach_msg)\s*\($")
+
+
+def _cxx_untimed_call(m: re.Match[str], code: str) -> bool:
+    """A waitpid, kevent, epoll_wait or mach_msg match blocks until its event: waitpid's flags are 0 (no
+    WNOHANG), kevent's timeout is NULL, epoll_wait's is -1, mach_msg's options have no MACH_RCV_TIMEOUT."""
+    call = _CXX_TIMED_CALL.search(m.group())
+    if not call:
+        return True
+    args = call_args(code, m.end() - 1)
+    if call.group(1) == "waitpid":
+        return len(args) == 3 and args[2] == "0"
+    if call.group(1) == "kevent":
+        return len(args) == 6 and args[5] in ("NULL", "nullptr", "0")
+    if call.group(1) == "epoll_wait":
+        return len(args) == 4 and args[3] == "-1"
+    return len(args) > 1 and "MACH_RCV_TIMEOUT" not in args[1]
+
+
+def blocks_untimed(m: re.Match[str], code: str, all_blocks: list[Block], lang: str) -> bool:
+    """The event match `m` waits for its event: not a read of a stream its function makes non-blocking or gives
+    a read timeout, and not a C wait given a timeout or WNOHANG."""
+    if lang in READS and READS[lang].search(m.group()) and _timed_read(m.start(), code, all_blocks, lang):
+        return False
+    return lang != "cxx" or _cxx_untimed_call(m, code)
+
+
+def loop_shape(at: int, code: str, loop: Block, all_blocks: list[Block], lang: str, event: re.Pattern[str]) -> str:
+    """`loop` when the path that goes round `loop` again has no untimed wait for the hit at `at`, else `oneshot`."""
+    inside = [c for c in all_blocks if loop.open < c.open < loop.close]
+    hit = race(at, code, loop, inside, all_blocks) if lang == "rust" else NO_RACE
+    if hit.leaves or _leaves_from(at, code, loop, inside, lang):
+        return "oneshot"
+    for m in event.finditer(code, loop.header_start, loop.close):
+        if blocks_untimed(m, code, all_blocks, lang) and _on_looping_path(m.start(), at, code, loop, inside, lang, hit):
+            return "oneshot"
+    return "loop"
+
+
+def _default_event(lang: str) -> re.Pattern[str]:
+    return {"rust": RUST_EVENT, "zig": ZIG_EVENT}.get(lang, SWIFT_EVENT)
+
+
+def _repeat_before(at: int, code: str, all_blocks: list[Block]) -> list[Block]:
+    """The `repeat { }` / `do { }` loop whose `}` comes just before `at` (the `while` of its condition)."""
+    return [b for b in all_blocks if b.repeat and b.close < at and not code[b.close + 1:at].strip()]
+
+
 def shape(at: int, code: str, all_blocks: list[Block], lang: str, event: re.Pattern[str] | None = None) -> str:
     """`loop` when the innermost loop around `at`, inside the same function or closure, has no untimed wait on
     the path that loops again (EVENT: the language's untimed waits by default)."""
-    # The `while` of Swift's `repeat { } while c` belongs to the loop that closes just before it.
-    repeat = [b for b in all_blocks if b.kind == "loop" and b.close < at and not code[b.close + 1:at].strip()]
-    enclosing = repeat + sorted((b for b in all_blocks if b.header_start <= at <= b.close), key=lambda b: -b.open)
-    event = event or {"rust": RUST_EVENT, "zig": ZIG_EVENT}.get(lang, SWIFT_EVENT)
+    enclosing = _repeat_before(at, code, all_blocks) + sorted(
+        (b for b in all_blocks if b.header_start <= at <= b.close), key=lambda b: -b.open)
     for b in enclosing:
         if b.kind == "boundary" and at > b.open:
             return "oneshot"
         if b.kind == "loop":
-            inside = [c for c in all_blocks if b.open < c.open < b.close]
-            hit = race(at, code, b, inside, all_blocks) if lang == "rust" else NO_RACE
-            if hit.leaves or _leaves_from(at, code, b, inside, lang):
-                return "oneshot"
-            for m in event.finditer(code, b.header_start, b.close):
-                if lang in READS and READS[lang].search(m.group()) and _timed_read(m.start(), code, all_blocks, lang):
-                    continue
-                if _on_looping_path(m.start(), at, code, b, inside, lang, hit):
-                    return "oneshot"
-            return "loop"
+            return loop_shape(at, code, b, all_blocks, lang, event or _default_event(lang))
     return "oneshot"
+
+
+def spin_shape(at: int, code: str, all_blocks: list[Block], lang: str, event: re.Pattern[str]) -> str:
+    """The `for (;;)` / `while (true)` at `at` is `blocking` when its own braced body (the loop block whose header
+    holds `at`, or the `do { }` block its `while` closes) has an untimed wait on the path that loops again. An
+    unbraced loop, or one this parser does not find, is `loop`: open."""
+    own = [b for b in all_blocks if b.kind == "loop" and b.header_start <= at < b.open] or \
+        _repeat_before(at, code, all_blocks)
+    if not own:
+        return "loop"
+    return "blocking" if loop_shape(at, code, own[-1], all_blocks, lang, event) == "oneshot" else "loop"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -907,20 +990,33 @@ def sources(repo: Path, lang: str) -> list[tuple[str, Path]]:
             for p in _walk(root, (".ts", ".tsx", ".css"), WEB_SKIP_DIRS) if not WEB_SKIP_FILE.search(p.name)]
 
 
-def lang_of(rel: str) -> str | None:
+def lang_of(rel: str, repo: Path | None = None) -> str | None:
     """The audit language of a repository-relative path, or None when no audit reads it (for the pre-push
-    guardrail, which audits only the lines a push adds). swift-shared needs Package.swift: see sources()."""
-    suffix = Path(rel).suffix
+    guardrail, which audits only the lines a push adds). The same files sources() reads: swift-shared needs
+    REPO, whose CmuxNext Package.swift says which Shared and macOS packages the app links."""
+    path = Path(rel)
+    parts, suffix = path.parts, path.suffix
     if rel.startswith(CMUXNEXT + "/Sources/") and suffix == ".swift":
         return None if rel.startswith(f"{CMUXNEXT}/Sources/{WAKEUP_PRIMITIVES_MODULE}/") else "swift"
     if any(rel.startswith(src + "/") for src in CXX_ROOTS.values()) and suffix in CXX_SUFFIXES:
         return "cxx"
-    if rel.startswith("cmux-tui/crates/") and "/src/" in rel and suffix == ".rs":
+    if parts[:2] == ("cmux-tui", "crates") and len(parts) > 4 and parts[3] == "src" and suffix == ".rs":
         return "rust"
     if rel.startswith("webviews/src/") and suffix in (".ts", ".tsx", ".css"):
-        parts = set(Path(rel).parts[2:-1])
-        return None if parts & WEB_SKIP_DIRS or WEB_SKIP_FILE.search(Path(rel).name) else "web"
+        dirs = set(parts[2:-1])
+        return None if dirs & WEB_SKIP_DIRS or WEB_SKIP_FILE.search(path.name) else "web"
+    if repo is not None and suffix == ".swift":
+        for package in _linked_package_paths(repo.resolve()):
+            sources_dir = f"{package}/Sources/"
+            if rel.startswith(sources_dir) and not set(Path(rel[len(sources_dir):]).parts[:-1]) & SHARED_SKIP_DIRS:
+                return "swift-shared"
     return None
+
+
+@functools.lru_cache(maxsize=8)
+def _linked_package_paths(repo: Path) -> tuple[str, ...]:
+    """app_linked_packages(repo) as repository-relative paths."""
+    return tuple(p.relative_to(repo).as_posix() for p in app_linked_packages(repo))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1037,8 +1133,7 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
         status, word = judge(escape_of(lines, index), periodic_owners)
         if rule.id == CXX_SPIN and lang == "cxx":
             # The loop itself: it is fine when every turn blocks on a read (it wakes on input, not on a period).
-            kind = shape(at, code, tree, mlang, event)
-            kind = "blocking" if kind == "oneshot" else "loop"
+            kind = spin_shape(at, code, tree, mlang, event)
             if status == "hit" and kind == "blocking":
                 status = "blocking"
         elif rule.repeating or repeating_timer(rule, code, at) or \
@@ -1050,19 +1145,27 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
     return hits
 
 
+def call_pattern(function: Block) -> str:
+    """A call of `function`: `name(` for a C/C++ function, `[self name]` / `[self name:` for an ObjC method."""
+    if not function.objc:
+        return rf"(?<![\w.>]){re.escape(function.name)}\s*\("
+    first = function.name.split(":")[0]
+    return rf"\[\s*self\s+{re.escape(first)}" + (r"\s*:" if ":" in function.name else r"\s*\]")
+
+
 def cxx_events(code: str, tree: list[Block]) -> re.Pattern[str]:
-    """CXX_BLOCKING and the calls of this file's functions that block: one whose body makes an untimed blocking
-    call (a read of a stream the same function makes non-blocking does not), or calls such a function."""
+    """CXX_BLOCKING and the calls of this file's functions and ObjC methods that block: one whose body makes an
+    untimed blocking call (a read of a stream the same function makes non-blocking does not), or calls such a
+    function."""
     functions = [b for b in tree if b.function and b.name]
-    blocking: list[str] = []
+    blocking: list[Block] = []
     while True:
-        pattern = re.compile(CXX_BLOCKING + "".join(rf"|(?<![\w.>]){re.escape(n)}\s*\(" for n in blocking))
-        more = [f.name for f in functions if f.name not in blocking and any(
-            not (CXX_READ.search(m.group()) and _timed_read(m.start(), code, tree, "cxx"))
-            for m in pattern.finditer(code, f.open, f.close))]
+        pattern = re.compile("|".join([CXX_BLOCKING] + list(dict.fromkeys(call_pattern(f) for f in blocking))))
+        more = [f for f in functions if f not in blocking and any(
+            blocks_untimed(m, code, tree, "cxx") for m in pattern.finditer(code, f.open, f.close))]
         if not more:
             return pattern
-        blocking += list(dict.fromkeys(more))
+        blocking += more
 
 
 _NS_REPEATS = re.compile(r"\brepeats:\s*(?:YES|true)\b")
@@ -1080,38 +1183,57 @@ def call_args(code: str, paren: int) -> list[str]:
     return out + [inner[start:].strip()]
 
 
-def rearms(at: int, code: str, tree: list[Block], arming: re.Pattern[str]) -> bool:
-    """The timer or delayed task armed at `at` comes back: it repeats by itself (an ObjC `repeats:YES`, a
-    CFRunLoopTimer or dispatch timer with an interval), its arguments name the function it is armed in (the
-    callback re-arms it), or they name a function of the file that calls that one again or arms a timer with
-    itself as the callback (Zig's xev callbacks, a C++ task that posts itself)."""
+def names(function: Block, text: str, call: bool = False) -> bool:
+    """TEXT names `function`: its name (a call of it with CALL), or for an ObjC method `@selector(name)` or a
+    `[self name]` message."""
+    if function.objc:
+        selector = rf"@selector\(\s*{re.escape(function.name)}\s*\)"
+        return bool(re.search(call_pattern(function) + ("" if call else "|" + selector), text))
+    return bool(re.search(rf"(?<![\w]){re.escape(function.name)}\b" + (r"\s*\(" if call else ""), text))
+
+
+def armed_text(at: int, code: str) -> tuple[str, list[str]]:
+    """The statement that arms the timer at `at` (from its start to the `;` after `at`, or to the end of its
+    call's arguments when they hold a block), and the arguments of that call (none for an ObjC message)."""
+    start = max(code.rfind(c, 0, at) for c in ";{}") + 1
     end = code.find(";", at)
     end = len(code) if end < 0 else end
-    if _NS_REPEATS.search(code, at, end):
-        return True
     paren = code.find("(", at, end)
-    if paren < 0:
-        return False
-    args = call_args(code, paren)
-    if "CFRunLoopTimerCreate" in code[at:paren]:
-        return len(args) > 2 and args[2] not in ("0", "0.0", "0.")
-    if "dispatch_source_set_timer" in code[at:paren]:
-        return len(args) > 2 and args[2] != "DISPATCH_TIME_FOREVER"
-    here = function_at(at, code, tree).name
-    args = "(" + ",".join(args) + ")"
+    if paren < 0 or code[:at].rstrip().endswith("["):  # an ObjC message: `[NSTimer scheduledTimer...]`
+        return code[start:end], []
+    close = matching_brace(code, paren, _PAREN)
+    return code[start:max(end, close + 1)], call_args(code, paren)
 
-    def named(name: str, text: str, call: bool = False) -> bool:
-        return bool(re.search(rf"(?<![\w]){re.escape(name)}\b" + (r"\s*\(" if call else ""), text))
 
-    if here and named(here, args):
+def rearms(at: int, code: str, tree: list[Block], arming: re.Pattern[str]) -> bool:
+    """The timer or delayed task armed at `at` comes back: it repeats by itself (an ObjC `repeats:YES`, a
+    CFRunLoopTimer or dispatch timer with an interval), it names the function or ObjC method it is armed in
+    (the callback re-arms it: a C callback argument, `@selector(here)`, `[self here]` in a block), or it names a
+    function of the file that calls that one again or arms a timer with itself as the callback (Zig's xev
+    callbacks, a C++ task that posts itself)."""
+    text, args = armed_text(at, code)
+    if _NS_REPEATS.search(text):
         return True
-    for callback in (b for b in tree if b.function and b.name and b.name != here and named(b.name, args)):
+    callee = code[at:code.find("(", at)] if args else ""
+    if "CFRunLoopTimerCreate" in callee:
+        return len(args) > 2 and args[2] not in ("0", "0.0", "0.")
+    if "dispatch_source_set_timer" in callee:
+        return len(args) > 2 and args[2] != "DISPATCH_TIME_FOREVER"
+    here = function_at(at, code, tree)
+
+    # A C callback is one of the call's arguments; an ObjC method is named anywhere in the message or its block.
+    def named(function: Block) -> bool:
+        return names(function, text if function.objc else "(" + ",".join(args) + ")")
+
+    if here.name and named(here):
+        return True
+    for callback in (b for b in tree if b.function and b.name and b is not here and named(b)):
         body = code[callback.open:callback.close]
-        if here and named(here, body, call=True):
+        if here.name and names(here, body, call=True):
             return True
-        for m in arming.finditer(body):
-            p = body.find("(", m.start())
-            if p >= 0 and named(callback.name, body[p:matching_brace(body, p, _PAREN) + 1]):
+        for m in arming.finditer(code, callback.open, callback.close):
+            again, again_args = armed_text(m.start(), code)
+            if names(callback, again if callback.objc else "(" + ",".join(again_args) + ")"):
                 return True
     return False
 
