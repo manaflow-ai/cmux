@@ -65,8 +65,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // in a live resize of its own, so the async live-resize path it also turns on never runs.
         // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
+        var enabledFeatures = Self.wakeUpAlignmentFeatures + [Self.chromePromptOffFeature]
+        if forkAPIVersion < Self.resizeSyncForkAPI { enabledFeatures.append("AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        // One entry, merged by the shim into CEF's own list (command_line_switches.h).
+        result.append("enable-features=" + enabledFeatures.joined(separator: ","))
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -99,6 +102,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return result
     }
 
+    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
     /// Chrome's own promotions, tips and first-run prompts are for Google
     /// Chrome, not for a browser pane in cmux ("Split view makes it easier to
     /// multitask", "Make Chrome your default browser", "What's new"). These
@@ -118,7 +124,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///   dialog (search_engine_choice_service.cc). Defense in depth: a build
     ///   without Chrome branding makes no dialog service unless
     ///   `force-search-engine-choice-screen` is set.
-    /// - `enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy`: the
+    /// - `IPH_DemoMode:chosen_feature/IPH_Dummy` (``chromePromptOffFeature``,
+    ///   in the one `enable-features` entry): the
     ///   feature-engagement tracker runs in demo mode with only IPH_Dummy
     ///   valid (Tracker::Create, CreateDemoModeTracker), and nothing triggers
     ///   IPH_Dummy. Code that asks the tracker directly, not through
@@ -135,15 +142,33 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
-    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
-    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
         "disable-search-engine-choice-screen",
-        "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
     ]
+
+    static let chromePromptOffFeature = "IPH_DemoMode:chosen_feature/IPH_Dummy"
+
+    /// Chromium's wake-up alignment, which Chrome turns on only through field trials and
+    /// `disable-field-trial-config` leaves off (`FEATURE_DISABLED_BY_DEFAULT`):
+    /// - `AlignWakeUps` (base/task/task_features.cc): `MessagePump::AdjustDelayedRunTime`
+    ///   (base/message_loop/message_pump.cc) snaps a delayed wake to the next `kDefaultLeeway`
+    ///   (8 ms) tick of `TimeTicks()`, no later than its latest time, so the threads of every
+    ///   process wake on one grid. Child processes get the browser's feature list.
+    /// - `BatterySaverModeAlignWakeUps` (content/public/common/content_features.cc): in battery
+    ///   saver, `ChildThreadImpl::SetBatterySaverMode` (content/child/child_thread_impl.cc) widens
+    ///   that to 32 ms in each child; it does nothing until saver mode is set.
+    /// The app's Chromium UI thread runs CEF's `MessagePumpExternal` (`external_message_pump`,
+    /// shim_process.mm; fork libcef/browser/browser_message_loop.cc `MessagePumpFactoryForUI`),
+    /// which derives from `base::MessagePumpForUI`, plain `base::MessagePump` on Mac
+    /// (message_pump_for_ui.h), so it snaps too. Its other threads and every child use
+    /// Chromium's own pumps (message_pump_apple.mm, message_pump_kqueue.cc).
+    /// No `TimerSlackMac` before the fork API that reports the absolute run time and leeway
+    /// (p14-energy-046): it trades the snap for kernel timer tolerance (the CFRunLoop and kqueue
+    /// pumps return `earliest_time` and set the leeway as tolerance), and the external pump's
+    /// truncated int-ms request carries no leeway to the app's timer until that API.
+    static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
