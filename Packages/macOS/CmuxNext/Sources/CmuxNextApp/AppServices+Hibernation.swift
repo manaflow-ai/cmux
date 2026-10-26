@@ -39,6 +39,7 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
+        memoryPressureDidChange(memoryCoordinator.level)  // the warm set at this Mac's budget from launch
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard) {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
@@ -55,8 +56,7 @@ extension AppServices {
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
-        let budget = WarmSetBudget.current(pressure: level)
-        cache.setWarmBudget(budget)
+        cache.setWarmBudget(.at(level, normal: SubsystemBudget.forThisMac(gpuResidentAvailable: cache.gpuResidency != nil).warmTerminalSurfaces))
         // Critical keeps only what shows, the parked workspaces too: one per release slice with the
         // parked budget (a memory consumer), else all at once.
         if level == .critical, parkedWorkspaceBudget == nil { windows.controllers.forEach { $0.releaseParked() } }

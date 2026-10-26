@@ -16,7 +16,7 @@ import Observation
 /// to another pane keeps its surface and the destination pane reparents the
 /// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
 /// the keep-alive band (off-screen columns within one viewport width, paused)
-/// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
+/// plus an LRU of recently hidden ones (`WarmSetBudget`); older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
@@ -33,10 +33,10 @@ final class TabContentCache {
     var lifecycle = ContentLifecycle<String>()
     /// Shown tabs whose content does not exist yet (a Chromium page being created): their `mount` token, answered at install.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
-    /// How many hidden terminal surfaces stay warm (memory budget; pressure).
+    /// How many hidden terminal surfaces stay warm (memory budget; pressure: `AppServices.memoryPressureDidChange`).
     var warmBudget = WarmSetBudget.standard
-    /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
-    var evictsAtOnce = false
+    /// Lets paused away terminals' GPU memory go (`terminalGPURelease`, `ghostty_surface_set_gpu_resident`); nil: none.
+    let gpuResidency: (any TerminalGPUResidency)?
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
     var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
@@ -150,11 +150,14 @@ final class TabContentCache {
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     init(daemon: DaemonService, cef: CEFEngine, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
+         gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.daemon = daemon
         self.terminalModifiers = terminalModifiers
+        self.gpuResidency = gpuResidency
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
@@ -183,14 +186,8 @@ final class TabContentCache {
         }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        if let stale = terminals.removeValue(forKey: tab.id) {
-            // Daemon restarted or the tab's surface changed: the pane
-            // presenting the old view lets it go before it closes.
-            if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
-            applyLifecycle(lifecycle.send(.removed(tab.id)))
-            pendingMounts[tab.id] = nil
-            stale.close()
-        }
+        // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
+        discardTerminal(tab.id)
         let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
                                              cursorDefault: .user)
         // Paused (and not claiming geometry) until a visible pane presents it.
@@ -209,6 +206,7 @@ final class TabContentCache {
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render
+        session.releasesGPUWhilePaused = ledger.isAway(tab.id)
         contentDidMount(tab.id)
         return entry
     }

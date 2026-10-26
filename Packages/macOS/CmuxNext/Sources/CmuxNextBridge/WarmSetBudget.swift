@@ -1,5 +1,4 @@
 public import CmuxNextCompat
-import Foundation
 
 /// How much hidden content stays warm (architecture.md section 4): the one
 /// memory budget of hidden GPU surfaces. A window keeps every workspace it
@@ -7,7 +6,7 @@ import Foundation
 /// surfaces, in the shown workspace's other tabs and in parked workspaces
 /// alike, are kept in one LRU of `terminalCapacity` (`SurfaceLedger`); an
 /// evicted one re-attaches with a daemon replay when its pane shows again.
-/// Sized from physical memory and shrunk under memory pressure.
+/// Sized by the app's `SubsystemBudget` and shrunk under memory pressure.
 public struct WarmSetBudget: Hashable, Sendable {
     /// Hidden terminal surfaces kept beyond the visible ones (LRU).
     public var terminalCapacity: Int
@@ -16,29 +15,26 @@ public struct WarmSetBudget: Hashable, Sendable {
         self.terminalCapacity = max(0, terminalCapacity)
     }
 
-    /// Measured cost of one hidden terminal surface in the app's footprint
-    /// (triple-buffered IOSurfaces at a 1100x720 point window on a 2x
-    /// display, grid, atlas share): about 48 MB.
-    public static let terminalCostBytes: UInt64 = 48 << 20
+    /// The most hidden surfaces kept at a pressure warning, with or without the GPU release.
+    public static let warningCapacity = 6
 
-    /// 1/64 of physical memory for hidden terminal surfaces (8 to 24: the
-    /// envelope the surfaces and the parked workspaces' panes had together
-    /// before parked workspaces stopped having their own budget). Under a
-    /// pressure warning 6; critical keeps only what shows.
-    public static func forMemory(physicalBytes: UInt64, pressure: MemoryPressureLevel) -> WarmSetBudget {
+    /// The warm set at `pressure`, from `normal`, its capacity at normal pressure
+    /// (`SubsystemBudget.warmTerminalSurfaces`: larger where hidden surfaces let their GPU memory go).
+    /// A pressure warning keeps at most ``warningCapacity``; critical keeps only what shows. Chrome's
+    /// `FrameEvictionManager` (`components/viz/client/frame_eviction_manager.cc`) also culls its LRU of
+    /// hidden frames under pressure and keeps none at critical.
+    public static func at(_ pressure: MemoryPressureLevel, normal: Int) -> WarmSetBudget {
         switch pressure {
         case .critical:
-            return WarmSetBudget(terminalCapacity: 0)
+            WarmSetBudget(terminalCapacity: 0)
         case .warning:
-            return WarmSetBudget(terminalCapacity: 6)
+            WarmSetBudget(terminalCapacity: min(warningCapacity, normal))
         case .normal:
-            return WarmSetBudget(terminalCapacity: min(24, max(8, Int((physicalBytes / 64) / terminalCostBytes))))
+            WarmSetBudget(terminalCapacity: normal)
         }
     }
 
-    public static func current(pressure: MemoryPressureLevel = .normal) -> WarmSetBudget {
-        forMemory(physicalBytes: ProcessInfo.processInfo.physicalMemory, pressure: pressure)
-    }
-
-    public static let standard = current()
+    /// Before the app applies its budget (`AppServices.startHibernation`): the smallest warm set a Mac
+    /// without the GPU release had.
+    public static let standard = WarmSetBudget(terminalCapacity: 8)
 }

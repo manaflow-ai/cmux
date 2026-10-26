@@ -85,6 +85,12 @@ public final class TerminalSession {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
     }
 
+    /// Outside the keep-alive band (the App's surface ledger): paused, the surface lets its GPU memory
+    /// go (``TerminalGPUResidencyGate``); in the band it keeps it, so scrolling back reallocates nothing.
+    public var releasesGPUWhilePaused = false {
+        didSet { surfaceView.releasesGPUWhilePaused = releasesGPUWhilePaused }
+    }
+
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
     /// the live surface in place (`ghostty_surface_update_config`: palette,
@@ -118,6 +124,8 @@ public final class TerminalSession {
     private let secureInput: TerminalSecureInput
     /// Passed to each surface view this session makes: the terminals' one modifier watch.
     private let modifiers: TerminalModifierWatch?
+    /// Passed to each surface view this session makes: their GPU memory release while away.
+    private let gpuResidency: (any TerminalGPUResidency)?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
@@ -152,17 +160,21 @@ public final class TerminalSession {
     ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
     ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
     ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
+    ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
+    ///     nil keeps them resident (a libghostty without the switch, or `terminalGPURelease` off).
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
-                modifiers: TerminalModifierWatch? = nil) {
+                modifiers: TerminalModifierWatch? = nil,
+                gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
         self.hangWatch = hangWatch
         self.secureInput = secureInput
         self.modifiers = modifiers
+        self.gpuResidency = gpuResidency
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
@@ -171,7 +183,7 @@ public final class TerminalSession {
 
         view = TerminalHostView()
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
-                                          secureInput: secureInput, modifiers: modifiers)
+                                          secureInput: secureInput, modifiers: modifiers, gpuResidency: gpuResidency)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -228,61 +240,6 @@ public final class TerminalSession {
     public private(set) var linkCheck: TerminalLinkCheck? {
         didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
     }
-
-    #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
-    /// `flags` held (live checks): the view's own mouse-move path.
-    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseMoved(with: event)
-    }
-
-    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
-    /// view's own press and release handlers (live checks).
-    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// A left press on one cell, a drag to another and the release there, with `flags`
-    /// held throughout (live checks).
-    public func dragForTesting(from: (column: Int, row: Int), to: (column: Int, row: Int), flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: from.column, row: from.row, flags: flags),
-              let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
-        surfaceView.mouseDragged(with: drag)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// Modifier keys went down or up with the pointer still (live checks): the key path
-    /// when this terminal has focus, the app-wide watcher's either way.
-    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
-        surfaceView.linkPointer.testFlags = flags
-        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
-        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
-        key?.type = .flagsChanged
-        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
-            surfaceView.flagsChanged(with: event)
-        }
-        surfaceView.linkPointer.modifiersChanged(flags)
-    }
-
-    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
-    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
-        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
-    }
-    #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
     @discardableResult
@@ -456,13 +413,14 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
-                                        secureInput: secureInput, modifiers: modifiers)
+                                        secureInput: secureInput, modifiers: modifiers, gpuResidency: gpuResidency)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
         fresh.isRenderingSuspended = isRenderingSuspended
+        fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)

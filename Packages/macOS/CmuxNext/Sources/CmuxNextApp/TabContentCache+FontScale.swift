@@ -10,7 +10,7 @@ extension TabContentCache {
     /// A session for `tab` that follows its record's font scale; its output lane is watched by
     /// `daemon`'s hang watch.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
-        let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers)
+        let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers, gpuResidency: gpuResidency)
         let key = tab.id
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }

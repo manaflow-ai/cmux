@@ -103,13 +103,13 @@ extension TabContentCache {
     /// Applies a new warm set budget (memory pressure changed).
     func setWarmBudget(_ budget: WarmSetBudget) {
         guard budget != warmBudget else { return }
-        evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
-        defer { evictsAtOnce = false }
+        let shrinks = budget.terminalCapacity < warmBudget.terminalCapacity
         warmBudget = budget
-        apply(ledger.setCapacity(budget.terminalCapacity))
+        apply(ledger.setCapacity(budget.terminalCapacity), evictsAtOnce: shrinks)
     }
 
-    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
+    /// `evictsAtOnce`: a smaller warm budget evicts, so the closed surfaces keep no last picture.
+    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects, evictsAtOnce: Bool = false) {
         guard !effects.isEmpty else { return }
         for displaced in effects.displaced {
             presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
@@ -118,8 +118,9 @@ extension TabContentCache {
             // Hides first, so a frame never shows two tabs of one pane.
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
+        for (key, away) in effects.away { terminals[key]?.session.releasesGPUWhilePaused = away } // after the hides: paused, away lets GPU memory go
         for key in effects.evicted {
-            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
+            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key, atOnce: evictsAtOnce) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
         for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
@@ -127,8 +128,8 @@ extension TabContentCache {
     }
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
-    private func evict(_ entry: TerminalEntry, key: String) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+    private func evict(_ entry: TerminalEntry, key: String, atOnce: Bool) {
+        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: atOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
