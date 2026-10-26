@@ -65,6 +65,7 @@ public struct TraceRingCleanup: Sendable {
         let now = nowUnixNanos()
         let maxAgeNanos = UInt64(Self.maxAge.components.seconds) * 1_000_000_000
         let names = fileNames()
+        let present = Set(names)
         var dead: [Ring] = []
         for name in names {
             if name.hasSuffix(Self.buildingSuffix) {
@@ -73,6 +74,8 @@ public struct TraceRingCleanup: Sendable {
             }
             guard name.hasSuffix(Self.blackBoxSuffix), var ring = read(name) else { continue }
             if isAlive(ring.pid, ring.startMicros) {
+                // A marker left by an earlier process with this pid would date the new one's death too early.
+                if present.contains(name + Self.deadMarkSuffix) { _ = remove(name + Self.deadMarkSuffix) }
                 report.live.append(name)
                 continue
             }
@@ -84,9 +87,8 @@ public struct TraceRingCleanup: Sendable {
             }
         }
         // A marker whose ring is gone (deleted above, or by hand).
-        let rings = Set(names.filter { $0.hasSuffix(Self.blackBoxSuffix) })
         for marker in names where marker.hasSuffix(Self.blackBoxSuffix + Self.deadMarkSuffix) {
-            if !rings.contains(String(marker.dropLast(Self.deadMarkSuffix.count))) { _ = remove(marker) }
+            if !present.contains(String(marker.dropLast(Self.deadMarkSuffix.count))) { _ = remove(marker) }
         }
         // The cap: the longest-dead rings go first.
         dead.sort { ($0.deadSinceUnixNanos, $0.startUnixNanos, $0.name) < ($1.deadSinceUnixNanos, $1.startUnixNanos, $1.name) }

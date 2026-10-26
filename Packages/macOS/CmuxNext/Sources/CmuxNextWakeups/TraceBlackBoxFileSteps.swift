@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+import CmuxNextSignposts
 public import CmuxNextTrace
 public import Foundation
 
@@ -46,24 +47,22 @@ public final class TraceBlackBoxFileSteps: Sendable {
         }
     }
 
-    /// Starts the app process's black box: the heap ring, installed into `runtime` with the black-box
-    /// categories on, now; then ``start()``.
+    /// Starts the app process's black box: the heap ring with the signpost catalog (`SignpostName.traceCatalog`),
+    /// attached to `runtime` with the black-box categories on, now; then ``start()``.
     ///
     /// - Parameters:
     ///   - bundleID: The app's bundle id; it names the folder (``appDirectory(bundleID:home:)``).
     ///   - work: The app's blocking-work lanes.
     ///   - runtime: The process's trace runtime.
-    ///   - catalog: The fixed name-table entries of the ring (task 004's `SignpostName.traceCatalog`).
     ///   - clock: The clock of the spare file's deadline.
     ///   - home: The home folder the black-box folder is under.
     /// - Returns: The started steps; the owner keeps them so the spare deadline lives.
     public static func startApp(bundleID: String?, work: any MayBlockRunner, runtime: TraceRuntime = .shared,
-                                catalog: [TraceRing.CatalogName] = [],
                                 clock: any Clock<Duration> = ContinuousClock(),
                                 home: URL = FileManager.default.homeDirectoryForCurrentUser) -> TraceBlackBoxFileSteps {
         let directory = appDirectory(bundleID: bundleID, home: home).path
         let blackBox = TraceBlackBox(role: .app, directory: directory, runtime: runtime,
-                                     buildVersion: buildVersion(of: .main), catalog: catalog)
+                                     buildVersion: buildVersion(of: .main), catalog: SignpostName.traceCatalog)
         let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work, clock: clock)
         steps.start()
         return steps

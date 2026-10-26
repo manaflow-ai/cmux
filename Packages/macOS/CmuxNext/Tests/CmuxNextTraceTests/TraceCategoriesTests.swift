@@ -118,7 +118,7 @@ struct TraceCategoriesTests {
         defer { Self.remove(folder) }
         let runtime = TraceRuntime(role: .terminalHost)
         let blackBox = TraceBlackBox(role: .terminalHost, directory: folder + "/trace", runtime: runtime, process: Self.facts)
-        #expect(runtime.blackBox === blackBox.ring)
+        #expect(runtime.ring === blackBox.ring)
 
         runtime.write(name: 1, categoryBit: 0, phase: .instant, arg0: 7)
         runtime.write(name: 2, categoryBit: 10, phase: .instant, arg0: 99)
@@ -160,18 +160,20 @@ struct TraceCategoriesTests {
         let first = TraceBlackBox(role: .terminalHost, directory: folder, runtime: runtime, process: Self.facts)
         let second = TraceBlackBox(role: .terminalHost, directory: folder, runtime: runtime, process: Self.facts)
         #expect(second.ring === first.ring)
-        #expect(runtime.blackBox === first.ring)
+        #expect(runtime.ring === first.ring)
     }
 
     // MARK: cleanup
 
     /// A live process's black box stays at any age; one whose process was first seen dead more than 3 days ago
-    /// goes with its marker; a ring seen dead for the first time stays and gets its marker; a lone marker goes.
+    /// goes with its marker; a ring seen dead for the first time stays and gets its marker; a lone marker goes,
+    /// and so does a live ring's marker (an earlier process with the same pid left it).
     @Test func cleanupKeepsLivePidFilesAndDeletesLongDeadOnes() throws {
         let folder = Self.temporaryFolder()
         defer { Self.remove(folder) }
         let now = Self.wallClock()
         try Self.write(folder, "app-100.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
+        try Self.write(folder, "app-100.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(9), now: now)
         try Self.write(folder, "daemon-200.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)
         try Self.write(folder, "daemon-200.blackbox.cmxtrace.dead", bytes: 0, age: Self.days(4), now: now)
         try Self.write(folder, "holder-300.blackbox.cmxtrace", bytes: 4096, age: Self.days(5), now: now)

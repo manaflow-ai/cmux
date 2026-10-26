@@ -5,8 +5,8 @@ import MachO
 /// One process's black box: its trace ring from launch, sized by role, with the black-box categories on
 /// (plans/cmux-next/chrome-parity/p09-observability.md section 3A, trace.md "One write path").
 ///
-/// Making it touches memory only: the ring starts on the heap at once and is installed into the runtime
-/// (``TraceRuntime/installBlackBox(_:)``), which owns it from then on, so every `runtime.write` of the process
+/// Making it touches memory only: the ring starts on the heap at once and is attached to the runtime
+/// (``TraceRuntime/attach(_:)``), which owns it from then on, so every `runtime.write` of the process
 /// records into it from the first frame; nothing opens, truncates or maps a file on the caller's thread. The
 /// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`:
 ///
@@ -42,7 +42,7 @@ public final class TraceBlackBox: Sendable {
     /// The pid in the file names.
     public let pid: UInt32
 
-    /// Starts the black box on the heap, installs it into `runtime` and turns on the black-box categories. No
+    /// Starts the black box on the heap, attaches it to `runtime` and turns on the black-box categories. No
     /// file work. When `runtime` already has a black box, ``ring`` is that one (a runtime keeps its first).
     ///
     /// - Parameters:
@@ -52,7 +52,7 @@ public final class TraceBlackBox: Sendable {
     ///     (``TraceCategories/blackBox``).
     ///   - process: The header's process fields; the calling process by default.
     ///   - buildVersion: The header's build version (version and build number, at most 32 ASCII bytes).
-    ///   - catalog: The fixed names written into the ring's name table before any record (task 004's
+    ///   - catalog: The fixed names written into the ring's name table before any record (the app passes
     ///     `SignpostName.traceCatalog`).
     ///   - clock: The trace clock that stamps the ring's start.
     public init(role: TraceRuntime.Role, directory: String, runtime: TraceRuntime,
@@ -60,7 +60,8 @@ public final class TraceBlackBox: Sendable {
                 catalog: [TraceRing.CatalogName] = [], clock: TraceClock = TraceClock()) {
         self.role = role
         self.directory = directory
-        sizes = role.blackBoxSizes
+        let sizes = role.blackBoxSizes
+        self.sizes = sizes
         pid = process.pid
         let categories = TraceCategories.blackBox
         let identity = TraceRing.Identity(
@@ -72,8 +73,16 @@ public final class TraceBlackBox: Sendable {
             bootSessionUUID: process.bootSessionUUID, buildUUID: process.buildUUID,
             buildVersion: buildVersion, categories: categories.rawValue)
         self.runtime = runtime
-        ring = runtime.blackBox ?? runtime.installBlackBox(TraceRing(sizes: sizes, identity: identity, catalog: catalog))
+        ring = Self.attachedRing(of: runtime) { TraceRing(sizes: sizes, identity: identity, catalog: catalog) }
         runtime.setCategories(categories)
+    }
+
+    /// The ring `runtime` writes to: the one attached already, else `make()`'s, attached now.
+    private static func attachedRing(of runtime: TraceRuntime, making make: () -> TraceRing) -> TraceRing {
+        if let attached = runtime.ring { return attached }
+        let made = make()
+        runtime.attach(made)
+        return runtime.ring ?? made
     }
 
     /// The black-box file's path (it exists once ``adoptFile()`` succeeded).

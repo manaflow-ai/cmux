@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// Task p09-observability-005: the app's launch path (`TraceBlackBoxFileSteps.startApp`, what AppServices
-/// calls) installs the heap ring at once and does its file work only on the `.files` lane: adoption and
+/// calls) attaches the heap ring at once and does its file work only on the `.files` lane: adoption and
 /// cleanup posted at once, the spare only after ``TraceBlackBox/spareDelay``.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct TraceBlackBoxFileStepsTests {
@@ -36,11 +36,11 @@ struct TraceBlackBoxFileStepsTests {
         let cleanupPost = await posts.next()
         #expect(adoptPost == .userVisible)
         #expect(cleanupPost == .bestEffort)
-        #expect(runtime.blackBox === blackBox.ring)
+        #expect(runtime.ring === blackBox.ring)
         #expect(runtime.categories == .blackBox)
         #expect(!blackBox.ring.isFileBacked)
 
-        await lanes.runHeld()
+        try await lanes.runHeld()
         #expect(blackBox.ring.isFileBacked)
         #expect(access(blackBox.filePath, F_OK) == 0)
 
@@ -52,7 +52,7 @@ struct TraceBlackBoxFileStepsTests {
         let sparePost = await posts.next()
         #expect(sparePost == .idle)
         #expect(access(spare, F_OK) != 0)
-        await lanes.runHeld()
+        try await lanes.runHeld()
         #expect(access(spare, F_OK) == 0)
         withExtendedLifetime(steps) {}
         #endif
@@ -68,7 +68,7 @@ struct TraceBlackBoxFileStepsTests {
                                                     clock: ManualClock(), home: URL(filePath: home))
         // Bit 5: `launch`, a black-box category.
         runtime.write(name: 1, categoryBit: 5, phase: .instant, arg0: 11)
-        await lanes.runHeld()
+        try await lanes.runHeld()
         runtime.write(name: 1, categoryBit: 5, phase: .instant, arg0: 12)
         #expect(TraceRingFile.records(atPath: steps.blackBox.filePath)?.map(\.arg0) == [11, 12])
     }
@@ -80,9 +80,10 @@ struct TraceBlackBoxFileStepsTests {
     }
 }
 
-/// A ``MayBlockRunner`` that holds each posted `.files` item until the test runs it, so a test sees what was
-/// posted at which priority and that nothing ran on the poster's thread.
+/// A ``MayBlockRunner`` that holds each posted `.files` item until the test runs it on a real `.files` lane, so
+/// a test sees what was posted at which priority and that nothing ran on the poster's thread.
 private final class HeldFiles: MayBlockRunner {
+    private let lanes = BackgroundWork(label: "test.trace.blackbox")
     // concurrency-allow: the posted items, appended by the poster (main or the deadline's task) and taken by the test (lock carve-out: a list, no I/O under it).
     private let items = Mutex<[(priority: MayBlockPriority, body: @Sendable () -> Void)]>([])
     /// The priority of each post, in post order (the test's one iterator).
@@ -96,23 +97,23 @@ private final class HeldFiles: MayBlockRunner {
     /// The priorities of the items posted and not run yet, in post order.
     var held: [MayBlockPriority] { items.withLock { $0.map(\.priority) } }
 
-    /// Runs every held item off the main thread, in post order, as the `.files` lane would.
-    func runHeld() async {
+    /// Runs every held item on the `.files` lane, in post order.
+    func runHeld() async throws {
         let bodies = items.withLock { held in
             defer { held.removeAll() }
             return held.map(\.body)
         }
-        await Task.detached { for body in bodies { body() } }.value
+        try await lanes.runFiles(.userVisible) { for body in bodies { body() } }
     }
 
     func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
                                _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached { try body() }.value
+        try await lanes.runFiles(priority, shutdown: shutdown, body)
     }
 
     func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
                                 _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached { try body() }.value
+        try await lanes.runSystem(priority, shutdown: shutdown, body)
     }
 
     func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, _ body: @escaping @Sendable () -> Void) {
