@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's own chat
+    /// of the same raw id is never counted for it (`view.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -338,10 +341,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
