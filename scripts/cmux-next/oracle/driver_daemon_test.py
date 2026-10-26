@@ -30,6 +30,8 @@ sys.path.insert(0, str(HERE))
 import driver_daemon as d  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
+# netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
+ISOLATION = os.environ.get("CMUX_ORACLE_ISOLATION", "netns")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
 
 
@@ -59,13 +61,22 @@ class PathTests(unittest.TestCase):
 
     def test_environment_is_built_from_nothing(self):
         paths = d.CasePaths(Path("/tmp/o/aaaaaa/bbbbbb"))
-        env = d.case_environment(paths, "seed-1")
+        env = d.case_environment(paths, "seed-1", d.hermetic_env.NO_ISOLATION_REQUESTED).env
         self.assertEqual(env[d.MARKER_ENV], "/tmp/o/aaaaaa/bbbbbb")
         self.assertEqual(env["CMUX_TUI_SOCKET"], "/tmp/o/aaaaaa/bbbbbb/s.sock")
         self.assertTrue(all(value.startswith("/tmp/o/aaaaaa/bbbbbb") for key, value in env.items()
                             if key in ("HOME", "TMPDIR", "XDG_RUNTIME_DIR", "CMUX_TUI_STATE_DIR")))
         self.assertNotIn("SSH_AUTH_SOCK", env)
         self.assertEqual(env["TZ"], "UTC")
+        self.assertEqual(env["CMUX_TUI_OFFLINE"], "1")
+
+    def test_run_directory_lists_the_environment(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as out:
+            d.write_environment(Path(out), d.hermetic_env.NO_ISOLATION_REQUESTED)
+            receipt = json.loads(Path(out, "environment.json").read_text())
+        self.assertEqual(receipt["env"]["HOME"], "$CASE_ROOT/home")
+        self.assertEqual(receipt["env"][d.MARKER_ENV], "$CASE_ROOT")
+        self.assertEqual(receipt["isolation"]["kind"], "none")
 
 
 class PointerTests(unittest.TestCase):
@@ -242,7 +253,7 @@ class LiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.run_id = f"driver-test-{os.getpid()}-{time.time_ns()}"
-        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id})
+        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, "isolation": ISOLATION})
         cls.count = 0
 
     def run_case(self, case: dict) -> dict:

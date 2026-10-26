@@ -13,9 +13,12 @@ Each case gets:
   as `--profile oracle`) and the holder's socket is keyed by the case's host root.
 - one `cmux-tui --headless` child started in its own session, awaited on its readiness pipe
   (`--owner-ready-fd`, the daemon's own startup protocol), never by probing the socket.
-- the environment of `case_environment` only (an `env -i` base). Task p15-oracle-200 moves that function
-  into hermetic_env.py and adds `unshare -rn`, the repository fixture and the daemon's CMUX_TUI_OFFLINE
-  early return (the variable is set here already).
+- the environment of hermetic_env.daemon_case only (an `env -i` base, CMUX_TUI_OFFLINE=1, version
+  control without the person's config), and on Linux its own user and network namespace (`unshare -rn`,
+  loopback only). The session picks the isolation once (`isolation` in the session context or
+  `--isolation`: netns by default, which refuses a host without unprivileged user namespaces; auto;
+  none); each case result carries the environment it ran with (`environment`), and
+  `<out_dir>/environment.json` lists it for the run.
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -46,8 +49,9 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
+                            [--isolation netns|auto|none]
                                                      one case, its result JSON
-  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json]
+  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
 """
 
@@ -84,6 +88,7 @@ for _path in (str(HERE), str(SDK)):
         sys.path.insert(0, _path)
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
+import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -97,8 +102,7 @@ from cmux.raw import CmuxClient  # noqa: E402
 
 MARKER_ENV = "CMUX_ORACLE_CASE"
 SESSION_NAME = "oracle"
-# sun_path is 108 bytes on Linux and 104 on macOS; the spec keeps every path at 100 or less.
-SOCKET_LIMIT = 100
+SOCKET_LIMIT = hermetic_env.MAX_SOCKET_PATH_BYTES
 DEFAULT_STATE_BASE = Path("/tmp/o")
 SELECTORS = {"machine": "current", "session": "current"}
 FACETS = (
@@ -151,23 +155,23 @@ class CasePaths:
 
     @property
     def socket(self) -> Path:
-        return self.root / "s.sock"
+        return self.root / hermetic_env.SOCKET_NAME
 
     @property
     def state(self) -> Path:
-        return self.root / "state"
+        return self.root / hermetic_env.STATE_DIR
 
     @property
     def home(self) -> Path:
-        return self.root / "home"
+        return self.root / hermetic_env.HOME_DIR
 
     @property
     def run(self) -> Path:
-        return self.root / "run"
+        return self.root / hermetic_env.RUN_DIR
 
     @property
     def tmp(self) -> Path:
-        return self.root / "tmp"
+        return self.root / hermetic_env.TMP_DIR
 
     @property
     def log(self) -> Path:
@@ -208,40 +212,14 @@ def short_token(text: str) -> str:
     return out
 
 
-def case_environment(paths: CasePaths, seed: str) -> Dict[str, str]:
-    """The case daemon's whole environment (an `env -i` base: nothing is inherited).
+def host_platform() -> str:
+    return "linux" if sys.platform.startswith("linux") else "mac"
 
-    p15-oracle-200 moves this into hermetic_env.py, the one place both drivers build env.
-    """
-    home = paths.home
-    return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / ".config"),
-        "XDG_DATA_HOME": str(home / ".local" / "share"),
-        "XDG_STATE_HOME": str(home / ".local" / "state"),
-        "XDG_CACHE_HOME": str(home / ".cache"),
-        "XDG_RUNTIME_DIR": str(paths.run),
-        "TMPDIR": str(paths.tmp),
-        "CMUX_TUI_CONFIG": str(paths.root / "config.json"),
-        "CMUX_NEXT_CONFIG_FILE": str(paths.root / "cmux-next.json"),
-        "CMUX_TUI_STATE_DIR": str(paths.state),
-        "CMUX_TUI_SOCKET": str(paths.socket),
-        "CMUX_TUI_LOG_FILE": str(paths.root / "client.log"),
-        "CMUX_TUI_NO_LOGIN_SHELL": "1",
-        "CMUX_TUI_OFFLINE": "1",
-        "CMUX_TUI_ORACLE_SEED": seed,
-        "CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT": "1",
-        "TZ": "UTC",
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "SHELL": "/bin/sh",
-        "PS1": "$ ",
-        "TERM": "xterm-256color",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        MARKER_ENV: str(paths.root),
-    }
+
+def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation) -> hermetic_env.CaseEnv:
+    """The case daemon's whole environment, from hermetic_env.py, with this driver's process marker."""
+    return hermetic_env.daemon_case(paths.root, isolation, platform=host_platform(), seed=seed,
+                                    extra={MARKER_ENV: str(paths.root)})
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -552,10 +530,10 @@ class DaemonExit:
 class Daemon:
     """One cmux-tui child on one state root, with its SDK clients."""
 
-    def __init__(self, binary: str, paths: CasePaths, env: Dict[str, str], scale: float):
+    def __init__(self, binary: str, paths: CasePaths, case_env: hermetic_env.CaseEnv, scale: float):
         self.binary = binary
         self.paths = paths
-        self.env = env
+        self.case_env = case_env
         self.scale = scale
         self.proc: Optional[subprocess.Popen] = None
         self.conn: Optional[ProtocolConnection] = None
@@ -576,7 +554,8 @@ class Daemon:
         try:
             with open(self.paths.log, "ab") as log:
                 self.proc = subprocess.Popen(
-                    argv, env=self.env, cwd=str(self.paths.root), pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
+                    self.case_env.command(argv), env=dict(self.case_env.env), cwd=str(self.case_env.cwd),
+                    pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
                 )
         except OSError as error:
@@ -877,7 +856,7 @@ class CaseRun:
     """One case in a worker process: the steps, then an orderly shutdown of everything it started."""
 
     def __init__(self, binary: str, sha: str, schema: normalize.Schema, case: Mapping[str, Any],
-                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any]):
+                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any], isolation: hermetic_env.Isolation):
         self.case = case
         self.schema = schema
         self.known: Dict[int, CaseProcess] = {}
@@ -887,8 +866,9 @@ class CaseRun:
         self.paths = CasePaths.for_case(ctx.get("state_root"), str(session_ctx.get("run_id") or "run"),
                                         str(ctx.get("key") or self.case_id))
         fixture = case.get("fixture") or {}
-        self.env = case_environment(self.paths, str(fixture.get("seed") or case.get("id") or "oracle"))
-        self.daemon = Daemon(binary, self.paths, self.env, self.scale)
+        seed = str(fixture.get("seed") or case.get("id") or "oracle")
+        self.case_env = case_environment(self.paths, seed, isolation)
+        self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
         self.state = CaseState()
         self.host = host_meta()
@@ -909,6 +889,7 @@ class CaseRun:
         problems: List[str] = []
         try:
             try:
+                self.case_env.prepare()
                 self.daemon.start("setup")
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
@@ -924,7 +905,7 @@ class CaseRun:
             if status == "Pass":
                 status = "Failure"
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": [],
-                                  "sockets": sorted(self.sockets)}
+                                  "sockets": sorted(self.sockets), "environment": self.case_env.receipt()}
         if at:
             result["step"] = at
         if self.dirty:
@@ -1367,10 +1348,16 @@ class DaemonSession:
         schema, refusal = load_snapshot_schema(self.schema_path)
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
+        try:
+            self.isolation = hermetic_env.isolation_for(str(session_ctx.get("isolation") or "netns"), host_platform())
+        except hermetic_env.HermeticError as error:
+            raise ValueError(f"no hermetic case environment on this host: {error}") from None
         self.scan = MarkerScan()
         self.binary = os.path.realpath(str(binary))
         self.session_ctx = dict(session_ctx)
         self.sha = resolve_sha(session_ctx.get("ref"), self.binary)
+        if session_ctx.get("out_dir"):
+            write_environment(Path(str(session_ctx["out_dir"])), self.isolation)
 
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         case_id = case_ctx.get("case_id") or f"{case.get('suite')}/{case.get('id')}"
@@ -1394,7 +1381,7 @@ class DaemonSession:
 
     def run_worker(self, case: Dict[str, Any], case_ctx: Dict[str, Any], scale: float) -> Dict[str, Any]:
         payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
-                   "ctx": case_ctx, "session": self.session_ctx}
+                   "ctx": case_ctx, "session": self.session_ctx, "isolation": self.isolation.describe()}
         bound = worker_bound(case, scale)
         worker = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "case-worker"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -1435,9 +1422,22 @@ def case_worker() -> int:
     schema, refusal = load_snapshot_schema(payload["schema"])
     if schema is None:
         raise SystemExit(f"driver_daemon.py case-worker: {refusal}")
-    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"])
+    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
+                  hermetic_env.Isolation.from_description(payload["isolation"]))
     json.dump(run.run(), sys.stdout)
     return 0
+
+
+def write_environment(out_dir: Path, isolation: hermetic_env.Isolation) -> None:
+    """`<out_dir>/environment.json`: the environment every case of the run gets, the case root and the
+    per-case values as tokens (each case result has its own under `environment`)."""
+    template = hermetic_env.daemon_case(DEFAULT_STATE_BASE / "run000" / "case00", isolation,
+                                        platform=host_platform(), seed="$SEED",
+                                        extra={MARKER_ENV: hermetic_env.ROOT_TOKEN})
+    out_dir.mkdir(parents=True, exist_ok=True)
+    staged = out_dir / f".environment.json.{os.getpid()}.{threading.get_ident()}"
+    staged.write_text(json.dumps(template.receipt(), indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(staged, out_dir / "environment.json")
 
 
 def open_session(session_ctx: Dict[str, Any]) -> DaemonSession:
@@ -1531,6 +1531,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cmd.add_argument("--snapshot-schema", help="the snapshot schema (default: normalize.py's)")
         cmd.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
         cmd.add_argument("--run-id")
+        cmd.add_argument("--isolation", choices=hermetic_env.ISOLATION_MODES, default="netns",
+                         help="netns: unshare -rn, refuse a host without it (default); auto: netns when the host "
+                              "allows it; none: no namespace (each result's environment says so)")
         if name == "run-case":
             cmd.add_argument("case", help="a case-v1 JSON file")
             cmd.add_argument("--ref", help="the SHA under test (meta.sha)")
@@ -1541,8 +1544,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "case-worker":
         return case_worker()
+    args.session_extra = {"isolation": args.isolation}
     if args.snapshot_schema:
-        args.session_extra = {"snapshot_schema": args.snapshot_schema}
+        args.session_extra["snapshot_schema"] = args.snapshot_schema
     try:
         return cmd_run_case(args) if args.command == "run-case" else cmd_smoke(args)
     except ValueError as error:
