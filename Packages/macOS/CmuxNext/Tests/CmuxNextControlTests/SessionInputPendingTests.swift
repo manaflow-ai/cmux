@@ -44,17 +44,14 @@ import Testing
         #expect(!input.hasPendingInput(uptime: 100), "the session's key belongs to the active app")
     }
 
-    @Test func itStartsWatchingDispatchOnceThereIsAnApp() {
+    @Test func itWatchesDispatchOnceFromItsInit() {
         let events = FakeSessionEvents()
-        events.canObserve = false
         let input = SessionInputPending(events: events)
+        #expect(events.observeCalls == 1, "watching starts before the first check")
         events.ages[.keyDown] = 0.002
         _ = input.hasPendingInput(uptime: 100)
-        #expect(events.observeCalls == 1)
-        events.canObserve = true
         _ = input.hasPendingInput(uptime: 100)
-        _ = input.hasPendingInput(uptime: 100)
-        #expect(events.observeCalls == 2, "asked again until it could, then never again")
+        #expect(events.observeCalls == 1, "checks never ask again")
     }
 
     /// With no input on its way, a check is one window-server query (the newest input of any
@@ -367,7 +364,6 @@ private final class FakeSessionEvents: SessionInputEvents {
     var isAppActive = true
     var pointerIsOverAppWindow = true
     var refreshInterval: TimeInterval = 1.0 / 60
-    var canObserve = true
     private(set) var observeCalls = 0
     /// Window-server queries made (each is one synchronous call on the main thread in the app).
     private(set) var queries = 0
@@ -383,11 +379,9 @@ private final class FakeSessionEvents: SessionInputEvents {
         return ages[type] ?? 10_000
     }
 
-    func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) -> Bool {
+    func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) {
         observeCalls += 1
-        guard canObserve else { return false }
         self.dispatched = dispatched
-        return true
     }
 
     /// AppKit dispatched an input event of `kind` with `timestamp` (seconds since boot).

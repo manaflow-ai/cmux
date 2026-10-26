@@ -167,6 +167,31 @@ class ValueSummaryTests(unittest.TestCase):
                          ["temperature cold", "page-ins 4100", "interrupted"])
 
 
+class CompletionReasonTests(unittest.TestCase):
+    """p08-startup-012: `startup_complete.<reason>` comes before `startup_complete`; the bench counts reasons."""
+
+    def test_the_reason_reads_from_its_instant_mark(self):
+        run = {"main_start": 3.0, "startup_complete.launchPhaseSettled": 900.0, bs.STARTUP_COMPLETE: 900.0}
+        self.assertEqual(bs.completion_reason(run), "launchPhaseSettled")
+        self.assertIsNone(bs.completion_reason({"main_start": 3.0, bs.STARTUP_COMPLETE: 900.0}))
+        self.assertEqual(bs.run_values(run), ["startup complete launchPhaseSettled"])
+        self.assertIn(bs.STARTUP_COMPLETE, [mark for mark, _ in bs.MARKS], "startup_complete is a timed row")
+
+    def test_the_summary_counts_reasons_and_the_failsafe(self):
+        runs = [{"startup_complete.launchPhaseSettled": 900.0} for _ in range(8)]
+        runs += [{"startup_complete.failsafe": 10000.0}, {"main_start": 3.0}]
+        lines = bs.value_summary(runs)
+        self.assertIn("  startup_complete: launchPhaseSettled 8, failsafe 1 of 10 runs (1 without it); "
+                      "1 of 10 by the failsafe", lines)
+        self.assertEqual(lines[-1], "  launch.interrupted: none of 10 runs", "the interrupted line stays last")
+
+    def test_a_build_without_the_scheduler_says_so_only_when_other_values_print(self):
+        self.assertEqual(bs.value_summary([{"main_start": 1}]), [])
+        lines = bs.value_summary([{"main_start": 1}] * 2, "warm")
+        self.assertIn("  startup_complete: missing in all 2 runs (no --startup-complete, or the build has no "
+                      "scheduler)", lines)
+
+
 class PurgeTests(unittest.TestCase):
     def test_a_refused_purge_is_named_and_stops_the_run(self):
         def refused(argv, **_):
@@ -237,6 +262,29 @@ class OneRunTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertNotIn("launch", FakeLaunch.events)
         self.assertIn("cold run refused", err)
+
+    def test_startup_complete_waits_for_the_mark_after_the_first_content(self):
+        waited = []
+
+        class CompletingLaunch(FakeLaunch):
+            def wait_for(self, mark, timeout, any_of=False):
+                waited.append((mark, timeout))
+                return super().wait_for(mark, timeout, any_of)
+
+        bs.Launch = CompletingLaunch
+        bs.tag_pids = lambda tag: [41]
+        saved = bs.WAIT_STARTUP_COMPLETE
+        try:
+            bs.one_run("t", "warm", 5)
+            self.assertEqual([mark for mark, _ in waited], [["first_terminal_frame", "agent_pane.handshake_end"]],
+                             "off by default: the run ends at the first content")
+            waited.clear()
+            bs.WAIT_STARTUP_COMPLETE = True
+            bs.one_run("t", "warm", 5)
+        finally:
+            bs.WAIT_STARTUP_COMPLETE = saved
+        self.assertEqual(waited[1][0], bs.STARTUP_COMPLETE)
+        self.assertLessEqual(waited[1][1], 5, "within what is left of the run's one timeout")
 
     def test_warm_temperature_purges_nothing(self):
         bs.tag_pids = lambda tag: [41]  # the daemon runs: no priming launch

@@ -231,8 +231,9 @@ pub(super) fn prepare_session_event_stream(
         Some("request a fresh session snapshot"),
         None,
     );
+    // Its items share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound = writer
-        .start_stream(&overflow)
+        .start_control_stream(&overflow)
         .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
     let (canceled, worker_permit) =
         register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;

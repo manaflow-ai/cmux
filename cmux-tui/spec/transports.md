@@ -165,6 +165,53 @@ remote session messages, including render attach and VT replay responses, may
 use the separate 33,554,432-byte budget. Receivers reject an oversized message
 before decoding or allocating its payload.
 
+### Binary frames (cmux-ipc, not yet negotiated)
+
+The `cmux-ipc` crate defines binary frames that a local Unix connection will
+carry next to JSON lines once a client negotiates them. No server grants them
+yet; until a later capability does, a frame on any connection is a bad
+message. WebSocket, relay and bridged connections keep JSON lines only.
+
+A message that starts with byte `0xFF` is a frame; any other first byte starts
+a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
+Each frame is a 16-byte little-endian header and then `len` payload bytes:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0 | magic | `0xFF` |
+| 1 | kind | table below |
+| 2-3 | stream | u16; 0 is the connection's control sequence, other values are client-minted streams |
+| 4-7 | len | u32 payload bytes, at most 33,554,432 (32 MiB) |
+| 8-15 | aux | u64 whose meaning depends on the kind |
+
+| Kind | Value | aux |
+| --- | --- | --- |
+| OUTPUT, GRID, EVENT, SNAPSHOT, SNAPSHOT_MORE, REPLAY, RING, RING_ADVANCE | 1-8 | absolute PTY offset |
+| INPUT | 9 | flow id |
+| SHARED_BUFFER | 10 | byte size of the attached fd |
+| RING_ACK | 11 | the reader's parsed PTY offset (consumer cursor) |
+| REQUEST, REPLY, ERROR, TYPED_EVENT, CANCEL | 16-20 | request id u32, method id u16, priority hint u8, flags u8 |
+
+Values 0, 12-15 and 21-255 are unassigned. Priority hints are input 0,
+control 1, bulk 2, background 3. Call flags are binary `0x01`, fds `0x02`,
+flow `0x04`, urgent `0x08` and more `0x10`; MORE marks a message cut into
+chunks, the boundary where higher-priority frames may go first. Kinds 1-9 and
+11 never use stream 0.
+
+The receiver validates the header as soon as its 16 bytes arrive, before it
+reads or allocates the payload. A bad magic byte, an unassigned kind,
+priority or flag bit, a length over the limit, terminal data on stream 0, a
+frame before negotiation, a JSON line over 16,777,216 bytes or not UTF-8, or
+a close inside a frame is a bad message. The receiver stops reading and closes
+the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
+`oversize`, `data_on_control_stream`, `unknown_priority`, `unknown_flags`,
+`frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
+Nothing after the bad byte is interpreted.
+
+Golden vectors for every kind, one mixed stream and each bad-message case are
+in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
+plain fields. Every implementation decodes them the same way.
+
 ## Relay Stdio
 
 | Field | Value |
@@ -328,6 +375,40 @@ Repeated `subscribe` calls and repeated attachments create independent server st
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 
+### Reply and event order
+
+Each connection has one control sequence (stream 0): command replies, the events of its `subscribe`
+stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
+order they were enqueued. Every other stream (attach output, journal reads, loopback forwards,
+agent-session attaches and other resource streams) keeps its own FIFO: its items are never
+reordered among themselves, but priority may move them relative to other streams. The control FIFO
+goes first, with a bound: after 8 control-sequence items in a row, the writer writes one waiting
+item of another stream, so an event flood never starves attach output. A reply or terminal never
+yields, and the bound never changes the order inside the control FIFO. These rules hold on the
+Unix socket and WebSocket transports:
+
+1. Control replies and control events share one FIFO.
+2. **Not in force until chrome-parity p05-ipc-120 lands.** After p05-ipc-120, a reply is enqueued
+   after every event its request emitted, so it is written after them. Today the request emits its
+   events into the subscriber mailbox before it returns, but the subscription's thread moves them
+   to the FIFO later, and the reply, enqueued as soon as the command returns, is usually written
+   first.
+3. Items of a stream stay in their stream's FIFO; a stream's overflow drops only its own items
+   and never a reply.
+4. Control-sequence items use their stream's queue budget and backpressure, never the control
+   reserve, so an event flood ends its subscription with `overflow` and never closes the connection.
+
+**Not in force until p05-ipc-120 lands (rule 2):** a client may use "events read before this
+reply" as a barrier, because every event the request emitted is in it. Today that barrier can miss
+the request's own events. The macOS app's `LineTransport.routedEventCount` (and the `eventBarrier`
+of a reply) counts only stream-0 lines: raw events and the lines of a stream the client registered
+on the control sequence (`session.events`). The lines of any other stream never move it, and on a
+connection without a stream handler the app drops them. Regression tests: `cargo test -p
+cmux-tui-core --lib reply_event_order` (the two `*_under_stream_flood_*` tests are ignored and red
+until p05-ipc-120; run them with `-- --include-ignored`) and `ReplyEventOrderTests` (CmuxNext).
+`new-tab` changes the tree, not a split layout, so its echo is `tree-changed`; `set-split-ratio`
+is the `layout-changed` case.
+
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
@@ -350,7 +431,7 @@ Families are append-only: an id is never reused or renumbered.
 `next_ordinal` (optional, 0-256) is the next ordinal to give in the family:
 every ordinal below it was given once, so it stays reserved after its command
 or event is removed. Every id of the family must be below it. When `families` is present,
-every command needs `method_id` and `priority`, and every event needs
+every command needs `method_id`, `priority` and `durability`, and every event needs
 `event_id` and `priority`.
 
 Command attributes:
@@ -361,7 +442,7 @@ Command attributes:
 | `priority` | `input`, `control`, `bulk` or `background`. The daemon uses its own table; a frame header hint that differs is `bad_message`. |
 | `priority_changed_reason` | Why `priority` changed. Not enforced yet: `api-compat-check` will require it when `priority` changes (p05-ipc-012). |
 | `ordering` | `sequence` (default) or `independent`. Only a `read_only` command that is not `stream_scoped` may be `independent`. |
-| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. A `spawns_terminal` command is never `read_only`. |
+| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. Required, no default. A `spawns_terminal` command is never `read_only`. |
 | `payload` | `json` (default) or `binary`. A binary payload needs `layout_version`. |
 | `layout_version` | 1-255, the first byte of a binary layout; bumped on every layout change. |
 | `stream_scoped` | The command runs on the stream that names its surface, in that stream's FIFO. A `read_only` one waits only for the items queued before it, then leaves the FIFO: later items do not wait for its reply. |
@@ -370,7 +451,7 @@ Command attributes:
 | `spawns_terminal` | The command can start a terminal host (the reply carries `starting:true` under F10). Set when any form of the command starts one. |
 | `coalesce` | `{key, additive}`: a queued unsent item with equal `key` fields is replaced; numeric `additive` fields are summed. |
 | `urgent` | Run first on the receiving sequence (Mojo `[SupportsUrgent]`). It never reorders the channel. Only `input` or `control`. |
-| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`. No generator reads it yet: the client generators will emit a method only for its clients (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
+| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`; absent means every client. The Rust method tables hold every framed method; the Swift method table (p05-ipc-023) holds only methods whose `clients` include `macos`, and the client generators will do the same (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
 
 Event attributes: `event_id` (u16 in a declared event family), `priority`,
 `priority_changed_reason` and `coalesce` (fields of the payload).

@@ -10,10 +10,13 @@ struct WakeUpQueueRig {
     let ledger = WakeupLedger(uptime: { 0 })
     let queue: MainWakeUpQueue
 
-    init(alignment: Duration = WakeLeeway.defaultAlignment, start: UInt64 = 0) {
+    /// - Parameters:
+    ///   - energy: The policy whose `wakeAlignment` is the sub-second grid (default: the saver off, 8 ms).
+    ///   - start: The fake uptime's start, in ns.
+    init(energy: EnergyPolicySource = EnergyPolicySource(), start: UInt64 = 0) {
         let timer = timer, uptime = FakeUptime(start)
         self.uptime = uptime
-        queue = MainWakeUpQueue(alignment: alignment, ledger: ledger, uptime: { uptime.now }) { _ in timer }
+        queue = MainWakeUpQueue(energy: energy, ledger: ledger, uptime: { uptime.now }) { _ in timer }
     }
 
     /// Moves the uptime to the armed date and runs the timer's callout.

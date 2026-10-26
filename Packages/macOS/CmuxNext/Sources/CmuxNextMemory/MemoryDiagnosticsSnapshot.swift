@@ -114,10 +114,12 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     public var workspaces: [Workspace]
     public var terminal: Terminal
     public var spares: [Spare]
+    /// The local memory histograms (``MemoryHistograms``).
+    public var histograms: MemoryHistograms.Snapshot
 
     public init(report: MemoryReport, kernelLevel: MemoryPressureLevel, override: MemoryPressureLevel?,
                 history: MemoryPressureHistory.Snapshot, tabs: [Tab], workspaces: [Workspace], terminal: Terminal,
-                spares: [Spare]) {
+                spares: [Spare], histograms: MemoryHistograms.Snapshot = .empty) {
         self.report = report
         self.kernelLevel = kernelLevel
         self.override = override
@@ -126,6 +128,7 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         self.workspaces = workspaces
         self.terminal = terminal
         self.spares = spares
+        self.histograms = histograms
     }
 
     /// The WebContent processes of the tabs and spares, each once, for the sampler.
