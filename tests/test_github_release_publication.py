@@ -551,6 +551,10 @@ class TransportTests(unittest.TestCase):
         with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 self.rate_limited_publish(refused)
+        for bad in ("", "-50", "nan", "inf", "1e9", "12.5"):
+            ledger.write_text(bad)
+            with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+                self.assertEqual(publisher._ledger_spent(), 3600.0, bad)
         missing = self.root / "none" / "waited"
         with patch.object(publisher, "_LEDGER", missing):
             self.assertEqual(publisher._ledger_spent(), 0.0)

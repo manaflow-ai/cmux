@@ -68,10 +68,9 @@ def _ledger_spent() -> float:
         return 0.0
     except OSError:
         return _job_cap()
-    try:
-        return float(text or 0)
-    except ValueError:
-        return _job_cap()
+    # Only a whole number of seconds is a ledger (both writers write one); anything else, an empty
+    # file from an interrupted write included, is unknown and so the whole hour.
+    return float(text) if text.isdigit() and text.isascii() else _job_cap()
 
 
 def _job_spent() -> float:
@@ -97,7 +96,10 @@ def _record_job_wait(seconds: float) -> None:
     _waited_here += seconds
     try:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
-        _LEDGER.write_text(str(int(total)))
+        # Written whole and renamed into place, so a reader never sees a partial file.
+        partial = _LEDGER.with_name(f"{_LEDGER.name}.{os.getpid()}")
+        partial.write_text(str(int(total)))
+        partial.replace(_LEDGER)
     except OSError as error:
         print(f"could not record the rate-limit wait in {_LEDGER}: {error}", file=sys.stderr, flush=True)
 _write_lock = threading.Lock()

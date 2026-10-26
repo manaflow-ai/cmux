@@ -91,7 +91,7 @@ wait_for_budget() {
   log_wait "$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)"
   sleep "$want"
   mkdir -p "$ledger_dir"
-  echo $((spent + want)) >"$ledger_dir/waited"
+  echo $((spent + want)) >"$ledger_dir/waited.$$" && mv -f "$ledger_dir/waited.$$" "$ledger_dir/waited"
 }
 
 if [ "${1:-}" = "--install" ]; then
