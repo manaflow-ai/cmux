@@ -26,9 +26,9 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 0 by default; Lawrence 2026-10-20) and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
 /// focus, and stay shown, "…" lit, while the pane is zoomed. Their width is kept while they are faded,
-/// so no tab moves when they appear; "…" slides right into its slot as it fades in (not under Reduce
-/// Motion). "…"'s menu opens on press (press-drag-release) and lists what opens in the pane, then the
-/// actions without a button, Search Tabs, then Show in Tab Bar.
+/// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
+/// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
+/// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.
 public final class PaneToolbarView: NSView {
     /// "…"'s menu; nil or empty offers nothing.
     public var moreMenu: (() -> NSMenu?)?
@@ -64,8 +64,6 @@ public final class PaneToolbarView: NSView {
         }
         moreButton.isHidden = true
         addSubview(moreButton)
-        // "…" slides right into its slot as it fades in, and back as it fades out (Lawrence 2026-10-20).
-        reveal.onChange = { [weak self] revealed in self?.slideMore(revealed: revealed) }
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         reveal.restAlpha = TabTunables.restingControlOpacity.value
@@ -146,37 +144,19 @@ public final class PaneToolbarView: NSView {
         // only at the leading end.
         let y = Self.edgeInset(height: bounds.height)
         func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
-        moreButton.frame = moreFrame(revealed: reveal.isRevealed)
+        moreButton.frame = moreFrame()
         for (index, button) in buttons.enumerated() {
             button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
         }
         applyTint()
     }
 
-    /// "…"'s frame: the trailing slot when `revealed`; at rest a short way left of it, so the reveal
-    /// moves it right. Reduce Motion (or animations off) keeps it in the slot: the fade alone.
-    /// The resting frame may start left of this view's bounds (a bar with "…" alone is one slot wide):
-    /// that part is invisible at rest and takes no clicks, since AppKit hit-tests inside the bounds only.
-    func moreFrame(revealed: Bool) -> NSRect {
+    /// The trailing slot is independent of hover, focus and menu holds. HoverReveal owns only
+    /// opacity, so the glyph and its hit target stay aligned throughout the fade.
+    func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
         let inset = Self.edgeInset(height: bounds.height)
-        let slot = max(0, bounds.width - inset - side)
-        let x = revealed || !Motion.tabs.animatesMovement ? slot : slot - Self.moreSlide
-        return NSRect(x: x, y: inset, width: side, height: side)
-    }
-
-    /// How far "…" travels as it appears: two grid steps.
-    private static var moreSlide: CGFloat { Metrics.space2 * 2 }
-
-    /// Moves "…" with the reveal's fade (same `MotionFade.hover` timing).
-    private func slideMore(revealed: Bool) {
-        let target = moreFrame(revealed: revealed)
-        guard moreButton.frame != target else { return }
-        guard Motion.tabs.animatesMovement, window != nil else {
-            moreButton.frame = target
-            return
-        }
-        Motion.feedback.animate(.hover, in: self) { moreButton.animator().frame = target }
+        return NSRect(x: max(0, bounds.width - inset - side), y: inset, width: side, height: side)
     }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
