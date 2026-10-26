@@ -65,7 +65,9 @@ fn spawn_with_extra(args: &[&str], fd: RawFd, extra_fd: Option<RawFd>) -> Child 
             if libc::fcntl(fd, libc::F_DUPFD, 200) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            if let Some(extra_fd) = extra_fd && libc::fcntl(extra_fd, libc::F_SETFD, 0) < 0 {
+            if let Some(extra_fd) = extra_fd
+                && libc::fcntl(extra_fd, libc::F_SETFD, 0) < 0
+            {
                 return Err(std::io::Error::last_os_error());
             }
             libc::signal(libc::SIGALRM, libc::SIG_DFL);
