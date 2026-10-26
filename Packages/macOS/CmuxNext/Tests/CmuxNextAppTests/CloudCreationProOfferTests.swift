@@ -24,6 +24,7 @@ import Testing
         let url = URL(string: "https://cmux.com/pricing")
         let (creation, offers) = await run(failingWith: CloudAPIError.planRequired(message: "Cloud VMs require a cmux Pro subscription.", upgradeURL: url))
         #expect(offers == [CloudMachineCreation.ProRefusal(message: "Cloud VMs require a cmux Pro subscription.", upgradeURL: url)])
+        #expect(creation.planRefusal?.plan == "pro")
         guard case .failed = creation.phase else { Issue.record("creation did not fail: \(creation.phase)"); return }
     }
 
@@ -32,9 +33,23 @@ import Testing
         #expect(offers == [CloudMachineCreation.ProRefusal(message: nil, upgradeURL: nil)])
     }
 
+    @Test func aMaxRefusalNamesMaxForTheCaller() async {
+        let url = URL(string: "https://cmux.com/api/billing/checkout?plan=max")
+        let (creation, offers) = await run(failingWith: CloudAPIError.planRequired(message: "This month's compute budget is used up.", upgradeURL: url, plan: "max"))
+        let refusal = CloudMachineCreation.ProRefusal(message: "This month's compute budget is used up.", upgradeURL: url, plan: "max")
+        #expect(offers == [refusal])
+        #expect(creation.planRefusal == refusal)
+    }
+
+    @Test func theAppServersPlanRequiredNamesItsPlan() async {
+        let (creation, _) = await run(failingWith: CloudAppOpFailure(code: CloudAppOpFailure.planRequired, message: "this size needs Max", details: .object(["plan": .string("max")])))
+        #expect(creation.planRefusal?.plan == "max")
+    }
+
     @Test func anOrdinaryRefusalOffersNothing() async {
         let (creation, offers) = await run(failingWith: CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "This plan allows 3 active Cloud VMs at a time."))
         #expect(offers.isEmpty)
+        #expect(creation.planRefusal == nil)
         guard case .failed = creation.phase else { Issue.record("creation did not fail: \(creation.phase)"); return }
     }
 }

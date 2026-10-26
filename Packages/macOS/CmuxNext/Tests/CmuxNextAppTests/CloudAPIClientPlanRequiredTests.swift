@@ -2,9 +2,9 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// A create the plan does not include comes back as the typed Pro refusal the
-/// app turns into its Upgrade to cmux Pro dialog; a paid plan's ordinary limit
-/// stays a plain HTTP refusal. Bodies are the server's own (web/services/vms/routeHelpers.ts).
+/// A create the plan does not include comes back as the typed plan refusal (Pro
+/// for the app's Upgrade to cmux Pro dialog, Max for a Pro plan's limits); a paid
+/// plan's ordinary limit and a credits top-up stay plain HTTP refusals. Bodies are the server's own (web/services/vms/routeHelpers.ts).
 @Suite(.serialized)
 struct CloudAPIClientPlanRequiredTests {
     nonisolated final class RefusingAPI: URLProtocol {
@@ -50,13 +50,23 @@ struct CloudAPIClientPlanRequiredTests {
                                                           upgradeURL: URL(string: "https://cmux.com/pricing")))
     }
 
-    @Test func aProBudgetThatNamesMaxStaysAnHTTPRefusal() async {
+    @Test func aProBudgetThatNamesMaxIsAMaxPlanRefusal() async {
         let error = await create(answering: #"""
             {"error":"vm_compute_budget_reached","message":"This month's compute budget is used up.",
              "upgradeRequired":true,"upgradePlanId":"max","upgradeUrl":"https://cmux.com/api/billing/checkout?plan=max"}
             """#)
-        #expect(error as? CloudAPIError == .http(status: 402, code: "vm_compute_budget_reached",
-                                                  message: "This month's compute budget is used up."))
+        #expect(error as? CloudAPIError == .planRequired(message: "This month's compute budget is used up.",
+                                                          upgradeURL: URL(string: "https://cmux.com/api/billing/checkout?plan=max"),
+                                                          plan: "max"))
+    }
+
+    @Test func aCreditsTopUpStaysAnHTTPRefusal() async {
+        let error = await create(answering: #"""
+            {"error":"vm_create_credits_insufficient","message":"You are out of Cloud credits.",
+             "upgradeRequired":true,"upgradePlanId":"max","upgradeUrl":"https://cmux.com/api/billing/checkout?plan=max"}
+            """#)
+        #expect(error as? CloudAPIError == .http(status: 402, code: "vm_create_credits_insufficient",
+                                                  message: "You are out of Cloud credits."))
     }
 
     @Test func aPaidPlansLimitStaysAnHTTPRefusal() async {

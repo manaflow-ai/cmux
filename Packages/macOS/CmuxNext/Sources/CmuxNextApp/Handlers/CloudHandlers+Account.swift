@@ -64,6 +64,9 @@ extension CloudHandlers {
             // A person, the CLI or Chief asked for a machine cmux Pro would allow: the
             // person sees one offer; Upgrade opens the refusal's checkout, else pricing.
             planRequired: { refusal in
+                // The dialog sells Pro only; a refusal that needs Max shows as the creation's failure,
+                // and a CLI or Chief caller gets its plan (`cloud.plan.required`) to offer a checkout.
+                guard refusal.plan == "pro" else { return }
                 // One offer at a time: a repeated create (Retry, the CLI, Chief) adds no second one.
                 guard !cloud.proOfferOpen else { return }
                 let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in

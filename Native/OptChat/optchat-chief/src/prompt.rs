@@ -185,8 +185,9 @@ macro_rules! home_rule {
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
-  checkout --plan <pro|max|team> --json`, say where the Stripe page opened,
-  and that nothing is charged until the user pays there.
+  checkout --plan <pro|max|team> --json` (`--no-open` when the app already
+  shows its upgrade dialog), give the Stripe `url` as a link, and say that
+  nothing is charged until the user pays there.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its

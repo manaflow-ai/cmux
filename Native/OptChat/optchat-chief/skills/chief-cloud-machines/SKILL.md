@@ -59,12 +59,21 @@ run it again before deciding there is no machine.
   and `.result.target`, or `.result.pending: true` while the server still
   provisions (list the machines again later; never ask for a second machine).
   "declined" means the user said no: stop.
-- Cloud machines come with cmux Pro. When a create fails with a reason that
-  names cmux Pro, the app shows the user an Upgrade to cmux Pro dialog when a
-  cmux window is open. Say once, in one line, what the reason said; do not
-  retry, and do not mention Pro when Cloud works. Start a checkout yourself
-  (the `paid-plans` skill) only when the user asks for it or no dialog could
-  show (no cmux window), never on top of the dialog.
+- Cloud machines come with a paid plan. A create the plan does not allow
+  fails with error code `cloud.plan.required`, and its message ends with
+  `(plan: pro)` (no plan yet: a free or Go account) or `(plan: max)` (a Pro
+  plan's budget, pool or a size only Max has). Do not retry it. Give the user
+  a link to pay for that plan in the same reply:
+  `cmux --json billing checkout --plan <pro|max> --no-open` answers the Stripe
+  Checkout `url` without opening anything (the app may already show an
+  Upgrade to cmux Pro dialog; never open a second page on top of it). Say in
+  one line what the reason said and what the plan adds (the `paid-plans`
+  skill has the prices), give the `url` as a link, and say nothing is charged
+  until they pay there. On a `billing.live_off` or `billing_unavailable`
+  error give https://cmux.com/pricing instead; on `flow: portal` say the page
+  switches their current plan. When they say they paid, check
+  `cmux --json billing status` and run the create once more. Do not mention
+  plans when Cloud works.
 
 ## 2. Run commands
 
