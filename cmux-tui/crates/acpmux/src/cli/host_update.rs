@@ -256,6 +256,24 @@ fn build_commit(build: &str) -> Option<&str> {
     (hash.len() >= 7 && hash != "nogit").then_some(hash)
 }
 
+/// Whether the build `running` must not be replaced by `pushing` under
+/// `--keep-newer`: it has local changes (`+dirty`, someone's own build), or
+/// it was built on a later day than `pushing` (a host's self-update timer
+/// moved it past the build being pushed). A build with no date is not newer.
+fn keeps_over(running: &str, pushing: &str) -> Option<&'static str> {
+    let head = running.split_whitespace().next()?;
+    if head.contains("+dirty.") {
+        return Some("ownBuild");
+    }
+    fn date(build: &str) -> Option<&str> {
+        build.split_whitespace().nth(1).filter(|d| d.len() == 10)
+    }
+    match (date(running), date(pushing)) {
+        (Some(running), Some(pushing)) if running > pushing => Some("newer"),
+        _ => None,
+    }
+}
+
 /// Whether two build ids name one commit (short hashes of two lengths too).
 fn same_commit(a: &str, b: &str) -> bool {
     match (build_commit(a), build_commit(b)) {
@@ -441,6 +459,9 @@ pub(crate) struct UpdateOptions {
     pub binary_dir: Option<PathBuf>,
     /// Leave a peer whose sessions run a turn or wait on a permission alone.
     pub if_idle: bool,
+    /// Leave a peer on a later day's build or on a build with local changes
+    /// alone (`current`, reason `newer` or `ownBuild`), checked under the lock.
+    pub keep_newer: bool,
     /// The session this command runs in, and its daemon.
     pub caller: Option<Caller>,
 }
