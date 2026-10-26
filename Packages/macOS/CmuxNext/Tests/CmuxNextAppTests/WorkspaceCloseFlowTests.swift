@@ -4,9 +4,11 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// Close Workspace at the press (`WorkspaceCloseFlow`): Cmd-Shift-W looked like it did nothing
-/// because the row moved only after a process-info round trip per terminal (the "still running"
-/// question, up to 1 s each), and not at all while the daemon was slow.
+/// Close Workspace (`WorkspaceCloseFlow`). First Cmd-Shift-W looked like it did nothing because the
+/// row moved only after a process-info round trip per terminal; then the row left at the press and
+/// the "still running" question came up behind it, so the person watched the row animate away
+/// before being asked, and Cancel had to bring it back. Now a close that can ask keeps its row until
+/// the answer, and only a close that cannot ask leaves at the press.
 @MainActor @Suite(.serialized) struct WorkspaceCloseFlowTests {
     /// What the flow did, in order.
     @MainActor private final class Log {
@@ -32,12 +34,26 @@ import Testing
         }
     }
 
+    /// Holds the person's answer until the test gives it (the question is up).
+    @MainActor private final class Gate {
+        private var continuation: CheckedContinuation<Bool, Never>?
+        var isWaiting: Bool { continuation != nil }
+
+        func wait() async -> Bool { await withCheckedContinuation { continuation = $0 } }
+
+        func open(_ closes: Bool) {
+            continuation?.resume(returning: closes)
+            continuation = nil
+        }
+    }
+
     private static let running = DestructiveConfirmation.Prompt(title: "Close “one”?", body: "sleep is still running", button: "Close")
 
-    private func flow(_ id: String, closing: ClosingWorkspaces, log: Log, pending: Pending, closes: Bool = true,
+    private func flow(_ id: String, closing: ClosingWorkspaces, log: Log, pending: Pending, closes: Bool = true, mayAsk: Bool = true,
                       exists: @escaping @MainActor () -> Bool = { true }) -> WorkspaceCloseFlow {
         WorkspaceCloseFlow(
             hide: { log.steps.append("hide"); return closing.begin(id, among: [id, "other"]) },
+            mayAsk: { mayAsk },
             question: {
                 log.steps.append("ask process-info")
                 guard await pending.question() != nil else { return nil }
@@ -53,46 +69,83 @@ import Testing
                     closing.end(id, refused: false, in: nil)
                     return nil
                 }
-            },
-            restore: { hidden in
-                log.steps.append("restore")
-                if hidden { closing.end(id, refused: false, in: nil) }
             })
     }
 
-    @Test func theRowLeavesBeforeAnyTerminalAnswers() async throws {
+    @Test func theRowStaysWhileTheTerminalsAnswer() async throws {
         let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
         let work = try #require(flow("one", closing: closing, log: log, pending: pending).start("one", asks: true))
-        // In the press's turn: hidden, and nothing waits on the daemon yet.
-        #expect(closing.ids == ["one"])
-        #expect(log.steps == ["hide"])
+        // In the press's turn: nothing hidden, nothing sent.
+        #expect(closing.ids.isEmpty)
+        #expect(log.steps.isEmpty)
         while !pending.isAsked { await Task.yield() }
-        // The terminals have not answered: the row stays gone, nothing was sent.
-        #expect(closing.ids == ["one"])
-        #expect(log.steps == ["hide", "ask process-info"])
+        // The terminals have not answered: the row is still listed.
+        #expect(closing.ids.isEmpty)
+        #expect(log.steps == ["ask process-info"])
         pending.answer(nil)
         #expect(await work.value == nil)
-        #expect(log.steps == ["hide", "ask process-info", "send"])
+        // Nothing runs: the row leaves, then the close is sent.
+        #expect(log.steps == ["ask process-info", "hide", "send"])
         #expect(closing.ids.isEmpty)
     }
 
-    @Test func cancellingTheQuestionListsTheRowAgainAndSendsNothing() async throws {
+    @Test func theRowStaysWhileTheQuestionIsUpAndLeavesOnlyAfterClose() async throws {
+        let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
+        let gate = Gate()
+        let close = WorkspaceCloseFlow(
+            hide: { log.steps.append("hide"); return closing.begin("one", among: ["one", "other"]) },
+            mayAsk: { true },
+            question: {
+                log.steps.append("ask process-info")
+                guard await pending.question() != nil else { return nil }
+                return {
+                    log.steps.append("question")
+                    return await gate.wait()
+                }
+            },
+            exists: { true },
+            send: { _ in log.steps.append("send"); return Task { @MainActor in nil } })
+        let work = try #require(close.start("one", asks: true))
+        while !pending.isAsked { await Task.yield() }
+        pending.answer(Self.running)
+        while !gate.isWaiting { await Task.yield() }
+        // The question is up: the row has not moved.
+        #expect(closing.ids.isEmpty)
+        #expect(log.steps == ["ask process-info", "question"])
+        gate.open(true)
+        _ = await work.value
+        #expect(log.steps == ["ask process-info", "question", "hide", "send"])
+        #expect(closing.ids == ["one"])
+    }
+
+    @Test func cancellingTheQuestionNeverHidesTheRowAndSendsNothing() async throws {
         let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
         let work = try #require(flow("one", closing: closing, log: log, pending: pending, closes: false).start("one", asks: true))
         while !pending.isAsked { await Task.yield() }
         pending.answer(Self.running)
         _ = await work.value
-        #expect(log.steps == ["hide", "ask process-info", "question", "restore"])
+        #expect(log.steps == ["ask process-info", "question"])
         #expect(closing.ids.isEmpty)
+        #expect(!WorkspaceCloseFlow.running.contains("one"))
     }
 
-    @Test func closeInTheQuestionSendsIt() async throws {
+    @Test func closeInTheQuestionHidesThenSendsIt() async throws {
         let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
         let work = try #require(flow("one", closing: closing, log: log, pending: pending).start("one", asks: true))
         while !pending.isAsked { await Task.yield() }
         pending.answer(Self.running)
         _ = await work.value
-        #expect(log.steps == ["hide", "ask process-info", "question", "send"])
+        #expect(log.steps == ["ask process-info", "question", "hide", "send"])
+    }
+
+    @Test func aCloseThatCannotAskLeavesAndQueuesInThePressTurn() async throws {
+        let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
+        let work = try #require(flow("one", closing: closing, log: log, pending: pending, mayAsk: false).start("one", asks: true))
+        // Idle shells at their prompt: instant, no daemon read.
+        #expect(log.steps == ["hide", "send"])
+        _ = await work.value
+        #expect(log.steps == ["hide", "send"])
+        #expect(!pending.isAsked)
     }
 
     @Test func aSecondPressDuringTheCloseSendsNothing() async throws {
@@ -133,7 +186,7 @@ import Testing
         listed.on = false
         pending.answer(Self.running)
         _ = await work.value
-        #expect(log.steps == ["hide", "ask process-info", "restore"])
+        #expect(log.steps == ["ask process-info"])
         #expect(closing.ids.isEmpty)
     }
 }
