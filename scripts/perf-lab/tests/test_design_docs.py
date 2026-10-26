@@ -5,8 +5,9 @@ Run: python3 -m unittest scripts/perf-lab/tests/test_design_docs.py
 
 - Section 7.1 of plans/cmux-next/perf-lab-DESIGN.md is a table of (constant, value, code). A code cell
   `path::NAME` is a module-level constant, read from the file's syntax tree without running it. A code cell
-  `path::expression` is evaluated in that perf-lab module (scripts/perf-lab/ only). A float in the doc matches when
-  the code's value rounds to it at the doc's number of decimals; every other value must be equal.
+  `path::expression` is evaluated in that perf-lab module (scripts/perf-lab/ only). A value equals the code's value
+  exactly, with the same type. Only a value cell marked `≈` (a computed p-value or threshold lookup) matches when the
+  code's value rounds to it at the doc's number of decimals.
 - The state line of plans/cmux-next/perf-sheriff.md lists store.py ALERT_GROUP_STATES in order.
 - Every relative Markdown link of the perf-lab docs points to a file that exists, and an anchor to a heading in it.
 """
@@ -25,6 +26,7 @@ DESIGN = "plans/cmux-next/perf-lab-DESIGN.md"
 SHERIFF = "plans/cmux-next/perf-sheriff.md"
 DOCS = (DESIGN, SHERIFF, "plans/cmux-next/perf-lead.md", "plans/cmux-next/PATTERNS.md", "plans/cmux-next/OWNERS.md")
 CODE_CELL = re.compile(r"^`([^`:]+)::(.+)`$")
+VALUE_CELL = re.compile(r"^(≈ )?`(.+)`$")
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 
 
@@ -98,10 +100,12 @@ def code_value(rel, expression):
     return eval(expression, vars(lab_module(rel)))  # noqa: S307 - the expression is a reviewed doc cell
 
 
-def matches(doc_value, value):
-    """The doc value equals the code value; a doc float matches the code rounded to the doc's decimals."""
-    if isinstance(doc_value, float) and isinstance(value, (int, float)) and not isinstance(value, bool):
-        return round(value, len(repr(doc_value).split(".")[1])) == doc_value
+def matches(doc_value, value, approximate=False):
+    """The doc value equals the code value with the same type; an approximate doc float is the code value rounded
+    to the doc's decimals."""
+    if approximate:
+        return (isinstance(doc_value, float) and type(value) is float
+                and round(value, len(repr(doc_value).split(".")[1])) == doc_value)
     return type(doc_value) is type(value) and doc_value == value
 
 
@@ -119,16 +123,24 @@ class ConstantsMatchCode(unittest.TestCase):
     def test_every_value_matches_its_code(self):
         for label, cell, rel, expression in constant_rows():
             with self.subTest(constant=label):
-                self.assertTrue(cell.startswith("`") and cell.endswith("`"), cell)
-                doc_value = ast.literal_eval(cell[1:-1])
+                match = VALUE_CELL.match(cell)
+                self.assertIsNotNone(match, cell)
+                doc_value = ast.literal_eval(match.group(2))
                 value = code_value(rel, expression)
-                self.assertTrue(matches(doc_value, value),
+                self.assertTrue(matches(doc_value, value, approximate=bool(match.group(1))),
                                 "%s: the doc says %r, %s::%s is %r" % (label, doc_value, rel, expression, value))
 
     def test_a_changed_value_fails(self):
-        # The comparison itself: one decimal off, a wrong type or a reordered tuple never passes.
-        self.assertTrue(matches(0.0195, 0.01945044401695495))
-        self.assertFalse(matches(0.0196, 0.01945044401695495))
+        # The comparison itself: a code value past the doc's last digit, a wrong type or a reordered tuple never passes.
+        for doc_value, value in ((0.1, 0.14), (0.5, 0.54), (2.5, 2.54), (0.95, 0.954), (1.05, 1.054), (0.01, 0.012),
+                                 (1.0, 62 / 60), (10.0, 10.04), (2.0, 2.033)):
+            self.assertFalse(matches(doc_value, value), (doc_value, value))
+        self.assertTrue(matches(0.1, 0.1))
+        # Only a cell marked approximate rounds, and only a float.
+        self.assertTrue(matches(0.0195, 0.01945044401695495, approximate=True))
+        self.assertFalse(matches(0.0195, 0.01945044401695495))
+        self.assertFalse(matches(0.0196, 0.01945044401695495, approximate=True))
+        self.assertFalse(matches(2.0, 2, approximate=True))
         self.assertFalse(matches(60, 60.0))
         self.assertFalse(matches(("a", "b"), ("b", "a")))
         self.assertFalse(matches(3, True))

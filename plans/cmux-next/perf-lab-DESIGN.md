@@ -147,8 +147,11 @@ The port is line by line at catapult commit `0e8f52413a40b5c868739293e7844280412
 ### 7.1 Values in code
 
 `scripts/perf-lab/tests/test_design_docs.py` reads this table and compares each value with the code. A cell
-`path::NAME` is a module-level constant of that file. A cell `path::Call(...)` is a call into that perf-lab module. When
-you change one side, change the other side in the same commit.
+`path::NAME` is a module-level constant of that file. A cell `path::Call(...)` is a call into that perf-lab module. A
+value must equal the code's value exactly, with the same type. Only a value marked `≈` (a computed p-value) is the
+code's value rounded to the decimals shown. When you change one side, change the other side in the same commit.
+The test is in the perf-lab suite: run `python3 -m unittest discover -s scripts/perf-lab/tests` when you change a
+perf-lab file or one of the perf-lab docs.
 
 | Constant | Value | cmux code | Chromium or catapult source |
 | --- | --- | --- | --- |
@@ -161,10 +164,10 @@ you change one side, change the other side in the same commit.
 | Performance table rows (0.3 to 4.0 IQR) | `38` | `scripts/perf-lab/pinpoint_thresholds.py::len(_HIGH_THRESHOLDS_PERFORMANCE)` | same |
 | Functional table rows (0.1 to 1.0 rate) | `10` | `scripts/perf-lab/pinpoint_thresholds.py::len(_HIGH_THRESHOLDS_FUNCTIONAL)` | `compare/thresholds.py` `_HIGH_THRESHOLDS_FUNCTIONAL` |
 | sha256 of the threshold tables | `"afe6ac6d7b187c28a1923e8c0eced4a08b692a7fcdb7282d2ac20ad35d7d88af"` | `scripts/perf-lab/pinpoint_thresholds.py::TABLE_SHA256` | `compare/thresholds.py` at the commit above |
-| MWU p, `[0]*20` vs `[0]*15+[1]*5` | `0.0195` | `scripts/perf-lab/perf_stats.py::MannWhitneyU([0] * 20, [0] * 15 + [1] * 5)` | `compare/mann_whitney_u.py` |
-| KS p, `[0]*20` vs `[0]*15+[1]*5` | `0.4973` | `scripts/perf-lab/perf_stats.py::KolmogorovSmirnov([0] * 20, [0] * 15 + [1] * 5)` | `compare/kolmogorov_smirnov.py` |
-| MWU p, `range(10,30)` vs `range(10)+range(30,40)` | `0.9892` | `scripts/perf-lab/perf_stats.py::MannWhitneyU(list(range(10, 30)), list(range(10)) + list(range(30, 40)))` | `compare/mann_whitney_u.py` |
-| KS p, `range(10,30)` vs `range(10)+range(30,40)` | `0.0082` | `scripts/perf-lab/perf_stats.py::KolmogorovSmirnov(list(range(10, 30)), list(range(10)) + list(range(30, 40)))` | `compare/kolmogorov_smirnov.py` |
+| MWU p, `[0]*20` vs `[0]*15+[1]*5` | ≈ `0.0195` | `scripts/perf-lab/perf_stats.py::MannWhitneyU([0] * 20, [0] * 15 + [1] * 5)` | `compare/mann_whitney_u.py` |
+| KS p, `[0]*20` vs `[0]*15+[1]*5` | ≈ `0.4973` | `scripts/perf-lab/perf_stats.py::KolmogorovSmirnov([0] * 20, [0] * 15 + [1] * 5)` | `compare/kolmogorov_smirnov.py` |
+| MWU p, `range(10,30)` vs `range(10)+range(30,40)` | ≈ `0.9892` | `scripts/perf-lab/perf_stats.py::MannWhitneyU(list(range(10, 30)), list(range(10)) + list(range(30, 40)))` | `compare/mann_whitney_u.py` |
+| KS p, `range(10,30)` vs `range(10)+range(30,40)` | ≈ `0.0082` | `scripts/perf-lab/perf_stats.py::KolmogorovSmirnov(list(range(10, 30)), list(range(10)) + list(range(30, 40)))` | `compare/kolmogorov_smirnov.py` |
 | Window for change points | `50` | `scripts/perf-lab/anomaly.py::MAX_WINDOW_SIZE` | `common/defaults.py` `MAX_WINDOW_SIZE` |
 | Points on each side of a step | `6` | `scripts/perf-lab/anomaly.py::MIN_SEGMENT_SIZE` | `common/defaults.py` `MIN_SEGMENT_SIZE` |
 | Absolute change (the lab uses the row floor, read by reference) | `0` | `scripts/perf-lab/anomaly.py::MIN_ABSOLUTE_CHANGE` | `common/defaults.py` `MIN_ABSOLUTE_CHANGE` |

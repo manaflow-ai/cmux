@@ -13,8 +13,9 @@ The sheriff is not a CI gate. It never holds a merge, never adds a CI job, a che
 person for a normal-tier fix.
 
 The commands below run `scripts/perf-lab/sheriff.py` and `scripts/perf-lab/alerts.py` directly. When these modules
-declare `LAB_COMMANDS`, the same commands also run as `lab.py sheriff` and `lab.py alerts`. Every command reads the
-lab store from `--db` or `$CMUX_PERF_LAB_DB`. labd makes and migrates the store. The commands never make one.
+declare `LAB_COMMANDS`, the same commands also run as `lab.py sheriff` and `lab.py alerts`. `sheriff.py` reads the
+lab store from `--db` or `$CMUX_PERF_LAB_DB`. `alerts.py` needs `--db`; it does not read the environment. labd makes
+and migrates the store. The commands never make one.
 
 ## 1. Rotation
 
@@ -77,19 +78,20 @@ Do the first row that applies.
 
 | # | Condition | Action | Final state |
 | --- | --- | --- | --- |
-| 1 | The `.ref` series moved in the same window | Give the group to the lab owner. Do not bisect. | `lab-drift` |
-| 2 | The story fails, or the step is a story or harness bug | Open a story fix task for the story owner. Do not change budgets or thresholds. | `invalid` |
-| 3 | The culprit is not verified (`culprit_verified` is false: strict not DIFFERENT, or not in the regression direction) | Run one more verification with more attempts. If it is still not strict DIFFERENT, move the group back to `bisecting` with the reason, or set `invalid` when the step itself did not hold. No issue opens. | `culprit` when verified, else `invalid` |
-| 4 | The culprit is behind a `perfPath` feature | Flag-off first: a PR that sets the feature's branch default to off in `schemas/features/features.d/<name>.json`, with the generated files from `python3 scripts/cmux-next/gen-features.py`. Then the owner fixes the code and turns it on again with a try receipt that shows both arms. | `flag-off` |
-| 5 | The culprit is a `killSwitch` feature or needs an off between nightlies | Same as row 4. A remote off with `scripts/features/publish-flags.py` needs decision D2; until then use the branch default. | `flag-off` |
-| 6 | The culprit is not behind a feature | Fix forward. A fixer agent works from the stored traces (task 157). 2 adversarial reviewers check the fix against [REVIEW-STANDARD.md](REVIEW-STANDARD.md). A try job (`lab.py try`) shows the recovery. | `fixed` |
-| 7 | Row 6, and the regression breaks nightly-next, and the fix will not land before the next cut | Revert with `gh-merge-green --revert manaflow-ai/cmux#<number>` (CLAUDE.md, [risk tiers](../../docs/ci/risk-tiers.md#ship-risky-behavior-dark)). Then fix forward. | `fixed` |
-| 8 | The cost is on purpose: a net win on other series, a correctness or security fix, or a wrong metric | Write the reason on the issue with the numbers (Chrome's justification cases in `addressing_performance_regressions.md`). Only the Performance Lead sets `accepted`. | `accepted` |
+| 1 | The group is `new`, `triaged` or `bisecting`, and the `.ref` series moved in the same window | Give the group to the lab owner. Do not bisect. | `lab-drift` |
+| 2 | The group is `culprit` or `assigned`, and the `.ref` series moved in the same window | `sheriff.py` refuses `lab-drift` after `culprit`. Tell the lab owner, and set `invalid` with the drift as the reason. | `invalid` |
+| 3 | The story fails, or the step is a story or harness bug | Open a story fix task for the story owner. Do not change budgets or thresholds. | `invalid` |
+| 4 | The culprit is not verified (`culprit_verified` is false: strict not DIFFERENT, or not in the regression direction) | Verify the culprit again with more attempts (`verify.py` `plan` and `run` with a larger `attempts`, through the Pinpoint executor). If it is still not strict DIFFERENT, move the group back to `bisecting` with the reason, or set `invalid` when the step itself did not hold. No issue opens. | `culprit` when verified; else `bisecting` (bisect again) or `invalid` (the step did not hold) |
+| 5 | The culprit is behind a `perfPath` feature | Flag-off first: a PR that sets the feature's branch default to off in `schemas/features/features.d/<name>.json`, with the generated files from `python3 scripts/cmux-next/gen-features.py`. Then the owner fixes the code and turns it on again with a try receipt that shows both arms. | `flag-off` |
+| 6 | The culprit is a `killSwitch` feature or needs an off between nightlies | Same as row 5. A remote off with `scripts/features/publish-flags.py` needs decision D2; until then use the branch default. | `flag-off` |
+| 7 | The culprit is not behind a feature | Fix forward. A fixer agent works from the stored traces (task 157). 2 adversarial reviewers check the fix against [REVIEW-STANDARD.md](REVIEW-STANDARD.md). A try job (`lab.py try`) shows the recovery. | `fixed` |
+| 8 | Row 7, and the regression breaks nightly-next, and the fix will not land before the next cut | Revert with `gh-merge-green --revert manaflow-ai/cmux#<number>` (CLAUDE.md, [risk tiers](../../docs/ci/risk-tiers.md#ship-risky-behavior-dark)). Then fix forward. | `fixed` |
+| 9 | The cost is on purpose: a net win on other series, a correctness or security fix, or a wrong metric | Write the reason on the issue with the numbers (Chrome's justification cases in `addressing_performance_regressions.md`). Only the Performance Lead sets `accepted`. | `accepted` |
 
 ## 5. Fix-or-revert policy
 
 - Fix forward is the default. `main` is nightly: fix forward, do not revert (CLAUDE.md). On `feat-cmux-next`, a
-  revert is only row 7, and only with `gh-merge-green --revert`. Never `--admin`, never `--override`, never the API
+  revert is only row 8, and only with `gh-merge-green --revert`. Never `--admin`, never `--override`, never the API
   merge path to get around `gh-merge-green`.
 - A flag-off PR and a revert PR take back a change. When that change merged in the last week, the PR description has
   the line `Takes back #N: <why>` (the take-back hold, CLAUDE.md). It also has a `risk:` label
@@ -117,6 +119,7 @@ Do the first row that applies.
 | `python3 -I scripts/perf-lab/lab.py aa --cv-over 0.05 --json` | Noisy series (MQ11). |
 | `python3 scripts/cmux-next/gen-features.py` | Regenerate the feature files after a default flip. |
 
-`lab.py try` (task 018), `lab.py aa` (task 024) and the workflow (task 020) are not on the branch yet. Until the lab
+`lab.py try` (task 018), `lab.py aa` (task 024), the workflow (task 020) and a command that verifies a culprit again
+(`verify.py` has no command line; the Pinpoint executor, task 016, runs it) are not on the branch yet. Until the lab
 owns measurement (task 026), the perf cron (`scripts/cmux-next/perf-cron.py`) and its single issue
 "cmux-next perf regression" are the regression report.
