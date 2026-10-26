@@ -27,6 +27,7 @@ export function messagePreview(text: string): string {
 // Both directions keep nested actions independent of the row's pointer disclosure.
 export function toggleAgentMessageLine(event: MouseEvent<HTMLElement>, toggle: () => void): void {
   if ((event.target as Element).closest("button, a, input, textarea, select, summary, [role=button]")) return;
+  if (event.currentTarget.ownerDocument.getSelection()?.isCollapsed === false) return;
   toggle();
 }
 

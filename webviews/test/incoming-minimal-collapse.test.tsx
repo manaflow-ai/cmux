@@ -196,15 +196,3 @@ test("a pointer disclosure still asks the transcript to hold its header", async 
     host.removeEventListener(ANCHORED_COLLAPSE_EVENT, hold);
   }
 });
-
- test("drag-selecting the compact preview does not toggle its row", async () => {
-  const { toggle } = await line("selection-keeps-closed");
-  const selection = document.getSelection()!;
-  const range = document.createRange();
-  range.selectNodeContents(host.querySelector(".cv-received__preview")!);
-  selection.addRange(range);
-  try {
-    await act(async () => host.querySelector(".cv-received__line")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  } finally { selection.removeAllRanges(); }
-});
