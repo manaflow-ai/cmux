@@ -499,6 +499,12 @@ its QoS and its target.
   `com.cmuxterm.chromium-host.control` (user-initiated; the control channel's reader in cmux and, same label, in the host;
   waits only in `poll`: input, the socket taking a waiting outbox, a wake byte, the quota ceiling's one deadline),
   `com.cmuxterm.chromium-host.exit` (user-initiated serial queue for the host's exit source; a crash shows on the page),
+  `com.cmuxterm.chromium-host.input` (in the host, fixed at user-interactive: a thread waiting in a plain kqueue gets
+  no QoS override from the doorbell's message; the input ring's reader, `HostInput` in chromium_host_input_ring.h,
+  p01-process-041, started by the host with task 042: waits only in `kevent64` on the Mach doorbell cmux rings when
+  it is parked; one batch at a time waits for the UI thread, so it never grows: a full ring makes cmux keep the rest
+  in its writer's backlog, where keys and clicks always wait and only moves and wheel ticks are bounded; a reader that
+  ends without Stop (a broken ring, a failed kqueue) ends the host),
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
