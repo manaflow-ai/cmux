@@ -200,9 +200,6 @@ extension AppActions {
         return .contact(HomeContact(id: ParticipantID(text), name: text, source: .team))
     }
 
-    /// Runs a headless Home action; the caller (socket, CLI) gets the
-    /// owner's refusal as the action's failure. A conversation it opened
-    /// is selected on the Home page once listed.
     /// task-owner: a CLI or MCP run awaits `work` (`track`); a menu or keyboard run nobody waits on
     /// shows its failure as a refusal, never drops it (Archive Chief on an unreachable Chief did nothing).
     private static func report(_ registry: ActionRegistry, _ work: ActionWork) {
@@ -210,6 +207,9 @@ extension AppActions {
         Task { @MainActor [weak registry] in if let failure = await work.value { registry?.refuse(failure.message) } }
     }
 
+    /// Runs a headless Home action; the caller (socket, CLI) gets the
+    /// owner's refusal as the action's failure. A conversation it opened
+    /// is selected on the Home page once listed.
     private static func runHome(_ services: AppServices, _ body: @escaping @MainActor () async -> HomeComposeOutcome) {
         let work = ActionWork {
             let outcome = await body()

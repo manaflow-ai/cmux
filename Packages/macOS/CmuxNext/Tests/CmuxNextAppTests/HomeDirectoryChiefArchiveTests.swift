@@ -85,6 +85,40 @@ import Testing
         #expect(account.archives == ["agent_side"])
         #expect(account.chiefs["agent_side"]?.archived == true)
         #expect(directory.archivedChiefs.contains("agent_side"))
+        await directory.refreshChiefs()
+        #expect(directory.archivedHere.isEmpty)
+    }
+
+    /// Back online, the cloud fails the archive (busy, an expired session): the Chief stays hidden
+    /// and the next read tries again, instead of the row coming back unasked.
+    @Test func aFailedSyncKeepsTheChiefHiddenAndRetries() async {
+        let account = FakeAccount()
+        account.chiefs = ["agent_main": (true, 1, false), "agent_side": (false, 4, false)]
+        let directory = directory(account)
+        await directory.refreshChiefs()
+        account.offline = true
+        #expect(await directory.archiveChief("agent_side") == .hiddenHere)
+
+        account.offline = false
+        account.refuseArchive = "unavailable"
+        await directory.refreshChiefs()
+        #expect(directory.archivedChiefs.contains("agent_side"))
+
+        account.refuseArchive = nil
+        await directory.refreshChiefs()
+        #expect(account.chiefs["agent_side"]?.archived == true)
+        #expect(account.archives == ["agent_side", "agent_side"])
+    }
+
+    /// An id the account does not have (a typo while signed out) is dropped at the first read.
+    @Test func anUnknownIdIsDroppedAtTheFirstRead() async {
+        let account = FakeAccount()
+        account.chiefs = ["agent_main": (true, 1, false)]
+        account.offline = true
+        let directory = directory(account)
+        #expect(await directory.archiveChief("agent_typo") == .hiddenHere)
+        account.offline = false
+        await directory.refreshChiefs()
         #expect(directory.archivedHere.isEmpty)
     }
 
@@ -97,6 +131,8 @@ import Testing
 
         #expect(await directory.archiveChief("agent_side") == .archived)
         #expect(account.chiefs["agent_side"]?.archived == true)
+        #expect(directory.archivedChiefs.contains("agent_side"))
+        await directory.refreshChiefs()
         #expect(directory.archivedChiefs.contains("agent_side"))
         #expect(directory.archivedHere.isEmpty)
     }

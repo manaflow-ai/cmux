@@ -34,13 +34,15 @@ extension HomeDirectory {
     }
 
     /// After a `chief.list` read: each Chief archived here whose cloud archive is still due gets
-    /// it now; one the cloud lists as archived or deleted needs nothing more from this Mac.
+    /// it now; one the cloud lists as archived or deleted, or does not list at all (not one of
+    /// this account's), needs nothing more from this Mac. A refusal here keeps the Chief hidden
+    /// (nobody waits to read it; the next read tries again).
     func syncArchivedHere() async {
         for id in archivedHere.sorted() {
-            if hiddenCloudChiefs.contains(id) {
+            if hiddenCloudChiefs.contains(id) || !chiefs.contains(where: { $0.id == id }) {
                 setArchivedHere(id, false)
             } else if chiefs.contains(where: { $0.id == id && !$0.isDefault }) {
-                if case .refused = await cloudArchive(id) { setArchivedHere(id, false) }
+                _ = await cloudArchive(id)
             }
         }
     }
@@ -64,8 +66,8 @@ extension HomeDirectory {
             do {
                 _ = try Self.value(try await call("v1/ops", body))
                 return finished(id)
-            } catch FeedServiceError.owner(let code, _) where code == "revision.conflict" && attempt == 0 {
-                guard await readChiefs() else { return .waits }
+            } catch FeedServiceError.owner(let code, _) where code == "revision.conflict" {
+                guard attempt == 0, await readChiefs() else { return .waits }
             } catch FeedServiceError.owner(let code, _) where code == "chief_is_default" {
                 return .waits
             } catch FeedServiceError.owner(let code, _) where code == "selector.not_found" {
@@ -80,10 +82,11 @@ extension HomeDirectory {
         return .waits
     }
 
+    /// The cloud archived it. It stays in `archivedHere` until a list read shows it archived, so a
+    /// read already under way when the archive landed cannot bring the row back.
     private func finished(_ id: String) -> CloudArchive {
         chiefs.removeAll { $0.id == id }
         hiddenCloudChiefs.insert(id)
-        setArchivedHere(id, false)
         return .done
     }
 }
