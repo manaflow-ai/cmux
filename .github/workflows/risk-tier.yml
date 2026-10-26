@@ -89,11 +89,18 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
-        # The risk labels are in .github/labels.json (labels-sync.yml creates them), and the event
-        # carries the pull request's labels: creating four labels and reading the pull request on
-        # every event spent five GITHUB_TOKEN calls a run, hundreds an hour (2026-10-25).
+          LABELS_READ: ${{ steps.grade.outputs.labels_read }}
+          RISK_LABELS: ${{ steps.grade.outputs.risk_labels }}
+        # The risk labels are in .github/labels.json (labels-sync.yml creates them), and the grade
+        # step already read the pull request: creating four labels and reading it again on every
+        # event spent five GITHUB_TOKEN calls a run, hundreds an hour (2026-10-25). A classifier
+        # from before that output falls back to the event's labels.
         run: |
-          current=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+          if [ "$LABELS_READ" = true ]; then
+            current=$(tr ' ' '\n' <<<"$RISK_LABELS")
+          else
+            current=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+          fi
           # risk:medium is the old name for risk:normal.
           for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"

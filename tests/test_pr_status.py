@@ -117,6 +117,25 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(len(reads), 1)
         self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "checks": "red: web / lint"})
 
+    def test_one_shot_sections_and_a_new_comment_are_read_back(self):
+        # The bead line is dispatched once, and a first write may race another first write: both
+        # keep the settle re-read.
+        for existing, key in ((True, "bead"), (False, "checks")):
+            gh = FakeGitHub()
+            if existing:
+                gh.add(pr_status.render({"checks": "red"}))
+            reads = []
+            orig = gh.__call__
+
+            def counting(method, path, payload, orig=orig, reads=reads):
+                if method == "GET":
+                    reads.append(path)
+                return orig(method, path, payload)
+            os.environ.pop("PR_STATUS_CONFIRM", None)
+            pr_status.upsert(REPO, PR, key, "Bead: `cx-abc1`" if key == "bead" else "red: web", api=counting,
+                             sleep=lambda _: None)
+            self.assertEqual(len(reads), 2, key)
+
     def test_comments_already_read_are_not_read_again(self):
         gh = FakeGitHub()
         gh.add(pr_status.render({"gallery": "old"}))
