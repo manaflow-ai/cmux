@@ -46,12 +46,13 @@ final class AppControl {
 
     var socketPath: String? { service?.socketPath }
 
-    private var inputMonitor: Any?
+    private let input: any InputObserving  // the app's input tap: input explains CPU use to the busy watchdog
+    private var inputSubscription: InputSubscription?
 
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board.
-    init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
+    ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
+    init(mainWork: MainWorkScheduler, input: any InputObserving) {
+        (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
         let terminalDisplay = DebugTerminalDisplayProbe()
@@ -73,13 +74,13 @@ final class AppControl {
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
-        inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-                                                                   .leftMouseDragged, .rightMouseDragged, .scrollWheel,
-                                                                   .mouseMoved, .magnify, .swipe]) { event in
-            ExpectedActivity.shared.note(.input)
-            return event
-        }
+        inputSubscription = input.observe(types: Self.activityInput) { _ in ExpectedActivity.shared.note(.input) }
     }
+
+    /// The input that explains CPU use to the busy watchdog: key-downs, mouse-downs, left and right
+    /// drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
+    static let activityInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
+                                                 .rightMouseDragged, .scrollWheel, .mouseMoved, .magnify, .swipe]
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,

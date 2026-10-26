@@ -45,6 +45,7 @@ package nonisolated struct DiscardRule: Sendable {
     /// The kinds of content the rule is checked for.
     package let kinds: Set<ContentKind>
     private let test: @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool
+    private let expiry: (@Sendable (ContentDiscardPlanner.Candidate) -> Double?)?
 
     /// Makes a rule.
     ///
@@ -54,14 +55,18 @@ package nonisolated struct DiscardRule: Sendable {
     ///   - discardReasons: The discards it is checked for.
     ///   - kinds: The kinds it is checked for; every kind unless it reads one kind's policy or facts.
     ///   - test: Whether the candidate matches.
+    ///   - expiresIn: For a fact that ends with time alone (``recentlyAudible``), the seconds until it
+    ///     stops matching; nil (the default) for a rule only an event ends.
     package init(_ reason: CannotDiscardReason, result: CanDiscardResult, for discardReasons: Set<DiscardReason>,
                  kinds: Set<ContentKind> = DiscardRule.everyKind,
-                 test: @escaping @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool) {
+                 test: @escaping @Sendable (ContentDiscardPlanner.Candidate, Context) -> Bool,
+                 expiresIn: (@Sendable (ContentDiscardPlanner.Candidate) -> Double?)? = nil) {
         self.reason = reason
         self.result = result
         self.discardReasons = discardReasons
         self.kinds = kinds
         self.test = test
+        self.expiry = expiresIn
     }
 
     /// Whether the rule keeps `candidate` from a discard for `context.reason`: it applies to the
@@ -72,6 +77,14 @@ package nonisolated struct DiscardRule: Sendable {
     ///   - context: The settings and the discard's reason.
     package func matches(_ candidate: ContentDiscardPlanner.Candidate, _ context: Context) -> Bool {
         kinds.contains(candidate.kind) && discardReasons.contains(context.reason) && test(candidate, context)
+    }
+
+    /// Seconds until the rule stops matching `candidate` with time alone, or nil when only an event
+    /// ends its fact (the content stops playing, the person closes DevTools).
+    ///
+    /// - Parameter candidate: Content the rule matches.
+    package func expires(_ candidate: ContentDiscardPlanner.Candidate) -> Double? {
+        expiry?(candidate)
     }
 
     /// Every kind of content.
@@ -117,5 +130,7 @@ package nonisolated struct DiscardRule: Sendable {
         .runningCommand,
         .notifications,
         .unanswered,
+        .backgroundActivity,
+        .recentlyAudible,
     ]
 }

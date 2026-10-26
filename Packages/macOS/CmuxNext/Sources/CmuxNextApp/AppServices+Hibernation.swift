@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextEnergy
+import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextResources
@@ -14,7 +15,8 @@ extension AppServices {
     /// It registers with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer,
     /// which hands it each level.
     func startHibernation(settings: SettingsController) {
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode)
+        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
@@ -23,6 +25,7 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
+        hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages

@@ -3,15 +3,15 @@
 //! report the exit once the socket closes and the child is reaped.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 use cmux_app_host::protocol::MAX_LINE_BYTES;
 use cmux_app_host::{FromHost, ToHost};
+use cmux_process::{Command, Stdio};
 
 /// How a host process ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,21 +83,16 @@ impl HostProcess {
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> std::io::Result<Self> {
         let (ours, theirs) = UnixStream::pair()?;
-        let fd = theirs.as_raw_fd();
         let mut command = Command::new(binary);
         command
             .args(args)
             .env_clear()
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        // SAFETY: sysconf before the fork; only async-signal-safe calls in pre_exec.
-        let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
-            n if n > 0 => n.min(65_536) as libc::c_int,
-            _ => 4096,
-        };
-        // SAFETY: only async-signal-safe calls between fork and exec.
-        unsafe { command.pre_exec(move || child_fds(fd, max_fd)) };
+            .stderr(Stdio::null())
+            // Only fd 3 beyond the null stdio, on Linux too.
+            .isolate()
+            .inherit_fd(theirs.as_fd(), 3)?;
         let mut child = command.spawn()?;
         drop(theirs);
         let pid = child.id();
@@ -179,23 +174,4 @@ fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
             }
         }
     }
-}
-
-/// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 2 closed.
-fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
-    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
-    unsafe {
-        if fd == 3 {
-            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        } else if libc::dup2(fd, 3) != 3 {
-            return Err(std::io::Error::last_os_error());
-        }
-        for other in 4..max_fd {
-            libc::close(other);
-        }
-    }
-    Ok(())
 }

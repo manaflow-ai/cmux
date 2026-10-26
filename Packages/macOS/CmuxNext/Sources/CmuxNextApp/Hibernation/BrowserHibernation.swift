@@ -36,7 +36,7 @@ import os
 /// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
-/// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
+/// A page never hibernates while it shows, plays (an element or Web Audio; with `recentlyAudibleProtection`, a minute after), captures, has DevTools
 /// open, an agent holds its lease or called it lately, a download it started runs, it holds the
 /// person's form input (also in a child frame it cannot read), its `beforeunload` would ask, or it
 /// has a connected WebRTC peer or an open device; the
@@ -51,7 +51,7 @@ final class BrowserHibernation {
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
     /// When an agent last called each page (`noteAgentUse`).
-    private var agentUsedAt: [String: ContinuousClock.Instant] = [:]
+    private(set) var agentUsedAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds after an agent's call during which its hidden page stays awake
     /// whatever the memory pressure, so a page does not close under a script
     /// or between two calls of one task.
@@ -152,12 +152,26 @@ final class BrowserHibernation {
     /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
+    /// Hidden pages' title and icon changes (`DiscardRule.backgroundActivity`); the App turns it on.
+    let activity = PageActivityWatch()
+    /// When each page last played sound (`DiscardRule.recentlyAudible`); the end of a hidden page's
+    /// sound replans. Nil while the `recentlyAudibleProtection` feature is off: no page is watched,
+    /// no candidate carries a sound fact, and the plans are those from before the rule.
+    let audible: AudibleHistory?
+    /// Seconds after the last replan that the hibernation deadline fires; nil when none is armed.
+    private(set) var nextCheck: Double?
 
-    /// - Parameter lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
-    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false)) {
+    /// - Parameters:
+    ///   - lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently
+    ///     audible protection off.
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false),
+         audible: AudibleHistory? = nil) {
         self.cache = cache
         self.lowPower = lowPower
         self.memory = memory
+        self.audible = audible
+        audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
     }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0
@@ -174,6 +188,8 @@ final class BrowserHibernation {
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
+        // Pages mounted before the hibernation existed (a restored session) are followed too.
+        for (key, entry) in cache?.browsers ?? [:] { pageDidMount(key, entry.tab) }
     }
 
     func stop() {
@@ -183,8 +199,10 @@ final class BrowserHibernation {
         lowPowerObservation?.cancel()
         lowPowerObservation = nil
         deadline.cancel()
+        nextCheck = nil
         freezeDeadline.cancel()
         hoverDwell.cancel()
+        activity.stop()
     }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
@@ -247,12 +265,6 @@ final class BrowserHibernation {
         }
     }
 
-    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
-    func host(of key: String) -> String? {
-        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
-        return host
-    }
-
     /// An agent took (`held`) or let go of tab `key`'s browser lease. A leased page never
     /// freezes or hibernates; it thaws at once so the agent's next call runs.
     func noteLease(_ key: String, held: Bool) {
@@ -271,8 +283,9 @@ final class BrowserHibernation {
     // MARK: Lifecycle notifications (from TabContentCache effects)
 
     func tabDidHide(_ key: String) {
-        guard cache?.browsers[key] != nil else { return }
+        guard let tab = cache?.browsers[key]?.tab else { return }
         hiddenAt[key] = .now
+        watchActivity(key, tab)
         replan()
     }
 
@@ -287,6 +300,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
+        activity.forget(key)
         noteFocus(key, at: .now)
     }
 
@@ -337,8 +351,10 @@ final class BrowserHibernation {
         memoryBytes[key] = nil
         savedBytes[key] = nil
         probeKeptAt[key] = nil
+        audible?.forget(key)
         snapshots.remove(key)
         wakeLog.forget(key)
+        activity.forget(key)
     }
 
     // MARK: Neighbors
@@ -448,10 +464,14 @@ final class BrowserHibernation {
             return facts
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
+        for key in plan.endedSoundReasons(of: candidates.map(\.key), held: exemptions, probeKept: { probeKeptAt[$0] != nil }) {
+            exemptions[key] = nil
+        }
         exemptions.merge(plan.exemptions) { $1 }
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
-        if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
+        nextCheck = [plan.nextCheck, graceEnds].compactMap(\.self).min()
+        if let next = nextCheck {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
@@ -503,6 +523,7 @@ final class BrowserHibernation {
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
+            if probe.audible { self.audible?.heard(key) }
             if probe.stopsWhenFrozen || doubted {
                 self.freezeKeptAt[key] = .now
                 self.replan()
@@ -512,13 +533,10 @@ final class BrowserHibernation {
         }
     }
 
-    /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
-    /// neighbor or hovered tab.
+    /// No agent drives the hidden page (`isAgentDriven`), it showed no background activity (its
+    /// updates stay live), and it is no neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
-        // An agent holds its lease: its next call would wait on a thaw.
-        if leased.contains(key) { return false }
-        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
@@ -578,6 +596,7 @@ final class BrowserHibernation {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
             } else {
                 let probe = await Self.probe(tab)
+                if probe.audible { self?.audible?.heard(key) }
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
@@ -646,6 +665,7 @@ final class BrowserHibernation {
         cache.dormantTabs.set(key, true)
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
         hiddenAt[key] = nil
+        activity.forget(key)
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
