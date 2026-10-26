@@ -284,8 +284,8 @@ class Hangs(unittest.TestCase):
         self.assertEqual(window["over_250ms"], 2)
         self.assertEqual([r["sequence"] for r in window["stalls"]], [3, 4])
         self.assertEqual(window["roles"]["lane"], 1)
-        self.assertEqual(window["roles"]["io"], 1)
-        self.assertEqual(window["roles"]["renderer"], 0)
+        self.assertEqual(window["roles"]["io"], 1)  # a record shows the role, so it is seen
+        self.assertNotIn("renderer", window["roles"])  # no renderer thread is registered: unseen, not 0
         self.assertEqual(window["roles"]["unattributed"], 3)  # one with no kind, two the ring dropped
 
     def test_build_without_hang_watch_has_no_roles(self):
@@ -343,9 +343,12 @@ class StoryRuns(unittest.TestCase):
         self.assertEqual(by_metric["main_blocking.sites"].target_ref.target, "main-blocking-sites")
         self.assertEqual(by_metric["hangs.over_250ms.main"].samples, [1])
         self.assertEqual(by_metric["hangs.over_250ms.main"].target_ref.target, "hangs.app")
-        self.assertEqual(by_metric["hangs.over_250ms.daemon"].samples, [1])
+        self.assertEqual(by_metric["daemon.hangs_over_250ms"].samples, [1])
+        self.assertEqual(by_metric["daemon.hangs_over_250ms"].target_ref.target, "hangs.daemon")
+        self.assertNotIn("hangs.over_250ms.daemon", by_metric)
         self.assertEqual(by_metric["hang_watch.past_deadline.lane"].samples, [1])
-        self.assertEqual(by_metric["hang_watch.past_deadline.io"].samples, [0])
+        self.assertNotIn("hang_watch.past_deadline.io", by_metric)
+        self.assertEqual(summary_of(out)["legs"][0]["unseen"]["hang_watch.io"], bh.UNREGISTERED)
         for result in by_metric.values():
             self.assertEqual((result.unit, result.better, result.session, result.build.config),
                              ("count", "lower", "stress", "bench-checks"))
@@ -360,7 +363,9 @@ class StoryRuns(unittest.TestCase):
         hang_calls = [p for m, p in rpc.calls if m == "debug.hangs"]
         self.assertEqual(hang_calls[0]["limit"], 1)
         self.assertEqual((hang_calls[1]["after"], hang_calls[1]["thread_hangs_after"]), (0, 0))
-        self.assertGreater(hang_calls[1]["over_budget_after"], 2 ** 50)
+        self.assertGreater(hang_calls[1]["over_budget_after"], 2 ** 48)
+        # JSONValue.intValue (CmuxNextSettings/JSONValue.swift) reads abs >= 1e15 as nil, and nil means `after: 0`.
+        self.assertLess(hang_calls[1]["over_budget_after"], 1e15)
 
     def test_build_without_detector_fails_before_the_stress_build_and_stores_nothing(self):
         rpc = FakeRpc([blocking(compiled_in=False)], [hangs()])
@@ -400,7 +405,7 @@ class StoryRuns(unittest.TestCase):
         self.assertEqual(summary_of(out)["refusal"]["kind"], "not-measurable")
         self.assertEqual(results_in(out), [])
 
-    def test_missing_corpus_fails_the_story_but_keeps_the_storm(self):
+    def test_missing_corpus_is_not_measured_and_the_storm_stands(self):
         rpc = FakeRpc([blocking()], [hangs(thread_hang_count=0)])
         saved = bh.ROOT
         bh.ROOT = tempfile.mkdtemp(prefix="blocking-hangs-root-")
@@ -408,12 +413,125 @@ class StoryRuns(unittest.TestCase):
             code, out, _ = run_story(self, rpc, FakeDaemon([stats()]), argv=("--legs", "storm,corpus"))
         finally:
             bh.ROOT = saved
-        self.assertEqual(code, bh.EXIT_FAILED)
+        self.assertEqual(code, bh.EXIT_OK)
         summary = summary_of(out)
         self.assertFalse(summary["corpus"]["measured"])
+        self.assertIn("perf-corpus", summary["corpus"]["reason"])
         self.assertTrue(summary["legs"][0]["ok"])
         self.assertIn("daemon", summary["legs"][0]["unseen"])
         self.assertTrue(any(r.metric == "main_blocking.sites" for r in results_in(out)))
+
+
+class RolesSeen(unittest.TestCase):
+    def test_lane_only_registrations_write_no_other_role(self):
+        before = bh.parse_hangs(hangs(thread_hang_count=0))
+        after = bh.parse_hangs(hangs(thread_hangs=[thread_hang(1, "lane")], thread_hang_count=1))
+        leg = bh.Leg("storm", "stress", "")
+        empty = bh.blocking_window(bh.parse_blocking(blocking()), bh.parse_blocking(blocking()))
+        metrics = bh.leg_metrics(leg, {"blocking": empty, "hangs": bh.hangs_window(before, after),
+                                       "daemon": {"over_250ms": 0, "records": []}})
+        self.assertEqual({m: v for m, v in metrics.items() if m.startswith("hang_watch.")},
+                         {"hang_watch.past_deadline.lane": 1})
+        for role in ("main", "io", "renderer", "pool", "control"):
+            self.assertEqual(leg.unseen[f"hang_watch.{role}"], bh.UNREGISTERED)
+        self.assertEqual(metrics["daemon.hangs_over_250ms"], 0)
+        self.assertFalse([m for m in metrics if m.startswith("hangs.over_250ms.") and m != "hangs.over_250ms.main"])
+
+
+def corpus_checkout(test, ids):
+    """A checkout root with perf-corpus/<id>.json (tier T1) and a player file; bh.ROOT points at it."""
+    root = Path(tempfile.mkdtemp(prefix="blocking-hangs-root-"))
+    test.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+    (root / "perf-corpus").mkdir()
+    for story_id in ids:
+        (root / "perf-corpus" / f"{story_id}.json").write_text(json.dumps({"id": story_id, "tier": "T1"}))
+    (root / "scripts" / "perf-lab" / "corpus").mkdir(parents=True)
+    (root / "scripts" / "perf-lab" / "corpus" / "play.py").write_text("")
+    saved = bh.ROOT
+    bh.ROOT = str(root)
+    test.addCleanup(lambda: setattr(bh, "ROOT", saved))
+    return root
+
+
+def fake_player(test, replay):
+    """play.py as a module whose replay is `replay` (corpus_legs loads it by name, once)."""
+    module = types.ModuleType("perf_lab_corpus_play")
+    module.replay = replay
+    saved = sys.modules.get("perf_lab_corpus_play")
+    sys.modules["perf_lab_corpus_play"] = module
+    test.addCleanup(lambda: sys.modules.__setitem__("perf_lab_corpus_play", saved) if saved is not None
+                    else sys.modules.pop("perf_lab_corpus_play", None))
+
+
+def corpus_rpc():
+    """One replay's app: a site and a main hang in its window."""
+    return FakeRpc([blocking(), blocking(), blocking([site("Replay.swift:7", 2)])],
+                   [hangs(thread_hang_count=0), hangs(count250=1, count=1, records=[stall(1, 300)], thread_hang_count=0)])
+
+
+class CorpusLegs(unittest.TestCase):
+    def test_replay_with_the_window_hook_writes_corpus_results(self):
+        corpus_checkout(self, ["chat-burst"])
+        played = []
+
+        def replay(manifest, *, app, out, window=None):
+            bench = FakeBench(out, corpus_rpc())
+            with window(bench):
+                played.append(manifest)
+            with open(os.path.join(out, "host-env-full-99.json"), "w") as f:
+                json.dump({"ok": True}, f)
+
+        fake_player(self, replay)
+        code, out, blobs = run_story(self, None, FakeDaemon([stats(0), stats(0)]), argv=("--legs", "corpus"))
+        self.assertEqual(code, bh.EXIT_OK, summary_of(out))
+        self.assertEqual(len(played), 1)
+        by_metric = {r.metric: r for r in results_in(out)}
+        self.assertEqual(by_metric["corpus.chat-burst.main_blocking.sites"].samples, [1])
+        self.assertEqual(by_metric["corpus.chat-burst.hangs.over_250ms.main"].samples, [1])
+        self.assertEqual(by_metric["corpus.chat-burst.daemon.hangs_over_250ms"].samples, [0])
+        for result in by_metric.values():
+            self.assertTrue(result.metric.startswith("corpus.chat-burst."))
+            self.assertIsNone(result.target_ref)  # only the storm leg claims targets
+            self.assertEqual(result.session, "corpus:chat-burst")
+            self.assertEqual([a.kind for a in result.attachments], ["blocking-hangs"])
+        (_, (data, _)), = blobs.objects.items()
+        self.assertEqual(json.loads(data)["leg"], "corpus:chat-burst")
+        self.assertTrue((Path(out) / "corpus-chat-burst" / "host-env-full-99.json").is_file())
+        summary = summary_of(out)
+        self.assertTrue(summary["corpus"]["measured"])
+        self.assertEqual([leg["name"] for leg in summary["legs"]], ["corpus:chat-burst"])
+
+    def test_replay_without_the_hook_fails_its_leg_with_a_reason(self):
+        corpus_checkout(self, ["chat-burst"])
+        fake_player(self, lambda manifest, *, app, out: None)
+        code, out, _ = run_story(self, None, FakeDaemon([stats(0)]), argv=("--legs", "corpus"))
+        self.assertEqual(code, bh.EXIT_FAILED)
+        leg, = summary_of(out)["legs"]
+        self.assertFalse(leg["ok"])
+        self.assertIn("window", leg["reason"])
+        self.assertEqual(results_in(out), [])
+
+    def test_a_failed_launch_fails_only_its_leg(self):
+        corpus_checkout(self, ["agent-swarm", "dev-loop"])
+        launch_error = bh.launch_error()
+
+        def replay(manifest, *, app, out, window=None):
+            if manifest.endswith("agent-swarm.json"):
+                raise launch_error("no-gui-session", {"detail": "no GUI session", "log_tail": ""})
+            with window(FakeBench(out, corpus_rpc())):
+                pass
+
+        fake_player(self, replay)
+        code, out, _ = run_story(self, None, FakeDaemon([stats(0)]), argv=("--legs", "corpus"))
+        self.assertEqual(code, bh.EXIT_FAILED)
+        summary = summary_of(out)
+        self.assertEqual(summary["exit"], bh.EXIT_FAILED)
+        swarm, dev = summary["legs"]
+        self.assertFalse(swarm["ok"])
+        self.assertIn("no-gui-session", swarm["reason"])
+        self.assertTrue(dev["ok"], dev)
+        self.assertTrue(any(r.metric.startswith("corpus.dev-loop.") for r in results_in(out)))
+        self.assertFalse(any(r.metric.startswith("corpus.agent-swarm.") for r in results_in(out)))
 
 
 class Catalog(unittest.TestCase):
@@ -422,19 +540,20 @@ class Catalog(unittest.TestCase):
         self.assertEqual((doc["id"], doc["config"], doc["command"][0]),
                          ("blocking-hangs", "bench-checks", "scripts/perf-lab/stories/blocking_hangs.py"))
         claimed = {m["target_ref"]["target"] for m in doc["metrics"] if "target" in m.get("target_ref", {})}
-        self.assertEqual(claimed, {"main-blocking-sites", "hangs.app"})
+        self.assertEqual(claimed, {"main-blocking-sites", "hangs.app", "hangs.daemon"})
         loaded = catalog.load_catalog(REPO_ROOT)
         self.assertEqual([p for p in loaded.problems if "blocking-hangs" in p], [])
         self.assertIn("blocking-hangs", {s.id for s in loaded.stories})
         claims = catalog.claimed_checks(loaded)
         self.assertIn("blocking-hangs", claims[("main-blocking-sites", "main_blocking\\.sites")])
         self.assertIn("blocking-hangs", claims[("hangs.app", "hangs\\.over_250ms\\.[a-z_]+")])
+        self.assertIn("blocking-hangs", claims[("hangs.daemon", "daemon\\.hangs_over_250ms")])
 
     def test_every_written_metric_name_matches_a_story_metric(self):
         import re
         patterns = [re.compile(m["name"]) for m in json.loads(STORY_FILE.read_text())["metrics"]]
         names = ["main_blocking.sites", "blocking.sites.pool", "blocking.sites.cpu_lane", "hangs.over_250ms.main",
-                 "hangs.over_250ms.daemon", *[f"hang_watch.past_deadline.{r}" for r in (*bh.THREAD_ROLES, "unattributed")]]
+                 "daemon.hangs_over_250ms", *[f"hang_watch.past_deadline.{r}" for r in (*bh.THREAD_ROLES, "unattributed")]]
         for name in names + [f"corpus.chat-burst.{n}" for n in names]:
             self.assertTrue(any(p.fullmatch(name) for p in patterns), name)
 

@@ -22,11 +22,13 @@ Metrics of a leg (a corpus leg's names start with `corpus.<id>.`; each is a coun
                                    table does not hold, so the value is the known sites plus one, a lower bound.
   blocking.sites.pool, blocking.sites.cpu_lane   the same for the shared pool and `.cpu` lane items.
   hangs.over_250ms.main            main-thread work gaps of 250 ms or more (target hangs.app).
-  hangs.over_250ms.daemon          the daemon's hangs over 250 ms, when its diagnostics have them (232).
-  hang_watch.past_deadline.<role>  hang-watch scopes past their deadline per thread role (io, lane, renderer, pool,
-                                   control, main; `unattributed` for records the 128-record ring dropped). A record
-                                   names the overrun when sampled, not the scope's length, so these are not called
-                                   hangs over 250 ms.
+  daemon.hangs_over_250ms          the daemon's hangs over 250 ms, when its diagnostics have them (232; target
+                                   hangs.daemon).
+  hang_watch.past_deadline.<role>  hang-watch scopes past their deadline per thread role, for the roles the app
+                                   registers (REGISTERED_ROLES: lane) and any role a record shows; `unattributed` for
+                                   records the 128-record ring dropped. Every other role is unseen. HangMonitor writes
+                                   a record once, at the deadline, while the scope still runs, so the scope's length
+                                   is not known and these are not called hangs over 250 ms.
 
 A source the leg cannot read is never stored as 0. A build without the detector (`debug.blocking` `compiled_in` is
 not true, or the bundle says another `CMUXBuildConfiguration`) fails the story with that reason before any leg is
@@ -42,14 +44,17 @@ story measures nothing, exit 1); a copy stays at --out/attachments/. Each launch
 (`host-env-full-<pid>.json`) is copied under --out for the runner. blocking-hangs-summary.json says what each leg saw.
 
 Legs: `storm` is trace.py's stress-storm scenario with no profiler; `corpus:<id>` replays each non-T2 corpus story
-(perf-corpus/<id>.json, task 110) through scripts/perf-lab/corpus/play.py's `replay(manifest, app=, out=, window=)`
-hook (task 115, p12-perf-process.md 3.8). A checkout without the corpus or its player measures no corpus leg and
-the story exits 1 with the reason.
+(perf-corpus/<id>.json, task 110) through scripts/perf-lab/corpus/play.py's `replay(manifest, *, app, out, window)`
+(task 115; the hook's contract is in p12-perf-process.md 3.8): after its launch the player calls `window(bench)`
+with its BenchApp once and plays the input track inside the context manager it returns. A checkout without the
+corpus, a manifest or the player has no corpus half: the summary says why, and it does not fail the story. A player
+without the hook, or one that fails, fails that leg; a failed launch (bench_launch.LaunchError) fails only its leg.
 
 Usage (the story runner appends --app, --tag and --out):
   python3 -I scripts/perf-lab/stories/blocking_hangs.py --app APP --tag TAG --out DIR [--legs storm,corpus]
                                                          [--corpus all|ID,...] [--seconds 30]
-Exit: 0 every leg measured; 1 a leg failed, or the build has no detector; 2 usage; 4 not measurable; 128+N signal N.
+Exit: 0 every leg that ran measured (with no corpus half, the storm alone); 1 a leg failed, or the build has no
+detector; 2 usage; 4 not measurable; 128+N signal N.
 """
 from __future__ import annotations
 
@@ -85,8 +90,14 @@ CONFIG = "bench-checks"
 CONTEXTS = (("main", "main_blocking.sites"), ("pool", "blocking.sites.pool"), ("cpu-lane", "blocking.sites.cpu_lane"))
 # HangWatch.ThreadKind names (CmuxNextTrace/HangWatch.swift), as HangMonitor writes them into `thread_kind`.
 THREAD_ROLES = ("main", "io", "lane", "renderer", "pool", "control")
+# The kinds the app registers with HangWatch: only lanes (HangWatchedLane: LineTransport `daemon.line`,
+# TerminalOutputLane `terminal.feed`, the BackgroundWork lanes); no code calls registerThread. Another role is
+# measured only when a record of it shows its registration, else it is unseen, never 0.
+REGISTERED_ROLES = ("lane",)
+UNREGISTERED = "no thread of this kind is registered with HangWatch"
+DAEMON_METRIC = "daemon.hangs_over_250ms"  # task 232's lab metric (targets.json row hangs.daemon)
 TARGETS = {"main_blocking.sites": "main-blocking-sites", "hangs.over_250ms.main": "hangs.app",
-           "hangs.over_250ms.daemon": "hangs.app"}  # targets.json row ids; only the storm leg claims them
+           DAEMON_METRIC: "hangs.daemon"}  # targets.json row ids; only the storm leg claims them
 HANG_MS = 250  # the watchdog's stall threshold for the storm: each stall the count250 counter counts has a stack
 ATTACHMENT_KIND = "blocking-hangs"
 ATTACHMENT_SCHEMA = "cmux-blocking-hangs/v1"
@@ -96,7 +107,9 @@ HOST_CHECK_GLOB = "host-env-full-*.json"  # bench_launch.LAB_CHECK_PREFIX: the r
 # trace.py stages up to and including the measured window: an error there means the window was not the storm.
 MEASURED_STAGES = ("preflight", "launch", "stress-build", "storm-setup", "recorders-start", "window")
 TRACE_KEEP = ("SUMMARY.txt", "summary.json", "meta.json", "hangs.json")
-SKIP_RECORDS = 2 ** 53  # an `*_after` sequence past every record: the reply leaves that list out
+# An `*_after` sequence past every record, so the reply leaves that list out. Below 1e15: JSONValue.intValue
+# (CmuxNextSettings/JSONValue.swift) reads a larger number as nil, and debug.hangs then sends the whole list.
+SKIP_RECORDS = 10 ** 15 - 1
 DAEMON_SECTION = "hangs"
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_MEASURABLE = 0, 1, 2, 4
@@ -129,6 +142,12 @@ def load_by_path(name: str, path: str):
         del sys.modules[name]
         raise
     return module
+
+
+def launch_error() -> type:
+    """bench_launch.LaunchError, the shared copy trace.py and play.py raise. It is a SystemExit, so a leg catches
+    it by name: a launch that fails ends that leg, not the story."""
+    return load_by_path("bench_launch", BENCH_LAUNCH).LaunchError
 
 
 # ---------------------------------------------------------------- readings
@@ -284,10 +303,10 @@ def hangs_window(before: HangsReading, after: HangsReading) -> dict:
     if total < 0:
         raise LegError("debug.hangs thread_hang_count went back inside the window")
     hangs = [r for r in after.thread_hangs if _sequence(r) > before.last_thread_hang]
-    roles = {role: 0 for role in THREAD_ROLES}
+    roles = {role: 0 for role in REGISTERED_ROLES}
     for record in hangs:
         role = str(record.get("thread_kind") or "")
-        role = role if role in roles else "unattributed"
+        role = role if role in THREAD_ROLES else "unattributed"
         roles[role] = roles.get(role, 0) + 1
     if total > len(hangs):
         roles["unattributed"] = roles.get("unattributed", 0) + total - len(hangs)
@@ -499,11 +518,14 @@ def leg_metrics(leg: Leg, measured: dict) -> Dict[str, int]:
     else:
         for role, count in sorted(hangs["roles"].items()):
             metrics[f"{leg.metric_prefix}hang_watch.past_deadline.{role}"] = count
+        for role in THREAD_ROLES:
+            if role not in hangs["roles"]:
+                leg.unseen[f"hang_watch.{role}"] = UNREGISTERED
     daemon = measured["daemon"]
     if "unseen" in daemon:
         leg.unseen["daemon"] = daemon["unseen"]
     else:
-        metrics[f"{leg.metric_prefix}hangs.over_250ms.daemon"] = daemon["over_250ms"]
+        metrics[f"{leg.metric_prefix}{DAEMON_METRIC}"] = daemon["over_250ms"]
     return metrics
 
 
@@ -646,6 +668,8 @@ def run_storm(opts, work: str, writer, blobs) -> Tuple[Leg, Optional[int]]:
         raise
     except LegError as error:
         leg.reason = str(error)
+    except launch_error() as error:
+        leg.reason = str(error)[:600]
     except Exception as error:  # noqa: BLE001 - the leg's reason; the other legs and the summary still run
         leg.reason = f"{type(error).__name__}: {error}"[:600]
     return leg, None
@@ -676,7 +700,7 @@ def corpus_manifests(root: str, wanted: str) -> List[Tuple[str, str]]:
 
 
 def takes_window(replay) -> bool:
-    """Whether `replay` takes the `window=` hook (p12-perf-process.md 3.8) as a keyword."""
+    """Whether `replay` takes the `window=` hook as a keyword (p12-perf-process.md 3.8)."""
     try:
         parameters = inspect.signature(replay).parameters.values()
     except (TypeError, ValueError):
@@ -717,13 +741,17 @@ def run_corpus(play, story_id: str, manifest: str, opts, work: str, writer, blob
         raise
     except LegError as error:
         leg.reason = str(error)
+    except launch_error() as error:
+        leg.reason = str(error)[:600]
     except Exception as error:  # noqa: BLE001 - the leg's reason; the other legs and the summary still run
         leg.reason = f"{type(error).__name__}: {error}"[:600]
     return leg
 
 
 def corpus_legs(opts, work: str, writer, blobs, root: Optional[str] = None) -> Tuple[List[Leg], Optional[str]]:
-    """The corpus legs, or none and why the corpus half of the story was not measured."""
+    """The corpus legs, or none and why the checkout has no corpus half to measure (no corpus, no manifest, no
+    player): that half is not measured, and the storm's result stands. A player that is there but fails, or a
+    manifest asked for that is not there, fails its leg."""
     root = root or ROOT
     if not os.path.isdir(os.path.join(root, "perf-corpus")):
         return [], "no perf-corpus/ in this checkout (p12-perf-process-110)"
@@ -810,7 +838,7 @@ def main(argv: Optional[Sequence[str]] = None, blobs=None, config_problem: Calla
         shutil.rmtree(work, ignore_errors=True)
     if signalled is not None:
         code = signalled
-    elif not legs or any(not leg.ok for leg in legs) or (corpus is not None and not corpus["measured"]):
+    elif not legs or any(not leg.ok for leg in legs):
         code = EXIT_FAILED
     else:
         code = EXIT_OK
@@ -824,7 +852,7 @@ def main(argv: Optional[Sequence[str]] = None, blobs=None, config_problem: Calla
         for line in leg.notes:
             print(f"{STORY}: {leg.name}: {line}")
     if corpus is not None and not corpus["measured"]:
-        print(f"{STORY}: corpus: FAILED: not measured: {corpus['reason']}", file=sys.stderr)
+        print(f"{STORY}: corpus: not measured: {corpus['reason']}", file=sys.stderr)
     return code
 
 
