@@ -62,15 +62,15 @@ final class AppServices {
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
     let crashReporting: AppCrashReporting
-    /// The local daemon. Cloud machines are in `machines`; code acting on a
-    /// workspace, pane, or tab resolves its daemon through `machines`.
-    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    /// The local daemon (a build with the sidebar document orders rows from it only: placement-shift-v1). Cloud machines
+    /// are in `machines`; code acting on a workspace, pane, or tab resolves its daemon through `machines`.
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
+    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -445,8 +445,8 @@ final class AppServices {
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
     /// The one owner of hover cards in the app: at most one card, ever
-    /// (plans/cmux-next/hovercards.md).
-    let hoverCards = HoverCardCoordinator()
+    /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
+    let hoverCards: HoverCardCoordinator
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -494,6 +494,7 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)

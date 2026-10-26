@@ -10,7 +10,8 @@ use cmux_tui_cdp::{
 };
 
 use crate::browser_provider::{
-    BrowserProviderAuthentication, BrowserProviderHosting, BrowserProviderTargetLease,
+    BrowserProviderAuthentication, BrowserProviderHosting, BrowserProviderRegistry,
+    BrowserProviderTargetLease,
 };
 use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
@@ -786,6 +787,9 @@ pub struct BrowserSurface {
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
+    /// The mux's provider registry, woken at [`Self::kill`] so a provider
+    /// bootstrap waiting there for this tab's target sees the death.
+    provider_waiters: Option<Arc<BrowserProviderRegistry>>,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
     command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,

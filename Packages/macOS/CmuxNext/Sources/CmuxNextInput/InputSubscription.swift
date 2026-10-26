@@ -34,11 +34,15 @@ extension InputEventTap {
     ///
     /// | Order | Owner |
     /// | --- | --- |
-    /// | ``modal`` | a modal overlay's Escape and outside click (before any popup) |
-    /// | ``popup`` | popups, menus and hover cards that close on Escape or an outside click |
+    /// | ``modal`` | a modal overlay's Escape and outside click (before any popup): `WindowOverlayHost`'s Escape |
+    /// | ``popup`` | popups, menus and hover cards that close on Escape or an outside click: `NativePopupHost`'s Escape in its panel (keys only) and `HoverCardCoordinator`'s wheel scroll on the card (scrolls only): they share no class, so their mutual order does not matter |
     /// | ``dragSession`` | a tab, link, pane or screen drag in progress (Escape and mouse-up end it) |
     /// | ``layout`` | the layout's scroll, magnify and button routing |
     /// | ``standard`` | everything else |
+    ///
+    /// Owners that only watch (a tooltip put away by a click, a popup closed by a click outside it, a
+    /// hover card ended by a key or a click, the overlay panel's mouse routing) are observers, not
+    /// intercepts: they never stop an event, and an intercept that consumes one never hides it from them.
     public struct InterceptOrder: Comparable, Hashable, Sendable {
         public let rawValue: Int
 
