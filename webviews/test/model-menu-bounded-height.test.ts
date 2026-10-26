@@ -106,7 +106,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     /** Whether a menu that clips (the railed one) cuts off a child: the search, the rail and list, an update footer. */
     childClipped: boolean;
     /** Fixed siblings of the scrolling layout remain inside the capped popup. */
-    fixed: { search: boolean; footer: boolean };
+    fixed: { search: boolean; footer: boolean; searchPresent: boolean; footerPresent: boolean };
     /** Each scrolling box, scrolled to its end: whether its last row is wholly inside it and the window. */
     scrollers: {
       rows: number;
@@ -154,6 +154,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
           fixed: {
             search: !search || (box(search).top >= outer.top - 0.5 && box(search).bottom <= outer.bottom + 0.5),
             footer: !footer || (box(footer).top >= outer.top - 0.5 && box(footer).bottom <= outer.bottom + 0.5),
+            searchPresent: search !== null,
+            footerPresent: footer !== null,
           },
           profiles: [...menu.querySelectorAll(".acpmux-quick-profile")].filter((row) => own(menu, row)).length,
         };
@@ -250,7 +252,10 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         expect(profileScroller!.lastProfileShown, "the real last profile is visible after scrolling").toBe(true);
         expect(account.scrollers.some((scroller) => scroller.scrolls)).toBe(true);
         expect(main.scrollers.length, "the model list scrolls on its own").toBeGreaterThan(0);
-        if (requireFooter) expect(main.fixed.footer, "the published update footer is a fixed sibling").toBe(true);
+        if (requireFooter) {
+          expect(main.fixed.footerPresent, "the published update footer is present").toBe(true);
+          expect(main.fixed.footer, "the published update footer is a fixed sibling").toBe(true);
+        }
         expectBounded(menus, VIEWPORT.height - 16);
         await page.close();
       });
