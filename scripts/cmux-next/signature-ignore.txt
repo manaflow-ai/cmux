@@ -150,6 +150,8 @@ file:(^|/)cmux-panic-log/
 ^cmux_panic_log::
 ^tokio::runtime::
 ^backtrace::
+# libtest's harness: the test body is the frame above it.
+^test::
 
 # --- Chromium, CEF and PartitionAlloc CHECK helpers (base/check.h, base/immediate_crash.h).
 ^logging::
@@ -174,3 +176,4 @@ file:(^|/)cmux-panic-log/
 ^wrap_
 ^__sanitizer_print_stack_trace
 ^print_address_description
+^asan_thread_start

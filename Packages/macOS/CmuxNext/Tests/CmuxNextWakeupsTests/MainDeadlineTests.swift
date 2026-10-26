@@ -72,7 +72,7 @@ import Testing
     }
 
     @Test func flexibleUsesTheQueuesAlignment() {
-        let harness = DeadlineHarness(alignment: WakeLeeway.saverAlignment)
+        let harness = DeadlineHarness(energy: EnergyPolicySource(EnergyPolicy(saverReason: .setting)))
         let deadline = harness.deadline("saver")
         deadline.schedule(after: .milliseconds(10)) {}
         #expect(deadline.plannedWake?.fire == .milliseconds(32), "Energy Saver's 32 ms grid")
@@ -382,8 +382,8 @@ private final class DeadlineHarness {
     private var frames: Double = 0
     private var nodes: [VisibilityNode] = []
 
-    init(alignment: Duration = WakeLeeway.defaultAlignment, start: UInt64 = 0) {
-        let rig = WakeUpQueueRig(alignment: alignment, start: start)
+    init(energy: EnergyPolicySource = EnergyPolicySource(), start: UInt64 = 0) {
+        let rig = WakeUpQueueRig(energy: energy, start: start)
         let budgetClock = FrameUptime()
         self.rig = rig
         self.budgetClock = budgetClock

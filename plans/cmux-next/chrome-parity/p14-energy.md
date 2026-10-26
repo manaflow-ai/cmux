@@ -546,9 +546,9 @@ repositories.
 | 011 | DelayPolicy and WakeLeeway | S | - | none |
 | 012 | DemandTimer delay policy and tolerance | S | 011 | none |
 | 013 | MainWakeUpQueue | M | 011 | none |
-| 014 | DemandTimer main-actor actions on MainWakeUpQueue; sync overload | M | 012, 013 | none |
+| 014 | DemandTimer main-actor actions on MainWakeUpQueue; sync overload | M | 012, 013, 024 | none |
 | 015 | Backoff leeway | S | 011 | none |
-| 016 | CEF delayed fire date on MainWakeUpQueue; CEF work outside the heap loop | M | 013 | none |
+| 016 | CEF delayed fire date on MainWakeUpQueue; CEF work outside the heap loop | M | 013, 024 | none |
 | 017 | Delete the pre-API-7 follow-up chain | S | 016 | none |
 | 018 | CEF pump ledger reasons | S | 016 | none |
 | 019a | Q1 sleeps: CmuxNextApp | M | 012, 015 | Q1 |
@@ -563,7 +563,7 @@ repositories.
 | 025 | Energy Saver session actions | S | 024 | none |
 | 026 | Energy Saver indicator and hover card | M | 025 | none |
 | 027 | Motion loops static under saver | S | 024 | none |
-| 028 | FrameScheduler opt-in ambient class | M | 023 | none |
+| 028 | FrameScheduler opt-in ambient class | M | 023, 024 | none |
 | 029 | Fork API cmux_cef_set_energy_saver with input exemption | M | - | fork |
 | 030 | Shim and Swift binding for the saver fork API | S | 029, 024, 136 | none |
 | 031 | Hibernation neighbor radius and WebKit render rate follow EnergyPolicy | S | 024 | none |
@@ -678,6 +678,7 @@ repositories.
 | 135 | D8 benches: Chromium composer typing and page scroll | S | 003 | none |
 | 136 | Fork bundle: one API bump, one build, one pin | M | 029, 037, 046, 048, 107, 124, Q8 fork items | fork |
 | 137 | Daemon reads the power source itself | S | 033 | none |
+| 138 | GlassModeWatch and BackdropVideoView follow EnergyPolicy | S | 024, p11-codebase-039 | none |
 
 ### Phase P0: measurement and budget
 
@@ -1195,6 +1196,15 @@ repositories.
 - Acceptance: switching the source to saver re-aligns pending flexible entries to 32 ms and leaves precise entries.
 - Test phase: `swift test --filter "MainWakeUpQueueTests|EnergyPolicy"` on the fleet.
 - Size S. Depends: 013.
+- As landed (review fixes): only `EnergyPolicy`, `EnergyPolicySource` and `MainWakeUpQueue(energy:)`, with no
+  default source. As in Chrome, an entry keeps the leeway it was inserted with and the grid applies at wake time
+  (`AdjustDelayedRunTime`), so a switch snaps pending entries to 32 ms only up to their latest time. DemandTimer and
+  FrameScheduler do not change here. 012 owns DemandTimer's `policy:` and tolerance (precise asks 0), and 028 owns the
+  ambient rate class and its source (every FrameScheduler gets it, MainWorkScheduler's too). Still open for 012/014/024:
+  how the 188 `DemandTimer(` sites that use defaults get the app's source. A static setter
+  (`DemandTimer.setProcessDefaults`) breaks arch-ratchet `stateful_singletons`. So 014 adds a seam that the
+  composition root sets once (for example, the MainWakeUpQueue it injects carries the source), or 024 threads the queue
+  through the sites and its "+30 lines" acceptance changes.
 
 #### p14-energy-024 Composition root wiring
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`,
@@ -1205,6 +1215,16 @@ repositories.
 - Acceptance: no `static shared` energy state; AppServices grows <= 30 lines; the Host file has one-line forwards.
 - Test phase: `cmux-ci build cmux --ref SHA --tag energy-v1`; debug.energy shows inputs.
 - Size S. Depends: 022, 023.
+- As landed (review fixes): `MainWorkScheduler` owns the app's one `EnergyPolicySource` (`energy`) and
+  `MainWakeUpQueue` (`wakeUps`). The daemon, Cloud, SSH and server services already get the scheduler by init, so a
+  DemandTimer, CEF or FrameScheduler owner reaches both with no static setter and no second injection path. This
+  answers 023's open question. `EnergyPolicyDriver` (CmuxNextEnergy) is the source's one writer. It feeds the
+  `energy.saver` setting and each `EnergyMonitor` input change to `EnergyPolicyResolver`, as Chrome's
+  `BatterySaverModeManager` re-resolves on the pref and on the power state, and it publishes nothing until both are
+  known. KeepAwake keeps one `onBattery` writer, the monitor link. The consumers change in their own tasks, which
+  now say where they read the source: DemandTimer 012/014 (sites with no scheduler keep 8 ms until 019a-d and 133
+  move them), CEF 016, FrameScheduler 028 (`mainWork.frames`, `FrameScheduler.app`, per-window), BrowserHibernation
+  and WebKitEngine 031, DaemonService 033, GlassModeWatch and BackdropVideoView 138 (after p11-codebase-039).
 
 #### p14-energy-025 Energy Saver session actions
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/EnergyActionCatalog.swift`,
@@ -1408,6 +1428,17 @@ repositories.
   cmux side compiles against old and new API.
 - Test phase: fork CI build; `cmux-ci build cmux --ref SHA`; idle-budget tabs-static and energy-saver.
 - Size M. Depends: 029, 037, 046, 048, 107, 124, Q8 fork items. Queue fork.
+
+#### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
+- Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
+  `.../CmuxNextDesign/BackdropVideoView.swift`, `.../CmuxNextDesign/WindowMaterialView.swift`.
+- Change: the rest of 024's consumer list. `GlassModeWatch(energy:onChange:)` replaces its LowPowerMode input with
+  `mainWork.energy`. `BackdropVideoPlayers` is built by the composition root once p11-codebase-039 removes `.shared`,
+  and it pauses the video wallpaper under the saver instead of reading `ProcessInfo.isLowPowerModeEnabled`.
+- Acceptance: `rg isLowPowerModeEnabled` in BackdropVideoView == 0; glass and backdrop tests pass with a saver case;
+  Low Power Mode still applies through the saver's auto mode.
+- Test phase: `swift test --filter "GlassLens|BackdropVideo"` on the fleet.
+- Size S. Depends: 024, p11-codebase-039.
 
 #### p14-energy-137 Daemon reads the power source itself
 - Files: `cmux-tui/crates/cmux-tui-core/src/wake/power.rs`, `cmux-tui/crates/cmux-tui-core/src/wake/energy.rs`.

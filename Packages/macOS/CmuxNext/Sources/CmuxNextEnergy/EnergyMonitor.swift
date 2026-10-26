@@ -10,7 +10,7 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     public var onBattery: Bool
     /// This Mac has an internal battery.
     public var hasBattery: Bool
-    /// The battery's charge in percent; read only while on battery, else nil.
+    /// The battery's charge in percent; reported only while on battery, else nil.
     public var batteryPercent: Int?
     /// The Mac's thermal state.
     public var thermal: ProcessInfo.ThermalState
@@ -23,25 +23,6 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
         self.hasBattery = hasBattery
         self.batteryPercent = batteryPercent
         self.thermal = thermal
-    }
-}
-
-/// Where ``EnergyMonitor`` reads the power source: IOKit's (``system()``), or a test's.
-struct PowerSourceInput {
-    /// Whether the battery provides power now.
-    let onBattery: @MainActor () -> Bool
-    /// The internal battery now.
-    let battery: @MainActor () -> BatteryLevel
-    /// Starts calling the handler on the main actor after each power-source change.
-    let listen: @MainActor (@escaping @MainActor () -> Void) -> Void
-
-    /// IOKit: the app's one power-source run-loop source (``PowerSourceMonitor``).
-    static func system() -> PowerSourceInput {
-        let monitor = PowerSourceMonitor()
-        return PowerSourceInput(onBattery: { PowerSourceMonitor.onBattery() }, battery: { BatteryLevel.read() }) { handler in
-            monitor.onChange = handler
-            monitor.start()
-        }
     }
 }
 
@@ -66,8 +47,7 @@ public final class EnergyMonitor {
     private let power: PowerSourceInput
     private let handlers = MainActorHandlers<EnergyInputs>()
     @ObservationIgnored private var lowPowerObservation: LowPowerModeObservation?
-    @ObservationIgnored private var onBattery = false
-    @ObservationIgnored private var battery = BatteryLevel()
+    @ObservationIgnored private var reading = PowerSourceReading()
     @ObservationIgnored private var started = false
 
     /// The system's inputs: macOS Low Power Mode, IOKit's power source, the thermal state.
@@ -76,7 +56,7 @@ public final class EnergyMonitor {
     }
 
     /// A monitor over these inputs (tests pass fixed ones).
-    init(lowPowerMode: LowPowerMode, thermal: ThermalStateWatch, power: PowerSourceInput) {
+    public init(lowPowerMode: LowPowerMode, thermal: ThermalStateWatch, power: PowerSourceInput) {
         self.lowPowerMode = lowPowerMode
         self.thermal = thermal
         self.power = power
@@ -85,14 +65,23 @@ public final class EnergyMonitor {
         thermal.onChange = { [weak self] _ in self?.refresh() }
     }
 
-    /// Reads the power source and follows its changes; a second call does nothing.
+    /// Reads the power source and follows its changes; a second call does nothing. A Mac without a
+    /// battery reads it once and registers nothing.
     public func start() {
         guard !started else { return }
         started = true
-        battery = power.battery()
-        guard battery.hasBattery else { return }
+        let first = power.read()
+        guard first.hasBattery else { return }
         power.listen { [weak self] in self?.readPowerSource() }
-        readPowerSource()
+        apply(first)
+    }
+
+    /// Stops following the power source (its run-loop source goes); ``start()`` may run again.
+    /// A monitor released without it leaves an inert source that ends at the next change.
+    public func stop() {
+        guard started else { return }
+        started = false
+        power.stop()
     }
 
     /// Calls `handler` with the new inputs after each change, until the returned registration is
@@ -108,15 +97,17 @@ public final class EnergyMonitor {
     }
 
     private func readPowerSource() {
-        onBattery = power.onBattery()
-        // The charge matters only on battery: on AC the last reading stays and nothing reports it.
-        if onBattery { battery = power.battery() }
+        apply(power.read())
+    }
+
+    private func apply(_ next: PowerSourceReading) {
+        reading = next
         refresh()
     }
 
     private func refresh() {
-        let next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: onBattery, hasBattery: battery.hasBattery,
-                                batteryPercent: onBattery ? battery.percent : nil, thermal: thermal.state)
+        let next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: reading.onBattery, hasBattery: reading.hasBattery,
+                                batteryPercent: reading.onBattery ? reading.batteryPercent : nil, thermal: thermal.state)
         guard next != inputs else { return }
         inputs = next
         handlers.call(next)

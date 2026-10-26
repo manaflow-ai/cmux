@@ -14,6 +14,12 @@ import Foundation
 /// - Fire dates snapped up to a grid of `CLOCK_UPTIME_RAW` nanoseconds and clamped to the latest time
 ///   (`MessagePump::AdjustDelayedRunTime` under `kAlignWakeUps`, base/message_loop/message_pump.cc);
 ///   precise entries are never snapped. The grid and leeway of each entry are ``WakeLeeway``'s.
+/// - The sub-second grid and leeway are the injected ``EnergyPolicySource``'s `wakeAlignment`: 8 ms,
+///   32 ms under Energy Saver (`SetBatterySaverMode` -> `MessagePump::OverrideAlignWakeUpsState(true, 32 ms)`,
+///   content/child/child_thread_impl.cc). As in Chrome, an entry's leeway is fixed when it is inserted
+///   (`PendingTask::latest_delayed_run_time`, base/pending_task.cc) and the grid is applied at wake time
+///   (`AdjustDelayedRunTime`): a switch snaps every pending flexible sub-second entry to the new grid,
+///   never past the latest time it was inserted with. Precise and whole-second entries keep theirs.
 /// - A second heap for hidden entries (``insertHidden(owner:after:_:)``), released only in a fire at or
 ///   after each entry's whole uptime second, so hidden work never rides a visible fire before its boundary
 ///   (Blink's fenced throttled queue, `WakeUpBudgetPool::CanRunTasksAt`,
@@ -47,14 +53,18 @@ public final class MainWakeUpQueue: Sendable {
         /// it is parked.
         var armed: (date: UInt64, end: UInt64)?
         var timer: (any MainWakeUpTimer)?
+        /// The sub-second leeway of new entries (the energy policy's `wakeAlignment`; the heap holds the grid).
+        var alignment: Duration
+        var energyObservation: EnergyPolicyObservation?
     }
 
     /// The timer is armed with the lock held, so two inserts on different threads can not arm in the
     /// opposite order of their dates (a late arm would delay the earlier deadline). CFRunLoop calls a
-    /// timer out with none of its own locks held, so the two locks are always taken in the same order.
-    private let state = Mutex(State())
-    /// The sub-second grid and leeway of flexible entries.
-    let alignment: Duration
+    /// timer out with none of its own locks held, and the energy source's lock is a leaf (``realign()``
+    /// reads it inside this one; the source calls observers outside its lock), so locks are always taken
+    /// in the same order.
+    private let state: Mutex<State>
+    private let energy: EnergyPolicySource
     /// Where each fire and each owner that runs in it are counted.
     let ledger: WakeupLedger
     private let uptime: @Sendable () -> UInt64
@@ -62,31 +72,37 @@ public final class MainWakeUpQueue: Sendable {
     /// Makes the queue and its one main run-loop timer, parked until the first insert.
     ///
     /// - Parameters:
-    ///   - alignment: The sub-second grid and leeway of flexible entries (``WakeLeeway/defaultAlignment``).
+    ///   - energy: The policy whose `wakeAlignment` is the sub-second grid and leeway of flexible entries
+    ///     (``WakeLeeway/defaultAlignment``; ``WakeLeeway/saverAlignment`` under Energy Saver): the
+    ///     composition root's one source. It has no default, so no queue misses the saver silently.
     ///   - ledger: Where each fire and each owner that runs in it are counted (`debug.wakeups`).
     ///   - uptime: Monotonic nanoseconds, `CLOCK_UPTIME_RAW` (tests inject a fake).
     public convenience init(
-        alignment: Duration = WakeLeeway.defaultAlignment,
+        energy: EnergyPolicySource,
         ledger: WakeupLedger = .shared,
         uptime: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime
     ) {
-        self.init(alignment: alignment, ledger: ledger, uptime: uptime, makeTimer: { MainRunLoopWakeUpTimer(fire: $0) })
+        self.init(energy: energy, ledger: ledger, uptime: uptime, makeTimer: { MainRunLoopWakeUpTimer(fire: $0) })
     }
 
     /// The seam initializer: `makeTimer` gets the queue's fire callout and returns the timer it drives.
     /// The timer is made inside the lock: a `@Sendable` factory called with a `Sendable` callout returns
     /// a value no other code holds, so it can move into the `Mutex` without being `Sendable` itself.
     init(
-        alignment: Duration,
+        energy: EnergyPolicySource,
         ledger: WakeupLedger,
         uptime: @escaping @Sendable () -> UInt64,
         makeTimer: @Sendable (@escaping Action) -> any MainWakeUpTimer
     ) {
-        self.alignment = alignment
+        state = Mutex(State(alignment: WakeLeeway.defaultAlignment))
+        self.energy = energy
         self.ledger = ledger
         self.uptime = uptime
         let fire: Action = { [weak self] in self?.fire() }
         state.withLock { $0.timer = makeTimer(fire) }
+        let observation = energy.observe { [weak self] _ in self?.realign() }
+        state.withLock { $0.energyObservation = observation }
+        realign()
     }
 
     /// Entries waiting to run.
@@ -95,25 +111,32 @@ public final class MainWakeUpQueue: Sendable {
     /// Now, on the queue's clock (uptime ns): the base of every deadline it is given.
     var now: UInt64 { uptime() }
 
+    /// The sub-second grid and leeway of new flexible entries: the energy policy's `wakeAlignment`.
+    var alignment: Duration { state.withLock { $0.alignment } }
+
     /// The uptime the timer is armed for (ns); nil while it is parked. The earliest wake of every pending
     /// entry: the next-fire value an idle period ends before (Blink's `IdleHelper` asks the same of its
     /// thread's `NextScheduledRunTime`).
     var armedDate: UInt64? { state.withLock { $0.armed?.date } }
 
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
-    /// `policy` at the queue's alignment. Callable from any thread.
+    /// `policy` at the energy policy's alignment. Callable from any thread.
     @discardableResult
     public func insert(
         owner: String, after delay: Duration, policy: DelayPolicy = .flexibleNoSooner, _ action: @escaping Action
     ) -> Token {
-        let window = WakeLeeway.window(delay: delay, policy: policy, alignment: alignment)
-        return insert(owner: owner, at: deadline(after: delay), window: window, action)
+        let at = deadline(after: delay)
+        return state.withLock { state in
+            let window = WakeLeeway.window(delay: delay, policy: policy, alignment: state.alignment)
+            return add(&state, owner: owner, deadline: at, window: window, action)
+        }
     }
 
     /// Runs `action` on the main thread in the first fire at or after the whole uptime second at or after
     /// `delay` from now: a hidden node's timer. It runs in no earlier fire, even one made for a visible
     /// deadline after its own deadline. A delay of zero or less is not throttled and runs on the next fire,
-    /// as Blink throttles only delayed tasks. Callable from any thread.
+    /// as Blink throttles only delayed tasks. Its one-second grid does not follow the energy alignment.
+    /// Callable from any thread.
     @discardableResult
     public func insertHidden(owner: String, after delay: Duration, _ action: @escaping Action) -> Token {
         insertHidden(owner: owner, at: deadline(after: delay), action)
@@ -141,14 +164,31 @@ public final class MainWakeUpQueue: Sendable {
     /// (`PendingTask::earliest_delayed_run_time` / `latest_delayed_run_time`, base/pending_task.cc):
     /// `.precise` exactly at `deadline`; `.flexibleNoSooner` up to the leeway after it;
     /// `.flexiblePreferEarly` up to the leeway before it. A `deadline` that has passed runs on the next
-    /// fire. Callable from any thread.
+    /// fire. A flexible sub-second window snaps to the energy policy's grid at wake time, inside its own
+    /// earliest and latest times. Callable from any thread.
     @discardableResult
     public func insert(owner: String, at deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
+        state.withLock { add(&$0, owner: owner, deadline: deadline, window: window, action) }
+    }
+
+    private func add(_ state: inout State, owner: String, deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
+        let id = nextID(&state)
+        state.heap.insert(.init(id: id, deadline: deadline, window: window, owner: owner, payload: action))
+        rearm(&state)
+        return Token(id: id)
+    }
+
+    /// Takes the energy policy's alignment as the leeway of new entries and the grid of pending ones, and
+    /// re-arms, also to a later date (never past the top's latest time). The policy is read inside the
+    /// queue's lock, so of two racing calls the later one sees the newer policy (the source updates its
+    /// value before it calls observers). Called on the energy source's writer thread.
+    private func realign() {
         state.withLock { state in
-            let id = nextID(&state)
-            state.heap.insert(.init(id: id, deadline: deadline, window: window, owner: owner, payload: action))
+            let alignment = energy.policy.wakeAlignment
+            guard state.alignment != alignment else { return }
+            state.alignment = alignment
+            state.heap.alignment = alignment.nanosecondCount
             rearm(&state)
-            return Token(id: id)
         }
     }
 

@@ -19,10 +19,11 @@
 /// in uptime nanoseconds, for every user of the queue. They are read when needed, as Blink's `IdleHelper` reads its
 /// thread's next delayed run time when it starts a long idle period.
 ///
-/// The composition root makes one, on its one queue, and passes it to every ``MainDeadline``:
+/// The composition root makes one on its ``MainWorkScheduler``, whose ``MainWorkScheduler/wakeUps`` is the queue, and
+/// passes it to every ``MainDeadline``:
 ///
 /// ```swift
-/// let deadlines = MainDeadlineScheduler(work: mainWork, queue: mainWakeUpQueue)
+/// let deadlines = MainDeadlineScheduler(work: mainWork)
 /// let refresh = MainDeadline(owner: "Cloud.poll", workClass: .background, alignment: .whenHidden(window),
 ///                            scheduler: deadlines)
 /// refresh.start(every: .seconds(30)) { cloud.poll() }
@@ -63,11 +64,15 @@ public final class MainDeadlineScheduler {
         let generation: UInt64
     }
 
-    /// - Parameters:
-    ///   - work: The app's one main-thread scheduler: deadline actions are posted on it.
-    ///   - queue: The main thread's one deadline timer. Its clock is the uptime every deadline and every hidden
-    ///     node's ``VisibilityNode/hiddenSince`` are read on (the app: `CLOCK_UPTIME_RAW` for both).
-    public init(work: MainWorkScheduler, queue: MainWakeUpQueue) {
+    /// - Parameter work: The app's one main-thread scheduler: deadline actions are posted on it, and its
+    ///   ``MainWorkScheduler/wakeUps`` is the queue the wakes go on.
+    public convenience init(work: MainWorkScheduler) {
+        self.init(work: work, queue: work.wakeUps)
+    }
+
+    /// The seam initializer: tests pass a queue on a fake timer. The queue's clock is the uptime every deadline and
+    /// every hidden node's ``VisibilityNode/hiddenSince`` are read on (the app: `CLOCK_UPTIME_RAW` for both).
+    init(work: MainWorkScheduler, queue: MainWakeUpQueue) {
         self.work = work
         wakeups = AlignedWakeups(queue: queue)
     }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 99ae6cf38c66f81f167fc68c348b16734fd957c31b35ed1f2aace34d3575877d. */
+/* cmux-tui mux protocol 12, IR e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1112,8 +1112,27 @@ export type ServerStatsResult = {
   "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
+  "slow_requests"?: ServerStatsSlowRequests;
   "uptime_ms": bigint;
   "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsSlowRequest = {
+  "busy_ms": bigint;
+  "client": bigint;
+  "duration_ms": (bigint) | null;
+  "method": string;
+  "started_ms": bigint;
+};
+
+export type ServerStatsSlowRequests = {
+  "expected_waits": bigint;
+  "recent": Array<ServerStatsSlowRequest>;
+  "spawn_failures": bigint;
+  "threshold_ms": bigint;
+  "total": bigint;
+  "unwatched": bigint;
+  "watchdog_wakeups": bigint;
 };
 
 export type ServerStatsWritePath = {
