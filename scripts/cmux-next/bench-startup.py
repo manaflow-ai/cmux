@@ -82,12 +82,14 @@ launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 --profile (perf-corpus/launch-restore.json, task p12-perf-process-121; the story's
 module, scripts/perf-lab/corpus/launch_restore.py, says how). Seeding imports the
 story's layout snapshot in a fresh bench launch once per layout digest and reads its
-checkpoint digests (the state at quit); each measured launch waits for the first live
-terminal frame and the live sidebar rows, then reads the restored digests before it
-quits. Results are `corpus.<id>.<mode>.<mark>` in session `corpus:<id>` (story
-`<id>-<mode>`, or --story), plus `corpus.<id>.<mode>.checkpoint_mismatch_runs`: a
-launch that restored another state than the recorded checkpoint (else the state at
-quit) fails the bench (exit 1). --capture records the agreed digests in the manifest.
+checkpoint digests (the state at quit); each launch gets the seeding's window (the bench
+size on the main display) and config, waits for the first live terminal frame and the
+live sidebar rows, then puts the window where seeding left it and reads the restored
+digests before it quits. Results are `corpus.<id>.<mode>.<mark>` in session
+`corpus:<id>` (story `<id>-<mode>`, or --story), plus
+`corpus.<id>.<mode>.checkpoint_mismatch_runs`: a launch that restored another state
+than the recorded checkpoint (else the state at quit) fails the bench (exit 1).
+--capture records the agreed digests in the manifest.
 Lab stories: launch-restore-cold.json and launch-restore-warm.json.
 
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
@@ -507,21 +509,27 @@ def stop(pids, timeout=10):
         wait_exit(pids, 5)
 
 
+def launch_environment(scratch, marks_fd, extra_env=None):
+    """The environment of one measured launch: an isolated launch on the last screen with the scratch cmux.json,
+    its marks on `marks_fd`; `extra_env` wins."""
+    return {
+        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+        "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
+        "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
+        **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
+        **(extra_env or {}),
+    }
+
+
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
     def __init__(self, tag, scratch, extra_env=None):
         read_fd, write_fd = os.pipe()
-        env = {
-            "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-            "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-            "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
-            **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
-            **(extra_env or {}),
-        }
+        env = launch_environment(scratch, write_fd, extra_env)
         with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
@@ -780,12 +788,19 @@ def seed_corpus(tag, story):
     return seeded
 
 
+def corpus_launch():
+    """(cmux.json, extra env) of every launch of a corpus story: the seeding's window and config
+    (launch_restore.launch_config, launch_env), so each restored pane has its size at quit."""
+    module = corpus_module()
+    return module.launch_config(), module.launch_env()
+
+
 def app_read(tag):
-    """One control request by method name to the tag's app, at the first socket that answers."""
-    def read(method):
+    """One control request (a method name and its params) to the tag's app, at the first socket that answers."""
+    def read(method, params=None):
         reply = None
         for path in socket_candidates(tag):
-            reply = rpc_at(path, method, timeout=10)
+            reply = rpc_at(path, method, params, timeout=10)
             if not (isinstance(reply, dict) and reply.get("unreachable")):
                 return reply
         return reply
@@ -797,8 +812,10 @@ def restored_checkpoint(tag, story, seeded):
     the seeding's state at quit. None when the app did not answer the reads (check_checkpoints fails the run)."""
     want = story.recorded or {"focus": seeded["focus"], "surfaces": seeded["surfaces"]}
     module = corpus_module()
+    read = app_read(tag)
     try:
-        got = module.settled_digests(app_read(tag), want)
+        module.place_window(read)  # the seeding's window frame: the panes' content sizes are part of the digest
+        got = module.settled_digests(read, want)
     except module.LaunchRestoreError as error:
         print(f"  {tag}: no restored checkpoint ({error})", file=sys.stderr)
         return None
@@ -859,8 +876,9 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
     """One measured launch's marks. `purge_cold` empties the file cache last before a --mode cold launch;
     `before_quit(tag)` runs in the measured app before it quits, whether or not it reached its first content."""
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
+    config, env = corpus_launch() if profile == "corpus" else ({}, None)
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
-        out.write("{}\n")
+        out.write(json.dumps(config) + "\n")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
     # A first launch shows the agent New Tab page, not a terminal: other
@@ -888,18 +906,18 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
     elif mode == "restart":
         if not owner_pids(f"cmux-app-{tag}"):
-            prime = Launch(tag, scratch)
+            prime = Launch(tag, scratch, env)
             prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
             prime.quit()
         stop(owner_pids(f"cmux-app-{tag}"))
     elif not [p for p in tag_pids(tag) if p not in app_pids(tag)]:
-        prime = Launch(tag, scratch)
+        prime = Launch(tag, scratch, env)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
     if mode == "cold" and purge_cold:
         # Last, after every stop and priming launch: nothing pages back in before the measured launch.
         purge_cache()
-    launch = Launch(tag, scratch)
+    launch = Launch(tag, scratch, env)
     try:
         started = time.monotonic()
         reached = launch.wait_for(final, timeout, any_of=any_of)

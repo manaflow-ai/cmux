@@ -2,8 +2,9 @@
 """bench-startup.py --corpus: a corpus launch story (perf-corpus/launch-restore.json, task p12-perf-process-121).
 
 1. --corpus is the launch's state: not with a --profile or --after-reboot; --capture needs it; --out takes it.
-2. A run seeds the tag once per layout digest, waits for the first live terminal frame and the live sidebar rows
-   (both), and reads the restored checkpoint before the app quits (only when the launch drew).
+2. A run seeds the tag once per layout digest, gives every launch the seeding launch's window, screen and config,
+   waits for the first live terminal frame and the live sidebar rows (both), and reads the restored checkpoint at
+   the seeding's window frame before the app quits (only when the launch drew).
 3. The restored checkpoint is judged against the story's recorded digests, else the seeding's state at quit.
 4. Results are `corpus.<id>.<mode>.<mark>` in session corpus:<id>, story `<id>-<mode>`, with
    `checkpoint_mismatch_runs`; a mismatched or missing checkpoint fails the bench; --capture records only states
@@ -18,7 +19,10 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import re
+import shutil
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -70,8 +74,11 @@ class ParseTests(unittest.TestCase):
 class FakeLaunch:
     waits = []
     reaches = True
+    made = []  # (environment, cmux.json) of each launch
 
     def __init__(self, tag, scratch, extra_env=None):
+        with open(Path(scratch) / "cmux.json") as config:
+            FakeLaunch.made.append((bs.launch_environment(scratch, 3, extra_env), json.load(config)))
         self.marks = {"first_window_frame_committed": 100.0, "first_terminal_frame": 300.0, "sidebar_rows_shown": 250.0}
 
     def wait_for(self, mark, timeout, any_of=False):
@@ -100,7 +107,7 @@ class OneRunTests(unittest.TestCase):
             return self.marker
         bs.seed_corpus = seed
         bs.restored_checkpoint = lambda tag, given, seeded: {**seeded, "matches": True}
-        FakeLaunch.waits = []
+        FakeLaunch.waits, FakeLaunch.made = [], []
         FakeLaunch.reaches = True
 
     def run_once(self):
@@ -120,6 +127,35 @@ class OneRunTests(unittest.TestCase):
         self.run_once()
         self.assertEqual(self.seeds, ["t"])
 
+    def test_every_launch_gets_the_seeding_launch_s_window_screen_and_config(self):
+        lr = bs.corpus_module()
+        out = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, out)
+        seeding = lr.seeding_bench("/Apps/cmux DEV t.app", Path(out))
+        self.addCleanup(shutil.rmtree, seeding.scratch)
+        seeding_env = seeding.environment()
+        with open(seeding_env["CMUX_NEXT_CONFIG_FILE"]) as config:
+            seeding_config = json.load(config)
+        bs.tag_pids = lambda tag: []  # no daemon: a warm run primes it, and the priming launch is a launch too
+        self.run_once()
+        self.assertEqual(len(FakeLaunch.made), 2)
+        width, height = lr.session_io().load_stress().WINDOW_SIZE
+        for env, config in FakeLaunch.made:
+            for key in ("CMUX_NEXT_TEST_WINDOW_FRAME", "CMUX_NEXT_TEST_WINDOW_SCREEN", "CMUX_NEXT_NO_ACTIVATE"):
+                self.assertEqual(env[key], seeding_env[key], key)
+            self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_FRAME"], f"0,0,{width},{height}")
+            self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_SCREEN"], "0", "the main display, where seeding places it")
+            self.assertEqual(config["layout"], seeding_config["layout"])
+            self.assertEqual(config, lr.launch_config())
+
+    def test_another_profile_keeps_the_last_screen_and_an_empty_config(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            bs.one_run("t", "warm", 5, None)
+        env, config = FakeLaunch.made[-1]
+        self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_SCREEN"], "last")
+        self.assertNotIn("CMUX_NEXT_TEST_WINDOW_FRAME", env)
+        self.assertEqual(config, {})
+
     def test_a_launch_that_did_not_draw_reads_no_checkpoint(self):
         FakeLaunch.reaches = False
         self.assertNotIn("checkpoint", self.run_once())
@@ -129,12 +165,32 @@ class RestoredCheckpointTests(unittest.TestCase):
     def setUp(self):
         self.saved = bs.corpus_module
         self.addCleanup(setattr, bs, "corpus_module", self.saved)
-        self.wanted = []
+        self.wanted, self.calls = [], []
 
         def settled(read, want):
+            self.calls.append("settled")
             self.wanted.append(want)
             return dict(A)
-        bs.corpus_module = lambda: SimpleNamespace(settled_digests=settled)
+        bs.corpus_module = lambda: SimpleNamespace(settled_digests=settled, place_window=self.place)
+
+    def place(self, rpc):
+        self.calls.append("place")
+        return {}
+
+    def test_the_window_goes_where_seeding_left_it_before_the_digests_are_read(self):
+        bs.restored_checkpoint("t", story(), {"layout": LAYOUT, **B})
+        self.assertEqual(self.calls, ["place", "settled"])
+
+    def test_a_display_that_cannot_hold_the_window_gives_no_checkpoint(self):
+        class Refused(RuntimeError):
+            pass
+
+        def place(rpc):
+            raise Refused("window: the window is [1024, 700] pt")
+        bs.corpus_module = lambda: SimpleNamespace(place_window=place, settled_digests=None, LaunchRestoreError=Refused)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(bs.restored_checkpoint("t", story(), {"layout": LAYOUT, **B}))
+        self.assertIn("no restored checkpoint (window: the window is", err.getvalue())
 
     def test_without_recorded_digests_the_state_at_quit_is_wanted(self):
         got = bs.restored_checkpoint("t", story(), {"layout": LAYOUT, **B})
@@ -147,7 +203,8 @@ class RestoredCheckpointTests(unittest.TestCase):
 
         def settled(read, want):
             raise Unanswered("debug.focus gave no report")
-        bs.corpus_module = lambda: SimpleNamespace(settled_digests=settled, LaunchRestoreError=Unanswered)
+        bs.corpus_module = lambda: SimpleNamespace(settled_digests=settled, place_window=self.place,
+                                                   LaunchRestoreError=Unanswered)
         with contextlib.redirect_stderr(io.StringIO()) as err:
             self.assertIsNone(bs.restored_checkpoint("t", story(), {"layout": LAYOUT, **B}))
         self.assertIn("no restored checkpoint (debug.focus gave no report)", err.getvalue())

@@ -10,12 +10,15 @@ The story has no input track: what it measures is a launch, so its runner is the
     scripts/cmux-next/bench-startup.py --corpus perf-corpus/launch-restore.json --mode cold --purge --app APP --out DIR
     scripts/cmux-next/bench-startup.py --corpus perf-corpus/launch-restore.json --mode warm --app APP --out DIR
 
+Every launch of the story, seeding and measured, gets one window and config (`launch_env`, `launch_config`): the
+bench window size on the main display and the bench minimum pane size, which session_io.import_layout uses.
 Seeding (once per layout digest, `seed`): a fresh bench launch (bench_launch.BenchApp, the bench environment play.py
 uses) imports the layout snapshot through the action pipeline (session_io.import_layout), its settled `debug.focus`
 and `debug.surfaces` digests are read (the state at quit), and the app quits as a person's Quit that keeps sessions.
-Each measured launch then restores that session; before it quits, its settled digests are read again. A launch whose
-restored digests differ from the story's `restored` checkpoint (the recorded digests, else the state at quit) did
-not restore the session it was given: bench-startup counts it in `<root>.<mode>.checkpoint_mismatch_runs` and fails.
+Each measured launch then restores that session; before it quits, its window goes where seeding left it
+(`place_window`) and its settled digests are read again. A launch whose restored digests differ from the story's
+`restored` checkpoint (the recorded digests, else the state at quit) did not restore the session it was given:
+bench-startup counts it in `<root>.<mode>.checkpoint_mismatch_runs` and fails.
 Chrome checks its session restore the same way: the restored browser must hold the tabs and the selection that were
 saved (chrome/browser/sessions/session_restore_browsertest.cc), and its startup benchmark restores a recorded
 session before it times the launch (tools/perf/benchmarks/startup_mobile.py, `--restore-session`).
@@ -58,6 +61,7 @@ CHECKPOINT = "restored"
 CHECKPOINT_SETTLE_S = 5.0   # play.py's settle: how long a launch may take to reach the checkpoint's state
 CHECKPOINT_POLL_S = 0.25
 MARKS = ("first_terminal_frame", "sidebar_rows_shown")  # the launch waits for both
+WINDOW_SCREEN = "0"         # CMUX_NEXT_TEST_WINDOW_SCREEN: the main display, where import_layout places the window
 
 
 class LaunchRestoreError(RuntimeError):
@@ -306,15 +310,62 @@ def settled_digests(read: Callable[[str], Any], want: Mapping[str, str] | None =
         sleep(CHECKPOINT_POLL_S)  # the app reaches the state on its own turns; play.py polls the same way
 
 
+# ---------------------------------------------------------------- one window and config for every launch
+
+def launch_window() -> tuple[int, int, int, int]:
+    """CMUX_NEXT_TEST_WINDOW_FRAME of every launch of the story (x, y, w, h from the top-left of the visible frame):
+    the bench window size (perf-stress-session.py WINDOW_SIZE) that session_io.import_layout gives the window."""
+    width, height = session_io().load_stress().WINDOW_SIZE
+    return 0, 0, width, height
+
+
+def launch_env() -> dict[str, str]:
+    """The window variables of every launch of the story, seeding and measured: the launch window on the main
+    display (WINDOW_SCREEN), where import_layout places it. An isolated launch with no frame would open 1100x720 on
+    the last screen (TestWindowPlacement.defaultSize) and ignore the saved frame, so no pane would have its size at
+    quit."""
+    return {"CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(value) for value in launch_window()),
+            "CMUX_NEXT_TEST_WINDOW_SCREEN": WINDOW_SCREEN}
+
+
+def launch_config() -> dict[str, Any]:
+    """The cmux-next.json of every launch of the story: the bench minimum pane size (perf-stress-session.py
+    MINIMUM_PANE) that import_layout sets in the seeding app, nested as the config file holds it."""
+    config: dict[str, Any] = {}
+    for key, value in session_io().load_stress().MINIMUM_PANE.items():
+        *parents, leaf = key.split(".")
+        node = config
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = value
+    return config
+
+
+def place_window(rpc: Callable[..., Any]) -> dict[str, Any]:
+    """Puts a restored launch's window where seeding left it (perf-stress-session.py place_window, the call
+    import_layout makes), so its checkpoint is read at the seeding's window frame: a display whose visible frame is
+    under WINDOW_SIZE clamps an isolated launch's frame, and place_window does not. Returns the debug.window_frame
+    reply; LaunchRestoreError when the display cannot hold the window."""
+    reply, problem = session_io().load_stress().place_window(rpc)
+    if problem:
+        raise LaunchRestoreError(f"window: {problem}")
+    return reply
+
+
+def seeding_bench(app: str, out: Path):
+    """The seeding launch: a bench launch (bench_launch.BenchApp) with the story's window and config, which every
+    measured launch gets too (launch_env, launch_config). It keeps the tag's daemons when it stops."""
+    return bench_launch().BenchApp(app, out=str(out), teardown=False, log_name="app-seed.log", window=launch_window(),
+                                   screen=WINDOW_SCREEN, config=launch_config())
+
+
 def seed(story: Story, app: str, out: str | Path, *, bench_factory: Callable[..., Any] | None = None,
          importer: Callable[[Callable[..., Any], Mapping[str, Any]], Any] | None = None,
          digests: Callable[[Callable[[str], Any]], dict] = read_digests) -> dict[str, str]:
     """Imports the story's layout into a fresh bench launch of `app` and quits it keeping its sessions (the daemon,
     its terminals and the saved session stay). Returns the settled digests of the state at quit. The caller has
     emptied the tag's state; the bench's own launch refuses a tag that still runs."""
-    factory = bench_factory or (lambda path, out_dir: bench_launch().BenchApp(path, out=str(out_dir), teardown=False,
-                                                                                log_name="app-seed.log"))
-    bench = factory(app, Path(out))
+    bench = (bench_factory or seeding_bench)(app, Path(out))
     builder = None
     try:
         bench.launch(validate_host=False)  # bench_launch.LaunchError when the app does not come up

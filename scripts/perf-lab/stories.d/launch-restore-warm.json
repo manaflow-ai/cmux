@@ -17,8 +17,7 @@
   ],
   "repeats": 2,
   "seconds": 240,
-  "needs": ["debug:debug.focus", "debug:debug.surfaces"],
+  "needs": ["debug:debug.focus", "debug:debug.surfaces", "debug:debug.window_frame"],
   "owner": "PL-perf-lab",
-  "component": "Launch>Restore",
-  "not_measurable": "scripts/perf-lab/corpus/play.py (task 115) is not on the branch yet: its focus_digest and surfaces_digest are the checkpoint digests, so bench-startup.py --corpus refuses without it. Remove this field when 115 lands."
+  "component": "Launch>Restore"
 }

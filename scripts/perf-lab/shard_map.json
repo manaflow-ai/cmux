@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 24160,
+            "T1": 24700,
             "T2": 41580
           },
           "stories": {
@@ -36,6 +36,8 @@
               "launch-cold",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "main-turn",
               "memory-hidden",
@@ -225,7 +227,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 11950
+            "T1": 12250
           },
           "stories": {
             "T0": [
@@ -244,6 +246,7 @@
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
               "main-turn",
               "motion",
               "new-browser-tab-webkit",
@@ -268,7 +271,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12210
+            "T1": 12450
           },
           "stories": {
             "T0": [
@@ -290,6 +293,7 @@
               "idle-tabs",
               "idle-tabs-webkit",
               "launch-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",

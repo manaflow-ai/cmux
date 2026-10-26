@@ -7,6 +7,8 @@
    does not match it.
 3. settled_digests reads until the state is the wanted one (or held for one poll), within its settle time.
 4. seed() launches, imports the layout, reads the state at quit, quits keeping sessions and always stops the app.
+   The seeding launch and every measured launch get one window, screen and config; place_window puts a restored
+   window where seeding left it, and refuses a display that cannot hold it.
 5. capture() records the digests (the manifest becomes recorded and still validates) and never records over other
    recorded digests.
 
@@ -286,6 +288,55 @@ class SeedTests(unittest.TestCase):
         with self.assertRaisesRegex(lr.LaunchRestoreError, "did not quit: still runs"):
             self.seed(bench, lambda rpc, snapshot: FakeBuilder())
         self.assertEqual(bench.calls[-1], ("stop",))
+
+
+class LaunchGeometryTests(unittest.TestCase):
+    """Every launch restores into the seeding's window: an isolated launch with no frame opens 1100x720 on the last
+    screen, and every shown pane's content_size (a surfaces digest field) would differ from the state at quit."""
+
+    def setUp(self):
+        self.stress = io.load_stress()
+
+    def test_the_seeding_launch_gets_the_story_window_screen_and_config(self):
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out)
+        bench = lr.seeding_bench("/Apps/cmux DEV t.app", out)
+        self.addCleanup(shutil.rmtree, bench.scratch)
+        env = bench.environment()
+        for key, value in lr.launch_env().items():
+            self.assertEqual(env[key], value, key)
+        self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_FRAME"], "0,0,%d,%d" % tuple(self.stress.WINDOW_SIZE))
+        self.assertEqual(env["CMUX_NEXT_TEST_WINDOW_SCREEN"], "0")
+        with open(env["CMUX_NEXT_CONFIG_FILE"]) as config:
+            self.assertEqual(json.load(config)["layout"], lr.launch_config()["layout"])
+
+    def test_the_config_is_the_bench_minimum_pane_size(self):
+        config = lr.launch_config()
+        self.assertEqual({f"layout.{key}": value for key, value in config["layout"].items()}, self.stress.MINIMUM_PANE)
+
+    def fake_rpc(self, visible):
+        calls = []
+
+        def rpc(method, params=None):
+            calls.append((method, params))
+            frame = params.get("frame") or [0, 0, 1100, 720]
+            width, height = min(frame[2], visible[2]), min(frame[3], visible[3])
+            return {"frame": [frame[0], frame[1], width, height], "visible_frame": visible,
+                    "screen_frame": [0, 0, visible[2], visible[3] + 25], "screen": 0}
+        return rpc, calls
+
+    def test_place_window_puts_the_window_where_import_layout_does(self):
+        rpc, calls = self.fake_rpc([0, 0, 1920, 1055])
+        reply = lr.place_window(rpc)
+        width, height = self.stress.WINDOW_SIZE
+        self.assertEqual(calls[0], ("debug.window_frame", {"screen": 0}))
+        self.assertEqual(calls[1], ("debug.window_frame", {"frame": [(1920 - width) // 2, 1055 - height, width, height]}))
+        self.assertEqual(reply["frame"][2:], [width, height])
+
+    def test_a_display_that_cannot_hold_the_window_is_refused(self):
+        rpc, _ = self.fake_rpc([0, 0, 1024, 743])
+        with self.assertRaisesRegex(lr.LaunchRestoreError, "window: the window is"):
+            lr.place_window(rpc)
 
 
 class CaptureTests(unittest.TestCase):
