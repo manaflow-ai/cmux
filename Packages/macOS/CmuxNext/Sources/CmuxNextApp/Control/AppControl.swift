@@ -121,14 +121,10 @@ final class AppControl {
             BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class;
             // its idle class's periods under "idle".
-            .mainActor("debug.main_budget") { [budget = mainWork.budget, idle = mainWork.idle] call in
-                var report = budget.report.objectValue ?? [:]
-                report["idle"] = idle.report
-                if call.params["reset"]?.boolValue == true {
-                    budget.resetStats()
-                    idle.resetStats()
-                }
-                return .value(.object(report))
+            .mainActor("debug.main_budget") { [mainWork = mainWork] call in
+                let report = mainWork.budgetReport
+                if call.params["reset"]?.boolValue == true { mainWork.resetBudgetStats() }
+                return .value(report)
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },

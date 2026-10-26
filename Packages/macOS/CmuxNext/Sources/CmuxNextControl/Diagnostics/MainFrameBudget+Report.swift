@@ -38,3 +38,18 @@ extension IdleScheduler {
                 "timer_fires": JSONValue(stats.timerFires), "queued": JSONValue(count)]
     }
 }
+
+extension MainWorkScheduler {
+    /// The `debug.main_budget` report: the budget's, with the idle class's under `idle`.
+    public var budgetReport: JSONValue {
+        var report = budget.report.objectValue ?? [:]
+        report["idle"] = idle.report
+        return .object(report)
+    }
+
+    /// Clears the budget's and the idle class's counters (`debug.main_budget reset`).
+    public func resetBudgetStats() {
+        budget.resetStats()
+        idle.resetStats()
+    }
+}
