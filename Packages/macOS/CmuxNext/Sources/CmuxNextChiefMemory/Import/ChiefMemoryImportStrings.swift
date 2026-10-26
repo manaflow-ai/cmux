@@ -2,10 +2,8 @@ public import Foundation
 
 /// The "Import Memories" texts (Resources/Localizable.xcstrings). Product names are brand names and stay as
 /// they are in every language.
-// lint:allow namespace-type -- the sanctioned string-table exception: localized text and fixed
-// brand names, with no receiver to extend and nothing to inject. Its peers are in the
-// shrink-only scripts/lint-namespace-types-ratchet.txt, which never gains an entry.
-public nonisolated enum ChiefMemoryImportStrings {
+public nonisolated struct ChiefMemoryImportStrings {
+    public nonisolated init() {}
     public static var productClaudeCode: String { "Claude Code" }
     public static var productCodex: String { "Codex" }
     public static var productChatGPT: String { "ChatGPT" }
