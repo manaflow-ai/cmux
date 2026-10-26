@@ -30,6 +30,17 @@ enum ConfirmationStrings {
         String(localized: "confirm.closeWorkspace.title", defaultValue: "Close “\(name)”?", table: "Handlers", bundle: .module)
     }
 
+    /// A person's close of a pinned workspace, as cmux classic asks it.
+    static var closePinnedWorkspaceTitle: String {
+        String(localized: "confirm.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?", table: "Handlers", bundle: .module)
+    }
+
+    static var closePinnedWorkspaceBody: String {
+        String(localized: "confirm.closePinnedWorkspace.body",
+               defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels.",
+               table: "Handlers", bundle: .module)
+    }
+
     /// "Close “name”?", for a tab as for a workspace.
     static func closeTitle(_ name: String) -> String { closeWorkspaceTitle(name) }
 

@@ -1841,6 +1841,268 @@
         }
       }
     },
+    "confirm.closePinnedWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close pinned workspace?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق مساحة العمل المثبتة؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvoriti zakačeni radni prostor?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luk fastgjort arbejdsområde?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angepinnten Arbeitsbereich schließen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cerrar espacio de trabajo fijado?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer l’espace de travail épinglé ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudere lo spazio di lavoro fissato?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースを閉じますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទកន្លែងធ្វើការដែលបានខ្ទាស់?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정된 워크스페이스를 닫으시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukke festet arbeidsområde?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknąć przypiętą przestrzeń roboczą?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar o espaço de trabalho fixado?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть закреплённое рабочее пространство?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดพื้นที่ทำงานที่ปักหมุดไว้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş çalışma alanı kapatılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити закріплену робочу область?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng không gian làm việc đã ghim?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭已固定的工作区？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要關閉釘選的工作區嗎？"
+          }
+        }
+      }
+    },
+    "confirm.closePinnedWorkspace.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is pinned. Closing it will close the workspace and all of its panels."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل هذه مثبتة. سيؤدي إغلاقها إلى إغلاق مساحة العمل وكل لوحاتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj radni prostor je zakačen. Zatvaranjem će se zatvoriti radni prostor i svi njegovi paneli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbejdsområde er fastgjort. Hvis du lukker det, lukkes arbejdsområdet og alle dets paneler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Arbeitsbereich ist angepinnt. Das Schließen schließt den Arbeitsbereich und alle seine Panels."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espacio de trabajo está fijado. Al cerrarlo, se cerrará el espacio de trabajo y todos sus paneles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet espace de travail est épinglé. Le fermer fermera l’espace de travail et tous ses panneaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo spazio di lavoro è fissato. Chiudendolo verranno chiusi lo spazio di lavoro e tutti i suoi pannelli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはピン留めされています。閉じると、このワークスペースとその中のすべてのパネルが閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការនេះត្រូវបានខ្ទាស់។ ការបិទវានឹងបិទកន្លែងធ្វើការ និងផ្ទាំងទាំងអស់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스는 고정되어 있습니다. 닫으면 워크스페이스와 모든 패널이 닫힙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbeidsområdet er festet. Hvis du lukker det, lukkes arbeidsområdet og alle panelene i det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta przestrzeń robocza jest przypięta. Zamknięcie jej zamknie przestrzeń roboczą i wszystkie jej panele."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espaço de trabalho está fixado. Fechá-lo fechará o espaço de trabalho e todos os seus painéis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это рабочее пространство закреплено. При закрытии будут закрыты рабочее пространство и все его панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานนี้ถูกปักหมุดไว้ การปิดจะปิดพื้นที่ทำงานและแผงทั้งหมดของพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanı sabitlenmiş. Kapatmak çalışma alanını ve tüm panellerini kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця робоча область закріплена. Закриття видалить робочу область та всі її панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc này đã được ghim. Đóng nó sẽ đóng không gian làm việc và tất cả các bảng của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区已固定。关闭它会同时关闭该工作区及其所有面板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區已釘選。關閉它將會關閉該工作區及其所有面板。"
+          }
+        }
+      }
+    },
     "confirm.closeWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
