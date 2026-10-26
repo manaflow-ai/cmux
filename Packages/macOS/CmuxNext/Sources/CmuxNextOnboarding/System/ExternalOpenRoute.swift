@@ -156,14 +156,16 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         return .terminal(cwd: nil, command: "man \(ShellQuote.quote(topic))")
     }
 
+    /// ASCII only: a look-alike letter (Cyrillic `а`, the Kelvin sign) would name another host
+    /// than the one the confirmation seems to show.
     static func isHostName(_ host: String) -> Bool {
         !host.isEmpty && !host.hasPrefix("-") && host.count <= 253
-            && host.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || ".-_:%".unicodeScalars.contains($0) }
+            && host.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".-_:%".unicodeScalars.contains($0)) }
     }
 
     static func isLogin(_ user: String) -> Bool {
         !user.isEmpty && !user.hasPrefix("-") && user.count <= 64
-            && user.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0) }
+            && user.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
     }
 
     static func isManToken(_ token: String) -> Bool {
