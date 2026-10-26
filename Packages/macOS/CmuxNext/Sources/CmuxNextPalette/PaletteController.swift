@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -39,6 +40,8 @@ public final class PaletteController {
     /// at the start of each open so ``PaletteOpenTiming/input`` covers the key
     /// router's time before the palette runs.
     public var openingEventTimestamp: (() -> TimeInterval?)?
+    /// Where each open's `stall.palette_open` slice goes (tests pass one over their own trace runtime).
+    var stallSignposter: Signposter = .stall
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
@@ -90,11 +93,10 @@ public final class PaletteController {
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
-        markOpenStarted()
-        captureContext()
-        model.open(scope: scope, query: query)
-        modelReady = .now
-        present(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)))
+        open(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:))) {
+            captureContext()
+            model.open(scope: scope, query: query)
+        }
         return true
     }
 
@@ -163,22 +165,20 @@ public final class PaletteController {
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        markOpenStarted()
-        captureContext()
-        model.reset(to: page(for: mode))
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) {
+            captureContext()
+            model.reset(to: page(for: mode))
+        }
     }
 
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        markOpenStarted()
-        captureContext()
-        model.reset(to: page)
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) {
+            captureContext()
+            model.reset(to: page)
+        }
     }
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
@@ -202,10 +202,7 @@ public final class PaletteController {
             return
         }
         configureScopes()
-        markOpenStarted()
-        model.reset(to: effect, fallback: commandsPage())
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) { model.reset(to: effect, fallback: commandsPage()) }
     }
 
     /// Captures the focused objects on open. An open palette keeps what it
@@ -213,6 +210,19 @@ public final class PaletteController {
     func captureContext() {
         guard !isVisible else { return }
         capturedTargets = sources.context?() ?? []
+    }
+
+    /// One open's main-thread work, inside one `stall.palette_open` thread slice (B/E, Chrome's scoped
+    /// `TRACE_EVENT0`, base/trace_event/common/trace_event_common.h): the start mark, `buildModel` (the page's
+    /// items and first results), then the panel shown. The first frame's commit (``PaletteOpenTiming/commit``)
+    /// runs in a later turn, outside the slice.
+    private func open(relativeTo window: NSWindow?, anchor: NSRect? = nil, buildModel: () -> Void) {
+        let slice = stallSignposter.begin(.stallPaletteOpen)
+        defer { stallSignposter.end(.stallPaletteOpen, slice) }
+        markOpenStarted()
+        buildModel()
+        modelReady = .now
+        present(relativeTo: window, anchor: anchor)
     }
 
     private func markOpenStarted() {
