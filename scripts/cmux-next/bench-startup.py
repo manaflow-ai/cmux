@@ -63,7 +63,10 @@ pass; `debug`, `bench-checks` (its blocking detector costs time on every
 checked call), a stamp the executable contradicts, and an unstamped bench-hooks
 bundle are refused. With --tag it takes the tag's newest optimized bundle.
 
---order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run.
+--order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run. A
+term A|B is any one of the marks (the earliest that arrived): a launch marks
+launch.agent_page_warmup when the warm-up made its page and
+launch.agent_page_warmup_not_needed when an agent page had started WebKit first.
 """
 import argparse
 import glob
@@ -122,7 +125,8 @@ MARKS = [
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
-    ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
+    ("launch.agent_page_warmup", "agent page WebKit warm-up made its page"),
+    ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
     ("daemon.status_end", "server status exit"),
@@ -175,7 +179,7 @@ REALISTIC_WORKSPACES = 24
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
     "first_window_frame_committed<launch.post_window_warmups",
-    "first_window_frame_committed<launch.agent_page_warmup",
+    "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed",
 ]
 
 # Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
@@ -448,6 +452,9 @@ SEED_CHAT_PANE = "last"
 HANG_THRESHOLD_MS = None
 # --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
 WAIT_STARTUP_COMPLETE = False
+# The --order terms (and LAUNCH_ORDER's in budget mode): each launch also waits (within --timeout)
+# for one mark of each term, since afterStartup posts (p08-startup-017) mark after the first content.
+ORDER_MARKS = []
 
 
 def state_directories(tag):
@@ -668,6 +675,8 @@ def one_run(tag, mode, timeout, profile=None, temperature=None, purge_cache=purg
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
+        for term in ORDER_MARKS if reached else []:
+            launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -885,14 +894,26 @@ def require_optimized(tags):
 
 
 def parse_order(order):
-    """The marks of a `FIRST<SECOND[<THIRD...]` chain; ValueError for an empty term or a value mark."""
-    marks = [mark.strip() for mark in order.split("<")]
-    if len(marks) < 2 or not all(marks):
-        raise ValueError(f"--order {order!r}: expected FIRST<SECOND (marks joined by <)")
-    values = [mark for mark in marks if mark in VALUE_MARKS]
+    """The terms of a `FIRST<SECOND[<THIRD...]` chain (a term `A|B` is any one of its marks); ValueError
+    for an empty term or mark, or a value mark."""
+    terms = ["|".join(mark.strip() for mark in term.split("|")) for term in order.split("<")]
+    if len(terms) < 2 or not all(all(term_marks(term)) for term in terms):
+        raise ValueError(f"--order {order!r}: expected FIRST<SECOND (marks joined by <, alternatives by |)")
+    values = [mark for term in terms for mark in term_marks(term) if mark in VALUE_MARKS]
     if values:
         raise ValueError(f"--order {order!r}: {', '.join(values)} is a value, not a time")
-    return marks
+    return terms
+
+
+def term_marks(term):
+    """The marks of an --order term: `A|B` is A or B."""
+    return term.split("|")
+
+
+def term_time(run, term):
+    """The earliest time of the term's marks in `run`, None when none arrived."""
+    times = [run[mark] for mark in term_marks(term) if is_number(run.get(mark))]
+    return min(times) if times else None
 
 
 def parse_args(argv):
@@ -948,6 +969,8 @@ def main():
     require_gui_session("bench-startup")
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE
     HANG_THRESHOLD_MS = args.hangs
+    orders = args.order + (LAUNCH_ORDER if args.budget else [])
+    ORDER_MARKS.extend(dict.fromkeys(term for order in orders for term in parse_order(order)))
     WAIT_STARTUP_COMPLETE = args.startup_complete
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
@@ -1000,7 +1023,6 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
-    orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
@@ -1031,10 +1053,11 @@ def check_orders(results, orders):
         for tag, modes in results.items():
             for mode, runs in modes.items():
                 for index, run in enumerate(runs):
-                    if not is_number(run.get(second)):
+                    first_ms, second_ms = term_time(run, first), term_time(run, second)
+                    if second_ms is None:
                         out.append(f"{tag} {mode} run {index + 1}: {second} missing")
-                    elif is_number(run.get(first)) and run[second] < run[first]:
-                        out.append(f"{tag} {mode} run {index + 1}: {second} at {run[second]:.0f} ms, before {first} at {run[first]:.0f} ms")
+                    elif first_ms is not None and second_ms < first_ms:
+                        out.append(f"{tag} {mode} run {index + 1}: {second} at {second_ms:.0f} ms, before {first} at {first_ms:.0f} ms")
     return out
 
 

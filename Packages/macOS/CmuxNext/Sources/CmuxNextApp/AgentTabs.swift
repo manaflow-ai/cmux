@@ -21,8 +21,8 @@ import Observation
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
-    /// its page host (`AppServices.webUI`) every agent pane opens its page through.
-    private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost
+    /// its page host (`AppServices.webUI`) every agent pane opens its page through, and the agent pages' WebKit warm-up.
+    private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?
     /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
@@ -211,13 +211,13 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
+         openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
         }
-        self.openPanel = openPanel
+        (self.openPanel, self.warmup) = (openPanel, warmup)
         self.webUI = webUI
         actionRegistry = registry
         self.linkScheme = linkScheme
@@ -494,7 +494,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
