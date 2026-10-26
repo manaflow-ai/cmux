@@ -33,13 +33,14 @@
 //!   `of`, `reason` and `nextAt`; `auto_resume_exhausted` its `reason`. The wait's timer ends
 //!   when its delay does, or at once when its mark goes (Stop, close, a turn that took the chat):
 //!   it then records the skip.
+//! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
+//!   is the provider's whatever account asks, so the session waits where it is.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
-//! - Usage limits and sign-in failures are not transient: the fallback profile handles
-//!   those (`turns.rs`). A capacity error does not hop to the fallback: the SR2 pool reports it,
-//!   and a 529 is the provider's whatever account asks, so the session waits where it is. A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
+//! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
+//!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -117,7 +118,7 @@ impl Drop for Wake {
 /// What a chat's continuation state is.
 enum Mark {
     /// A continuation waits to answer for this cut turn; `retry` once its wait is set.
-    Waiting { turn: String, retry: Option<RetrySummary>, wake: Wake },
+    Waiting { turn: String, retry: Option<RetrySummary>, _wake: Wake },
     /// The continuation of this cut turn fired and has not started its turn yet; Stop or
     /// close now still counts for it.
     Firing(String),
@@ -274,7 +275,8 @@ impl Hub {
             return;
         };
         let wake = Arc::new(Notify::new());
-        let mark = Mark::Waiting { turn: turn_id.to_owned(), retry: None, wake: Wake(wake.clone()) };
+        let mark =
+            Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
         pending.insert(session.id.clone(), mark);
         drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);
@@ -394,15 +396,20 @@ impl Hub {
     }
 
     /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
-    /// stays, as firing, until its turn starts.
-    fn fire_pending(&self, session: &Session, cut_turn: &str) -> bool {
+    /// stays, as firing, until its turn starts. Else why it does not: `superseded` when a newer
+    /// turn took its mark or the chat moved on, `stopped` when Stop or close took it.
+    fn fire_pending(&self, session: &Session, cut_turn: &str) -> Result<(), &'static str> {
         let mut pending = self.auto_resumes.lock();
-        let ours =
-            matches!(pending.get(&session.id), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
-        if ours {
-            pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+        match pending.get(&session.id) {
+            Some(Mark::Waiting { turn, .. }) if turn == cut_turn => {
+                pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+                Ok(())
+            }
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => Err("superseded"),
+            // The turn that ended before `still_cut` reads its result is a newer one.
+            _ if !still_cut(session, cut_turn) => Err("superseded"),
+            _ => Err("stopped"),
         }
-        ours
     }
 
     /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
@@ -417,8 +424,7 @@ impl Hub {
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
     fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
         let mut pending = self.auto_resumes.lock();
-        let ours =
-            matches!(pending.get(&session.id), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
         if ours {
             pending.remove(&session.id);
         }
@@ -435,9 +441,8 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
-        if !self.fire_pending(session, cut_turn) {
+        if let Err(why) = self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
-            let why = if still_cut(session, cut_turn) { "stopped" } else { "superseded" };
             self.append(session, "mux", "auto_resume_skipped", skipped(why));
             return;
         }
