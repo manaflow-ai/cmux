@@ -70,8 +70,49 @@ pub struct Pack {
     pub inject: Option<Inject>,
     /// Opt-in: with no login of its own, the Chief uses the person's.
     pub share: Option<Share>,
+    /// MCP servers the Chief's turns load while the pack is on.
+    #[serde(default)]
+    pub mcp: Vec<Mcp>,
     #[serde(skip)]
     pub managed: bool,
+    /// The folder it was read from (None: shipped, not on disk).
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
+}
+
+/// One MCP server of a pack: a stdio `command` or a remote `url`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mcp {
+    pub name: String,
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Literal values, or `secret:PACK` for a pack's stored secret.
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    pub url: Option<String>,
+    /// `secret:PACK`: sent as `Authorization: Bearer` to a remote server.
+    pub bearer: Option<String>,
+    /// The tools a turn may call; empty means all of them.
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+impl Mcp {
+    fn secret_refs(&self) -> impl Iterator<Item = &str> {
+        self.env
+            .values()
+            .chain(self.bearer.iter())
+            .filter_map(|v| v.strip_prefix("secret:"))
+    }
+
+    /// Runs through `chief pack mcp` (a secret to hand over, tools to keep).
+    fn launched(&self) -> bool {
+        self.command.is_some() && (self.secret_refs().next().is_some() || !self.tools.is_empty())
+    }
 }
 
 fn yes() -> bool {
@@ -215,6 +256,34 @@ pub fn parse(text: &str) -> Result<Pack, String> {
             return Err("inject needs an [auth] table".into());
         }
     }
+    let mut names = std::collections::BTreeSet::new();
+    for m in &p.mcp {
+        if !word_ok(&m.name, b"_-") || m.name == "optchat" || !names.insert(m.name.clone()) {
+            return Err(format!(
+                "mcp.name {:?}: [A-Za-z0-9_-], unique, not optchat",
+                m.name
+            ));
+        }
+        match (&m.command, &m.url) {
+            (Some(_), None) => {}
+            (None, Some(u)) if u.starts_with("https://") || u.starts_with("http://127.0.0.1") => {}
+            _ => {
+                return Err(format!(
+                    "mcp {}: one stdio command or one https url",
+                    m.name
+                ));
+            }
+        }
+        if m.command.is_some() && m.bearer.is_some() {
+            return Err(format!("mcp {}: bearer is for a url server", m.name));
+        }
+        if let Some(r) = m.secret_refs().find(|r| !word_ok(r, b"-")) {
+            return Err(format!("mcp {}: secret:{r:?} names no pack", m.name));
+        }
+        if let Some(k) = m.env.keys().find(|k| !word_ok(k, b"_")) {
+            return Err(format!("mcp {}: env {k:?}", m.name));
+        }
+    }
     Ok(p)
 }
 
@@ -263,10 +332,33 @@ pub fn install_builtin(dir: &Path) -> std::io::Result<Vec<String>> {
     Ok(written)
 }
 
-/// The enabled packs of a Chief: shipped, then shared, then its own, by
-/// name (a later folder wins), sorted by name. A pack that does not parse
-/// is skipped with a line on stderr.
-pub fn load(mux_home: &Path) -> Vec<Pack> {
+/// A Chief's switches over the packs' own `enabled` (`pack enable|disable`):
+/// `$MUX_HOME/toolpacks.json`, `{"NAME": true|false, "NAME/SERVER": ...}`.
+pub fn switches_path(mux_home: &Path) -> PathBuf {
+    mux_home.join("toolpacks.json")
+}
+
+fn switches(mux_home: &Path) -> serde_json::Map<String, Value> {
+    std::fs::read(switches_path(mux_home))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Turns a pack (`NAME`) or one of its servers (`NAME/SERVER`) on or off
+/// for this Chief.
+pub fn set_enabled(mux_home: &Path, key: &str, on: bool) -> Result<(), String> {
+    let mut s = switches(mux_home);
+    s.insert(key.to_owned(), json!(on));
+    std::fs::create_dir_all(mux_home).map_err(|e| e.to_string())?;
+    std::fs::write(switches_path(mux_home), format!("{:#}\n", Value::Object(s)))
+        .map_err(|e| e.to_string())
+}
+
+/// Every pack of a Chief, on or off: shipped, then shared, then its own, by
+/// name (a later folder wins), then the Chief's switches; sorted by name.
+/// A pack that does not parse is skipped with a line on stderr.
+pub fn load_all(mux_home: &Path) -> Vec<Pack> {
     let mut by_name = std::collections::BTreeMap::new();
     for (name, toml, _) in BUILTIN {
         if let Ok(p) = parse(toml) {
@@ -277,47 +369,309 @@ pub fn load(mux_home: &Path) -> Vec<Pack> {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
-        let mut paths: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path().join("pack.toml"))
-            .collect();
-        paths.sort();
-        for path in paths {
+        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        for d in dirs {
+            let path = d.join("pack.toml");
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
             match parse(&text) {
-                Ok(p) => {
+                Ok(mut p) => {
+                    p.dir = Some(d);
                     by_name.insert(p.name.clone(), p);
                 }
                 Err(e) => eprintln!("optchat-chief toolpacks: {}: {e}", path.display()),
             }
         }
     }
-    by_name.into_values().filter(|p| p.enabled).collect()
+    let s = switches(mux_home);
+    let mut packs: Vec<Pack> = by_name.into_values().collect();
+    for p in &mut packs {
+        if let Some(on) = s.get(&p.name).and_then(Value::as_bool) {
+            p.enabled = on;
+        }
+        for m in &mut p.mcp {
+            if let Some(on) = s
+                .get(&format!("{}/{}", p.name, m.name))
+                .and_then(Value::as_bool)
+            {
+                m.enabled = on;
+            }
+        }
+    }
+    packs
 }
 
-/// Links each pack's SKILL.md folder into `skills` under its skill name,
-/// when no skill of that name is there (a user pack's skill; the shipped
-/// ones are in `skills::BUILTIN`).
-pub fn link_skills(packs_dir: &Path, skills: &Path) {
-    let Ok(entries) = std::fs::read_dir(packs_dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path().join("SKILL.md")) else {
-            continue;
-        };
-        let Some((name, _)) = crate::skills::front_matter(&text) else {
-            continue;
-        };
-        let link = skills.join(&name);
-        if name.contains('/') || link.symlink_metadata().is_ok() {
-            continue;
+/// The packs that are on for a Chief.
+pub fn load(mux_home: &Path) -> Vec<Pack> {
+    load_all(mux_home)
+        .into_iter()
+        .filter(|p| p.enabled)
+        .collect()
+}
+
+/// A pack's skills as `(name, folder)`: its own SKILL.md and each
+/// `skills/<name>/SKILL.md`. A shipped pack not on disk is written to
+/// `$MUX_HOME/optchat/pack-skills/` first.
+fn skills_of(mux_home: &Path, pack: &Pack) -> Vec<(String, PathBuf)> {
+    let dir = match &pack.dir {
+        Some(d) => d.clone(),
+        None => {
+            let Some((_, _, text)) = BUILTIN.iter().find(|b| b.0 == pack.name) else {
+                return Vec::new();
+            };
+            let d = pack_skills_dir(mux_home).join(&pack.name);
+            if std::fs::create_dir_all(&d).is_err()
+                || crate::session_dir::write_if_changed(&d.join("SKILL.md"), text.as_bytes())
+                    .is_err()
+            {
+                return Vec::new();
+            }
+            d
         }
-        let _ = std::fs::create_dir_all(skills);
-        let _ = std::os::unix::fs::symlink(entry.path(), link);
+    };
+    let mut folders = vec![dir.clone()];
+    if let Ok(entries) = std::fs::read_dir(dir.join("skills")) {
+        let mut more: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        more.sort();
+        folders.extend(more);
     }
+    folders
+        .into_iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f.join("SKILL.md")).ok()?;
+            let (name, _) = crate::skills::front_matter(&text)?;
+            word_ok(&name, b"._-").then_some((name, f))
+        })
+        .collect()
+}
+
+fn pack_skills_dir(mux_home: &Path) -> PathBuf {
+    mux_home.join("optchat").join("pack-skills")
+}
+
+/// Makes the Chief's own skills folder (`$MUX_HOME/skills`, which the
+/// prompt names and which wins over the shared one) hold a link to every
+/// skill of the packs that are on, and no link to a pack that is off. A
+/// real folder of the same name is the user's and wins.
+pub fn sync_skills(mux_home: &Path, packs: &[Pack]) {
+    let skills = crate::skills::chief_dir(mux_home);
+    let want: Vec<(String, PathBuf)> = packs.iter().flat_map(|p| skills_of(mux_home, p)).collect();
+    let roots = [
+        shared_dir(mux_home),
+        chief_dir(mux_home),
+        pack_skills_dir(mux_home),
+    ];
+    let ours = |target: &Path| roots.iter().any(|r| target.starts_with(r));
+    if let Ok(entries) = std::fs::read_dir(&skills) {
+        for e in entries.flatten() {
+            let Ok(target) = std::fs::read_link(e.path()) else {
+                continue;
+            };
+            let name = e.file_name().to_string_lossy().into_owned();
+            if ours(&target) && !want.iter().any(|(n, f)| *n == name && *f == target) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    if want.is_empty() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(&skills);
+    for (name, folder) in want {
+        let link = skills.join(&name);
+        if link.symlink_metadata().is_err() {
+            let _ = std::os::unix::fs::symlink(&folder, &link);
+        }
+    }
+}
+
+/// The packs' servers in Claude Code's `.mcp.json` shape, by name.
+pub fn claude_servers(packs: &[Pack], bin: &Path) -> Vec<(String, Value)> {
+    let chief = bin.join("chief").display().to_string();
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for p in packs {
+        for m in p.mcp.iter().filter(|m| m.enabled) {
+            if out.iter().any(|(n, _)| *n == m.name) {
+                continue;
+            }
+            let v = if m.launched() {
+                json!({"type": "stdio", "command": chief, "args": ["pack", "mcp", p.name, m.name]})
+            } else if let Some(c) = &m.command {
+                json!({"type": "stdio", "command": c, "args": m.args, "env": m.env})
+            } else {
+                let mut v = json!({"type": "http", "url": m.url});
+                if m.bearer.is_some() {
+                    v["headersHelper"] = json!(format!(
+                        "{} pack mcp-headers {} {}",
+                        crate::session_dir::shell_quote(&chief),
+                        p.name,
+                        m.name
+                    ));
+                }
+                v
+            };
+            out.push((m.name.clone(), v));
+        }
+    }
+    out
+}
+
+/// The packs' servers as codex `[mcp_servers.NAME]` tables. A remote server
+/// with a bearer secret is left out (codex reads it only from its own env).
+pub fn codex_servers(packs: &[Pack], bin: &Path) -> toml::Table {
+    let chief = bin.join("chief").display().to_string();
+    let mut out = toml::Table::new();
+    for p in packs {
+        for m in p.mcp.iter().filter(|m| m.enabled) {
+            if out.contains_key(&m.name) {
+                continue;
+            }
+            let mut t = toml::Table::new();
+            if m.launched() {
+                t.insert("command".into(), chief.clone().into());
+                t.insert(
+                    "args".into(),
+                    vec!["pack", "mcp", p.name.as_str(), m.name.as_str()].into(),
+                );
+            } else if let Some(c) = &m.command {
+                t.insert("command".into(), c.clone().into());
+                t.insert("args".into(), m.args.clone().into());
+                let env: toml::Table = m
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone().into()))
+                    .collect();
+                t.insert("env".into(), env.into());
+            } else if m.bearer.is_some() {
+                eprintln!(
+                    "optchat-chief toolpacks: {}/{}: codex gets no remote server with a secret",
+                    p.name, m.name
+                );
+                continue;
+            } else {
+                t.insert("url".into(), m.url.clone().unwrap_or_default().into());
+            }
+            if !m.tools.is_empty() {
+                t.insert("enabled_tools".into(), m.tools.clone().into());
+            }
+            out.insert(m.name.clone(), t.into());
+        }
+    }
+    out
+}
+
+fn secret_of(mux_home: &Path, packs: &[Pack], name: &str) -> Result<String, String> {
+    let p = packs
+        .iter()
+        .find(|p| p.name == name)
+        .ok_or_else(|| format!("secret:{name}: no such pack is on"))?;
+    store(mux_home, p).get().ok_or_else(|| {
+        format!(
+            "secret:{name}: this Chief has no {} token (chief pack status {name})",
+            p.title
+        )
+    })
+}
+
+fn find_server<'a>(packs: &'a [Pack], pack: &str, server: &str) -> Result<&'a Mcp, String> {
+    packs
+        .iter()
+        .find(|p| p.name == pack)
+        .and_then(|p| p.mcp.iter().find(|m| m.name == server && m.enabled))
+        .ok_or_else(|| format!("no MCP server {pack}/{server} is on"))
+}
+
+/// `pack mcp-headers PACK SERVER`: Claude Code's headersHelper answer.
+pub fn mcp_headers(mux_home: &Path, pack: &str, server: &str) -> Result<String, String> {
+    let packs = load(mux_home);
+    let m = find_server(&packs, pack, server)?;
+    let r = m
+        .bearer
+        .as_deref()
+        .and_then(|b| b.strip_prefix("secret:"))
+        .ok_or("no bearer")?;
+    Ok(json!({"Authorization": format!("Bearer {}", secret_of(mux_home, &packs, r)?)}).to_string())
+}
+
+/// `pack mcp PACK SERVER`: runs a stdio server with its secrets in its env
+/// (never in a file or argv), and keeps only the pack's allowed tools: a
+/// `tools/list` answer is filtered, a `tools/call` of another tool refused.
+pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, String> {
+    use std::io::BufRead;
+    let packs = load(mux_home);
+    let m = find_server(&packs, pack, server)?.clone();
+    let mut cmd = Command::new(m.command.as_deref().ok_or("not a stdio server")?);
+    cmd.args(&m.args);
+    for (k, v) in &m.env {
+        match v.strip_prefix("secret:") {
+            Some(r) => cmd.env(k, secret_of(mux_home, &packs, r)?),
+            None => cmd.env(k, v),
+        };
+    }
+    if m.tools.is_empty() {
+        use std::os::unix::process::CommandExt;
+        return Err(format!("{}: {}", m.name, cmd.exec()));
+    }
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{}: {e}", m.name))?;
+    let out = std::sync::Arc::new(std::sync::Mutex::new(std::io::stdout()));
+    let lists = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let mut to_child = child.stdin.take().ok_or("no stdin")?;
+    let from_child = child.stdout.take().ok_or("no stdout")?;
+    let allowed = m.tools.clone();
+    let (out2, lists2) = (out.clone(), lists.clone());
+    let reader = std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+            match msg["method"].as_str() {
+                Some("tools/list") => lists2.lock().unwrap().push(msg["id"].clone()),
+                Some("tools/call")
+                    if !allowed.iter().any(|t| msg["params"]["name"] == json!(t)) =>
+                {
+                    let e = json!({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601,
+                        "message": format!("tool {} is not allowed by its pack", msg["params"]["name"])}});
+                    let mut o = out2.lock().unwrap();
+                    let _ = writeln!(o, "{e}");
+                    let _ = o.flush();
+                    continue;
+                }
+                _ => {}
+            }
+            if writeln!(to_child, "{line}")
+                .and_then(|()| to_child.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    for line in std::io::BufReader::new(from_child).lines() {
+        let Ok(line) = line else { break };
+        let mut msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+        let listed = {
+            let mut l = lists.lock().unwrap();
+            let at = l.iter().position(|id| *id == msg["id"] && !id.is_null());
+            at.map(|i| l.remove(i)).is_some()
+        };
+        let text = if listed && let Some(tools) = msg["result"]["tools"].as_array_mut() {
+            tools.retain(|t| m.tools.iter().any(|a| t["name"] == json!(a)));
+            msg.to_string()
+        } else {
+            line
+        };
+        let mut o = out.lock().unwrap();
+        let _ = writeln!(o, "{text}");
+        let _ = o.flush();
+    }
+    drop(reader);
+    let status = child.wait().map_err(|e| e.to_string())?;
+    Ok(status.code().unwrap_or(1))
 }
 
 pub fn status_path(home: &Path, name: &str) -> PathBuf {
@@ -513,12 +867,24 @@ pub fn scopes_of(header: &str) -> Vec<String> {
     s
 }
 
+/// `url` as a Markdown link named by its address without the scheme
+/// (`[github.com/login/device](https://github.com/login/device)`): a bare or
+/// bold URL does not open in every chat (Lawrence 2026-10-23).
+pub fn page_link(url: &str) -> String {
+    let name = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    format!("[{name}]({url})")
+}
+
 /// The message the Chief posts: the code (one tap copies it) and the page
-/// alone on its line (its link preview is the card).
+/// alone on its line, as a Markdown link (``page_link``).
 pub fn card(pack: &Pack, user_code: &str, uri: &str) -> String {
     format!(
-        "Sign in to {} for this Chief: copy the code `{user_code}`, open the page below and approve.\n{uri}",
-        pack.title
+        "Sign in to {} for this Chief: copy the code `{user_code}`, open the page below and approve.\n{}",
+        pack.title,
+        page_link(uri)
     )
 }
 
@@ -883,7 +1249,8 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
                 ..
             }),
         ) => format!(
-            "Forgotten here; {fall}. The token still works until you revoke it at {url}{}.",
+            "Forgotten here; {fall}. The token still works until you revoke it at {}{}.",
+            page_link(url),
             revoke_name
                 .as_deref()
                 .map_or(String::new(), |n| format!(" (\"{n}\")"))
@@ -895,7 +1262,10 @@ fn logout(home: &Path, pack: &Pack) -> Result<Value, String> {
                 ..
             }),
         ) => {
-            format!("Forgotten here; {fall}. Delete the token at {url} if nothing else uses it.")
+            format!(
+                "Forgotten here; {fall}. Delete the token at {} if nothing else uses it.",
+                page_link(url)
+            )
         }
         (Some(_), _) => format!("Forgotten here; {fall}."),
         (None, _) => match &pack.share {
@@ -1060,27 +1430,75 @@ fn install_hint(pack: &Pack) -> Value {
     }
 }
 
-pub const USAGE: &str = "optchat-chief pack list | status NAME | login NAME | wait NAME [SECONDS] | paste NAME FILE|- | share NAME | logout NAME | token NAME | check NAME | install NAME [--json] [--mux-home DIR]";
+pub const USAGE: &str = "optchat-chief pack list | enable|disable NAME[/SERVER] | mcp PACK SERVER | status NAME | login NAME | wait NAME [SECONDS] | paste NAME FILE|- | share NAME | logout NAME | token NAME | check NAME | install NAME [--json] [--mux-home DIR]";
 
 /// `optchat-chief pack VERB NAME ...` (`words[0]` is `pack`).
 pub fn run(flags: &crate::cli::Flags, home: &Path, as_json: bool) -> Result<String, String> {
     let verb = flags.words.get(1).map_or("list", String::as_str);
     let packs = load(home);
     if verb == "list" {
-        let rows: Vec<Value> = packs
-            .iter()
-            .map(|p| json!({"name": p.name, "title": p.title, "description": p.description, "tool": p.tool.bin,
-                "auth": p.auth.as_ref().map(|a| a.methods.clone()), "managed": p.managed}))
-            .collect();
-        return Ok(if as_json {
-            Value::from(rows).to_string()
-        } else {
-            packs
+        let all = load_all(home);
+        let skills =
+            |p: &Pack| -> Vec<String> { skills_of(home, p).into_iter().map(|(n, _)| n).collect() };
+        if as_json {
+            let rows: Vec<Value> = all
                 .iter()
-                .map(|p| format!("{:<10} {:<8} {}", p.name, p.tool.bin, p.description))
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
+                .map(|p| json!({"name": p.name, "title": p.title, "description": p.description, "enabled": p.enabled,
+                    "tool": p.tool.bin, "auth": p.auth.as_ref().map(|a| a.methods.clone()), "managed": p.managed,
+                    "skills": skills(p),
+                    "mcp": p.mcp.iter().map(|m| json!({"name": m.name, "enabled": m.enabled,
+                        "url": m.url, "command": m.command, "tools": m.tools})).collect::<Vec<_>>()}))
+                .collect();
+            return Ok(Value::from(rows).to_string());
+        }
+        return Ok(all
+            .iter()
+            .map(|p| {
+                let mcp: Vec<String> = p
+                    .mcp
+                    .iter()
+                    .map(|m| format!("{}{}", m.name, if m.enabled { "" } else { " (off)" }))
+                    .collect();
+                format!(
+                    "{:<3} {:<10} {:<8} {}{}{}",
+                    if p.enabled { "on" } else { "off" },
+                    p.name,
+                    p.tool.bin,
+                    p.description,
+                    if p.enabled {
+                        format!("\n      skills: {}", skills(p).join(", "))
+                    } else {
+                        String::new()
+                    },
+                    if mcp.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n      mcp: {}", mcp.join(", "))
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"));
+    }
+    if verb == "enable" || verb == "disable" {
+        let key = flags.words.get(2).ok_or(USAGE)?;
+        let (pack, server) = key
+            .split_once('/')
+            .map_or((key.as_str(), None), |(p, s)| (p, Some(s)));
+        let all = load_all(home);
+        let p = all
+            .iter()
+            .find(|p| p.name == pack)
+            .ok_or_else(|| format!("no pack {pack:?} (chief pack list)"))?;
+        if let Some(s) = server.filter(|s| !p.mcp.iter().any(|m| m.name == *s)) {
+            return Err(format!("{pack} has no MCP server {s:?}"));
+        }
+        set_enabled(home, key, verb == "enable")?;
+        return Ok(format!(
+            "{key}: {}d for this Chief; its next session has it{}",
+            verb,
+            if verb == "enable" { "" } else { " no more" }
+        ));
     }
     let name = flags.words.get(2).ok_or(USAGE)?;
     let pack = packs
@@ -1345,6 +1763,15 @@ mod tests {
         assert_eq!(env[2], ("GIT_CONFIG_VALUE_0".into(), String::new()));
         assert_eq!(env[4].1, "/h/optchat/bin/git-credential-chief-github");
         assert!(git_env(&[builtin("cmux").unwrap()], Path::new("/b")).is_empty());
+    }
+
+    #[test]
+    fn card_has_the_code_and_the_page_as_a_markdown_link_on_its_own_line() {
+        let c = card(&gh(), "ABCD-1234", "https://github.com/login/device");
+        assert!(c.contains("`ABCD-1234`"));
+        // A Markdown link with a short name (Lawrence 2026-10-23: a bare or bold URL did not open).
+        assert!(c.ends_with("\n[github.com/login/device](https://github.com/login/device)"));
+        assert_eq!(page_link("http://x.dev/a"), "[x.dev/a](http://x.dev/a)");
     }
 
     #[test]

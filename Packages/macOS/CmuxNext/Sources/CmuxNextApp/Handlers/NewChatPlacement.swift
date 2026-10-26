@@ -9,7 +9,7 @@ extension NewChatPlacement {
     /// without dock roles.
     @MainActor static func resolve(from controller: PaneController) -> NewChatPlacement {
         guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapabilities.dockColumnRole),
+              content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
         let pane = controller.layoutPaneID
         return resolve(from: pane, columns: ChatColumnPlacement.columns(of: screen, containing: pane),
@@ -43,7 +43,7 @@ extension NewChatPlacement {
             // One daemon commit: the conversation tab in a split right of the pinned dock, which the
             // daemon makes a column beside it (`conversation-tab-split-v1`). Without that the chat
             // opens in the dock, which takes tabs while it is alone (`pinned-dock-alone-v1`).
-            guard controller.daemon.supports(DaemonCapabilities.conversationTabSplit) else { break }
+            guard controller.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) else { break }
             opening.split = .right
         case .newDock:
             opening.hidden = true

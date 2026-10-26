@@ -14,7 +14,7 @@ final class UnreadBadgeView: NSView {
     /// A fixed look instead of the Debug Settings one: tab rows draw the quiet
     /// (muted) dot under their workspace's badge (Lawrence 2026-10-14).
     var fixedLook: NotificationBadgeLook? { didSet { if fixedLook != oldValue { needsDisplay = true } } }
-    /// A dot in the unread blue of a workspace row (`Palette.notificationBlue`) in every look: an
+    /// A dot in the unread blue of a workspace row (`Palette.statusUnread`) in every look: an
     /// item whose unread is a dot, not a count (Home, Lawrence 2026-10-23).
     var notificationDot = false { didSet { if notificationDot != oldValue { needsDisplay = true } } }
     private let label = ChromeLabel(labelWithString: "")
@@ -85,7 +85,7 @@ final class UnreadBadgeView: NSView {
         look = fixedLook ?? observedLook()
         performWithTheme {
             var colors = self.paint(look, dot: state == .dot)
-            if notificationDot, state == .dot { colors = Paint(fill: Palette.notificationBlue, text: Palette.notificationBlue) }
+            if notificationDot, state == .dot { colors = Paint(fill: Palette.statusUnread, text: Palette.statusUnread) }
             label.setColor(colors.text)
             layer.backgroundColor = colors.fill?.cgColor
             layer.borderColor = colors.border?.cgColor

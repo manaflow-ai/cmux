@@ -26,7 +26,7 @@ const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
-fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
     let at = |offset: usize, magic: &[u8]| bytes.get(offset..offset + magic.len()) == Some(magic);
     if at(0, b"\x89PNG\r\n\x1a\n") {
         return Some("image/png");
@@ -145,8 +145,12 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
                 let written = std::fs::create_dir_all(dir()).and_then(|()| {
                     // Written aside and renamed, so a reader never sees half an image.
                     let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
-                    std::fs::write(&partial, &bytes)?;
-                    std::fs::rename(&partial, &path)
+                    let written = write_owner_only(&partial, &bytes)
+                        .and_then(|()| std::fs::rename(&partial, &path));
+                    if written.is_err() {
+                        let _ = std::fs::remove_file(&partial);
+                    }
+                    written
                 });
                 if let Err(e) = written {
                     tracing::warn!("cannot keep a prompt image: {e}");
@@ -156,6 +160,16 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
             Some(named)
         })
         .collect()
+}
+
+/// Writes a new file only its owner reads (0600 on Unix).
+fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
@@ -181,20 +195,20 @@ pub(super) fn inline_parts(
             match kind {
                 "text" if !crate::prompt_context::is_context(block) => {
                     let text = block.get("text").and_then(Value::as_str)?;
-                    if let Some(display_part) = display_part {
-                        if matches!(
+                    if let Some(display_part) = display_part
+                        && matches!(
                             display_part.get("kind").and_then(Value::as_str),
                             Some("file" | "pasted")
-                        ) {
-                            let mut part = display_part.clone();
-                            part["text"] = Value::String(text.to_owned());
-                            if part.get("kind").and_then(Value::as_str) == Some("pasted")
-                                && part.get("name").is_none()
-                            {
-                                part["name"] = Value::String("Pasted text".into());
-                            }
-                            return Some(part);
+                        )
+                    {
+                        let mut part = display_part.clone();
+                        part["text"] = Value::String(text.to_owned());
+                        if part.get("kind").and_then(Value::as_str) == Some("pasted")
+                            && part.get("name").is_none()
+                        {
+                            part["name"] = Value::String("Pasted text".into());
                         }
+                        return Some(part);
                     }
                     let mut part = json!({"kind": "text", "text": text});
                     if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
@@ -379,7 +393,7 @@ impl Hub {
         }
         let ordered = inline_parts(
             blocks,
-            msg.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
         if !ordered.is_empty() {

@@ -294,14 +294,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
+        Command::New(args) if args.parent.is_some() => super::parent::run(args, json_out).await,
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
+            let client = connect(true).await?;
+            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
+                Some(work) => {
+                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
+                        .await?
+                }
+                None => args.host.clone(),
+            };
             let cwd = match &launch.worktree {
                 Some((_, repo)) => Some(repo.clone()),
-                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
+                None => new_session_cwd(host.as_deref(), args.cwd.clone())?,
             };
-            let client = connect(true).await?;
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -313,7 +321,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.preset {
                 meta["preset"] = json!(p);
             }
-            if let Some(h) = &args.host {
+            if let Some(h) = &host {
                 meta["peer"] = json!(h);
             }
             if let Some(n) = &launch.name {
@@ -359,7 +367,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
-            let key = launch.name.as_ref().map(|n| match &args.host {
+            let key = launch.name.as_ref().map(|n| match &host {
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
@@ -543,19 +551,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
+            attach,
         } => {
-            let client = connect(true).await?;
             if let Some(delivery) = status {
+                let client = connect(true).await?;
                 return super::send_async::status(&client, &delivery, json_out).await;
             }
+            // Read and checked before the daemon is asked anything (or started): a message past
+            // a cap sends nothing.
+            let attachments = crate::attach::blocks_from_paths(&attach)?;
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
-            prompt_id.from_agent = from;
+            prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
+            prompt_id.attachments = attachments;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let text = arg_or_stdin(&prompt)?;
+            // With the text, the whole message fits one JSON-RPC message on every hop.
+            if !prompt_id.attachments.is_empty() {
+                let request = prompt_id.params(&session, &text, steer, None);
+                crate::attach::check_wire(&request).map_err(|e| anyhow::anyhow!(e.message))?;
+            }
+            let client = connect(true).await?;
             if no_wait {
                 return super::send_async::queue(
                     &client,

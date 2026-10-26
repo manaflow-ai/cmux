@@ -48,3 +48,12 @@ git_via_tool = ["auth", "git-credential"]
 [share]
 label = "the Mac's gh"
 command = ["gh", "auth", "token", "--hostname", "github.com"]
+
+# GitHub's own remote MCP server with this Chief's token, read-mostly tools only. Off by
+# default (every listed tool costs prompt on every turn): `chief pack enable github/github`.
+[[mcp]]
+name = "github"
+url = "https://api.githubcopilot.com/mcp/"
+bearer = "secret:github"
+tools = ["get_file_contents", "search_code", "search_issues", "search_pull_requests", "get_pull_request", "get_issue", "list_commits"]
+enabled = false

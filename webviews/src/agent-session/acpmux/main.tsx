@@ -50,7 +50,7 @@ if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
   installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
 createRoot(root).render(
   <UiProvider container={root} popupHost={popupHost}>
-    <PaneBoundary>
+    <PaneBoundary onRetry={() => window.location.reload()}>
       <AcpmuxApp />
     </PaneBoundary>
   </UiProvider>,

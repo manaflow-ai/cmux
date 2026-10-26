@@ -261,7 +261,7 @@ input[type="submit"] {
    that hold their active row, show focus as the row tint below instead. An open menu or
    popover takes focus so its keys work; it never draws a ring around itself (Leo 2026-10-11).
    `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
-:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], .acpmux-row)):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;

@@ -220,6 +220,9 @@ pub mod method {
     /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
     /// id, enabled}`.
     pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
+    /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
+    /// `{sessionId, server}`.
+    pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
@@ -252,6 +255,14 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// One of a session's subagents' transcripts, a page at a time, from the
+    /// files Claude Code writes (a workflow agent's, a background agent's):
+    /// `{sessionId, runId?, agentId, before?, after?, limit?}`
+    /// (`claude_stdio/agent_transcript.rs`).
+    pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
+    /// `{workflows}` (`hub/workflow_index.rs`).
+    pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
     /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
@@ -260,6 +271,10 @@ pub mod method {
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
     pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
+    /// To the agent adapter, `{sessionId, promptId}`: take back that prompt's steer while the
+    /// agent has not read it (the X on a waiting steer, `hub/queue_edit.rs` `withdraw`). Answers
+    /// `{withdrawn}`, false once it was read; an agent without it answers an error.
+    pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
@@ -268,6 +283,8 @@ pub mod method {
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// Metadata-only paths for a session's config and state files; local Unix socket only.
+    pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
@@ -346,6 +363,11 @@ pub mod method {
     pub const MUX_STEER: &str = "_acpmux/steer";
     pub const MUX_BRIEFS: &str = "_acpmux/briefs";
     pub const MUX_REPORT: &str = "_acpmux/report";
+    /// A brief for a session already on this daemon, and a session's tasks (`hub/tasks.rs`).
+    pub const MUX_TASK_NEW: &str = "_acpmux/task_new";
+    pub const MUX_TASKS: &str = "_acpmux/tasks";
+    /// The session an agent link, id or name names, here or on a peer (`hub/locate.rs`).
+    pub const MUX_RESOLVE: &str = "_acpmux/resolve";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
@@ -458,6 +480,7 @@ pub mod method {
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
     pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";

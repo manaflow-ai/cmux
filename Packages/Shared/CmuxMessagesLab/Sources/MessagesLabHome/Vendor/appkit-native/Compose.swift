@@ -23,6 +23,12 @@ final class FieldTextView: NSTextView {
     /// cmux: whether the host's intake would take a drag's pasteboard (a drag also counts
     /// file promises, which a paste cannot receive); nil uses `acceptsPastePasteboard`.
     var acceptsDropPasteboard: ((NSPasteboard) -> Bool)?
+    /// cmux: the words a paste the host's intake took carries beside its attachments (a note's
+    /// text around its pictures); the field inserts them at the caret. Nil: none.
+    var pasteTextBesideAttachments: (NSPasteboard) -> String? = { _ in nil }
+    /// cmux: a draft attachment's file, named like it: Copy of a selection holding attachments
+    /// writes the files (ComposeSelectionCopy.swift). Nil: none here.
+    var draftAttachmentFile: (ID) -> URL? = { _ in nil }
     /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
     /// intake takes: the pane's drop highlight follows it.
     var onDropTargetChange: (Bool) -> Void = { _ in }
@@ -83,6 +89,8 @@ final class FieldTextView: NSTextView {
             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
             onSend(); return
         }
+        // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
+        if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
         if event.keyCode == 53 { onEscape(); return }
         super.keyDown(with: event)
     }
@@ -258,6 +266,14 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
+    func setSpellCheckingEnabled(_ enabled: Bool) {
+        if DeferredSpellChecker.useAppKit {
+            isContinuousSpellCheckingEnabled = enabled
+        } else {
+            spell.enabled = enabled
+        }
+    }
     override func toggleContinuousSpellChecking(_ sender: Any?) {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }
@@ -511,7 +527,10 @@ final class FieldTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         let pb = pasteboard
-        if onPastePasteboard(pb) { return }  // cmux
+        if onPastePasteboard(pb) {  // cmux: the words beside the attachments go in too
+            if let text = pasteTextBesideAttachments(pb), !text.isEmpty { insertPlainText(text) }
+            return
+        }
         if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
         super.paste(sender)
     }
@@ -521,6 +540,11 @@ final class FieldTextView: NSTextView {
     /// step. Rich text, HTML, files and pictures never reach the host's intake.
     override func pasteAsPlainText(_ sender: Any?) {
         guard isEditable, let text = plainText(pasteboard), !text.isEmpty else { return }
+        insertPlainText(text)
+    }
+
+    /// cmux: TEXT at the caret (replacing the selection) in the typing style, as its own undo step.
+    private func insertPlainText(_ text: String) {
         let range = selectedRange()
         guard shouldChangeText(in: range, replacementString: text), let storage = textStorage else { return }
         breakUndoCoalescing()
@@ -534,6 +558,18 @@ final class FieldTextView: NSTextView {
     /// `.string`; nil for a picture or a file alone). A check stubs it: the CI
     /// Macs' pasteboard server answers reads of a fresh private board inconsistently.
     var plainText: (NSPasteboard) -> String? = { $0.string(forType: .string) }
+
+    /// cmux: Copy, Cut and a drag of a selection holding attachments write their words without
+    /// the U+FFFC marks, then the attachments' files (ComposeSelectionCopy.swift); a selection of
+    /// words alone keeps NSTextView's own.
+    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        let copy = ComposeSelectionCopy(file: draftAttachmentFile)
+        guard let storage = textStorage, let pieces = copy.pieces(storage, ranges: selectedRanges.map(\.rangeValue)) else {
+            return super.writeSelection(to: pboard, types: types)
+        }
+        pboard.clearContents()
+        return pboard.writeObjects(copy.items(pieces))
+    }
 
     // cmux: files and pictures dropped on the field go to the host's intake
     // (Home's type rule, as paste); text drags keep NSTextView's own handling.

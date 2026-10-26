@@ -1,4 +1,4 @@
-//! `acpmux host ticket new|ls|revoke` (the minting machine) and
+//! `acpmux host ticket new|ls|revoke|full-access` (the minting machine) and
 //! `acpmux host join TICKET` (the new one); `cmux host ticket|join` run the
 //! same. See `crate::pairing` for the model and `server/pairing.rs` for the
 //! daemon's side. Every command prints one JSON object with `--json`; exit
@@ -49,7 +49,7 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             // the new one at; the placeholder fails until it is filled in.
             let advertise = match role {
                 Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
-                Role::Client | Role::ReadOnly => String::new(),
+                Role::Client | Role::ReadOnly | Role::Phone => String::new(),
             };
             v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
             v["join_command"] = json!(format!("cmux host join '{ticket}'{advertise}"));
@@ -63,6 +63,25 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             let v = client.request(method::MUX_PAIR_LIST, json!({})).await?;
             if !json_out {
                 print_list(&v);
+                return Ok(());
+            }
+            v
+        }
+        TicketCmd::FullAccess { id, state } => {
+            let v = full_access(&client, &id, state == "on").await?;
+            if !json_out {
+                let name = v["device"]["name"].as_str().unwrap_or(&id);
+                match v["allows"].as_str() {
+                    Some(allows) => println!("Full access on: {allows}"),
+                    None => println!(
+                        "Full access off for {name}{}",
+                        match v["held_again"].as_u64() {
+                            Some(n) if n > 0 =>
+                                format!("; {n} chat(s) back in their policy's mode"),
+                            _ => String::new(),
+                        }
+                    ),
+                }
                 return Ok(());
             }
             v
@@ -93,6 +112,26 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
     };
     print_json(&v);
     Ok(())
+}
+
+/// `host ticket full-access ID on|off` (`_acpmux/pair_set`).
+async fn full_access(client: &Client, id: &str, on: bool) -> Result<Value> {
+    let v = client.request(method::MUX_PAIR_SET, json!({"id": id, "fullAccess": on})).await;
+    let person = |e: &anyhow::Error| {
+        e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            d.0.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str)
+                == Some(crate::hub::person::REASON)
+        })
+    };
+    match v {
+        Err(e) if person(&e) => Err(AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "person_required",
+            "the CLI cannot turn Full access on for a machine: only the cmux app may (Settings > Devices). `cmux host ticket full-access ID off` still turns it off.",
+        )
+        .into()),
+        other => other,
+    }
 }
 
 /// `900`, `900s`, `15m` or `2h` as seconds.
@@ -173,7 +212,11 @@ fn print_list(v: &Value) {
             if d["revoked_at"].is_string() {
                 "revoked".to_owned()
             } else {
-                format!("{} open connection(s)", d["connections"].as_u64().unwrap_or(0))
+                format!(
+                    "{} open connection(s){}",
+                    d["connections"].as_u64().unwrap_or(0),
+                    if d["full_access"] == true { ", Full access on" } else { "" }
+                )
             },
         );
     }
@@ -228,7 +271,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             params["advertiseToken"] = issued["token"].clone();
             issued_here = issued["deviceId"].as_str().map(str::to_owned);
         }
-        Role::Client | Role::ReadOnly => {
+        Role::Client | Role::ReadOnly | Role::Phone => {
             let peers = client.request("_acpmux/peers", json!({})).await?;
             let taken = peers["peers"].as_array().is_some_and(|ps| {
                 ps.iter().any(|p| p["name"].as_str() == Some(peer_name.as_str()))

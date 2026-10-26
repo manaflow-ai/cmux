@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// DEBUG: the `home-chief` capture scene reads the listed agents and clicks one.

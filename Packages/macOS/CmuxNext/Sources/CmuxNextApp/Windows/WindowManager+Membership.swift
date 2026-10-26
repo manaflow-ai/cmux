@@ -183,6 +183,9 @@ extension WindowManager {
             if shows { select(workspaceID, in: state) }
             return
         }
+        // A workspace of another room: the window enters that room first, so the selection repair
+        // after the move finds it shown there and picks it (Home took a second click otherwise).
+        if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
     }
 
@@ -252,7 +255,7 @@ extension WindowManager {
     func userClosed(_ id: String) {
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let keepsGroup = services.daemon.supports(DaemonCapabilities.windowRecords)
+        let keepsGroup = services.daemon.supports(DaemonCapability.windowRecords.rawValue)
         let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }

@@ -71,6 +71,35 @@ fn main() -> std::process::ExitCode {
         let code = optchat_chief::migrate::cli(&args[1..]);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
+    // `pack mcp|mcp-headers PACK SERVER`: a pack's MCP server (stdout is the
+    // protocol) and Claude Code's headers helper.
+    if args.first().is_some_and(|a| a == "pack")
+        && args
+            .get(1)
+            .is_some_and(|a| a == "mcp" || a == "mcp-headers")
+    {
+        let flags = Flags::parse(&args);
+        let (pack, server) = (
+            flags.words.get(2).cloned().unwrap_or_default(),
+            flags.words.get(3).cloned().unwrap_or_default(),
+        );
+        let home = home(&flags);
+        let out = if args[1] == "mcp" {
+            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+        } else {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+                println!("{h}");
+                0
+            })
+        };
+        return match out {
+            Ok(code) => std::process::ExitCode::from(u8::try_from(code).unwrap_or(1)),
+            Err(e) => {
+                eprintln!("optchat-chief pack: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // `pack` and its `github` alias read their own `--json`.
     if let Some(verb) = args
         .first()

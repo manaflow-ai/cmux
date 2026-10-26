@@ -42,7 +42,7 @@ import Testing
         let owner = budget.board.internOwner("tab.focus")
         var during: MainTaskBoard.Task?
         var after: MainTaskBoard.Task?
-        budget.run(.automation, owner: "Control.frames") {
+        budget.run(.automation, owner: budget.board.owner("Control.frames")) {
             let token = budget.board.beginSpan(.input, owner: owner, budgetNanos: 10_000_000, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
             during = budget.board.running
             budget.board.endSpan(token, nowNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))

@@ -106,18 +106,29 @@ impl Listed {
             .0
     }
 
-    /// Decode a LISTED payload; `fds` are the master, then the ring
-    /// segment when the frame had [`wire::FLAG_RING`].
+    /// Decode a LISTED frame; `fds` are the master, then the ring segment
+    /// when its `flags` have [`wire::FLAG_RING`]. A LISTED without either
+    /// one it says it passes is an error: the link is broken.
     pub(crate) fn decode(
         chan: u32,
+        flags: u16,
         payload: &[u8],
         fds: Vec<std::os::fd::OwnedFd>,
     ) -> io::Result<Self> {
+        let missing = || io::Error::new(io::ErrorKind::InvalidData, "a LISTED without its master");
         let mut input = wire::In(payload);
         let mut fds = fds.into_iter();
+        let master = fds.next().ok_or_else(missing)?;
+        let ring = if flags & wire::FLAG_RING != 0 {
+            Some(fds.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "a LISTED without its ring segment")
+            })?)
+        } else {
+            None
+        };
         Ok(Self {
-            master: fds.next(),
-            ring: fds.next(),
+            master: Some(master),
+            ring,
             chan,
             pid: input.i32()?,
             oldest: input.u64()?,
@@ -210,12 +221,20 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         return stdout.flush();
     }
     hold_copy_in_use();
+    // Key-press flow marks start here, before the first terminal (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     let mut args = args.iter().cloned();
     let mut socket = None;
     let mut idle_exit = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--socket" => socket = args.next().map(PathBuf::from),
+            // `<bundle>:<tag>@<daemon pid>`, as a terminal host's: only a
+            // mark in the command line, so a teardown finds this tag's
+            // holder after its daemon is gone (tag_teardown.py).
+            "--owner" => {
+                args.next().ok_or_else(|| invalid("--owner takes a value"))?;
+            }
             "--idle-exit-ms" => {
                 let millis = args.next().and_then(|value| value.parse::<u64>().ok());
                 let millis = millis.ok_or_else(|| invalid("--idle-exit-ms takes milliseconds"))?;
