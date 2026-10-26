@@ -1965,6 +1965,17 @@ class WarningTests(Fixture):
         self.assertIn("2ms", hot[0])
         self.assertIn("Read it in a trace under key.frame, action.perform.", hot[0])
 
+    def test_a_perf_hot_id_with_no_trace_names_no_trace(self):
+        self.write("scripts/cmux-next/perf-hot-benches.json",
+                   '{"paths": {"key-dispatch": {"bench": "scripts/cmux-next/bench-typing.py"}}}')
+        self.write(f"{KIT}/Router.swift", HOT.replace("count += key", "count += key * 2"))
+        self.commit("changes the hot path of an id with no trace")
+        _, warnings = self.check()
+        hot = [w for kind, w in warnings if kind == "perf-hot"]
+        self.assertEqual(len(hot), 1, warnings)
+        self.assertIn("bench-typing.py", hot[0])
+        self.assertNotIn("Read it in a trace", hot[0])
+
     def test_changing_a_cold_function_does_not_warn(self):
         self.write(f"{KIT}/Router.swift", HOT.replace("count = 0\n    }\n}", "count = -1\n    }\n}"))
         self.commit("changes the cold path")

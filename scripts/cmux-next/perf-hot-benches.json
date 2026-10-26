@@ -1,5 +1,5 @@
 {
-  "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. `trace` lists the SignpostName catalog names (Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift) whose records show the path in a Release trace ring or signpost recording; for the ring writer and the per-turn meters it is the main turn their cost lands in. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
+  "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. `trace` lists the SignpostName catalog names (Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift) whose records show the path in a Release trace ring or signpost recording. An id with no `trace` has no catalog name that shows its own cost yet (observability-audit.py MQ5 lists it). Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
@@ -34,8 +34,6 @@
       "trace": [
         "key.frame",
         "key.flow",
-        "key.echo.output_lane",
-        "key.echo.renderer",
         "frame.present_estimate"
       ]
     },
@@ -170,18 +168,12 @@
     "trace-ring-write": {
       "what": "one Release trace ring record under a catalog id (TraceRing.write(name:)): the thread's TLS state, one acquire load of the active ring, the seqlock publish, a chunk claim every 31st record",
       "bench": "swift test -c release --filter 'TraceRingTests.*eightContendedThreadsKeepTheSingleThreadP99' (31-record batch p99, 1 and 8 threads)",
-      "owner": "p09-observability",
-      "trace": [
-        "stall.main_turn"
-      ]
+      "owner": "p09-observability"
     },
     "trace-ring-write-interned": {
       "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
       "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
-      "owner": "p09-observability",
-      "trace": [
-        "stall.main_turn"
-      ]
+      "owner": "p09-observability"
     },
     "main-turn": {
       "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
@@ -206,7 +198,7 @@
       "bench": "scripts/cmux-next/bench-typing.py (echo: output parsed stage p95); the scope's own cost: swift test -c release --filter HangWatchTests (p09-observability-066 open and close cost)",
       "owner": "PL-typing",
       "trace": [
-        "key.echo.output_lane",
+        "key.flow",
         "hang.thread_hung"
       ]
     },
