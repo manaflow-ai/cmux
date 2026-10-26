@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import os
 
 /// The quit's unsaved-changes step (R96 quit hook), before the terminals
@@ -22,11 +23,11 @@ enum QuitUnsavedStep {
     /// update never drops them. Signal, power-off and scripted quits save
     /// unattended.
     static func resolve(_ origin: QuitOrigin, registry: QuitUnsavedRegistry, scope: CmuxDialogScope,
-                        center: CmuxDialogCenter = .shared,
+                        center: CmuxDialogCenter = .shared, work: BackgroundWork,
                         writeDrafts: () async -> Void) async -> Bool {
         switch origin {
         case .interactive, .explicit:
-            return await resolveInteractive(registry, scope: scope, center: center)
+            return await resolveInteractive(registry, scope: scope, center: center, work: work)
         case .scripted, .powerOff, .signal:
             await writeDrafts()
             _ = await saveUnattended(registry)
@@ -37,7 +38,8 @@ enum QuitUnsavedStep {
     /// True when the quit may continue. A failed save asks again, with
     /// its reason; each turn waits for the person's answer.
     static func resolveInteractive(_ registry: QuitUnsavedRegistry, scope: CmuxDialogScope,
-                                   center: CmuxDialogCenter = .shared, failures: [String: String] = [:]) async -> Bool {
+                                   center: CmuxDialogCenter = .shared, work: BackgroundWork,
+                                   failures: [String: String] = [:]) async -> Bool {
         let participants = registry.unsaved()
         if participants.isEmpty { return true }
         let answer = await center.present(spec(participants, failures: failures), in: scope)
@@ -46,9 +48,9 @@ enum QuitUnsavedStep {
             await registry.discard(participants)
             return true
         case saveID:
-            guard let outcomes = await saveShowingProgress(registry, participants, scope: scope, center: center) else { return false }
+            guard let outcomes = await saveShowingProgress(registry, participants, scope: scope, center: center, work: work) else { return false }
             let failed = Dictionary(outcomes.compactMap { outcome in outcome.reason.map { (outcome.id, $0) } }) { first, _ in first }
-            return await resolveInteractive(registry, scope: scope, center: center, failures: failed)
+            return await resolveInteractive(registry, scope: scope, center: center, work: work, failures: failed)
         default:
             return false
         }
@@ -69,15 +71,17 @@ enum QuitUnsavedStep {
 
     /// Saves while "Saving <title>…" shows with Cancel. Nil when the person
     /// cancelled (the quit stops; a write in progress finishes on its own).
+    /// The save is the rest of the person's Save, started at user-blocking priority.
     static func saveShowingProgress(_ registry: QuitUnsavedRegistry, _ participants: [any QuitUnsavedParticipant],
-                                    scope: CmuxDialogScope, center: CmuxDialogCenter) async -> [QuitFlushOutcome]? {
+                                    scope: CmuxDialogScope, center: CmuxDialogCenter, work: BackgroundWork) async -> [QuitFlushOutcome]? {
         let progress = CmuxDialogSpec(title: QuitStrings.unsavedTitle,
                                       lines: participants.map { QuitStrings.unsavedSaving($0.quitTitle) },
                                       buttons: [.cancel(ConfirmationStrings.cancel)], identifier: "cmux.dialog.quitUnsavedSaving")
         return await withCheckedContinuation { (continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) in
             let race = SaveRace(continuation)
             race.dialogID = center.present(progress, in: scope) { _ in race.finish(nil) }
-            Task { @MainActor in
+            // The participants are main-actor documents, so the save's body stays on main.
+            work.task(.userBlocking) { @MainActor in
                 let outcomes = await registry.save(participants)
                 if race.finish(outcomes), let id = race.dialogID { center.dismiss(id) }
             }

@@ -46,6 +46,13 @@ final class MainDeadlineRig {
         frame()
     }
 
+    /// Fires the queue at the current uptime, as a wake that came before the armed date, and runs the posted actions
+    /// in one frame: only what is due by now runs, and the wake stays armed for the rest.
+    func fireAtNow() {
+        queue.fire()
+        frame()
+    }
+
     /// One display frame with no wake: runs the posted work only (an observation's flush), uptime unmoved.
     func frame() {
         budgetClock.now += 17_000_000
