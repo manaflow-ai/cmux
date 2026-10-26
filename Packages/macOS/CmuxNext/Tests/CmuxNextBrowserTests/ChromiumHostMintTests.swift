@@ -3,11 +3,14 @@ import AppKit
 import Foundation
 import Testing
 
-/// Task 019 of plans/cmux-next/chrome-parity/p01-process.md: in host mode cmux mints the ids of
-/// the browsers it creates (`tab_add` and `tab_duplicate` return the minted id at once, and the
-/// browser's AFTER_CREATED comes in a later event batch), so no Swift path waits for an id. A
-/// tab shown in a pane whose window is live has its browser in the turn that shows it, and the
-/// later AFTER_CREATED of a minted id completes that tab instead of adopting an orphan.
+/// Task 019 of plans/cmux-next/chrome-parity/p01-process.md: in host mode, with a host that maps
+/// the ids cmux mints, cmux mints the ids of the browsers it creates (`tab_add` and
+/// `tab_duplicate` return the minted id at once, and the browser's AFTER_CREATED comes in a later
+/// event batch), so no Swift path waits for an id. A tab shown in a pane whose window is live has
+/// its browser in the turn that shows it, a new pane asks for its window in that turn, and the
+/// later AFTER_CREATED of a minted id completes that tab instead of adopting an orphan. A host
+/// that refuses a minted browser sends CREATE_FAILED: the tab stays with the failure page, as in
+/// process after the shim's 0.
 @MainActor @Suite(.serialized) struct ChromiumHostMintTests {
     /// Host mode: the tab joins the live window in the turn that shows it, as Chromium's active
     /// tab, with the id cmux minted; nothing waits for the frame to commit.
@@ -110,15 +113,135 @@ import Testing
         #expect(runtime.tabBeingAdded == nil)
     }
 
+    /// Host mode: a new pane's tab asks for its window in the turn that shows it (`create_window`
+    /// is a post, and the host makes the profile's directory); its browser comes with AFTER_CREATED.
+    @Test func aNewPanesTabAsksForItsWindowInTheKeysTurn() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        host.endOfTurn = { $0() }
+        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(first)
+        host.present(first, in: NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+
+        #expect(host.deferredCreations.isEmpty, "nothing waits for the frame to commit")
+        #expect(runtime.pendingWindows.count == 1, "the window is asked for in the key's turn")
+        #expect(host.isCreatingWindow)
+        #expect(first.isCreationPending)
+        #expect(!FileManager.default.fileExists(atPath: runtime.contextKey(for: host.key)),
+                "the host makes the profile's directory, not cmux's main thread")
+    }
+
+    /// A host that does not map minted ids yet (its HELLO does not list them): the in-process
+    /// order, the browser after the frame, and no duplicate whose id would name nothing.
+    @Test func aHostThatDoesNotMapMintedIDsKeepsTheFrameWait() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true, mapsIDs: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        #expect(link.browserID == nil)
+        #expect(host.deferredCreations.count == 1)
+        #expect(host.duplicate(first) == nil)
+        #expect(MintSpyShim.duplicated.isEmpty)
+    }
+
+    /// Host mode: `tab_add` returned the minted id, then the host refused it (the anchor closed in
+    /// the host first). The tab stays open with the failure page and no browser; nothing closes it.
+    @Test func aRefusedTabAddKeepsTheTabWithTheFailurePage() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        let minted = MintSpyShim.firstMinted + 1
+        #expect(link.browserID == minted)
+
+        runtime.handle(.createFailed(browser: minted, request: 0))
+
+        #expect(!link.isClosed, "a refused create is no close")
+        #expect(host.tabs.contains { $0 === link })
+        #expect(link.browserID == nil)
+        #expect(runtime.tabsByBrowser[minted] == nil)
+        #expect(!link.isCreationPending)
+        #expect(Self.showsFailure(link))
+    }
+
+    /// Host mode: a duplicate the host refuses after its id was returned stays, with the failure page.
+    @Test func aRefusedDuplicateKeepsItsCopyWithTheFailurePage() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        let copy = try #require(host.duplicate(first))
+        let minted = try #require(copy.browserID)
+
+        runtime.handle(.createFailed(browser: minted, request: 0))
+
+        #expect(!copy.isClosed)
+        #expect(host.tabs.contains { $0 === copy })
+        #expect(copy.browserID == nil)
+        #expect(Self.showsFailure(copy))
+        #expect(first.browserID == MintSpyShim.firstMinted, "the source keeps its browser")
+    }
+
+    /// Host mode: `create_window` returned 1 when sent, then the host refused it. The pane stops
+    /// waiting for that window, and its tab and the tab waiting to join it show the failure.
+    @Test func aRefusedCreateWindowFailsTheTabsWaitingForIt() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        host.endOfTurn = { $0() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(first)
+        host.add(second)
+        host.present(first, in: container)
+        host.present(second, in: container)
+        let request = try #require(runtime.pendingWindows.keys.first)
+        #expect(second.isCreationPending, "waits to join the window being built")
+
+        runtime.handle(.createFailed(browser: MintSpyShim.firstMinted, request: request))
+
+        #expect(runtime.pendingWindows.isEmpty)
+        #expect(!host.isCreatingWindow && !host.isLive)
+        for tab in [first, second] {
+            #expect(!tab.isClosed)
+            #expect(!tab.isCreationPending)
+            #expect(tab.browserID == nil)
+            #expect(Self.showsFailure(tab))
+        }
+    }
+
+    /// The host's CREATE_FAILED (kind 51, `cmux_host::mint::kEventCreateFailed`) decodes with the
+    /// minted id and `create_window`'s request.
+    @Test func createFailedDecodesWithTheMintedIDAndRequest() {
+        let event = CEFShimEvent(kind: 51, browser: MintSpyShim.firstMinted, request: 7, a: 0, b: 0, s1: "", s2: "")
+        #expect(event == .createFailed(browser: MintSpyShim.firstMinted, request: 7))
+        #expect(event.browserID == MintSpyShim.firstMinted)
+    }
+
     // MARK: Fixtures
 
+    private static func showsFailure(_ tab: CEFTab) -> Bool {
+        if case .failed = tab.state.phase { return true }
+        return false
+    }
+
     /// A runtime that outlives the test (a shown tab schedules work that reads its runtime through
-    /// an unowned reference after the test returned); in host mode when `hostMode`.
-    private static func runtime(hostMode: Bool) throws -> (CEFRuntime, URL) {
+    /// an unowned reference after the test returned); in host mode when `hostMode`, with a host
+    /// that maps minted ids unless `mapsIDs` is false.
+    private static func runtime(hostMode: Bool, mapsIDs: Bool = true) throws -> (CEFRuntime, URL) {
         MintSpyShim.reset(hostMode: hostMode)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-mint-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try MintSpyShim.library(), storage: CEFProfileStorage(root: root))
-        if hostMode { runtime.hostStart = CEFHostStart(supervisor: NoHost()) }
+        if hostMode {
+            runtime.hostStart = CEFHostStart(supervisor: NoHost())
+            runtime.hostStart?.mapsClientIDs = mapsIDs
+        }
         _ = Unmanaged.passRetained(runtime)
         MintSpyShim.runtime = runtime
         return (runtime, root)
@@ -132,8 +255,8 @@ import Testing
         let first = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(first)
         host.present(first, in: container)
-        #expect(first.browserID == nil, "a window is built after the frame, in both modes")
-        host.createDeferred()
+        #expect(first.browserID == nil, "the window's browser comes with its AFTER_CREATED")
+        if !host.createsBrowsersAtOnce { host.createDeferred() }
         let request = try #require(runtime.pendingWindows.keys.first)
         runtime.handle(.afterCreated(browser: MintSpyShim.firstMinted, request: request, window: 1))
         #expect(host.isLive)

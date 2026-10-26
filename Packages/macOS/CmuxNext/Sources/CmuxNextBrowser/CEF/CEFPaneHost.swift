@@ -150,11 +150,10 @@ final class CEFPaneHost {
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
         // thread (`create_window`, `tab_add`), and the tab's toolbar and themed page area must be
-        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms). In host mode
-        // joining the live window is a post that returns the id cmux minted, so the tab gets its
-        // browser in the key's turn; building a window still waits (it makes the profile's directory).
+        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms). A host that
+        // maps cmux's minted ids takes both as posts, so the tab asks for its browser in the key's turn.
         if tab.browserID == nil, !tab.awaitsWindowMove {
-            return runtime.joinsWindowsAtOnce && isLive ? create(tab) : createAfterCommit(tab)
+            return createsBrowsersAtOnce ? create(tab) : createAfterCommit(tab)
         }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
@@ -226,8 +225,9 @@ final class CEFPaneHost {
                 // An in-memory profile: no directory, released when the
                 // incognito session ends.
                 runtime.offTheRecordContexts[key.profile, default: []].insert(contextKey)
-            } else {
-                // CEF refuses a request context whose cache directory is missing.
+            } else if !createsBrowsersAtOnce {
+                // CEF refuses a request context whose cache directory is missing. A host that maps
+                // cmux's ids makes it itself, off this thread (the shim's RequestContextFor).
                 try? FileManager.default.createDirectory(at: URL(filePath: contextKey), withIntermediateDirectories: true)
             }
             // A remote-localhost store: its context must use the proxy before

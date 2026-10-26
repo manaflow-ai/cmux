@@ -14,11 +14,13 @@ import Foundation
 extension CEFPaneHost {
     static let duplicateForkAPI: Int32 = 16
 
-    /// The copy of `tab`, or nil: an older fork, a closed tab, or a tab with
-    /// nothing committed yet.
+    /// The copy of `tab`, or nil: an older fork, a closed tab, a tab with
+    /// nothing committed yet, or a host that does not map minted ids yet. A
+    /// host that refuses the copy later sends CREATE_FAILED: the copy stays,
+    /// with the failure page (`CEFRuntime.browserCreationFailed`).
     @discardableResult
     public func duplicate(_ tab: CEFTab) -> CEFTab? {
-        guard let browserID = tab.browserID, runtime.acceptsNewBrowsers, let shim = runtime.shim,
+        guard let browserID = tab.browserID, runtime.acceptsNewBrowsers, !mintsUnmappedIDs, let shim = runtime.shim,
               runtime.forkAPIVersion >= Self.duplicateForkAPI, let anchor = anchorBrowser else { return nil }
         let copy = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
         // Same window, same store: a copy of a remote machine's localhost page

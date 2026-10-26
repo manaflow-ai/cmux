@@ -25,15 +25,32 @@ int32_t ClientIds::ClientOf(int chromium_id) const {
   return found == client_of_.end() ? chromium_id : found->second;
 }
 
+void ClientIds::BeginCall() {
+  in_call_ = true;
+}
+
+void ClientIds::EndCall() {
+  in_call_ = false;
+  std::vector<Held> held;
+  held.swap(held_);
+  for (Held& entry : held) emit_(entry.in_client_ids ? entry.event : ToClient(entry.event));
+}
+
 ClientIds::Outcome ClientIds::Bind(int32_t minted, int64_t result) {
   if (!mint::IsMintedBrowser(minted)) return Outcome::kBad;
-  if (!IsChromiumID(result)) return Outcome::kRefused;
+  if (!IsChromiumID(result)) {
+    Send(Event{mint::kEventCreateFailed, minted, 0, 0, 0, {}, {}});
+    return Outcome::kRefused;
+  }
   return Link(minted, result);
 }
 
 ClientIds::Outcome ClientIds::BindOnEvent(int32_t minted, int event_kind, int32_t request, int64_t started) {
   if (!mint::IsMintedBrowser(minted) || request == 0) return Outcome::kBad;
-  if (started != 1) return Outcome::kRefused;
+  if (started != 1) {
+    Send(Event{mint::kEventCreateFailed, minted, request, 0, 0, {}, {}});
+    return Outcome::kRefused;
+  }
   const PendingKey key{event_kind, request};
   if (pending_.size() >= kMaxPendingCreates || pending_.count(key) || awaiting_.count(minted) ||
       chromium_of_.count(minted)) {
@@ -46,11 +63,25 @@ ClientIds::Outcome ClientIds::BindOnEvent(int32_t minted, int event_kind, int32_
 
 ClientIds::Outcome ClientIds::BindDevToolsCall(int32_t client_browser, int32_t minted, int64_t result) {
   if (!mint::IsMintedDevTools(minted)) return Outcome::kBad;
-  if (!IsChromiumID(result)) return Outcome::kRefused;
+  if (!IsChromiumID(result)) {
+    Send(Event{CMUX_SHIM_DEVTOOLS_RESULT, client_browser, minted, 0, 0, {}, {}});
+    return Outcome::kRefused;
+  }
   if (devtools_.size() >= kMaxDevToolsCalls) return Outcome::kBad;
-  const auto [it, inserted] = devtools_.emplace(DevToolsKey(Browser(client_browser), result), minted);
-  (void)it;
+  const bool inserted = devtools_.emplace(DevToolsKey(Browser(client_browser), result), minted).second;
   return inserted ? Outcome::kBound : Outcome::kBad;
+}
+
+bool ClientIds::FromShim(const Event& chromium) {
+  const bool new_browser = chromium.kind == CMUX_SHIM_AFTER_CREATED || chromium.kind == CMUX_SHIM_DEVTOOLS_OPENED;
+  const int64_t created = chromium.kind == CMUX_SHIM_DEVTOOLS_OPENED ? chromium.a : chromium.browser_id;
+  if (new_browser && mint::IsMintedBrowser(created)) return false;
+  if (in_call_) {
+    held_.push_back(Held{chromium, false});
+  } else {
+    emit_(ToClient(chromium));
+  }
+  return true;
 }
 
 ClientIds::Event ClientIds::ToClient(const Event& chromium) {
@@ -94,6 +125,14 @@ ClientIds::Event ClientIds::ToClient(const Event& chromium) {
       break;
   }
   return out;
+}
+
+void ClientIds::Send(Event event) {
+  if (in_call_) {
+    held_.push_back(Held{std::move(event), true});
+  } else {
+    emit_(event);
+  }
 }
 
 uint64_t ClientIds::DevToolsKey(int chromium_browser, int64_t message_id) {

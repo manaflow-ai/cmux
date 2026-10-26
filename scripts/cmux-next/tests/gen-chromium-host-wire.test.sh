@@ -271,7 +271,8 @@ has "$host" 'case kOpGoBack:' "the host has no case for go_back"
 has "$host" 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' "the host does not map the browser id"
 has "$host" 'ctx.BindMintedOnEvent(kOpCreateWindow, minted_id, 4 /* CMUX_SHIM_ADDRESS */, arg_request, call_result);' \
   "the host does not bind a mint_returns sent id when its event comes"
-has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result);' "the host does not bind the minted id"
+has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result, arg_window_browser_id);' \
+  "the host does not bind the minted id with the op's browser as cmux sent it"
 has "$host" 'InstallPolicySetFocusRequestHandler(ctx, policy_installed);' "the policy is not installed"
 has "$host" '{-1, -1, kOpTabNavigationState},  // attach' "attach does not refresh the mirror"
 has "$host" '{5, 3, kOpTabNavigationState},  // CMUX_SHIM_TAB_EVENT:3' "sub-kind refresh missing"
@@ -348,7 +349,7 @@ struct TlvWriter {
 struct HostContext {
   int Browser(int32_t client_id); void* PageView(uint64_t token); void* OptionalExport(uint16_t op);
   void Ack(uint32_t token); void Reply(uint32_t token, const TlvWriter&);
-  void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started);
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
 };
