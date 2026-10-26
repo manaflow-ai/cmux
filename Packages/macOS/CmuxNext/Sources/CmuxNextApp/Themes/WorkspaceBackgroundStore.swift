@@ -101,6 +101,7 @@ final class WorkspaceBackgroundStore {
         let data = try? JSONEncoder().encode(backgrounds)
         let empty = backgrounds.isEmpty
         let previous = lastWrite, logger = logger
+        // priority-allow: only tests await lastWrite (flush); no person waits for a save
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {

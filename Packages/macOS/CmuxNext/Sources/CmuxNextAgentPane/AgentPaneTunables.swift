@@ -124,14 +124,13 @@ public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIt
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
-    /// The agent chat in Chromium (Leo 2026-10-20 spike; on by default since Lawrence asked for every
-    /// cmux page in Chromium, 2026-10-21): the page leaves the ``PageWebKitReason/agentChat`` hold,
-    /// so it shows in Chromium when `browser.defaultEngine` is Chromium. A Chromium page is an opaque
-    /// child window, so window glass does not show through it. Off keeps the agent chat on the page
-    /// host's WebKit.
+    /// The local override of feature `agentChromium` (features.d/agentChromium.json `replaces` it),
+    /// read only by the App's `AppServices.agentChromiumChat` at each new agent page (step 3 of
+    /// `FeatureList`: under managed policy and `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`). The feature
+    /// lifts the page's ``PageWebKitReason/agentChat`` hold (Chromium when `browser.defaultEngine` is).
     public static let chromium = Tunable<Bool>.toggle(
-        "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
-        help: "New agent tabs show in Chromium instead of WebKit when the browser engine is Chromium.",
+        "agent.chromium", PageTunables.section, "Agent chat in Chromium",
+        help: "Overrides the agentChromium feature: new agent tabs show in Chromium instead of WebKit when the browser engine is Chromium.",
         default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,

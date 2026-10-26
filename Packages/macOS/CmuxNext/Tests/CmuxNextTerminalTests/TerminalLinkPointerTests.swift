@@ -17,6 +17,7 @@ struct TerminalLinkPointerTests {
 
         init(terminals: Int) {
             _ = NSApplication.shared
+            GhosttyRuntime.startedForTests()
             watch = TerminalModifierWatch(input: tap)
             for _ in 0..<terminals {
                 let io = ScriptedTerminalIO()

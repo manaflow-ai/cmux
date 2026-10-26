@@ -66,7 +66,7 @@ public final class GlassBackdropImages {
         }
         let source = Bitmap(image: bitmap), size = maxPixelSize
         entry.encode = Task { [weak entry] in
-            let url = await Task.detached(priority: .utility) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
+            let url = await Task.detached(priority: Task.currentPriority) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
             guard let entry, !Task.isCancelled else { return }
             entry.dataURL = url ?? ""
             let waiters = entry.waiters

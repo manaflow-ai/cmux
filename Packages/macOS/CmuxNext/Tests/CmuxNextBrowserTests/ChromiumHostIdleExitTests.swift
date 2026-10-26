@@ -222,17 +222,9 @@ import Testing
 
     // MARK: The prototype
 
-    private static func helperOn() -> TunableStore {
-        let store = TunableStore()
-        store.register(BrowserHostTunables.all)
-        store.activate(file: nil)
-        store.set(BrowserHostTunables.helper.key, .bool(true))
-        return store
-    }
-
-    /// The prototype with an idle deadline, its sessions on `launcher`.
+    /// The prototype with an idle deadline and its switch (`cefHelperHost`) on, its sessions on `launcher`.
     private func prototype(launcher: Fake.FakeLauncher, rig: IdleDeadlineRig) -> ChromiumHostPrototype {
-        ChromiumHostPrototype(makeConfiguration: { Fake.configuration }, tunables: Self.helperOn(),
+        ChromiumHostPrototype(makeConfiguration: { Fake.configuration }, isOn: { true },
                               mainWork: MainWorkScheduler(budget: MainFrameBudget()), deadlines: rig.deadlines,
                               idleExitAfter: Self.idle) { configuration, idleExit in
             ChromiumHostSession(configuration: configuration, launcher: launcher, now: { ContinuousClock.now }, idleExit: idleExit)

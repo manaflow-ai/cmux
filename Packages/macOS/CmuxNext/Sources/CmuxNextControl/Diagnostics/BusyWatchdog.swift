@@ -215,8 +215,12 @@ public final class BusyWatchdog: Sendable {
         guard let thread = mainThread.withLock({ $0 }) else { return nil }
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+        // SAFETY: thread_info writes at most `count` integer_t words, the size of `info` (a local live for the call),
+        // and the count it wrote into `count`; the words are the info struct's own layout.
+        let result = unsafe withUnsafeMutablePointer(to: &info) {
+            unsafe $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) {
+                unsafe thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
         }
         guard result == KERN_SUCCESS else { return nil }
         let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000

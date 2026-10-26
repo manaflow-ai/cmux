@@ -122,6 +122,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private(set) var appearanceSignals = DesignSettings.shared.signals
     /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
     private(set) var visibilityNode: VisibilityNode?
+    /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
+    /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
+    var engineVisible = false
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {

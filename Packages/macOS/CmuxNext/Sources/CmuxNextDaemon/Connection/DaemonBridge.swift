@@ -73,37 +73,49 @@ public struct DaemonBridge: Hashable, Sendable {
     private func spawn(priority: MayBlockPriority) throws(DaemonError) -> Spawned {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(String(cString: strerror(errno)))") }
+        // SAFETY: socketpair writes two descriptors into the two-element array's storage, live for the call.
+        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(POSIXErrorText(errno))") }
         var errPipe: [Int32] = [-1, -1]
-        guard pipe(&errPipe) == 0 else {
+        // SAFETY: pipe writes two descriptors into the two-element array's storage, live for the call.
+        guard unsafe pipe(&errPipe) == 0 else {
             Darwin.close(pair[0]); Darwin.close(pair[1])
-            throw .launchFailed("pipe: \(String(cString: strerror(errno)))")
+            throw .launchFailed("pipe: \(POSIXErrorText(errno))")
         }
         let (mine, theirs, errRead, errWrite) = (pair[0], pair[1], errPipe[0], errPipe[1])
         _ = fcntl(mine, F_SETFD, FD_CLOEXEC)
         _ = fcntl(errRead, F_SETFD, FD_CLOEXEC)
         var on: Int32 = 1
-        setsockopt(mine, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(mine, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_adddup2(&actions, theirs, 0)
-        posix_spawn_file_actions_adddup2(&actions, theirs, 1)
-        posix_spawn_file_actions_adddup2(&actions, errWrite, 2)
+        // SAFETY (file actions and attributes): each call gets a pointer to the local `actions` or `attributes`,
+        // live for the call; _init sets each up before any other use and the defer destroys it exactly once.
+        unsafe posix_spawn_file_actions_init(&actions)
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        unsafe posix_spawn_file_actions_adddup2(&actions, theirs, 0)
+        unsafe posix_spawn_file_actions_adddup2(&actions, theirs, 1)
+        unsafe posix_spawn_file_actions_adddup2(&actions, errWrite, 2)
         var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_init(&attributes)
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
         // Only stdin, stdout and stderr reach the child.
-        posix_spawnattr_setflags(&attributes, Int16(clamping: POSIX_SPAWN_CLOEXEC_DEFAULT))
-        let argv = ([executable] + arguments).map { strdup($0) } + [nil]
-        defer { for pointer in argv { free(pointer) } }
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_setflags(&attributes, Int16(clamping: POSIX_SPAWN_CLOEXEC_DEFAULT))
+        let words = [executable] + arguments
+        // SAFETY: strdup copies each Swift string into a NUL-terminated heap string; the defer frees each copy
+        // exactly once, after posix_spawn has copied argv into the child.
+        let argv = unsafe words.map { unsafe strdup($0) } + [nil]
+        defer { unsafe argv.forEach { unsafe free($0) } }
         var pid: pid_t = 0
-        let spawned = blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)
+        // SAFETY: `pid`, `actions` and `attributes` are locals live for the call; argv is the nil-terminated array
+        // of live copies above; environ is the process's own nil-terminated environment, which nothing here changes.
+        let spawned = unsafe blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)
         Darwin.close(theirs)
         Darwin.close(errWrite)
         guard spawned == 0 else {
             Darwin.close(mine); Darwin.close(errRead)
-            throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
+            throw .launchFailed("spawn \(executable): \(POSIXErrorText(spawned))")
         }
         return Spawned(opened: Opened(fd: mine, child: BridgeChild(pid: pid, stderr: errRead, reaper: queues.reap)), stderr: errRead)
     }
@@ -113,11 +125,13 @@ public struct DaemonBridge: Hashable, Sendable {
         var line: [UInt8] = []
         for _ in 0...(maxReplyBytes + 8) {
             var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
-            let ready = poll(&poller, 1, replyTimeoutMs)
+            // SAFETY: poll reads and writes the one pollfd it is given, a local live for the call.
+            let ready = unsafe poll(&poller, 1, replyTimeoutMs)
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }
             var byte: UInt8 = 0
-            let read = Darwin.read(fd, &byte, 1)
+            // SAFETY: read writes at most 1 byte, the count given, into `byte`, a local live for the call.
+            let read = unsafe Darwin.read(fd, &byte, 1)
             if read < 0, errno == EINTR { continue }
             guard read == 1 else { throw .endpointBlocked("the link dial ended without an answer") }
             if byte == UInt8(ascii: "\n") { return Data(line) }

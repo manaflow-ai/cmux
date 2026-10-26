@@ -763,6 +763,14 @@ class PatchMutants(unittest.TestCase):
         for mutant in mutants:
             self.assertIn(mutant.suite, baselines.SUITE_CLASSES, mutant.id)
 
+    def test_the_task_mutants_pass_the_check_at_head_with_no_count(self) -> None:
+        # p15-oracle-206: the double create its I10 test phase must catch, outside the smoke set of ten.
+        mutants, errors = patch_mutants.check(patch_mutants.TASK_ROOT, counted=False)
+        self.assertEqual(errors, [])
+        self.assertIn("daemon/tab-create-terminal-runs-again-on-replay", [m.id for m in mutants])
+        smoke, _ = patch_mutants.load()
+        self.assertFalse({m.id for m in smoke} & {m.id for m in mutants}, "a task mutant is not a smoke mutant")
+
     def test_a_well_formed_mutant_has_no_errors(self) -> None:
         self.assertEqual(self.errors_of(MUTANT_HEADER.format(name="m") + fixture_patch(self.LIB, "    i", "    i + 1")), [])
 
