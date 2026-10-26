@@ -8,6 +8,8 @@
     "acpmux": {"wakeups_max": 1.0, "threads_max": null},
     "cef-gpu": {"wakeups_max": null, "threads_max": null},
     "cef-renderer": {"wakeups_max": null, "threads_max": null},
+    "cef-extension": {"wakeups_max": null, "threads_max": null},
+    "cef-host": {"wakeups_max": null, "threads_max": null},
     "cef-utility": {"wakeups_max": null, "threads_max": null}
   }
 }

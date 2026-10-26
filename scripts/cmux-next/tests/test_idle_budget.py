@@ -5,6 +5,7 @@ procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GP
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -33,7 +34,21 @@ class IdleBudgetTests(unittest.TestCase):
         self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/acpmux daemon"), "acpmux")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer"), "cef-renderer")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (GPU).app/x --type=gpu-process"), "cef-gpu")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer --extension-process"),
+                         "cef-extension")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/x --type=utility --utility-sub-type=n"), "cef-utility")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper"), "cef-helper")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Chromium Host.app/Contents/MacOS/cmux Chromium Host --x"),
+                         "cef-host")
+        # A --type process outside a Helper app is not a Chromium helper: the app binary is the app.
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV --type=renderer"), "app")
         self.assertEqual(ib.kind("/bin/zsh -l"), "other:zsh")
+
+    def test_every_chromium_kind_has_a_budget_row(self):
+        with open(ib.BUDGET_FILE) as handle:
+            budget = json.load(handle)
+        for name in ("cef-gpu", "cef-renderer", "cef-extension", "cef-utility", "cef-host"):
+            self.assertIn(name, budget["kinds"])
 
     def test_aggregate_sums_and_maxes_per_kind(self):
         kinds = ib.aggregate({"processes": [row("terminal-host", 3, 0.0), row("terminal-host", 5, 0.5), row("app", 40, 2.0)],

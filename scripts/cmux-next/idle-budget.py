@@ -55,6 +55,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "perf-bench"))
 import procs  # noqa: E402  (process set of one app: descendants, bundle processes, responsible XPC processes)
+import tab_pages  # noqa: E402  (the tab-page server and the Chromium process classifier)
 
 BUDGET_FILE = os.path.join(HERE, "idle-budget.json")
 STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
@@ -102,14 +103,9 @@ def kind(cmd):
         return "daemon"
     if re.search(r"/bin/acpmux(\s|$)", cmd):
         return "acpmux"
-    if "--type=renderer" in cmd:
-        return "cef-renderer"
-    if "--type=gpu-process" in cmd:
-        return "cef-gpu"
-    if "--type=utility" in cmd:
-        return "cef-utility"
-    if " Helper" in cmd.split(" --", 1)[0]:
-        return "cef-helper"
+    chromium = tab_pages.chromium_kind(cmd)
+    if chromium:
+        return chromium
     if "com.apple.WebKit." in cmd:
         return "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
     exe = cmd.split(" --", 1)[0]
@@ -393,45 +389,13 @@ def load_stress():
     return module
 
 
-STATIC_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle %d</title>"
-               "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
-               ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:16px}"
-               ".g div{height:80px;border-radius:10px;background:#c9d4e8}</style>"
-               "<h1>idle page %d</h1><div class='g'>%s</div><p>%s</p>")
-
-
-def static_pages(stress_module):
-    """STRESS's local pages without their rAF spinner (no script, no timer, no animation): an idle page."""
-    import http.server
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            try:
-                index = int(self.path.strip("/").split("/")[-1] or 0)
-            except ValueError:
-                index = 0
-            data = (STATIC_PAGE % (index, index, "<div></div>" * 120, "lorem ipsum dolor sit amet " * 200)).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-        def log_message(self, *args):
-            pass
-
-    pages = stress_module.Pages()
-    pages.handler = Handler
-    return pages
-
-
 def build_stress(app, static=False):
     """STRESS, then its busy terminals stopped (Ctrl-C), so the terminals are quiet. With `static` its pages
     have no rAF spinner (STRESS's own pages animate, which is not idle)."""
     stress_module = load_stress()
     stress = stress_module.Stress(app.rpc)
     if static:
-        stress.pages = static_pages(stress_module)
+        stress.pages = tab_pages.TabPages(default_kind="grid")
     summary = stress.build()
     for tab in getattr(stress, "busy", []):
         stress.send(tab, "\x03")
