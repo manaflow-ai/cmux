@@ -7,6 +7,8 @@
 //   pointer-probe drag-file X0 Y0 X1 Y1 N PATH   a window of this app at the start drags PATH as a file, as
 //                              Finder does (a real drag session from another app), along the line; prints
 //                              "ended <NSDragOperation>" ("ended 0": refused) and exits 0 when the drop was taken
+//   pointer-probe swipe X Y DX N   the pointer to X Y, then a two-finger trackpad gesture there: began, N changes of
+//                              DX points each (about 120 Hz), ended (DX > 0 drags the content right: Back)
 //   pointer-probe owner X Y    print the app and title of the frontmost on-screen window at a screen point (top left)
 //   pointer-probe where        print the pointer (screen points from the top left)
 //   pointer-probe click X Y    post a left press and release there
@@ -133,6 +135,32 @@ case "drag-file":
         exit(2)
     }
     NSApp.run()
+case "swipe":
+    guard args.count >= 6, let x = Double(args[2]), let y = Double(args[3]), let dx = Double(args[4]), let steps = Int(args[5]),
+          steps > 0 else {
+        FileHandle.standardError.write("usage: pointer-probe swipe X Y DX N\n".data(using: .utf8)!)
+        exit(2)
+    }
+    let location = CGPoint(x: x, y: y)
+    post(.mouseMoved, at: location)
+    usleep(100_000) // the pointer rests over the page before the fingers land
+    // One event of a two-finger trackpad gesture (continuous, pixel deltas, CGScrollPhase began 1, changed 2, ended 4).
+    func gesture(_ phase: Int64, _ delta: Double) {
+        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0,
+                                  wheel2: Int32(delta.rounded()), wheel3: 0) else { return }
+        event.location = location
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: delta)
+        event.post(tap: .cghidEventTap)
+    }
+    gesture(1, dx / 2)
+    for _ in 1...steps {
+        usleep(8_000) // a trackpad reports about every 8 ms
+        gesture(2, dx)
+    }
+    usleep(8_000)
+    gesture(4, 0)
 case "owner":
     let location = point()
     let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []

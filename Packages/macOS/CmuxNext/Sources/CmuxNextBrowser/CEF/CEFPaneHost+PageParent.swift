@@ -42,6 +42,11 @@ extension CEFPaneHost {
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        // Two-finger Back and Forward swipes over the shown page, from the host's wheel acks (task 234).
+        page.wheelGesture = { [weak self, weak page] event in
+            guard let self, let page, let tab = visibleTab else { return false }
+            return runtime.swipeNavigation.handleHosted(event, tab: tab, page: page)
+        }
         #endif
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)

@@ -5102,6 +5102,12 @@
       "value": 53,
       "refreshes": [],
       "reason": "The widget of WIDGET_CONTEXT closed: browser = owner, request = widget id (task 066)."
+    },
+    {
+      "kind": "CMUX_SHIM_WHEEL_ACK",
+      "value": 56,
+      "refreshes": [],
+      "reason": "Host mode only (task 234): Chromium's ack of the page's latest non-momentum wheel (GestureScrollEventAck and DidOverscroll, the fork's cmux_set_wheel_ack_handler). request = the wheel frame's input seq, a = DIPs scrolled in hundredths (x low 32 bits, y high), b = flags (1 scroll update, 2 consumed, 4 overscrolled; overscroll-behavior-x in bits 8-9) low and overscroll x in hundredths high (HOST/src/host_wheel_ack.h). cmux's swipe navigation decides from it (CEFSwipeNavigation)."
     }
   ],
   "host_mode_rewrites": [

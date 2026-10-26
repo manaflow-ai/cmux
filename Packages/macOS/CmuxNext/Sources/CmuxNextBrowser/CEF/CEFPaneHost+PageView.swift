@@ -1,15 +1,17 @@
 import AppKit
 
-/// Host mode: what this pane's pages tell their page view, and drags into them (tasks 045 and 050 of
+/// Host mode: what this pane's pages tell their page view, and drags into them (tasks 045, 050 and 234 of
 /// plans/cmux-next/chrome-parity/p01-process.md).
 extension CEFPaneHost {
-    /// CURSOR or DRAG_OPERATION of `browser`, one of this pane's.
+    /// CURSOR, DRAG_OPERATION or WHEEL_ACK of `browser`, one of this pane's.
     func pageViewChanged(_ change: CEFPageViewEvent, browser: Int32) {
         switch change {
         case .cursor(let cursor):
             pageCursorChanged(cursor, browser: browser)
         case .dragOperation(let operation):
             hostedPageView?.dragDestination.answered(browser: browser, operation: operation)
+        case .wheelAck(let ack):
+            runtime.swipeNavigation.wheelAcked(ack, browser: browser)
         }
     }
 

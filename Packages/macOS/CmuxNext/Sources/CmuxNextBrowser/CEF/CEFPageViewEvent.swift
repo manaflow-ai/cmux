@@ -8,4 +8,7 @@ nonisolated enum CEFPageViewEvent: Equatable, Sendable {
     /// The renderer's answer to a drag over the page (DRAG_OPERATION, task 050): the
     /// `cef_drag_operations_mask_t` it takes, 0 none.
     case dragOperation(Int64)
+    /// Chromium's ack of the page's latest trackpad wheel (WHEEL_ACK, task p01-process-234): what the
+    /// swipe navigation decides from, with no probe of the page.
+    case wheelAck(BrowserWheelAck)
 }
