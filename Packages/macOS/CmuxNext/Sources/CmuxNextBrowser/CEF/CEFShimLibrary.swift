@@ -55,6 +55,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
     /// with no key window (0 when the fork lacks it or the page is not detached).
     let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
+    /// fork took it). Nil on a shim without the export (task p03-rendering-058).
+    let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -345,6 +348,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
+        browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
