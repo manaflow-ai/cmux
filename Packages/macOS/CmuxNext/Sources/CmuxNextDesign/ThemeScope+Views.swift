@@ -63,6 +63,20 @@ enum ThemeContext {
     static func pop() { stack.removeLast() }
 }
 
+extension ThemeScope {
+    /// The nearest scope (this one or an ancestor) without a chrome
+    /// emphasis: panels and hover cards draw there at full strength.
+    public var fullStrength: ThemeScope {
+        var scope = self
+        while scope.emphasis != .full, let parent = scope.parent { scope = parent }
+        return scope
+    }
+
+    /// The glyph images a ``ChromeLabel`` of this scope draws through: the nearest scope's
+    /// ``sharedGlyphMasks`` (nil: each label keeps its own).
+    public var glyphMasks: GlyphMaskCache? { sharedGlyphMasks ?? parent?.glyphMasks }
+}
+
 extension NSView {
     /// The scope this view draws in (its own, an ancestor's, its window's,
     /// or `ThemeScope.app`).

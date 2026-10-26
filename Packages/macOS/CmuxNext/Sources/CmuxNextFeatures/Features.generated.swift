@@ -1425,6 +1425,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.
+    public static let sharedGlyphMasks = Feature(
+        index: 81,
+        name: "sharedGlyphMasks",
+        owner: "Performance Lead",
+        description: "Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["sidebar-mirror-rebuild"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
         index: 82,
@@ -1813,6 +1830,7 @@ nonisolated extension Feature {
         .resampledDrags,
         .savedWindowPicture,
         .sentryHandlersFirst,
+        .sharedGlyphMasks,
         .sidebarRowsNearViewport,
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
@@ -1916,6 +1934,7 @@ nonisolated extension Feature {
         .resampledDrags,
         .savedWindowPicture,
         .sentryHandlersFirst,
+        .sharedGlyphMasks,
         .sidebarRowsNearViewport,
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
