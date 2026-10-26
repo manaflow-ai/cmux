@@ -107,7 +107,7 @@ public final class BrowserHistoryWriter {
         }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return }
+            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` per page change; the next change and cancel() cancel it
             guard let session = await self?.page?.savedSession(measuringScroll: false) else { return }
             await self?.write(session)
         }
@@ -121,7 +121,7 @@ public final class BrowserHistoryWriter {
             if session.entries.contains(where: \.formPost) { showedPrivateField = true }
             var probed = false  // A probe that fails to run takes no new state (the last stays).
             if !showedPrivateField {
-                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
+                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated, gesture: .cmux) {
                 case .bool(true)?: showedPrivateField = true
                 case .bool(false)?: probed = true
                 default: break
@@ -228,7 +228,7 @@ public final class BrowserHistoryWriter {
         return await withCheckedContinuation { continuation in
             once.continuation = continuation
             let timer = Task { @MainActor in
-                try? await sleep(budget)
+                try? await sleep(budget) // wakeup-allow: the one `budget` deadline for `work`, cancelled when the work finishes first
                 once.resume(nil)
             }
             Task { @MainActor in

@@ -11,7 +11,7 @@ extension UpdaterService: UpdateActionDelegate {
     public func updaterWillRelaunchApplication() {
         let waited = installStartedAt.map { " after \(Int(now().timeIntervalSince($0))) s of install" } ?? ""
         log.append("relaunching for update\(waited)")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("will_relaunch")
         #endif
         willRelaunch?()

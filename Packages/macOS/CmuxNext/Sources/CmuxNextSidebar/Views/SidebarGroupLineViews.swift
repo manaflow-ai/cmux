@@ -136,6 +136,10 @@ final class SidebarGroupLineViews {
 /// One members' line: Chrome's (Leo 2026-10-19), a flat-ended 2 pt bar in its header bar's exact color.
 /// Square ends need no mask or drawn image, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
+    /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
+    /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
+    private static let shapeCoverageHeight: CGFloat = 4096
+    let railShape = CAShapeLayer()
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
@@ -147,7 +151,10 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 0 // flat ends, never round caps (Leo 2026-10-19)
+        layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
+        layer?.masksToBounds = true
+        railShape.fillColor = NSColor.black.cgColor
+        layer?.addSublayer(railShape)
     }
 
     @available(*, unavailable)
@@ -162,14 +169,27 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    override func layout() {
+        super.layout()
+        updateShape()
+    }
+
     override func updateLayer() {
         let look = observedLook()
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
             let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
-            layer?.backgroundColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
+            layer?.backgroundColor = NSColor.clear.cgColor
+            railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
+        updateShape()
+    }
+
+    private func updateShape() {
+        let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
+        railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        railShape.path = SidebarGroupLineShape.line(width: bounds.width, height: height)
     }
 
     /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one

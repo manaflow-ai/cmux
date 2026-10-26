@@ -70,8 +70,7 @@ extension UpdateCard {
     }
 
     /// The installing card for `status` (``UpdateInstallStatus``): the short text first, then
-    /// the step and its seconds, what a held relaunch waits for (with Relaunch), or that the
-    /// install never relaunched (with Details).
+    /// the step and its seconds, or that the install never relaunched (with Details).
     nonisolated static func installing(_ status: UpdateInstallStatus?) -> UpdateCardPresentation {
         let symbol = "arrow.clockwise.circle"
         guard let status else {
@@ -79,10 +78,6 @@ extension UpdateCard {
                                           detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
         }
         switch status.stage {
-        case .waiting(let agents, let commands):
-            return UpdateCardPresentation(symbol: "hourglass", title: UpdaterStrings.waitingToRelaunch,
-                                          detail: UpdaterStrings.waitingDetail(agents: agents, commands: commands),
-                                          showsProgress: true, actions: [.relaunchNow], dismissible: false)
         case .stalled:
             return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.installStalled,
                                           detail: UpdaterStrings.installStalledDetail(minutes: max(1, status.seconds / 60)),

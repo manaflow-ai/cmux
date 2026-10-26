@@ -488,6 +488,42 @@ pub fn subagent_daemon(owner: &str, env: &dyn Fn(&str) -> Option<String>) -> Opt
     AppWorkspaces::resolve(owner, env).map(|app| app.daemon)
 }
 
+/// Where a Chief host makes its subagents' workspaces (`placement`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// The cmux app that started this host: its own daemon (the user's session).
+    App(PathBuf),
+    /// A cloud install's own daemon (`install:<id>` host).
+    Cloud(PathBuf, String),
+    /// No app and no install (an always-on local brain, a teammate's Chief started by
+    /// the CLI or a service): this host's own session daemon, so any app connected
+    /// to this machine's session shows them.
+    OwnDaemon(PathBuf),
+    /// Turned off with `OPTCHAT_SUBAGENT_WORKSPACES=0`.
+    Off,
+}
+
+/// Where subagent workspaces go. A fresh Chief on a machine without `CMUX_SOCKET_PATH`
+/// used to get none (every spawn answered "no cmux workspace"): it now falls back to the
+/// host's own session daemon, as the cloud install does.
+pub fn placement(
+    off: bool,
+    owner: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    cloud_install: Option<&str>,
+) -> Placement {
+    if off {
+        return Placement::Off;
+    }
+    if let Some(app) = subagent_daemon(owner, env) {
+        return Placement::App(app);
+    }
+    match cloud_install {
+        Some(install) => Placement::Cloud(owner.into(), install.to_owned()),
+        None => Placement::OwnDaemon(owner.into()),
+    }
+}
+
 /// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
 /// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
 /// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
