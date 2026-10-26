@@ -7,8 +7,8 @@ public nonisolated enum WorkspaceAutoNameVariant: String, Sendable, CaseIterable
     /// The sidebar row shows the name its front tab gives, and follows that tab
     /// as it changes; the daemon keeps the default name.
     case live
-    /// The first generated chat title is written to the daemon once, so the
-    /// CLI, window title and search see it. Manual and agent renames win.
+    /// The focused chat's generated title is written to the daemon, so the
+    /// CLI, window title and search follow it. Manual and agent renames win.
     case persist
 
     public var tunableTitle: String {
