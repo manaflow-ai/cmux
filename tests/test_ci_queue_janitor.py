@@ -2632,6 +2632,21 @@ class BlacksmithLegTests(unittest.TestCase):
             self.assertEqual(fake.runs[run["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
             self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
 
+    def test_a_bots_attempt_category_e_leaves_is_moved_by_category_f(self):
+        run, jobs = self.world(age=40, attempt=2, actor="github-actions[bot]")
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        jobs[other["id"]] = [started_job(age=10, label=LARGE_MAC)]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        unclaimed = janitor.find_unclaimed([run, other], jobs, now=NOW, lost=lost, blacksmith_legs=True)
+        self.assertEqual((sorted(lost), sorted(unclaimed)), ([run["id"]], [run["id"]]))
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                    pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed=unclaimed,
+                                    branch_heads={}, app_rerun=True)
+        decision = decision_for(result, run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertTrue(decision.candidate.app_actor)
+
     def test_a_lost_gui_job_on_blacksmith_also_needs_an_app(self):
         run, jobs = self.world(age=40)
         jobs[run["id"]][0]["name"] = "cmux-next swift test"

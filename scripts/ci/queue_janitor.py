@@ -1499,14 +1499,16 @@ def find_unclaimed(
     held = set(lost or ())
     found_by_run: dict[int, UnclaimedJob] = {}
     for run in runs:
-        if run["id"] in held or not _unclaimed_scope(run):
+        if not _unclaimed_scope(run):
             continue
         run_jobs = jobs_by_run.get(run["id"]) or ()
         found: list[tuple[Mapping[str, Any], UnclaimedJob]] = []
         for job in run_jobs:
             pool = rescue.job_pool(job)
             blacksmith = None if pool or not blacksmith_legs else blacksmith_leg(run, job)
-            if not (pool or blacksmith) or not unassigned(job):
+            # A run category e holds is judged here only for a Blacksmith leg, in case e leaves it (a bot's
+            # attempt): no other rule moves that leg.
+            if not (pool or blacksmith) or not unassigned(job) or (run["id"] in held and not blacksmith):
                 continue
             since = lost_wait_start(job, run_jobs)
             bound = BLACKSMITH_LEG_SECONDS if blacksmith else unclaimed_bound(str(pool), p90)
@@ -1836,7 +1838,7 @@ def build_plan(
                 lost_verdict = classify_lost(
                     run, jobs_by_run.get(run["id"], ()), lost[run["id"]], branch_prs, now=now,
                     rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch))
-            else:
+            if run["id"] in unclaimed and (lost_verdict is None or lost_verdict.action != "cancel"):
                 held_category = "unclaimed"
                 lost_verdict = classify_unclaimed(
                     run, jobs_by_run.get(run["id"], ()), unclaimed[run["id"]], branch_prs, now=now,
