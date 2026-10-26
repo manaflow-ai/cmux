@@ -15,12 +15,11 @@ import CmuxNextWakeups
 /// thread) is an afterStartup post of the launch's `StartupScheduler`, which
 /// completes only once the visible page loaded and the launch images went, so
 /// it never runs between the first window and its first content (p08-startup
-/// task 016). The control socket still starts at ``settled(within:images:)``
-/// until task 019 binds it off main.
+/// task 016). The control socket binds off main and serves after the first
+/// frame (task 019, `ControlLaunch`).
 @MainActor
 final class LaunchSettle {
     private(set) var isSettled = false
-    private var waiters: [@MainActor () -> Void] = []
     private var unavailableWatch: Task<Void, Never>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
@@ -28,40 +27,18 @@ final class LaunchSettle {
     /// The restore's and the visible panes' startup refs (p08-startup task 013), made at the root.
     let paneRefs: VisiblePaneRefs
     private var sawTerminalContent = false
-    /// The clock of ``settled(within:images:)``'s limit.
-    private let clock: any Clock<Duration>
     /// The agent pages' WebKit warm-up, whose empty page goes at the settle (``install(daemon:warmup:)``).
     private weak var warmup: AgentPageWarmup?
 
     /// - Parameters:
     ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
     ///   - paneRefs: The startup refs a terminal's content is a content signal for.
-    ///   - clock: The clock of ``settled(within:images:)``'s limit (tests pass a manual one).
-    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs, clock: any Clock<Duration> = ContinuousClock()) {
+    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs) {
         self.reveal = reveal
         self.paneRefs = paneRefs
-        self.clock = clock
     }
 
-    /// Returns once the launch settled and no agent page waits behind its last
-    /// frame, or after `limit` (a launch with no window never settles). With
-    /// the daemon unavailable the launch settles at once, so only the launch
-    /// images are waited for. The control socket starts here (cx-z9kz0).
-    ///
-    /// - Parameters:
-    ///   - limit: The longest wait.
-    ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
-    func settled(within limit: Duration, images: LaunchImageHold) async {
-        let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        // timer-class-allow: one launch backstop that only finishes this stream; task 019 deletes it with this wait
-        let backstop = DemandTimer(owner: "LaunchSettle.settled", clock: clock)
-        backstop.schedule(after: limit) { done.finish() }
-        whenSettled { images.whenClear { done.finish() } }
-        for await _ in settled {}
-        backstop.cancel()
-    }
-
-    /// Settles (first call only) and runs the ``settled(within:images:)`` waiters.
+    /// Settles (first call only).
     func settle() {
         guard !isSettled else { return }
         isSettled = true
@@ -69,13 +46,6 @@ final class LaunchSettle {
         unavailableWatch = nil
         // The agent pages' warm-up page goes; a warm-up still queued (afterStartup) runs later.
         warmup?.settle()
-        let waiting = waiters
-        waiters = []
-        for work in waiting { work() }
-    }
-
-    private func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { work() } else { waiters.append(work) }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the

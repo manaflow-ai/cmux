@@ -96,8 +96,12 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        // The control socket's owner check, bind and listen run on a lane while AppKit starts; the
+        // methods register and the socket accepts after the first frame (p08-startup-019).
+        let controlSocket = ControlSocketBind.begin(launch: environment.launch, environment: ProcessInfo.processInfo.environment,
+                                                    work: work, mainWork: order.mainWork)
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
-                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap, controlSocket: controlSocket,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)

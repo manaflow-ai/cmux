@@ -72,6 +72,8 @@ public final class ControlSocketServer: Sendable {
         /// Something other than a socket, or another user's socket, is there.
         case pathOccupied(String)
         case system(call: String, errno: Int32)
+        /// The socket bound at launch was discarded (quit, or an `off` mode) before it served.
+        case discarded(String)
 
         public var description: String {
             switch self {
@@ -80,6 +82,7 @@ public final class ControlSocketServer: Sendable {
             case .addressInUse(let path): "another process is listening on \(path)"
             case .pathOccupied(let path): "\(path) exists and is not a stale socket owned by this user"
             case .system(let call, let code): "\(call) failed: \(String(cString: strerror(code)))"
+            case .discarded(let path): "the socket bound at launch at \(path) was discarded before it served"
             }
         }
     }
@@ -138,6 +141,33 @@ public final class ControlSocketServer: Sendable {
         try Self.makeStateDirectory(for: path, protectExisting: configuration.protectStateDirectory)
         try Self.reclaimStalePath(path)
         let (source, identity) = try makeListener()
+        serve(source, identity: identity)
+    }
+
+    /// Starts accepting on `listener`, bound earlier off the main thread
+    /// (``bindListener(path:protectStateDirectory:)``, p08-startup-019), so this call does no file
+    /// work. An access mode of `off` discards the listener and throws `disabled`, as ``start()`` does;
+    /// a running server discards it. A listener for another path is discarded and the server binds
+    /// its own (``start()``). A listener already discarded or taken throws `discarded`: its owner
+    /// decided it does not serve (quit), so the server never binds again in its place.
+    public func start(adopting listener: ControlSocketListener) throws {
+        guard configuration.accessMode != .off else {
+            listener.discard()
+            throw StartError.disabled
+        }
+        guard !isRunning else { return listener.discard() }
+        guard listener.path == configuration.path else {
+            listener.discard()
+            return try start()
+        }
+        guard let descriptor = listener.take() else { throw StartError.discarded(listener.path) }
+        serve(acceptSource(descriptor), identity: listener.identity)
+    }
+
+    /// Publishes and resumes the listener's accept source, then watches the socket file (and the
+    /// compatibility link) so that a deleted one is put back.
+    private func serve(_ source: any DispatchSourceRead, identity: (dev: dev_t, ino: ino_t)?) {
+        let path = configuration.path
         state.withLock {
             $0.listener = source
             $0.socketIdentity = identity
@@ -157,30 +187,16 @@ public final class ControlSocketServer: Sendable {
     /// A listening socket bound at the configured path, its read source not yet resumed, and the
     /// socket file's identity.
     private func makeListener() throws -> (any DispatchSourceRead, (dev: dev_t, ino: ino_t)?) {
-        let path = configuration.path
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw StartError.system(call: "socket", errno: errno) }
-        var shouldClose = true
-        defer { if shouldClose { close(descriptor) } }
-        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+        let bound = try Self.makeBoundDescriptor(path: configuration.path, mode: configuration.accessMode.filePermissions, bind: bindCall)
+        return (acceptSource(bound.descriptor), bound.identity)
+    }
 
-        let capacity = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
-        guard path.utf8.count < capacity else { throw StartError.pathTooLong(path) }
-        try bindSocket(descriptor, at: path, mode: configuration.accessMode.filePermissions, capacity: capacity)
-        guard listen(descriptor, 64) == 0 else {
-            let code = errno
-            unlink(path)
-            throw StartError.system(call: "listen", errno: code)
-        }
-        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
-
-        var info = stat()
-        let identity = lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+    /// The accept source of a listening descriptor, not yet resumed; its cancel closes the descriptor.
+    private func acceptSource(_ descriptor: Int32) -> any DispatchSourceRead {
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: acceptQueue)
         source.setEventHandler { [weak self] in self?.acceptPending(listener: descriptor) }
         source.setCancelHandler { close(descriptor) }
-        shouldClose = false
-        return (source, identity)
+        return source
     }
 
     /// Binds a new listener at the path ``ControlSocketPathWatch`` found

@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
     var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
+    private let controlSocket: ControlSocketBind?  // bound off main in `main()` (p08-startup-019); nil: the service binds
     /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
-         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, controlSocket: ControlSocketBind?,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads) = (environment, launchReads)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
@@ -92,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        control = AppControl(mainWork: order.mainWork, input: inputTap)
+        (control, self.controlSocket) = (AppControl(mainWork: order.mainWork, input: inputTap), controlSocket)
         super.init()
     }
 
@@ -379,19 +380,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
-        Task {
-            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // control socket: after the first frames (cx-z9kz0; task 019 binds it off main)
-            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
-            _ = try? await settings.migrateLegacyQuitBehavior()
-            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
-            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
-            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
-            _ = try? await settings.migrateClassicSettings()
-            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-            _ = try? await settings.importClassicShortcuts(marker: .standard)
-            _ = try? await settings.importClassicPreferences(marker: .standard)
-            do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+        // The control socket: bound off main in main(); its start, method groups and accepting are
+        // afterFirstFrame posts (ControlLaunch, p08-startup-019).
+        ControlLaunch.post(on: order.startup, socket: controlSocket, start: { [control, weak services, weak settings, launch = environment.launch] in
+            guard let services, let settings else { return nil }
+            try control.start(registry: services.registry, settings: settings, launch: launch, services: services)
+            return control.service
+        }, groups: [
+            .init("Control.registerAppMethods") { [control, weak services] _ in
+                guard let services else { return }
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
@@ -399,54 +396,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
-                control.registerSettingsDebugMethods(services)
-                control.registerPageDebugMethods(services)
-                control.registerRemoteBrowserDebugMethods(services)
-                RemoteViewDebugMethods(services: services).register(on: control.service?.router)
-                services.registerMacScreenDebug(on: control.service?.router)
-                services.registerDeviceHubDebug(on: control.service?.router)
-                DebugNowPlaying.register(on: control.service?.router, services: services)
-                DebugDownloads.register(on: control.service?.router, services: services)
-                DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
-                #if DEBUG
-                // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
-                // Socket focus policy: `open` makes the page first responder only with focus: true.
-                let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                         tunables: TunableStore.shared)
-                control.service?.router.register([
-                    .mainActor("debug.chromium_host") { [weak services] call in
-                        let controller = services?.windows.controllers.first
-                        let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
-                        return .value(JSONValue(foundation: fields) ?? .null)
-                    },
-                    .async("debug.chromium_host.measure") { call in
-                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue)
-                        else { return ["error": "no running Chromium host"] }
-                        return .object(fields.mapValues(JSONValue.number))
-                    }.withDeadline(.fixed(.seconds(60))),
-                ])
-                #endif
-                DebugBrowserExternal.register(on: control.service?.router, services: services)
-                DebugCloudMove.register(on: control.service?.router, services: services)
-                DebugTerminalLinks.register(on: control.service?.router, services: services)
-                if let router = control.service?.router {
-                    // The passkey hand-off: an agent's request waits for the person's banner click.
-                    let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
-                    services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
-                                       agentMouse: { [weak settings] in
-                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
-                                       }).install(on: router)
-                    services.apps.attach(router: router)
-                }
-                logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
-            } catch {
-                logger.error("control socket failed: \(String(describing: error), privacy: .public)")
+            },
+            .init("Control.registerDebugMethods") { [control, weak services] _ in
+                if let services { control.registerAppDebugMethods(services) }
+            },
+            .init("Control.registerBrowserPageMethods") { [weak services, weak settings] router in
+                guard let services else { return }
+                // The passkey hand-off: an agent's request waits for the person's banner click.
+                let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
+                services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
+                                   agentMouse: { [weak settings] in
+                                       await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                   }).install(on: router)
+                services.apps.attach(router: router)
+            },
+        ], served: { [logger, weak services] result in
+            switch result {
+            case .success(let path):
+                DebugTimings.markLaunch("control.serving")
+                logger.info("control socket \(path, privacy: .public)")
+            case .failure(let error): logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
             // Share This Mac resumes when the person left it on.
-            services.macScreenPages.activate()
+            services?.macScreenPages.activate()
+        })
+        // Legacy keys and classic imports rewrite cmux.json once startup is complete (task 106 moves the
+        // migrations into the settings launch read).
+        order.startup.post(.afterStartup, "Settings.legacyMigrations", on: .main) { [weak settings] in
+            guard let settings else { return }
+            Task {
+                await settings.waitForLoad(atLeast: 1)
+                // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
+                _ = try? await settings.migrateLegacyQuitBehavior()
+                _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
+                _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
+                // Classic cmux keys next reads under another name (`ClassicSettingRename`).
+                _ = try? await settings.migrateClassicSettings()
+                // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
+                _ = try? await settings.importClassicShortcuts(marker: .standard)
+                _ = try? await settings.importClassicPreferences(marker: .standard)
+            }
         }
     }
 
@@ -522,6 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
         services?.serverReach.stop()
+        controlSocket?.discard()  // a socket bound in main() that never served
         control.stop()
         services?.configActions.stop()
         services?.globalHotKeys.stop()

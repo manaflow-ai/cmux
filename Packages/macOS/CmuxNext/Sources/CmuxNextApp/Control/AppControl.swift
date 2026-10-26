@@ -85,8 +85,8 @@ final class AppControl {
                                                  .rightMouseDragged, .scrollWheel, .mouseMoved, .magnify, .swipe]
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
-                                               frameSource: frames, watchdog: watchdog)
+        let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
+                                                 frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,

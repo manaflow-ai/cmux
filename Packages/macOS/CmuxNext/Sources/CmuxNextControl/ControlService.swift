@@ -45,6 +45,25 @@ public final class ControlService {
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
+        let service = try prepare(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
+                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog)
+        try service.server.start()
+        return service
+    }
+
+    /// Resolves path and access mode and builds the router, which takes method registrations, but
+    /// accepts no connection until ``serve(adopting:)`` (p08-startup-019): a request never reaches a
+    /// router whose methods are not all registered. Throws `disabled` when the mode is `off`.
+    public static func prepare(
+        registry: ActionRegistry,
+        settings: SettingsController?,
+        launch: LaunchIdentity,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundle: Bundle = .main,
+        accessMode explicitMode: ControlAccessMode? = nil,
+        frameSource: any ControlFrameSource = MainQueueFrameSource(),
+        watchdog: MainThreadWatchdog? = nil
+    ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
         let identity = ControlIdentity(
@@ -57,7 +76,7 @@ public final class ControlService {
             appCLIPath: bundle.resourceURL.map { $0.appendingPathComponent("bin/cmux").path }
                 .flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
         )
-        return try start(
+        return try prepare(
             registry: registry,
             settingsStore: settings?.file,
             settingsWriter: settings,
@@ -81,14 +100,55 @@ public final class ControlService {
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
+        let service = try prepare(registry: registry, settingsStore: settingsStore, settingsWriter: settingsWriter,
+                                  configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog)
+        try service.server.start()
+        return service
+    }
+
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:)`` with an
+    /// explicit configuration (tests, demos).
+    public static func prepare(
+        registry: ActionRegistry,
+        settingsStore: (any ControlSettingsStore)?,
+        settingsWriter: (any ControlSettingsWriter)? = nil,
+        configuration: ControlSocketServer.Configuration,
+        identity: ControlIdentity,
+        frameSource: any ControlFrameSource = MainQueueFrameSource(),
+        watchdog: MainThreadWatchdog? = nil
+    ) throws -> ControlService {
+        guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
-        try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
+    }
+
+    /// Starts accepting, once every method group is registered: on `listener` when the app bound it
+    /// off the main thread (``ControlSocketBind``), else by binding now. Throws what
+    /// ``ControlSocketServer/start()`` throws.
+    public func serve(adopting listener: ControlSocketListener?) throws {
+        if let listener { try server.start(adopting: listener) } else { try server.start() }
+    }
+
+    /// ``serve(adopting:)`` on `bind`'s listener once its bind finished (at once without a bind: this
+    /// call binds). `done` gets the socket's path, or why it does not serve (another live instance owns
+    /// the path, the bind failed).
+    public func serve(after bind: ControlSocketBind?, _ done: @escaping @MainActor (Result<String, any Error>) -> Void) {
+        guard let bind else { return done(serveResult(nil)) }
+        bind.whenBound { [self] outcome in done(serveResult(outcome)) }
+    }
+
+    private func serveResult(_ outcome: ControlSocketBind.Outcome?) -> Result<String, any Error> {
+        do {
+            try serve(adopting: outcome?.get())
+            return .success(socketPath)
+        } catch {
+            return .failure(error)
+        }
     }
 
     public func stop() {
