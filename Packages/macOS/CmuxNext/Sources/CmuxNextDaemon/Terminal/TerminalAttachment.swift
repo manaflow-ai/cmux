@@ -111,9 +111,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         hangs: (any HangWatchScoping)? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) // create.tab stage instant
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
                                                      stats: endpoint.wireStats, hangs: hangs)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
@@ -207,9 +205,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) // create.tab stage instant
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
@@ -231,9 +227,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) // create.tab stage instant
     }
 
     /// Passes `state` on with this view's participant, newest generation only. The participant is

@@ -1,32 +1,37 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 public import Foundation
 import CmuxNextCompat
+import CmuxNextSignposts
+import CmuxNextTrace
 
-/// DEBUG builds: one "new terminal action -> first visible prompt" timeline,
-/// stage by stage (`debug.new_terminal_trace`, cx-6so.58).
+/// A new terminal's stages, from the New Terminal Tab action to its first visible prompt (cx-6so.58).
 ///
-/// Disarmed (every run but a trace run) a mark site costs one relaxed atomic
-/// load of ``isArmed`` and does nothing else. ``begin()`` arms one trace;
-/// the first terminal id minted after the action binds it, and every later
-/// mark is keyed by that id, or by what the id leads to: the tab's surface
-/// (`tab_added` names it), and the session, output lane and layer of the
-/// view whose IO attaches to that surface. Each mark records its first time
-/// only. ``finish(timedOut:)`` disarms and keeps the record in a bounded ring.
+/// Every build (p09-observability task 043): the stages that run once per terminal write a
+/// ``SignpostName/createTab`` instant into the trace ring (``event(_:arg1:)``): the action, the attach's
+/// start, reply and end, the session's surface and a layout spring's final grid. `arg0` is the stage
+/// (``Mark/traceCode``); `arg1` is the daemon surface for the attach stages, the grid for `final_grid`
+/// (``gridBits(columns:rows:)``) and 0 for the others. They fall inside the new tab's `create.tab` async
+/// slice (task 030), from the key's turn to its first themed frame, as Chrome marks the steps of one
+/// navigation with instants beside its async `NavigationRequest` slice
+/// (content/browser/renderer_host/navigation_request.cc). Off, a stage costs one relaxed load of the
+/// `create` category flag; on, one 32-byte ring record with no lock, allocation or text.
 ///
-/// Mark sites live in the daemon client, the terminal and the app, which
-/// share no injection seam, so they reach this one recorder (as
-/// ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds, so
-/// marks from any thread compare.
+/// DEBUG and bench builds also keep one stage timeline per `debug.new_terminal_trace` run (the `#if`
+/// extension below). Disarmed (every run but a trace run) that costs a mark site one relaxed atomic load
+/// of ``isArmed`` more and nothing else. ``begin()`` arms one trace; the first terminal id minted after
+/// the action binds it, and every later mark is keyed by that id, or by what the id leads to: the tab's
+/// surface (`tab_added` names it), and the session, output lane and layer of the view whose IO attaches
+/// to that surface. Each mark records its first time only. ``finish(timedOut:)`` disarms and keeps the
+/// record in a bounded ring.
+///
+/// Mark sites live in the daemon client, the terminal and the app, which share no injection seam, so
+/// they reach this one recorder (as ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds,
+/// so marks from any thread compare.
 public final class NewTerminalTrace: Sendable {
     public static let shared = NewTerminalTrace()
-    /// Finished traces kept for `get`.
-    public static let capacity = 32
-    /// OSC 133;A, the prompt start shell integration writes.
-    private static let promptMarker = Data([0x1B, 0x5D, 0x31, 0x33, 0x33, 0x3B, 0x41])
 
     public enum Mark: Int, CaseIterable, Sendable {
         case action, requestSent, reply, tabAdded, surfaceCreated, attachStart, attachReplied, attachEnd,
-             firstOutputMain, firstParsed, firstContents, promptParsed, promptContents
+             firstOutputMain, firstParsed, firstContents, promptParsed, promptContents, finalGrid
 
         /// The mark's name in `debug.new_terminal_trace` results.
         public var name: String {
@@ -44,9 +49,79 @@ public final class NewTerminalTrace: Sendable {
             case .firstContents: "first_contents"
             case .promptParsed: "prompt_parsed"
             case .promptContents: "prompt_contents"
+            case .finalGrid: "final_grid"
             }
         }
+
+        /// The stage's number in a `create.tab` instant's `arg0`: 16 + its position, above the kinds (1...5)
+        /// a stand-in instant holds there (``CreateTabInterval/Kind/traceCode``). Fixed: rings written by an
+        /// older build decode with the same numbers, so a new stage goes at the end.
+        public var traceCode: UInt64 { 16 + UInt64(rawValue) }
     }
+
+    private let trace: TraceRuntime
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private let armed = Atomic<Bool>(false)
+    private let state = Mutex(State())
+    #endif
+
+    /// - Parameter trace: The runtime whose ring takes the stage instants (tests pass their own).
+    init(trace: TraceRuntime = .shared) {
+        self.trace = trace
+    }
+
+    /// Writes stage `mark`'s `create.tab` instant; `arg1` as the type's doc says.
+    public func event(_ mark: Mark, arg1: UInt64 = 0) {
+        trace.event(.createTab, arg0: mark.traceCode, arg1: arg1)
+    }
+
+    /// Stage `mark` of the terminal whose session is `session` (its final grid): the instant and, in DEBUG,
+    /// the running trace's mark when `session` is the bound terminal's view.
+    public func event(_ mark: Mark, session: ObjectIdentifier, arg1: UInt64 = 0) {
+        event(mark, arg1: arg1)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, watch in if watch.session == session { record.set(mark, now) } }
+        #endif
+    }
+
+    /// The new terminal action ran (its handler's entry).
+    public func markAction() {
+        event(.action)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, _ in record.set(.action, now) }
+        #endif
+    }
+
+    /// Stage `mark` of daemon surface `surface` (the attach): the instant and, in DEBUG, the running trace's
+    /// mark when `surface` is the bound terminal's.
+    public func mark(_ mark: Mark, surface: UInt64) {
+        event(mark, arg1: surface)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, _ in if record.surface == surface { record.set(mark, now) } }
+        #endif
+    }
+
+    /// A grid as one instant argument: the columns in the high 32 bits, the rows in the low 32.
+    public static func gridBits(columns: Int, rows: Int) -> UInt64 {
+        UInt64(UInt32(clamping: columns)) << 32 | UInt64(UInt32(clamping: rows))
+    }
+
+    private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+}
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// DEBUG and bench builds: the `debug.new_terminal_trace` timeline.
+extension NewTerminalTrace {
+    /// Finished traces kept for `get`.
+    public static let capacity = 32
+    /// OSC 133;A, the prompt start shell integration writes.
+    private static let promptMarker = Data([0x1B, 0x5D, 0x31, 0x33, 0x33, 0x3B, 0x41])
 
     /// One trace: its keys and the first time of each mark.
     public struct Record: Sendable {
@@ -67,23 +142,20 @@ public final class NewTerminalTrace: Sendable {
     }
 
     /// What the bound terminal's view is made of, matched by identity.
-    private struct Watch {
+    fileprivate struct Watch {
         var io: ObjectIdentifier?
         var session: ObjectIdentifier?
         var lane: ObjectIdentifier?
         var layer: ObjectIdentifier?
     }
 
-    private struct State {
+    fileprivate struct State {
         var current: Record?
         var watch = Watch()
         var finished: [Record] = []
         var waiter: CheckedContinuation<Void, Never>?
         var expired = false
     }
-
-    private let armed = Atomic<Bool>(false)
-    private let state = Mutex(State())
 
     /// Whether a trace runs. Mark sites check it before anything else.
     public var isArmed: Bool { armed.load(ordering: .relaxed) }
@@ -124,12 +196,6 @@ public final class NewTerminalTrace: Sendable {
         state.withLock { Array($0.finished.suffix(max(count, 0))) }
     }
 
-    /// The new terminal action ran (its handler's entry).
-    public func markAction() {
-        guard isArmed else { return }
-        update { record, _ in record.set(.action, Self.now()) }
-    }
-
     /// A terminal id was minted: the first one after the action binds the trace.
     public func bind(terminal: String) {
         guard isArmed else { return }
@@ -168,13 +234,6 @@ public final class NewTerminalTrace: Sendable {
             record.surface = surface
             record.set(.tabAdded, now)
         }
-    }
-
-    /// Marks `mark` for the bound terminal's surface `surface` (the attach).
-    public func mark(_ mark: Mark, surface: UInt64) {
-        guard isArmed else { return }
-        let now = Self.now()
-        update { record, _ in if record.surface == surface { record.set(mark, now) } }
     }
 
     /// The IO `io` was made for surface `surface`: a session over it is the bound terminal's view.
@@ -275,7 +334,7 @@ public final class NewTerminalTrace: Sendable {
     }
 
     /// Runs `body` on the running trace's record and watch (nothing when none runs).
-    private func update(_ body: (inout Record, inout Watch) -> Void) {
+    fileprivate func update(_ body: (inout Record, inout Watch) -> Void) {
         state.withLock { state in
             guard var record = state.current else { return }
             body(&record, &state.watch)
@@ -292,8 +351,6 @@ public final class NewTerminalTrace: Sendable {
             return value
         }
     }
-
-    private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
 extension NewTerminalTrace.Record {

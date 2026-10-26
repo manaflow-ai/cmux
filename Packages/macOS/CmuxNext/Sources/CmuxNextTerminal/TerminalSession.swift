@@ -209,9 +209,7 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
-        #endif
+        traceSurfaceCreated(io: io) // create.tab's surface_created instant (NewTerminalTrace)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -524,6 +522,7 @@ public final class TerminalSession {
     /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        if final { traceFinalGrid(grid) } // create.tab's final_grid instant (NewTerminalTrace)
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
         if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }

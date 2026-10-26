@@ -2,6 +2,17 @@ public import AppKit
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 
+extension TerminalSession {
+    /// The surface reported the grid its pane's layout spring will land at (a split, which makes the new
+    /// terminal, or a close), at the spring's start: the `final_grid` instant of ``NewTerminalTrace``, in every
+    /// build, with the grid in `arg1`. A `debug.new_terminal_trace` run marks it for the traced terminal; the
+    /// DEBUG ``TerminalFinalGridTrace`` below times the grid's way to the PTY and to the drawn frame.
+    func traceFinalGrid(_ grid: TerminalGridSize) {
+        NewTerminalTrace.shared.event(.finalGrid, session: ObjectIdentifier(self),
+                                      arg1: NewTerminalTrace.gridBits(columns: grid.columns, rows: grid.rows))
+    }
+}
+
 #if DEBUG || CMUX_BENCH_HOOKS
 /// When a split's or a close's terminals reach their final grid (`debug.terminal_final_grid`,
 /// scripts/cmux-next/bench-terminal-resize.py `split-resize`; Lawrence 2026-10-23: Cmd-D and Cmd-W must
