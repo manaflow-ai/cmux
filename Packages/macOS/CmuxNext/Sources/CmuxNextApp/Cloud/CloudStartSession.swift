@@ -56,7 +56,7 @@ struct CloudStartSession {
             }
             if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
             CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: Self.answerWithin, pending: Self.pending(request, services)) {
+                try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account), within: Self.answerWithin, pending: Self.pending(request, services)) {
                     try await start.run(request, invocation, context)
                 }
             }
@@ -87,7 +87,7 @@ struct CloudStartSession {
         var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
         asPerson.callerAgentSession = nil
         // The same ask again (the agent's run answered pending) joins the one that runs.
-        let key = CloudStartSessionRuns.Key(request, caller: caller)
+        let key = CloudStartSessionRuns.Key(request, caller: caller, account: services.cloud.account)
         CloudHandlers.result("start cloud session", context) {
             try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
                     let token = try await asks.ask(tab: tab.id, text: text, asked: asked, services: services)
@@ -216,6 +216,9 @@ struct CloudStartSession {
         return text
     }
 
+    /// How recent the machine list must be before `--name` takes or creates a machine.
+    static let listFresh: Duration = .seconds(15)
+
     /// The machine named by id, else by name, else a new one with that name.
     private func machine(_ request: Request, _ invocation: ActionInvocation, askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
@@ -225,12 +228,13 @@ struct CloudStartSession {
         }
         let name = request.name ?? ""
         let cloud = services.cloud
-        // A list read just now: a machine by this name made elsewhere is taken, never made again.
-        await cloud.refresh(ifOlderThan: .seconds(15))
+        // A list the server answered just now for this account: a machine by this name made
+        // elsewhere is taken, never made again. A failed or superseded read refuses.
+        if !cloud.hasCurrentList(within: Self.listFresh) { await cloud.refresh() }
+        guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
-        guard cloud.hasLoadedMachines else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         do {
-            return try await cloud.startSessionRuns.creating(name) { [machines] in
+            return try await cloud.startSessionRuns.creating(name, account: cloud.account) { [machines] in
                 // Another ask's creation may have ended first.
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 return try await cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)

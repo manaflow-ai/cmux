@@ -92,7 +92,9 @@ final class CloudStartSessionAsks {
 /// goes on waits for that run. A run that ends with a caller still waiting has reached it and is
 /// dropped; one that ends after every caller answered `pending` is kept for the next same ask,
 /// which gets its end once. A kept run lasts at most ``kept`` (checked on every ask) and at most
-/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer.
+/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer. Runs and
+/// creations are per account (user and team): another account's ask never joins or takes them,
+/// and a sign-out or account change forgets them (``forgetAll()``).
 @MainActor
 final class CloudStartSessionRuns {
     struct Key: Hashable {
@@ -101,13 +103,21 @@ final class CloudStartSessionRuns {
         var cwd: String?
         /// The agent chat that asked; nil for a person's or a script's run.
         var caller: String?
+        /// The user and team signed in when it was asked (``CloudService/account``).
+        var account: [String?]
 
-        init(_ request: CloudStartSession.Request, caller: String?) {
+        init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
             machine = request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? "")
             agent = request.agent
             cwd = request.cwd
             self.caller = caller
+            self.account = account
         }
+    }
+
+    private struct Creation: Hashable {
+        var name: String
+        var account: [String?]
     }
 
     typealias Fields = [String: ActionResultValue]
@@ -125,17 +135,33 @@ final class CloudStartSessionRuns {
     static let kept: Duration = .seconds(600)
     static let limit = 32
     private var runs: [Key: Run] = [:]
-    /// Creations of a machine by name: two asks for one new name create one machine.
-    private var creations: [String: Task<CloudMachineSession, any Error>] = [:]
+    /// Creations of a machine by name and account: two asks for one new name create one machine.
+    private var creations: [Creation: Task<CloudMachineSession, any Error>] = [:]
+    /// Called when an ask joins a creation already going on (tests wait on it).
+    var joinedCreation: @MainActor (String) -> Void = { _ in }
 
-    /// The machine `create` makes for `name`, or the one a creation already going on makes.
-    func creating(_ name: String, _ create: @escaping @MainActor () async throws -> CloudMachineSession) async throws -> CloudMachineSession {
-        if let running = creations[name] { return try await running.value }
-        // task-owner: one creation per name; removed when it ends.
+    /// The machine `create` makes for `name` in `account`, or the one a creation already going on
+    /// for both makes.
+    func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> CloudMachineSession) async throws -> CloudMachineSession {
+        let key = Creation(name: name, account: account)
+        if let running = creations[key] {
+            joinedCreation(name)
+            return try await running.value
+        }
+        // task-owner: one creation per name and account; removed when it ends or by forgetAll().
         let task = Task<CloudMachineSession, any Error> { @MainActor in try await create() }
-        creations[name] = task
-        defer { if creations[name] == task { creations[name] = nil } }
+        creations[key] = task
+        defer { if creations[key] == task { creations[key] = nil } }
         return try await task.value
+    }
+
+    /// Forgets every run and creation: the account they were asked in ended. Runs going on are
+    /// cancelled; their callers get their end (a cancellation) or have already answered pending.
+    func forgetAll() {
+        for run in runs.values { run.task?.cancel() }
+        for creation in creations.values { creation.cancel() }
+        runs = [:]
+        creations = [:]
     }
     var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// The caller's wait: a one-shot sleep, cancelled when the run ends first.

@@ -80,6 +80,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// When the loaded list landed (``hasCurrentList(within:)``).
+    @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
@@ -351,6 +353,7 @@ final class CloudService {
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
+            listLoadedAt = .now
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
@@ -367,6 +370,20 @@ final class CloudService {
     /// Whom a machine list is for: the signed-in user and the team the API
     /// client sends (``CloudAuth/teamID``).
     private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
+
+    /// The user and team signed in now (``CloudStartSessionRuns`` keeps runs per account).
+    var account: [String?] { listAccount }
+
+    /// Whether the store holds a list the server answered, within `age`, for the user and team
+    /// signed in now: a failed or superseded refresh, or another team's list, is not one.
+    func hasCurrentList(within age: Duration) -> Bool {
+        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+    }
+
+    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+        guard let loadedAt, loadedFor == account else { return false }
+        return loadedAt.duration(to: now) < age
+    }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
@@ -428,6 +445,9 @@ final class CloudService {
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
         hasLoadedMachines = false
+        listLoadedAt = nil
+        // Start-session runs and creations of the account that ended end with it.
+        startSessionRuns.forgetAll()
     }
 
     // MARK: Mutations

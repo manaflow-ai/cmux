@@ -18,6 +18,8 @@ struct CloudStartSessionTests {
         return (services, MachineIconTests.cloudMachine(services, id: "vm-start-\(UUID().uuidString.prefix(8))"))
     }
 
+    static let account: [String?] = ["user-1", "team-1"]
+
     static let asked = CloudStartSession.Request(machineID: "vm-x", name: nil, agent: "claude", cwd: nil).asked(machine: "dev")
 
     static func invocation(target: String? = nil, _ arguments: [String: ActionValue], origin: ActionOrigin = .cli, agent: String? = nil) -> ActionInvocation {
@@ -126,7 +128,7 @@ struct CloudStartSessionTests {
         runs.sleep = { _ in }
         let (gate, open) = AsyncStream<Void>.makeStream()
         defer { open.finish() }
-        let answered = try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: CloudStartSession.answerWithin, pending: pending) {
+        let answered = try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil, account: Self.account), within: CloudStartSession.answerWithin, pending: pending) {
             for await _ in gate { break }
             return ["session_id": .string("s")]
         }
@@ -199,33 +201,87 @@ struct CloudStartSessionTests {
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
-    /// Two asks for one new name share one creation.
+    /// Two asks for one new name share one creation; another account's ask makes its own.
     @Test func twoRunsForOneNewNameCreateOnce() async throws {
         let f = Self.fixture()
         let runs = CloudStartSessionRuns()
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        let (entered, enter) = AsyncStream<Void>.makeStream()
-        defer { open.finish(); enter.finish() }
+        let (joins, join) = AsyncStream<String>.makeStream()
+        runs.joinedCreation = { join.yield($0) }
+        // One gate per creation, each finished at the end: a second creation (the bug) never shares one.
+        var gates: [AsyncStream<Void>.Continuation] = []
+        defer { for gate in gates { gate.finish() }; join.finish() }
+        let (entered, enter) = AsyncStream<Int>.makeStream()
+        defer { enter.finish() }
         let creates = Box(0)
-        let create: @MainActor () async throws -> CloudMachineSession = {
-            creates.value += 1
-            enter.yield()
-            for await _ in gate { break }
-            return f.session
+        func create() -> @MainActor () async throws -> CloudMachineSession {
+            let (gate, open) = AsyncStream<Void>.makeStream()
+            gates.append(open)
+            return {
+                creates.value += 1
+                enter.yield(creates.value)
+                for await _ in gate { break }
+                return f.session
+            }
         }
-        let first = Task { @MainActor in try await runs.creating("dev", create) }
+        let first = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
         for await _ in entered { break }
-        let second = Task { @MainActor in try await runs.creating("dev", create) }
-        // The main actor runs `second` up to its wait on the first creation before this resumes.
-        await Task.yield()
-        await Task.yield()
-        // Two gate values: a second creation (the bug) gets its own and fails the count, never hangs.
-        open.yield()
-        open.yield()
+        let second = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
+        for await name in joins { #expect(name == "dev"); break }
+        gates[0].yield()
         let one = try await first.value
         let two = try await second.value
         #expect(creates.value == 1)
         #expect(one === f.session && two === f.session)
+        // Another team's ask for the same name is its own creation.
+        let other = Task { @MainActor in try await runs.creating("dev", account: ["user-1", "team-2"], create()) }
+        for await count in entered { #expect(count == 2); break }
+        gates[2].yield()
+        _ = try await other.value
+        #expect(creates.value == 2)
+    }
+
+    /// Another account's same ask never takes a kept run's end, and a sign-out forgets them all.
+    @Test func runsArePerAccountAndASignOutForgetsThem() async throws {
+        let runs = CloudStartSessionRuns()
+        let request = CloudStartSession.Request(machineID: nil, name: "dev", agent: "claude", cwd: nil)
+        let mine = CloudStartSessionRuns.Key(request, caller: nil, account: Self.account)
+        let theirs = CloudStartSessionRuns.Key(request, caller: nil, account: ["user-2", nil])
+        #expect(mine != theirs)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        runs.sleep = { _ in }
+        // Mine answers pending, then ends with nobody waiting: kept for my next ask.
+        _ = try await runs.answer(mine, within: .seconds(1), pending: Self.pending) {
+            for await _ in gate { break }
+            return ["session_id": .string("mine")]
+        }
+        open.yield()
+        await runs.settled(mine)
+        #expect(runs.keptCount == 1)
+        runs.sleep = Self.waits
+        let started = Box(0)
+        let fields = try await runs.answer(theirs, within: .seconds(190), pending: Self.pending) {
+            started.value += 1
+            return ["session_id": .string("theirs")]
+        }
+        #expect(fields["session_id"] == .string("theirs"))
+        #expect(started.value == 1, "another account's ask ran its own start")
+        #expect(runs.keptCount == 1, "mine is still kept for me")
+        runs.forgetAll()
+        #expect(runs.count == 0)
+    }
+
+    /// `--name` takes or creates only from a list the server answered just now for this account.
+    @Test func onlyAFreshListOfThisAccountIsCurrent() {
+        let now = ContinuousClock.now
+        let account = Self.account
+        #expect(CloudService.listIsCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        // A failed or superseded refresh leaves the last landing time: an old list is not current.
+        #expect(!CloudService.listIsCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        // Never loaded, or dropped at a sign-out.
+        #expect(!CloudService.listIsCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        // A team switch keeps the user: the previous team's list is not this team's.
+        #expect(!CloudService.listIsCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
@@ -308,7 +364,7 @@ struct CloudStartSessionTests {
         init(_ value: T) { self.value = value }
     }
 
-    static let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: nil, name: "dev", agent: "codex", cwd: nil), caller: "chat-9")
+    static let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: nil, name: "dev", agent: "codex", cwd: nil), caller: "chat-9", account: Self.account)
     static let pending: CloudStartSessionRuns.Fields = ["pending": .bool(true)]
     /// A caller's wait that never ends by itself (the run's end cancels it).
     static let waits: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
@@ -416,7 +472,7 @@ struct CloudStartSessionTests {
         let runs = CloudStartSessionRuns()
         runs.sleep = { _ in }
         let total = CloudStartSessionRuns.limit + 8
-        let keys = (0..<total).map { CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-\($0)", name: nil, agent: "claude", cwd: nil), caller: nil) }
+        let keys = (0..<total).map { CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-\($0)", name: nil, agent: "claude", cwd: nil), caller: nil, account: Self.account) }
         // One gate per run: a stream has one reader at a time.
         let gates = keys.map { _ in AsyncStream<Void>.makeStream() }
         defer { for gate in gates { gate.continuation.finish() } }
