@@ -74,7 +74,7 @@ palette, the CLI and MCP all get it.
 
 `DeepLinkNavigator.open(.workspace(id))`: reveal if live; else `DurableWorkspaceLink` asks each
 connected daemon (local first, the same walk) for `closed.reopen {workspace: id}` and reveals the
-workspace the reply names once the store lists it.
+workspace the reply names once the store lists it (both in `DurableTabLink.swift`).
 
 ## 5. Link convention for Chiefs and agents
 
