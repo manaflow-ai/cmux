@@ -20,7 +20,8 @@ import Testing
         struct NoPages: Error {}
 
         func serves(_ page: PageDescriptor) -> Bool { !unserved.contains(page.id) }
-        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage { throw NoPages() }
+        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
+            -> any PageChromiumPage { throw NoPages() }
         func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
             answer(.gaveUp)
         }

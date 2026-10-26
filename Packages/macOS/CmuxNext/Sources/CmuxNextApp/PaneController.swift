@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -497,13 +498,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return tab.kind == .pty && !tab.dead
     }
 
+    /// The Chromium window this pane's page tabs share (p13-webui-063); nil while the pane is in no window.
+    var pageChromiumWindow: PageChromiumWindow? {
+        state.map { PageChromiumWindow(window: $0.id, pane: paneKey) }
+    }
+
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
         workspace?.focus.state.pane == paneKey
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
+        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key, in: pageChromiumWindow).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey].first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
@@ -522,7 +528,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation where tab.page != nil:
             return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
-                                       window: state.flatMap { services.windows.controller(for: $0.id) })
+                                       window: state.flatMap { services.windows.controller(for: $0.id) }, pane: pageChromiumWindow)
                 .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
