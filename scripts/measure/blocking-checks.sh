@@ -2,16 +2,129 @@
 # Verify the main-thread blocking detector's build configurations (plans/cmux-next/threading-model.md):
 #   1. Release (what users get): the detector is compiled out. No object of the CmuxNextApp scheme's Release
 #      build defines or references a detector symbol, and the inlinable check is a bare return.
-#   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml will pass once its line
-#      lands; bench builds pass it today): it compiles, and the detector is in it (the flag reaches the
-#      package targets).
+#   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml passes on the
+#      nightly-next track and `reload.sh --config bench-checks` passes): it compiles, and the detector is in it (the flag reaches
+#      the package targets).
 #   3. Nightly's tests and cost: CmuxNextCompat and its blocking tests in a scratch package built
 #      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records, never traps, and a clean checked call
 #      costs < 50 ns (BlockingCheckCostTests).
 # Fleet: cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA
 #        --artifact artifacts/blocking-checks.tar.gz
 # Output: artifacts/blocking-checks/ (summary.txt, logs), and the tarball.
+#
+# App mode: scripts/measure/blocking-checks.sh --app PATH --expect nightly|release
+#   Reads a built app's main executable with nm (and its Contents/Resources/cmux-symbols.bin, the function
+#   names the release strip keeps) and needs no build. `nightly` exits 1 unless the detector is in the app
+#   (a nightly-next build; RUN-9), `release` exits 1 unless it is absent (RUN-11). Exits 2 when the app has
+#   no function names to read (stripped, no symbol map) or the arguments are wrong.
+#   Tests: bash scripts/measure/tests/blocking-checks-app.test.sh
 set -uo pipefail
+
+DETECTOR_SYMBOL='BlockingViolationTable|BlockingPendingRing|BlockingSiteIndex|BlockingRunLoopNesting|mainThreadBlocked|mainThreadWaitedForLock'
+
+usage() {
+  echo "usage: $0 [--app PATH --expect nightly|release]" >&2
+}
+
+# The function names of the cmux NEXT symbol map ($1, scripts/write-app-symbol-map.py's format), one per line.
+symbol_map_names() {
+  python3 -I - "$1" <<'PY'
+import struct, sys, zlib
+blob = open(sys.argv[1], "rb").read()
+if blob[:8] != b"CMXSYM1\0":
+    sys.exit(f"blocking-checks: {sys.argv[1]} is not an app symbol map")
+(count,) = struct.unpack_from("<I", blob, 8)
+at = 12
+for _ in range(count):
+    (size,) = struct.unpack_from("<I", blob, at + 16)
+    body = zlib.decompress(blob[at + 20:at + 20 + size], -15)
+    at += 20 + size
+    (symbols,) = struct.unpack_from("<I", body, 0)
+    pos = 4
+    for _ in range(symbols):  # skip the LEB128 offset deltas
+        while body[pos] & 0x80:
+            pos += 1
+        pos += 1
+    for name in body[pos:].split(b"\0"):
+        if name:
+            print(name.decode("utf-8", "replace"))
+PY
+}
+
+# App mode: is the detector in the app at $1? $2 is what the build should be: nightly (in) or release (out).
+check_app() {
+  local app="$1" expect="$2"
+  local nm_tool="${CMUX_NM_TOOL:-nm}" demangle_tool="${CMUX_SWIFT_DEMANGLE_TOOL:-swift}"
+  local demangle_args=(demangle --compact)
+  [[ -n "${CMUX_SWIFT_DEMANGLE_TOOL:-}" ]] && demangle_args=(--compact)
+  [[ -d "$app/Contents" ]] || { echo "blocking-checks: no app bundle at $app" >&2; return 2; }
+  local exe_name
+  exe_name="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb"))["CFBundleExecutable"])' \
+    "$app/Contents/Info.plist" 2>/dev/null)" || exe_name=""
+  local exe="$app/Contents/MacOS/$exe_name"
+  [[ -n "$exe_name" && -f "$exe" ]] || { echo "blocking-checks: no main executable in $app" >&2; return 2; }
+  local raw
+  raw="$(mktemp "${TMPDIR:-/tmp}/blocking-checks-app.XXXXXX")" || return 2
+  # nm's error fails the check: an executable nm cannot read must never look clean.
+  if ! "$nm_tool" "$exe" >"$raw"; then
+    rm -f -- "$raw"
+    echo "blocking-checks: nm could not read $exe" >&2
+    return 2
+  fi
+  # Function names nm sees, not counting the header symbol a stripped executable keeps.
+  local functions
+  functions="$(awk '($2 == "t" || $2 == "T") && $3 != "__mh_execute_header"' "$raw" | wc -l | tr -d ' ')"
+  local map="$app/Contents/Resources/cmux-symbols.bin" sources="nm ($functions function names)"
+  if [[ -f "$map" ]]; then
+    if ! symbol_map_names "$map" >>"$raw"; then
+      rm -f -- "$raw"
+      echo "blocking-checks: could not read the symbol map $map" >&2
+      return 2
+    fi
+    sources+=", cmux-symbols.bin"
+  elif [[ "$functions" -eq 0 ]]; then
+    rm -f -- "$raw"
+    echo "blocking-checks: $exe is stripped and $app has no Contents/Resources/cmux-symbols.bin: no function names to read" >&2
+    return 2
+  fi
+  local demangled status=0
+  if ! demangled="$("$demangle_tool" "${demangle_args[@]}" <"$raw")"; then
+    rm -f -- "$raw"
+    echo "blocking-checks: $demangle_tool ${demangle_args[*]} failed" >&2
+    return 2
+  fi
+  rm -f -- "$raw"
+  local hits count
+  hits="$(grep -E "$DETECTOR_SYMBOL" <<<"$demangled")"
+  count="$(grep -c . <<<"$hits")"
+  echo "blocking-checks: $exe_name: $count detector symbols (read from $sources)"
+  if [[ "$expect" == nightly && "$count" -eq 0 ]]; then
+    echo "FAIL: the detector is not in $app; the nightly-next build did not pass -DCMUX_BLOCKING_CHECKS" >&2
+    status=1
+  elif [[ "$expect" == release && "$count" -gt 0 ]]; then
+    echo "FAIL: the detector is compiled into $app, a Release build" >&2
+    printf '%s\n' "$hits" | head -20 >&2
+    status=1
+  fi
+  return "$status"
+}
+
+app="" expect=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app|--expect)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      if [[ "$1" == --app ]]; then app="$2"; else expect="$2"; fi
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+if [[ -n "$app" || -n "$expect" ]]; then
+  [[ -n "$app" && ( "$expect" == nightly || "$expect" == release ) ]] || { usage; exit 2; }
+  check_app "$app" "$expect"
+  exit $?
+fi
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -41,8 +154,6 @@ note "xcode: $(xcodebuild -version | tr '\n' ' ')"
 note "commit: $(git rev-parse HEAD)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/blocking-checks.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
-
-DETECTOR_SYMBOL='BlockingViolationTable|BlockingPendingRing|BlockingSiteIndex|BlockingRunLoopNesting|mainThreadBlocked|mainThreadWaitedForLock'
 
 release_build() {  # $1: name, $2...: extra build settings
   local name="$1"; shift

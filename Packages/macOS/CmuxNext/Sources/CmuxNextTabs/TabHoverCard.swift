@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextResources
 import QuartzCore
@@ -68,30 +69,15 @@ final class TabHoverCardController: HoverCardSource {
     /// The next card opens from hidden, not by a retarget: a tab whose thumbnail is not
     /// known yet gets the empty frame its thumbnail fades into.
     private var opensFresh = true
-    private var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// The thumbnails and samples as one memory consumer (the `MemoryConsumer` extension
+    /// below). The App registers it through the strip; it unregisters when this controller goes.
+    var memoryRegistration: MemoryConsumerRegistration?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
         #if DEBUG
         HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
         #endif
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.thumbnails.removeAll()
-                self?.lastReports.removeAll()
-            }
-        }
-        source.activate()
-        memoryPressure = source
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            memoryPressure?.cancel()
-        }
     }
 
     /// The image the card body shows now (`debug.hover_sweep`).
@@ -232,10 +218,12 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     /// Keeps a sample that measured the tab: a zero or unavailable one would make a
-    /// hibernated page claim it was using nothing.
-    private func rememberReport(_ report: ResourceReport, for tab: TabID) {
-        guard let row = report.tabs.first(where: { $0.id == tab.rawValue }), TabHoverCardLines.measured(row) else { return }
-        if lastReports[tab] == nil, lastReports.count >= thumbnails.maxCount { lastReports.removeAll() }
+    /// hibernated page claim it was using nothing. It keeps samples of as many tabs as
+    /// thumbnails (`thumbnails.countLimit`, which the memory limit scales).
+    func rememberReport(_ report: ResourceReport, for tab: TabID) {
+        guard let row = report.tabs.first(where: { $0.id == tab.rawValue }), TabHoverCardLines.measured(row),
+              thumbnails.countLimit > 0 else { return }
+        if lastReports[tab] == nil, lastReports.count >= thumbnails.countLimit { lastReports.removeAll() }
         lastReports[tab] = (report, now())
     }
 
@@ -297,4 +285,54 @@ extension TabHoverCardController {
     static func placement(for position: TabBarPosition) -> HoverCardPlacement {
         position == .bottom ? .above : .below
     }
+}
+
+/// The thumbnails and the last samples are one small, lossless consumer: both come back on
+/// the next hover, so dropping them loses nothing (Chrome's consumer contract,
+/// base/memory_coordinator/memory_consumer.h). The limit scales how many tabs both keep. A new
+/// limit frees nothing; `releaseMemory(within:)` frees down to it, least recently used first.
+/// A card on screen keeps its picture: only the caches behind it shrink.
+extension TabHoverCardController: MemoryConsumer {
+    /// Nothing to read or write back and cheap to fetch again, so warning pressure shrinks it.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .small,
+        dataAccess: .none,
+        retention: .lossless,
+        recreateCost: .cheap,
+        releaseCPUCost: .low,
+        isStateful: true,
+        supportsMemoryLimit: true
+    )
+
+    /// The name of every strip's consumer in the memory report.
+    static let memoryConsumerName = "tab-hover-cards"
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {
+        thumbnails.setLimits(count: limit.scale(thumbnails.maxCount), bytes: limit.scale(thumbnails.maxBytes))
+    }
+
+    /// Drops least recently used thumbnails, then the oldest samples, one at a time until the
+    /// slice's limit holds or its time is up.
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        while thumbnails.isOverLimits {
+            if slice.isExpired { return .more }
+            thumbnails.removeOldest()
+        }
+        while lastReports.count > thumbnails.countLimit {
+            if slice.isExpired { return .more }
+            guard let oldest = lastReports.min(by: { $0.value.at < $1.value.at })?.key else { break }
+            lastReports[oldest] = nil
+        }
+        return .done
+    }
+
+    /// Thumbnail pixels (bytes per row x height each). A sample is a few hundred bytes and
+    /// counts as an entry only.
+    var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + lastReports.count)
+    }
+
+    /// How many tabs' samples it keeps now (tests).
+    var rememberedReportCount: Int { lastReports.count }
 }

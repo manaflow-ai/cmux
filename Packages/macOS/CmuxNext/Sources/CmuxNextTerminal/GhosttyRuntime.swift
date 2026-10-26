@@ -60,6 +60,9 @@ public final class GhosttyRuntime {
 
     private let context = RuntimeCallbackContext()
     let hostKeybindCache = HostKeybindCache()
+    /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
+    /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
+    public let inputSources = TerminalInputSources()
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -292,16 +295,20 @@ public final class GhosttyRuntime {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.setAppFocused(true) }
+            MainActor.assumeIsolated {
+                self?.setAppFocused(true)
+                self?.inputSources.applicationDidBecomeActive()
+            }
         })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
-        // Ghostty caches the keyboard layout for key translation.
+        // Ghostty caches the keyboard layout for key translation, the key path the source's kind.
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
+                self?.inputSources.selectedSourceChanged()
                 guard let app = self?.app else { return }
                 ghostty_app_keyboard_changed(app)
             }
