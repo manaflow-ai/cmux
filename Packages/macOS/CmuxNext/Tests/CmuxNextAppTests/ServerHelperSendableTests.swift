@@ -2,18 +2,18 @@
 import Foundation
 import Testing
 
-/// Task p10-stability-057: the privileged helper's XPC delegate, its service and its fix child are checked
-/// `Sendable` (no `@unchecked`), so the compiler proves what crosses XPC's queue, the request tasks and the
-/// spawn thread. The `Process` is made on the spawn thread and never stored; these tests keep what that
-/// child does the same.
+/// Task p10-stability-057: the privileged helper's XPC delegate, its service and its fix child are `Sendable`
+/// and cross tasks. That they carry no `@unchecked` is held by crash_ratchet.py's `unchecked` row, not here:
+/// `crossesTasks` accepts an `@unchecked Sendable` type too. The `Process` is made on the spawn thread and
+/// never stored; these tests keep what that child does the same.
 @Suite(.timeLimit(.minutes(1)))
 struct ServerHelperSendableTests {
-    /// Compiles only while `T` is Sendable.
+    /// Compiles only while `T` is Sendable (checked or `@unchecked`).
     static func crossesTasks<T: Sendable>(_ value: T) async -> T {
         await Task.detached { value }.value
     }
 
-    @Test func theHelpersSharedTypesAreCheckedSendable() async {
+    @Test func theHelpersSharedTypesAreSendableAndCrossTasks() async {
         let service = ServerHelperService(priors: MemoryFixPriorStore())
         #expect(await Self.crossesTasks(service) === service)
         let gate = ServerHelperClientGate(requirement: nil, service: service)
