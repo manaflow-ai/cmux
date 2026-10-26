@@ -44,7 +44,8 @@ import Foundation
 final class ComposerDictationAudioEngine: Sendable {
     /// The serial queue that owns every audio-hardware call. Only its blocks
     /// take ``state``; ``teardown(_:)`` asserts execution lands here.
-    private let queue = DispatchQueue(label: "com.cmux.composer.dictation-audio")
+    /// User-initiated: the person who tapped the microphone waits for the engine to start.
+    private let queue = DispatchQueue(label: "com.cmux.composer.dictation-audio", qos: .userInitiated)
 
     private struct State {
         /// The audio engine capturing microphone buffers. Created once and reused

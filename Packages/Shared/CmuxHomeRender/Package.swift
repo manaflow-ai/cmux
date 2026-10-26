@@ -25,12 +25,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxHomeCore"),
+        // blockingCall for the thumbnail reads (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
         .target(
             name: "CmuxHomeRender",
-            dependencies: [.product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            dependencies: [.product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           .product(name: "CmuxThreading", package: "CmuxThreading")],
             resources: [.process("Resources/Localizable.xcstrings")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

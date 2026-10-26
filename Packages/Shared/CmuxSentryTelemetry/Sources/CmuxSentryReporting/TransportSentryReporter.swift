@@ -1,7 +1,7 @@
 public import CMUXMobileCore
 public import Foundation
 public import Sentry
-internal import os
+internal import CmuxThreading
 
 /// Bridges the transport diagnostic event stream into Sentry so any user's
 /// connection failure is diagnosable remotely, on both the iOS client and the
@@ -103,7 +103,7 @@ public final class TransportSentryReporter: Sendable {
     private let delivery: Delivery
     // lint:allow lock - ingest is synchronous on the diagnostic drain task; the
     // critical region only advances the pure policy/budget state machines.
-    private let state: OSAllocatedUnfairLock<MutableState>
+    private let state: Mutex<MutableState>
 
     /// Creates a reporter.
     ///
@@ -126,7 +126,7 @@ public final class TransportSentryReporter: Sendable {
         self.roleDisplayName = DiagnosticEventPresentation().displayName(role)
         self.exportRing = exportRing
         self.delivery = delivery
-        self.state = OSAllocatedUnfairLock(initialState: MutableState(
+        self.state = Mutex(MutableState(
             policy: TransportIncidentPolicy(configuration: incidentConfiguration),
             logBudget: TransportTelemetryLogBudget(capacityPerHour: logsPerHour)
         ))
@@ -293,7 +293,7 @@ public final class TransportSentryReporter: Sendable {
     }
 
     private func captureIncident(_ incident: TransportIncidentPolicy.Incident) {
-        Task.detached(priority: .utility) { [self] in
+        Task(priority: .utility) { [self] in
             let ring = await exportRing()
             let attachment = ring.isEmpty ? nil : Attachment(
                 data: ring,

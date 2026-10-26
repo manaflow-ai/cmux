@@ -19,9 +19,14 @@ let package = Package(
     products: [
         .library(name: "CmuxAgentQuestion", targets: ["CmuxAgentQuestion"]),
     ],
+    dependencies: [
+        // blockingCall for the fixture reads (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
+    ],
     targets: [
         .target(
             name: "CmuxAgentQuestion",
+            dependencies: [.product(name: "CmuxThreading", package: "CmuxThreading")],
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

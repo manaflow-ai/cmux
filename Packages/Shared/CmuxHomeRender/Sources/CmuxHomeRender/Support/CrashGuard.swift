@@ -1,3 +1,4 @@
+import CmuxThreading
 import CoreGraphics
 import Foundation
 import os
@@ -10,7 +11,7 @@ import os
 /// without flooding it from a render loop.
 enum CrashGuard {
     static let log = Logger(subsystem: "com.cmuxterm.home.render", category: "crash-guard")
-    private static let reported = OSAllocatedUnfairLock(initialState: Set<String>())
+    private static let reported = Mutex<Set<String>>([])
 
     /// Logs `message` as a fault the first time `site` reports.
     static func fault(_ message: @autoclosure () -> String, fileID: StaticString = #fileID, line: UInt = #line) {

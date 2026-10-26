@@ -17,6 +17,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
+        // blockingCall for the image reads (p02-threads-130, 146).
+        .package(path: "../../Shared/CmuxThreading"),
     ],
     targets: [
         .target(
@@ -24,6 +26,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxTerminalSizing",
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

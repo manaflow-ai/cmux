@@ -552,7 +552,10 @@ its QoS and its target.
   `cmux.vnc.peer-close` (user-initiated, one per `VNCPeerLink`; libwebrtc's close waits there for its signaling
   thread, never on the caller's main, pool or callback thread; CmuxVNCWebRTC), `cmux.vnc.demo-server` (utility; the loopback RFB
   fixture of CmuxVNCDemoServer), `cmux.screen.perf-log` (utility; CmuxScreenKit's opt-in timing log file, opened and
-  appended to off the main actor)
+  appended to off the main actor),
+  `cmux.home.media-decode` (user-initiated; CmuxHomeRender's attachment thumbnail reads and decodes),
+  `cmux.mobile.image-attachment` (user-initiated; CmuxMobileShellModel's attachment downsampling),
+  `com.cmux.composer.dictation-audio` (user-initiated; CmuxMobileSupport's dictation audio engine)
 - Browser: `com.cmuxterm.next.browser-host.provider.write` (user-initiated), `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read` (user-initiated),
   `com.cmuxterm.chromium-host.write` (user-initiated serial queue of the input wire's writable source; armed only

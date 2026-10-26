@@ -1,5 +1,6 @@
 import AVFoundation
 import CmuxHomeCore
+import CmuxThreading
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -44,6 +45,9 @@ final class MediaStore: HomeVideoSource {
     private var locals: [String: (file: URL, poster: URL?)] = [:]
     private var jobs: [String: Task<Void, Never>] = [:]
     private var failed: Set<String> = []
+    /// Where thumbnails are read and decoded: ImageIO reads the file, which blocks, so it runs on a queue of its
+    /// own, never on the main actor or the shared pool. A bubble on screen waits for it.
+    private nonisolated let decodeQueue = DispatchQueue(label: "cmux.home.media-decode", qos: .userInitiated)
     static let capacity = 120
 
     /// The image for a media bubble; on a miss its load starts and the
@@ -58,8 +62,10 @@ final class MediaStore: HomeVideoSource {
         let loader = self.loader
         let ref = media.ref
         let isVideo = media.isVideo
+        let decodeQueue = self.decodeQueue
         jobs[hash] = Task { [weak self] in
-            let image = await Self.load(ref, isVideo: isVideo, local: local, loader: loader, maxPixel: maxPixel)
+            let image = await Self.load(ref, isVideo: isVideo, local: local, loader: loader, maxPixel: maxPixel,
+                                        decodeQueue: decodeQueue)
             guard let self else { return }
             self.jobs[hash] = nil
             guard !Task.isCancelled else { return }
@@ -108,14 +114,15 @@ final class MediaStore: HomeVideoSource {
     }
 
     private nonisolated static func load(_ ref: AttachmentRef, isVideo: Bool, local: (file: URL, poster: URL?)?,
-                                         loader: (any HomeAttachmentLoader)?, maxPixel: Int) async -> CGImage? {
+                                         loader: (any HomeAttachmentLoader)?, maxPixel: Int,
+                                         decodeQueue: DispatchQueue) async -> CGImage? {
         if let local {
             let image = if let poster = local.poster {
-                await decode(poster, maxPixel: maxPixel)
+                await decode(poster, maxPixel: maxPixel, on: decodeQueue)
             } else if isVideo {
                 await videoFrame(local.file, maxPixel: maxPixel)
             } else {
-                await decode(local.file, maxPixel: maxPixel)
+                await decode(local.file, maxPixel: maxPixel, on: decodeQueue)
             }
             // A local copy that is gone (cleaned after upload) falls back to the loader.
             if let image { return image }
@@ -124,21 +131,29 @@ final class MediaStore: HomeVideoSource {
         let url = isVideo ? try? await loader.poster(for: ref, maxPixel: maxPixel)
                           : try? await loader.thumbnail(for: ref, maxPixel: maxPixel)
         guard let url else { return nil }
-        return await decode(url, maxPixel: maxPixel)
+        return await decode(url, maxPixel: maxPixel, on: decodeQueue)
     }
 
-    /// An ImageIO thumbnail with its orientation applied, decoded off the main actor.
-    private nonisolated static func decode(_ url: URL, maxPixel: Int) async -> CGImage? {
-        await Task.detached(priority: .userInitiated) {
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
-            ]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        }.value
+    /// An ImageIO thumbnail with its orientation applied, read and decoded on `queue` (the store's
+    /// ``decodeQueue``).
+    private nonisolated static func decode(_ url: URL, maxPixel: Int, on queue: DispatchQueue) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: thumbnail(url, maxPixel: maxPixel))
+            }
+        }
+    }
+
+    private nonisolated static func thumbnail(_ url: URL, maxPixel: Int) -> CGImage? {
+        guard let source = blockingCall(.fileIO, { CGImageSourceCreateWithURL(url as CFURL, nil) }) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
+        ]
+        // The source reads its file lazily: the decode reads it too.
+        return blockingCall(.fileIO) { CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) }
     }
 
     /// The first frame of a local video that has no poster file yet.
