@@ -350,6 +350,16 @@ pub fn remove_worktree(folder: &Path, worktree: &Worktree) {
     let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
 }
 
+/// Removes a worktree [`ensure_worktree`] just made, and its branch unless
+/// `keep_branch` (the branch was there before).
+pub fn remove_made(folder: &Path, worktree: &Worktree, keep_branch: bool) {
+    if keep_branch {
+        let _ = git(folder, &["worktree", "remove", "--force", &worktree.root.to_string_lossy()]);
+    } else {
+        remove_worktree(folder, worktree);
+    }
+}
+
 /// Lowercase ASCII letters and digits, every other run one `-`, at most 48
 /// characters: `git_ops/worktree.rs`'s names.
 pub fn slug(text: &str) -> String {

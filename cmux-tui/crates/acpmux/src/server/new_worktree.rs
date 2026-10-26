@@ -14,6 +14,25 @@ use serde_json::{Value, json};
 use super::Origin;
 use crate::rpc::RpcError;
 
+/// Removes the worktree [`ensure`] made from `folder` (`made`, its answer) for a
+/// create then refused: nothing when it was there already, its branch too when
+/// that is new.
+pub(super) async fn discard(folder: Option<PathBuf>, made: &Value) {
+    let text = |k: &str| made[k].as_str().map(str::to_owned).unwrap_or_default();
+    let (Some(folder), false) = (folder, made["reused"] == "worktree") else { return };
+    let worktree = crate::subsession_worktree::Worktree {
+        root: PathBuf::from(text("root")),
+        branch: text("branch"),
+        base: text("base"),
+        cwd: PathBuf::from(text("cwd")),
+    };
+    let keep_branch = made["reused"] == "branch";
+    let _ = tokio::task::spawn_blocking(move || {
+        crate::subsession_worktree::remove_made(&folder, &worktree, keep_branch)
+    })
+    .await;
+}
+
 /// Makes or finds the worktree `meta` asks for and points `cwd` into it;
 /// None when it asks for none.
 pub(super) async fn ensure(

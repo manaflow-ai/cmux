@@ -552,6 +552,38 @@ pub(super) async fn handle_request(
     reply
 }
 
+/// Makes the worktree `meta` asks for and points `req` into it. An adopt of
+/// `conversation` whose family in that worktree is not the one it was admitted
+/// under (its folder profile differs there) is refused, and the worktree it made
+/// removed: it never attaches or starts under another conversation's admission.
+async fn adopt_worktree(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    meta: Option<&Value>,
+    req: &mut crate::hub::NewRequest,
+    conversation: Option<&crate::hub::admission::Conversation>,
+    harness: &Option<String>,
+) -> Result<Option<Value>, RpcError> {
+    let folder = req.cwd.clone();
+    let made = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+    let (Some(c), Some(w)) = (conversation, &made) else { return Ok(made) };
+    let remote = conn.origin.web_class();
+    let (preset, model) = (&req.preset, req.model.as_deref());
+    let again =
+        hub.adopt_conversation(&c.id, harness.clone(), preset, model, remote, req.cwd.as_deref());
+    let refusal = match again.await {
+        Ok(again) if again == *c => return Ok(made),
+        Ok(again) => RpcError::invalid_params(format!(
+            "this adopt was admitted as a {} conversation, but its worktree's harness is {}: name the harness",
+            c.family, again.family
+        ))
+        .with_data(json!({"reason": "adopt.family_changed"})),
+        Err(e) => e,
+    };
+    super::new_worktree::discard(folder, w).await;
+    Err(refusal)
+}
+
 /// `session/new` of a session on this daemon (no `_meta.acpmux.peer`).
 async fn new_local_session(
     hub: &Arc<Hub>,
@@ -597,12 +629,13 @@ async fn new_local_session(
     // attaches there and starts nothing, unless it may fork into a new chat.
     // Before the worktree, so a refusal makes none; counted until the create ends.
     let who = who(conn);
+    let harness = pick("harness").or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
     // An adopt's conversation: its id and the family `new_session` resolves (`adopted_in`).
     let conversation = match &adopt {
         Some(a) if a.if_live != crate::adopt::IfLive::Fork => Some(
             hub.adopt_conversation(
                 &a.agent_session_id,
-                pick("harness").or_else(|| a.harness.clone()),
+                harness.clone(),
                 &pick("preset"),
                 pick("model").as_deref(),
                 conn.origin.web_class(),
@@ -652,7 +685,8 @@ async fn new_local_session(
     // attached), so a request they or admission refuse makes no worktree.
     let mut worktree = None;
     if admitted.is_some() {
-        worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+        worktree =
+            adopt_worktree(hub, conn, meta, &mut req, conversation.as_ref(), &harness).await?;
     }
     // Admitted with no room taken (its conversation was held), the adopt only
     // attaches: if the holder ended meanwhile it asks for room like a new
@@ -672,13 +706,16 @@ async fn new_local_session(
                 tries += 1;
                 admitted = hub.admit_adopt(ask(conn, params, &who), conversation).await?;
                 if admitted.is_some() {
-                    worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+                    worktree =
+                        adopt_worktree(hub, conn, meta, &mut req, Some(conversation), &harness)
+                            .await?;
                 }
             }
             // Attached: the worktree it asked for is made and named, as for any adopt.
             made => {
                 let s = made?;
-                worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+                worktree =
+                    adopt_worktree(hub, conn, meta, &mut req, Some(conversation), &harness).await?;
                 break s;
             }
         }
