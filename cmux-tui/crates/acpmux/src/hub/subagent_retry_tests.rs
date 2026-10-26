@@ -223,10 +223,12 @@ fn by_person() -> crate::hub::auto_resume::retry_turn::RetryBy {
 #[tokio::test]
 async fn a_person_retry_says_why_a_subagent_cannot_be_retried() {
     let (hub, session, _conn) = chat(vec![60_000]).await;
-    hub.observe_subagents(&session, &[failed("s/t1")]);
+    let running =
+        |id: &str| json!({"id": id, "parent": null, "state": "running", "task": "Push relay"});
+    // Named by its start, as the translator reports it.
+    hub.observe_subagents(&session, &[running("s/t1"), failed("s/t1")]);
     settle().await;
-    let running = json!({"id": "s/t2", "parent": null, "state": "running", "task": "Push relay"});
-    hub.observe_subagents(&session, &[running]);
+    hub.observe_subagents(&session, &[running("s/t2")]);
     let why = |e: RpcError| {
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "retry.nothing_failed", "{data}");

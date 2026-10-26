@@ -45,9 +45,8 @@ struct Claim {
 }
 
 fn nothing_failed(id: &str, why: &str) -> RpcError {
-    let msg = format!(
-        "retry.nothing_failed: subagent {id} is not failed or cannot be retried ({why})"
-    );
+    let msg =
+        format!("retry.nothing_failed: subagent {id} is not failed or cannot be retried ({why})");
     RpcError::invalid_params(msg)
         .with_data(json!({"reason": "retry.nothing_failed", "subagentId": id, "why": why}))
 }
@@ -111,14 +110,20 @@ impl Hub {
         };
         let prompt_id = accepted.get("promptId").and_then(Value::as_str).unwrap_or_default();
         let turn_id = accepted.get("turnId").and_then(Value::as_str).map(str::to_owned);
-        let result = RetryResult { prompt_id: prompt_id.to_owned(), turn_id, kind: RetryKind::Subagent };
+        let result =
+            RetryResult { prompt_id: prompt_id.to_owned(), turn_id, kind: RetryKind::Subagent };
         Ok(serde_json::to_value(result).unwrap_or(Value::Null))
     }
 
     /// Claims an attempt at the chat's failed subagent `subagent` (by id or agent id): its waiting
     /// one, taken over, or a new one, fired and logged (`fired`, `manual: true`). Refused as the
     /// module doc says.
-    fn claim_subagent(&self, session: &Session, subagent: &str, of: usize) -> Result<Claim, RpcError> {
+    fn claim_subagent(
+        &self,
+        session: &Session,
+        subagent: &str,
+        of: usize,
+    ) -> Result<Claim, RpcError> {
         let _steps = self.subagent_retries.steps();
         if closing(session) {
             return Err(nothing_failed(subagent, "closed"));
@@ -183,7 +188,8 @@ impl Hub {
         let wait = &claim.wait;
         let extra = json!({"attempt": wait.attempt, "of": wait.of, "promptId": wait.prompt_id,
             "manual": true});
-        let step = Step { outcome: "fired", state: "failed", retry: Value::Null, retryable: true, extra };
+        let step =
+            Step { outcome: "fired", state: "failed", retry: Value::Null, retryable: true, extra };
         self.log_step(session, &claim.id, &claim.failure, step);
         // The waiting task wakes and finds its attempt taken (`still_waiting`).
         if took_over {

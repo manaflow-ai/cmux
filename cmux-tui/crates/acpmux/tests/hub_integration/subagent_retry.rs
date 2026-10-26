@@ -451,10 +451,8 @@ async fn a_person_retry_fires_the_waiting_retry_now() {
     let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
     until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
     let scheduled = records(&hub, &id).into_iter().find(|e| e.kind == "subagent_retry").unwrap();
-    let v = c
-        .request(RETRY, json!({"sessionId": id, "subagentId": "a503a503a503a503"}))
-        .await
-        .unwrap();
+    let v =
+        c.request(RETRY, json!({"sessionId": id, "subagentId": "a503a503a503a503"})).await.unwrap();
     assert_eq!(v["promptId"], scheduled.msg["promptId"], "{v}");
     assert_eq!(v["kind"], "subagent", "{v}");
     assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
