@@ -9,9 +9,11 @@
 //! reference that those items get.
 
 use std::collections::VecDeque;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::time::Duration;
 
-use cmux_threads::work::{Lane, Priority, Refused, Shutdown};
+use cmux_threads::work::{Lane, Priority, Refused, Shutdown, Work};
 
 use super::Mux;
 
@@ -44,6 +46,20 @@ impl Mux {
         self.work.post(priority, lane, shutdown, move || body(&mux))
     }
 
+    /// [`Self::post_mux_work`] once `delay` has passed
+    /// ([`cmux_threads::work::Work::post_delayed`]).
+    pub(super) fn post_mux_work_after(
+        &self,
+        delay: Duration,
+        priority: Priority,
+        lane: Lane,
+        shutdown: Shutdown,
+        body: impl FnOnce(&Weak<Mux>) + Send + 'static,
+    ) -> Result<(), Refused> {
+        let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
+        self.work.post_delayed(delay, priority, lane, shutdown, move || body(&mux))
+    }
+
     /// Queues `body` on `sequence`: it runs after every item posted to that
     /// sequence before it, never beside one, on `lane` (Chrome's
     /// `SequencedTaskRunner`, base/task/sequenced_task_runner.h). A refused
@@ -62,6 +78,56 @@ impl Mux {
         // A refused post drops `drain`, which drops the queued bodies.
         self.post_mux_work(priority, lane, Shutdown::SkipOnShutdown, move |mux| drain.run(mux))
     }
+}
+
+/// What one try of a retried item asks for next ([`Mux::post_mux_retry`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Retry {
+    Done,
+    /// Try again after this backoff.
+    After(Duration),
+}
+
+type RetryAttempt = Box<dyn FnMut(&Arc<Mux>) -> Retry + Send>;
+
+impl Mux {
+    /// Runs `attempt` on `lane` after `first_delay`, then again after each
+    /// [`Retry::After`], until it says [`Retry::Done`], the mux is gone or
+    /// shutdown begins. Each try is its own work item, reposted with a delay
+    /// (Chrome retries by `PostDelayedTask`, net/base/backoff_entry.h), so no
+    /// thread sleeps between tries. Shutdown drops a waiting try and never
+    /// waits for a running one, and `attempt` (with what it owns) drops when
+    /// the retry ends either way.
+    pub(super) fn post_mux_retry(
+        &self,
+        first_delay: Duration,
+        priority: Priority,
+        lane: Lane,
+        attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
+    ) -> Result<(), Refused> {
+        let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
+        post_retry(&self.work, mux, first_delay, priority, lane, Box::new(attempt))
+    }
+}
+
+fn post_retry(
+    work: &Work,
+    mux: Weak<Mux>,
+    delay: Duration,
+    priority: Priority,
+    lane: Lane,
+    mut attempt: RetryAttempt,
+) -> Result<(), Refused> {
+    work.post_delayed(delay, priority, lane, Shutdown::ContinueOnShutdown, move || {
+        let Some(owner) = mux.upgrade() else { return };
+        if owner.shutting_down.load(Ordering::Acquire) {
+            return;
+        }
+        if let Retry::After(backoff) = attempt(&owner) {
+            // Refused: shutdown began, and the retry ends with it.
+            let _ = post_retry(&owner.work, mux, backoff, priority, lane, attempt);
+        }
+    })
 }
 
 type SequencedItem = Box<dyn FnOnce(&Weak<Mux>) + Send>;

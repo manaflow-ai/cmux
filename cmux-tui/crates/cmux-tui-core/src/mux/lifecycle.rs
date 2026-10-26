@@ -126,6 +126,8 @@ impl Mux {
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.browser_providers.wake_waiters();
+        // Held start adoptions end: each posts a retry that sees shutdown.
+        self.release_startup_adoptions();
         // Block items (a Chief engine file save) and started skip items (a
         // browser-runtime status read) finish; queued skip items and every
         // continue item (an acpmux ask, a git item or a listening-port
@@ -243,6 +245,7 @@ impl Mux {
     /// is installed. Ordinary control clients may connect before this point.
     pub fn mark_server_lifecycle_ready(&self) {
         self.server_lifecycle_ready.store(true, Ordering::Release);
+        self.release_startup_adoptions();
         // The first terminal must not pay for the host executable's install
         // (cx-b4sjc); unit tests start no daemon and install nothing.
         #[cfg(all(unix, not(test)))]

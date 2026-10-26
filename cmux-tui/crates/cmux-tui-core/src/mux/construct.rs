@@ -400,9 +400,8 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             terminal_adoption_ended: Condvar::new(),
-            terminal_adoptions_now: Mutex::new(HashSet::new()),
+            startup_adoptions: Mutex::default(),
             restored_tab_names: Mutex::new(HashMap::new()),
-            startup_adoptions_released: AtomicBool::new(false),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -512,9 +511,9 @@ impl Mux {
         }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
-            // Its terminal may be adopting on a thread that waits for ready,
-            // which comes only after this start returns.
-            mux.startup_adoptions_released.store(true, Ordering::Release);
+            // Its terminal's adoption may be held for ready, which comes
+            // only after this start returns.
+            mux.release_startup_adoptions();
             if Instant::now() >= recovery_deadline {
                 mux.shutdown();
                 anyhow::bail!("interrupted resource creation did not settle during startup");

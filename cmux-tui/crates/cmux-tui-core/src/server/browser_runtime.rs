@@ -376,47 +376,46 @@ fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-browser-runtime-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let runtimes = &worker_mux.control_clients.browser_runtimes;
-            // The install is on disk: read here, not on the reader thread.
-            let Some((version, executable)) = runtimes.installed() else {
-                runtimes.lock().release(client);
-                fail(
-                    &worker_writer,
-                    worker_id,
-                    "browser-runtime.not-installed",
-                    "the browser is not installed on this machine",
-                );
-                return;
-            };
-            let launched = launch(runtimes, client, &executable, url.as_deref());
+    // The start waits up to START_TIMEOUT for the host's first line
+    // (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let runtimes = &worker_mux.control_clients.browser_runtimes;
+        // The install is on disk: read here, not on the reader thread.
+        let Some((version, executable)) = runtimes.installed() else {
             runtimes.lock().release(client);
-            match launched {
-                Ok((runtime_id, port, secret)) => {
-                    // The connection may have ended during the start.
-                    if !worker_mux.control_clients.is_unix(client) {
-                        runtimes.disconnect(client);
-                        return;
-                    }
-                    let reply = json!({
-                        "runtime": runtime_id,
-                        "port": port,
-                        "secret": secret,
-                        "installed": version,
-                    });
-                    ok(&worker_writer, worker_id, reply);
-                }
-                Err(message) => {
-                    fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
-                }
-            }
-        });
-    if spawned.is_err() {
+            fail(
+                &worker_writer,
+                worker_id,
+                "browser-runtime.not-installed",
+                "the browser is not installed on this machine",
+            );
+            return;
+        };
+        let launched = launch(runtimes, client, &executable, url.as_deref());
         runtimes.lock().release(client);
-        return fail(writer, id, "browser-runtime.start-failed", "cannot start a thread");
+        match launched {
+            Ok((runtime_id, port, secret)) => {
+                // The connection may have ended during the start.
+                if !worker_mux.control_clients.is_unix(client) {
+                    runtimes.disconnect(client);
+                    return;
+                }
+                let reply = json!({
+                    "runtime": runtime_id,
+                    "port": port,
+                    "secret": secret,
+                    "installed": version,
+                });
+                ok(&worker_writer, worker_id, reply);
+            }
+            Err(message) => {
+                fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
+            }
+        }
+    });
+    if posted.is_err() {
+        runtimes.lock().release(client);
+        return fail(writer, id, "browser-runtime.start-failed", "the daemon is shutting down");
     }
     true
 }
