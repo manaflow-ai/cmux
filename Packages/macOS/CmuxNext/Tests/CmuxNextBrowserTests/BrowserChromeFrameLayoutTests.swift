@@ -186,6 +186,52 @@ import CmuxNextWakeups
         #expect(Self.ownConstraints(chrome.toolbarButtons).isEmpty)
     }
 
+    /// Every chrome button under `view`, hidden ones included.
+    static func chromeButtons(in view: NSView) -> [NSButton] {
+        view.subviews.flatMap { sub -> [NSButton] in
+            let own = ([sub as? ChromeIconButton, sub as? ChromeTextButton] as [NSButton?]).compactMap { $0 }
+            return own + chromeButtons(in: sub)
+        }
+    }
+
+    /// A framed button keeps its frame through its required autoresizing-mask
+    /// constraints. In a window that uses Auto Layout, a required intrinsic size
+    /// would conflict with them (a hidden toolbar button keeps a zero frame).
+    @Test func framedButtonsHaveNoRequiredSizeInAnAutoLayoutWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        let chrome = Self.chrome()
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        window.contentView = host
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(chrome)
+        NSLayoutConstraint.activate([
+            chrome.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: host.topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        window.layoutIfNeeded()
+        let hidden = try #require(chrome.toolbarButtons.subviews.first { $0.isHidden } as? ChromeIconButton,
+                                  "the default pins hide some toolbar buttons")
+        #expect(hidden.frame.size == .zero, "the line never framed it")
+        let buttons = Self.chromeButtons(in: chrome)
+        #expect(buttons.contains(chrome.backButton) && buttons.contains(hidden))
+        for button in buttons {
+            for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+                #expect(button.contentHuggingPriority(for: orientation) < .required, "\(type(of: button)) hugs at required")
+                #expect(button.contentCompressionResistancePriority(for: orientation) < .required,
+                        "\(type(of: button)) resists compression at required")
+                let required = button.constraintsAffectingLayout(for: orientation).filter {
+                    $0.priority == .required && String(describing: type(of: $0)).hasPrefix("NSContentSize")
+                }
+                #expect(required.isEmpty, "\(type(of: button)) has a required intrinsic size: \(required)")
+            }
+        }
+    }
+
     @Test func theViewsSitAtThePureLayoutsFrames() throws {
         for width in [CGFloat(480), 900, 1800] {
             let chrome = Self.chrome(width: width)

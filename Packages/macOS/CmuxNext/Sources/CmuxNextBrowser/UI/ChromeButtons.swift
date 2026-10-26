@@ -41,10 +41,10 @@ final class ChromeIconButton: NSButton {
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
-        // A fixed square: frame layout reads `intrinsicContentSize`, a stack view keeps it exactly.
+        // A fixed square: frame layout reads `intrinsicContentSize`, a stack view keeps it.
         for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
-            setContentHuggingPriority(.required, for: orientation)
-            setContentCompressionResistancePriority(.required, for: orientation)
+            setContentHuggingPriority(.chromeFixedSize, for: orientation)
+            setContentCompressionResistancePriority(.chromeFixedSize, for: orientation)
         }
         density.update { [weak self] in
             guard let self else { return }
@@ -269,9 +269,9 @@ class ChromeTextButton: NSButton {
         self.action = action
         self.target = target
         wantsLayer = true
-        // The control height exactly: frame layout reads `intrinsicContentSize`, a stack view keeps it.
-        setContentHuggingPriority(.required, for: .vertical)
-        setContentCompressionResistancePriority(.required, for: .vertical)
+        // The control height: frame layout reads `intrinsicContentSize`, a stack view keeps it.
+        setContentHuggingPriority(.chromeFixedSize, for: .vertical)
+        setContentCompressionResistancePriority(.chromeFixedSize, for: .vertical)
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
@@ -419,4 +419,11 @@ class ChromeTextField: NSTextField {
         if accepted { applyEditorColors() }
         return accepted
     }
+}
+
+extension NSLayoutConstraint.Priority {
+    /// The content priority of a chrome button's fixed size: high enough that a
+    /// stack view keeps the size, below required, so a host that places the button
+    /// by frame (required autoresizing-mask constraints) never conflicts with it.
+    static let chromeFixedSize = NSLayoutConstraint.Priority(999)
 }
