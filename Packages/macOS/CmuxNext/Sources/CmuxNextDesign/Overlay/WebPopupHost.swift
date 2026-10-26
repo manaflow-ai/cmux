@@ -144,7 +144,7 @@ public final class WebPopupHost {
         popup.onDismiss = { [weak self] in
             guard let self, model != nil else { return }
             model = nil
-            panel?.isClosing = true
+            self.panel?.isClosing = true
             noteShown()
             send(["type": "dismiss"])
         }

@@ -420,6 +420,19 @@ def wait(check, seconds, step=0.1):
     return None
 
 
+def settle_host_feature(app, seconds=15):
+    """The launch's features snapshot once it shows TUNABLES' host toggle: features.list reports `browserHost.helper`
+    as feature cefHelperHost, source local, but the tunables file loads after the launch's first read. Reads it
+    again until cefHelperHost is on or `seconds` pass, so the results record the arm they measured."""
+    def on():
+        snapshot = app.read_features()
+        if snapshot is not None:
+            app.features = snapshot
+        return ((snapshot or ({}, None, None))[0].get("cefHelperHost") or {}).get("state") == "on"
+    if not wait(on, seconds, step=0.5):
+        RESULT["notes"].append("features.list never reported cefHelperHost on: the results record the app's answer")
+
+
 # {mode: {metric: per-event values, None for a lost event}}: drive()'s raw series for result-v1
 # (browser_engine_bench_report.chromium_host_series).
 SAMPLES = {}
@@ -474,6 +487,7 @@ def main():
     ok = True
     try:
         app.launch()
+        settle_host_feature(app)
         rpc = app.rpc
         RESULT["refresh_hz"] = main_display_hz()
         RESULT["host"] = host_block()

@@ -11,37 +11,49 @@ public import Foundation
 ///
 /// Like `RemoteRdCore`: no I/O, threads or timers; not thread-safe, one
 /// actor owns an instance.
+///
+/// Memory safety: as `RemoteRdCore`, `handle` is live from `init` to
+/// `deinit`, one owner calls at a time, and popped bytes are copied before
+/// the next call on the handle.
+@safe
 public nonisolated final class RemoteRdSession {
     public let carrier: RemoteRdCore.Carrier
     private let handle: OpaquePointer
 
     /// Nil only when the core cannot allocate a session.
     public init?(carrier: RemoteRdCore.Carrier, deadlineMicros: UInt64 = 200_000, nackAfterMicros: UInt64 = 5_000) {
-        guard let handle = cmux_rd_session_new(carrier.raw, deadlineMicros, nackAfterMicros) else { return nil }
+        // SAFETY: the core returns a new session or NULL; this instance owns it.
+        guard let handle = unsafe cmux_rd_session_new(carrier.raw, deadlineMicros, nackAfterMicros) else { return nil }
         self.carrier = carrier
-        self.handle = handle
+        // SAFETY: stores the owned handle; deinit frees it.
+        unsafe self.handle = handle
     }
 
     deinit {
-        cmux_rd_session_free(handle)
+        // SAFETY: frees the handle init created, exactly once; nothing uses it after.
+        unsafe cmux_rd_session_free(handle)
     }
 
     /// Accepts datagrams of `stream` from now on (idempotent). Throws
     /// `.stream` past the core's stream limit.
     public func openStream(_ stream: UInt16) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_session_open_stream(handle, stream))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_session_open_stream(handle, stream))
     }
 
     /// Drops `stream` and its frames. Throws `.stream` when it is not open.
     public func closeStream(_ stream: UInt16) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_session_close_stream(handle, stream))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_session_close_stream(handle, stream))
     }
 
     /// Adds received stream bytes (stream carrier). Returns the frames ready.
     @discardableResult
     public func push(streamBytes: Data, nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
         let code = streamBytes.withUnsafeBytes { raw in
-            cmux_rd_session_push_stream(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
+            // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+            // raw's start during the call and keeps what it needs as its own copy.
+            unsafe cmux_rd_session_push_stream(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
         }
         return try RemoteRdCoreError.check(code)
     }
@@ -50,7 +62,9 @@ public nonisolated final class RemoteRdSession {
     @discardableResult
     public func push(datagram: Data, nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
         let code = datagram.withUnsafeBytes { raw in
-            cmux_rd_session_push_datagram(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
+            // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+            // raw's start during the call and keeps what it needs as its own copy.
+            unsafe cmux_rd_session_push_datagram(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
         }
         return try RemoteRdCoreError.check(code)
     }
@@ -58,31 +72,36 @@ public nonisolated final class RemoteRdSession {
     /// Drops frames past their deadline in every stream.
     @discardableResult
     public func tick(nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
-        try RemoteRdCoreError.check(cmux_rd_session_tick(handle, nowMicros))
+        // SAFETY: handle is live (see the type).
+        try RemoteRdCoreError.check(unsafe cmux_rd_session_tick(handle, nowMicros))
     }
 
     /// The oldest complete access unit of any stream, with its stream.
     public func popAccessUnit(codec: RemoteVideoCodec) throws(RemoteRdCoreError) -> (stream: UInt16, unit: RemoteAccessUnit)? {
         var frame = CmuxRdFrame()
         var stream: UInt16 = 0
-        guard try RemoteRdCoreError.check(cmux_rd_session_pop_frame(handle, &frame, &stream)) == 1 else { return nil }
+        // SAFETY: handle is live (see the type); the core fills the locals `frame` and `stream`.
+        guard try RemoteRdCoreError.check(unsafe cmux_rd_session_pop_frame(handle, &frame, &stream)) == 1 else { return nil }
         return (stream, RemoteRdCore.unit(frame, codec: codec))
     }
 
     /// The oldest queued transport message.
     public func popMessage() throws(RemoteRdCoreError) -> RemoteRdMessage? {
         var message = CmuxRdMessage()
-        guard try RemoteRdCoreError.check(cmux_rd_session_pop_message(handle, &message)) == 1 else { return nil }
+        // SAFETY: handle is live (see the type); the core fills the local `message`.
+        guard try RemoteRdCoreError.check(unsafe cmux_rd_session_pop_message(handle, &message)) == 1 else { return nil }
         return RemoteRdCore.message(message)
     }
 
     public func noteDecode(stream: UInt16, micros: UInt32) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_session_note_decode(handle, stream, micros))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_session_note_decode(handle, stream, micros))
     }
 
     /// Asks the host for a keyframe of `stream` until one is released there.
     public func requestKeyframe(stream: UInt16) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_session_request_keyframe(handle, stream))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_session_request_keyframe(handle, stream))
     }
 
     /// Every feedback datagram due at `nowMicros` (any stream), framed for
@@ -94,7 +113,9 @@ public nonisolated final class RemoteRdSession {
         for _ in 0..<Self.maxFeedbackCalls {
             var length = 0
             let code = buffer.withUnsafeMutableBufferPointer { buf in
-                cmux_rd_session_feedback(handle, nowMicros, buf.baseAddress, buf.count, &length)
+                // SAFETY: handle is live (see the type). The core writes at most buf.count bytes
+                // to buf and the length to the local `length`, both live for the call.
+                unsafe cmux_rd_session_feedback(handle, nowMicros, buf.baseAddress, buf.count, &length)
             }
             if code < 0, RemoteRdCoreError(code: code) == .buffer {
                 buffer = [UInt8](repeating: 0, count: length)
@@ -111,14 +132,16 @@ public nonisolated final class RemoteRdSession {
     /// When `tick` and `feedback` must run next (earliest of every stream),
     /// or nil when the session is unusable.
     public var nextDeadlineMicros: UInt64? {
-        let value = cmux_rd_session_next_deadline_us(handle)
+        // SAFETY: handle is live (see the type).
+        let value = unsafe cmux_rd_session_next_deadline_us(handle)
         return value == UInt64.max ? nil : value
     }
 
     /// The counters of `stream`.
     public func stats(stream: UInt16) throws(RemoteRdCoreError) -> RemoteRdStats {
         var raw = CmuxRdStats()
-        _ = try RemoteRdCoreError.check(cmux_rd_session_stats(handle, stream, &raw))
+        // SAFETY: handle is live (see the type); the core fills the local `raw`.
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_session_stats(handle, stream, &raw))
         return RemoteRdStats(
             ackedFrame: raw.acked_frame,
             needRecovery: raw.need_recovery,

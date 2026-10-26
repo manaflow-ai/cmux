@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextSettings
+import CmuxNextDaemon
 import Darwin
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -82,7 +83,7 @@ public final class ControlSocketServer: Sendable {
             case .pathTooLong(let path): "socket path is too long: \(path)"
             case .addressInUse(let path): "another process is listening on \(path)"
             case .pathOccupied(let path): "\(path) exists and is not a stale socket owned by this user"
-            case .system(let call, let code): "\(call) failed: \(String(cString: strerror(code)))"
+            case .system(let call, let code): "\(call) failed: \(POSIXErrorText(code))"
             case .discarded(let path): "the socket bound at launch at \(path) was discarded before it served"
             }
         }
@@ -107,8 +108,9 @@ public final class ControlSocketServer: Sendable {
 
     /// `accept(2)`, replaceable in tests.
     typealias AcceptCall = @Sendable (Int32) -> Int32
-    /// `bind(2)`; tests wrap it to act while the socket file is created.
-    typealias BindCall = @Sendable (Int32, UnsafePointer<sockaddr>, socklen_t) -> Int32
+    /// `bind(2)` of a descriptor to an address (``UnixSocketAddress/bind(_:)``); tests wrap it to act while the
+    /// socket file is created.
+    typealias BindCall = @Sendable (Int32, UnixSocketAddress) -> Int32
     private let acceptCall: AcceptCall
     let bindCall: BindCall
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
@@ -116,11 +118,12 @@ public final class ControlSocketServer: Sendable {
     private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
-        self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
+        // SAFETY: with a nil address and length, accept(2) writes nothing back.
+        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) })
     }
 
     init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
-         bind: @escaping BindCall = { Darwin.bind($0, $1, $2) }) {
+         bind: @escaping BindCall = { $1.bind($0) }) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
@@ -332,7 +335,8 @@ public final class ControlSocketServer: Sendable {
             state.withLock { $0.acceptBackoff.reset() }
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var noSigPipe: Int32 = 1
-            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
+            unsafe setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) | O_NONBLOCK)
             let peer = Self.peer(of: client)
             let authorizer = ControlAuthorizer(configuration: configuration, peer: peer)
@@ -378,10 +382,13 @@ public final class ControlSocketServer: Sendable {
     static func peer(of descriptor: Int32) -> Peer {
         var uid: uid_t = 0
         var gid: gid_t = 0
-        let hasUID = getpeereid(descriptor, &uid, &gid) == 0
+        // SAFETY: getpeereid writes one uid_t and one gid_t into the locals `uid` and `gid`, live for the call.
+        let hasUID = unsafe getpeereid(descriptor, &uid, &gid) == 0
         var pid: pid_t = 0
         var length = socklen_t(MemoryLayout<pid_t>.size)
-        let hasPID = getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0
+        // SAFETY: getsockopt writes at most `length` bytes (the size of pid_t) into the local `pid` and the size it
+        // wrote into `length`.
+        let hasPID = unsafe getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0
         return Peer(pid: hasPID ? pid : nil, uid: hasUID ? uid : nil)
     }
 }

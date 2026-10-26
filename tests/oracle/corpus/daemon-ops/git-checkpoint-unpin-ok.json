@@ -98,6 +98,32 @@
         "settled"
       ],
       "note": "removes the pin the before step set; the checkpoint stays"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.checkpoint.unpin",
+        "params": {
+          "checkpoint_id": "$step:checkpoint#/value/checkpoint_id",
+          "pin_id": "oracle",
+          "path": "$CASE_ROOT/repos/oracle"
+        },
+        "idempotencyKey": "git-checkpoint-unpin-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
