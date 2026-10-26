@@ -160,9 +160,10 @@ impl WalDurability {
             Ok(())
         }));
         let thread_shared = shared.clone();
-        let spawned = std::thread::Builder::new()
-            .name("sqlite-wal-sync".into())
-            .spawn(move || run(&thread_shared));
+        let spawned =
+            cmux_threads::spawn("sqlite-wal-sync", cmux_threads::ThreadQos::Utility, move || {
+                run(&thread_shared);
+            });
         if let Err(error) = spawned {
             // Without the thread, commits stay crash safe (WAL+NORMAL) but
             // are flushed only at close; say so once.

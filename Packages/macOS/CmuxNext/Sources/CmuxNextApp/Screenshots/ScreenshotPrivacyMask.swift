@@ -30,6 +30,7 @@ enum ScreenshotPrivacyMask {
         if let controller = services.windows.controllers.first(where: { $0.window === window }) {
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
                 guard case .browser(let entry)? = pane.currentContent, entry.chrome.window === window,
+                      // visibility-walk-allow: a privacy mask covers exactly the pixels the window server draws, which the view tree decides, as a hit test reads it
                       !entry.chrome.isHiddenOrHasHiddenAncestor else { continue }
                 rects.append(entry.chrome.convert(entry.chrome.bounds, to: nil))
             }

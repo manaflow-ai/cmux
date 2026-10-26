@@ -132,6 +132,530 @@
         }
       }
     },
+    "settings.group.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدء التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokretanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចាប់ផ្ដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchamianie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicialização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปิดใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlatma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Windows from a Saved Picture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح النوافذ من صورة محفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvaraj prozore iz sačuvane slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn vinduer fra et gemt billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster aus gespeichertem Bild öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir ventanas desde una imagen guardada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les fenêtres depuis une image enregistrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri le finestre da un'immagine salvata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存した画像からウインドウを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកបង្អួចពីរូបភាពដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 이미지로 창 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne vinduer fra et lagret bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieraj okna z zapisanego obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir janelas a partir de uma imagem salva"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать окна из сохранённого снимка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดหน้าต่างจากภาพที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereleri kayıtlı bir görüntüden aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкривати вікна зі збереженого знімка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở cửa sổ từ ảnh đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从保存的画面打开窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從儲存的畫面開啟視窗"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows appear at once when cmux opens"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر النوافذ فورًا عند فتح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozori se pojavljuju odmah kada se cmux otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduer vises med det samme, når cmux åbner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster erscheinen sofort, wenn cmux startet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ventanas aparecen al instante cuando cmux se abre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fenêtres s'affichent aussitôt à l'ouverture de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le finestre compaiono subito all'apertura di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を開くとウインドウがすぐに表示されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចបង្ហាញភ្លាមៗ ពេល cmux បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 열면 창이 바로 나타납니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduer vises med en gang når cmux åpnes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okna pojawiają się od razu po otwarciu cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As janelas aparecem na hora quando o cmux abre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окна появляются сразу при открытии cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างแสดงทันทีเมื่อเปิด cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux açılınca pencereler hemen görünür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікна з'являються одразу під час відкриття cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ hiện ngay khi cmux mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 cmux 时窗口立即出现"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 cmux 時視窗立即出現"
+          }
+        }
+      }
+    },
+    "settings.launch.savedPicture.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At quit, cmux saves a picture of each window on this Mac and shows it while the window opens next time. Pictures can show terminal text and web pages. Incognito windows, password entry and protected video are never saved. Off deletes the pictures."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإنهاء، يحفظ cmux صورة لكل نافذة على هذا الـ Mac ويعرضها أثناء فتح النافذة في المرة التالية. قد تُظهر الصور نص الطرفية وصفحات الويب. لا تُحفظ أبدًا نوافذ التصفح المتخفي أو إدخال كلمات المرور أو الفيديو المحمي. يؤدي الإيقاف إلى حذف الصور."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pri zatvaranju cmux sačuva sliku svakog prozora na ovom Macu i prikazuje je dok se prozor sljedeći put otvara. Slike mogu prikazivati tekst terminala i web stranice. Inkognito prozori, unos lozinki i zaštićeni video nikad se ne čuvaju. Isključivanje briše slike."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux afsluttes, gemmer det et billede af hvert vindue på denne Mac og viser det, mens vinduet åbner næste gang. Billederne kan vise terminaltekst og websider. Inkognitovinduer, indtastning af adgangskoder og beskyttet video gemmes aldrig. Slået fra slettes billederne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Beenden speichert cmux ein Bild jedes Fensters auf diesem Mac und zeigt es, während sich das Fenster beim nächsten Mal öffnet. Die Bilder können Terminaltext und Webseiten zeigen. Inkognito-Fenster, Passworteingaben und geschützte Videos werden nie gespeichert. Aus löscht die Bilder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al salir, cmux guarda una imagen de cada ventana en este Mac y la muestra mientras la ventana se abre la próxima vez. Las imágenes pueden mostrar texto de la terminal y páginas web. Nunca se guardan ventanas de incógnito, la escritura de contraseñas ni el vídeo protegido. Desactivado borra las imágenes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À la fermeture, cmux enregistre une image de chaque fenêtre sur ce Mac et l'affiche pendant l'ouverture de la fenêtre la fois suivante. Les images peuvent montrer du texte de terminal et des pages web. Les fenêtres de navigation privée, la saisie de mots de passe et les vidéos protégées ne sont jamais enregistrées. Désactivé supprime les images."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All'uscita, cmux salva un'immagine di ogni finestra su questo Mac e la mostra mentre la finestra si apre la volta successiva. Le immagini possono mostrare testo del terminale e pagine web. Finestre in incognito, inserimento di password e video protetti non vengono mai salvati. Disattivato elimina le immagini."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了時に cmux はこの Mac 上の各ウインドウの画像を保存し、次回ウインドウを開く間に表示します。画像にはターミナルのテキストや Web ページが含まれることがあります。シークレットウインドウ、パスワード入力、保護されたビデオは保存されません。オフにすると画像を削除します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលចាកចេញ cmux រក្សាទុករូបភាពនៃបង្អួចនីមួយៗនៅលើ Mac នេះ ហើយបង្ហាញវាពេលបង្អួចកំពុងបើកនៅលើកក្រោយ។ រូបភាពអាចបង្ហាញអត្ថបទ terminal និងទំព័របណ្ដាញ។ បង្អួចអនាមិក ការបញ្ចូលពាក្យសម្ងាត់ និងវីដេអូដែលត្រូវបានការពារ មិនដែលត្រូវបានរក្សាទុកទេ។ ការបិទនឹងលុបរូបភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료할 때 cmux는 이 Mac에서 각 창의 이미지를 저장하고, 다음에 창이 열리는 동안 보여 줍니다. 이미지에는 터미널 텍스트와 웹 페이지가 담길 수 있습니다. 시크릿 창, 암호 입력, 보호된 비디오는 저장하지 않습니다. 끄면 이미지를 삭제합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux avsluttes, lagrer det et bilde av hvert vindu på denne Macen og viser det mens vinduet åpnes neste gang. Bildene kan vise terminaltekst og nettsider. Inkognitovinduer, passordinntasting og beskyttet video lagres aldri. Av sletter bildene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy zamykaniu cmux zapisuje obraz każdego okna na tym Macu i pokazuje go podczas następnego otwierania okna. Obrazy mogą zawierać tekst terminala i strony internetowe. Okna incognito, wpisywanie haseł i chronione wideo nigdy nie są zapisywane. Wyłączenie usuwa obrazy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao sair, o cmux salva uma imagem de cada janela neste Mac e a mostra enquanto a janela abre da próxima vez. As imagens podem mostrar texto do terminal e páginas da web. Janelas anônimas, digitação de senhas e vídeo protegido nunca são salvos. Desativado apaga as imagens."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При выходе cmux сохраняет снимок каждого окна на этом Mac и показывает его, пока окно открывается в следующий раз. Снимки могут содержать текст терминала и веб-страницы. Окна инкогнито, ввод паролей и защищённое видео никогда не сохраняются. Выключение удаляет снимки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อออก cmux จะบันทึกภาพของแต่ละหน้าต่างไว้ใน Mac เครื่องนี้ และแสดงภาพนั้นระหว่างที่หน้าต่างเปิดครั้งถัดไป ภาพอาจแสดงข้อความในเทอร์มินัลและหน้าเว็บ หน้าต่างไม่ระบุตัวตน การป้อนรหัสผ่าน และวิดีโอที่มีการป้องกันจะไม่ถูกบันทึกเลย การปิดจะลบภาพเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkışta cmux bu Mac'teki her pencerenin bir görüntüsünü kaydeder ve pencere bir sonraki açılışında yüklenirken onu gösterir. Görüntüler terminal metni ve web sayfaları içerebilir. Gizli pencereler, parola girişi ve korumalı video asla kaydedilmez. Kapalı olması görüntüleri siler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час виходу cmux зберігає знімок кожного вікна на цьому Mac і показує його, поки вікно відкривається наступного разу. Знімки можуть містити текст термінала та вебсторінки. Вікна інкогніто, введення паролів і захищене відео ніколи не зберігаються. Вимкнення видаляє знімки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi thoát, cmux lưu ảnh của từng cửa sổ trên máy Mac này và hiển thị ảnh đó trong lúc cửa sổ mở ở lần sau. Ảnh có thể chứa văn bản terminal và trang web. Cửa sổ ẩn danh, thao tác nhập mật khẩu và video được bảo vệ không bao giờ được lưu. Tắt sẽ xóa các ảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出时，cmux 会在这台 Mac 上保存每个窗口的画面，并在下次窗口打开期间显示它。画面可能包含终端文本和网页。无痕窗口、密码输入和受保护的视频永远不会被保存。关闭后会删除这些画面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束時，cmux 會在這台 Mac 上儲存每個視窗的畫面，並在下次視窗開啟期間顯示。畫面可能包含終端機文字和網頁。無痕視窗、密碼輸入和受保護的影片絕不會被儲存。關閉後會刪除這些畫面。"
+          }
+        }
+      }
+    },
     "settings.group.pointerInput": {
       "extractionState": "manual",
       "localizations": {

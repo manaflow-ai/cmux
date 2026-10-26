@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 import Foundation
 
@@ -9,7 +10,7 @@ public actor CmxIrohPendingRevocationOutbox {
 
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyScopes: Set<String> = []
-    private var scopeWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var scopeWaiters: [String: [OnceContinuation<Void, OnceContinuationError>]] = [:]
 
     /// Creates an outbox backed by injected device-only secure storage.
     ///
@@ -27,7 +28,7 @@ public actor CmxIrohPendingRevocationOutbox {
     /// - Throws: A validation, capacity, encoding, or secure-storage error.
     public func enqueue(_ revocation: CmxIrohPendingRevocation) async throws {
         let scope = Self.scope(revocation.accountID)
-        await acquire(scope: scope)
+        try await acquire(scope: scope)
         defer { release(scope: scope) }
         var entries = try await load(accountID: revocation.accountID)
         if let existing = entries.first(where: {
@@ -55,7 +56,7 @@ public actor CmxIrohPendingRevocationOutbox {
             throw CmxIrohPendingRevocationError.invalidRecord
         }
         let scope = Self.scope(accountID)
-        await acquire(scope: scope)
+        try await acquire(scope: scope)
         defer { release(scope: scope) }
         return try await load(accountID: accountID)
     }
@@ -131,7 +132,7 @@ public actor CmxIrohPendingRevocationOutbox {
         _ revocation: CmxIrohPendingRevocation
     ) async throws {
         let scope = Self.scope(revocation.accountID)
-        await acquire(scope: scope)
+        try await acquire(scope: scope)
         defer { release(scope: scope) }
 
         // The broker call is an actor reentrancy point. Reload before the
@@ -201,12 +202,12 @@ public actor CmxIrohPendingRevocationOutbox {
             .joined()
     }
 
-    private func acquire(scope: String) async {
+    private func acquire(scope: String) async throws(OnceContinuationError) {
         guard busyScopes.contains(scope) else {
             busyScopes.insert(scope)
             return
         }
-        await withCheckedContinuation { continuation in
+        try await withOnceContinuation { continuation in
             scopeWaiters[scope, default: []].append(continuation)
         }
     }
@@ -223,6 +224,6 @@ public actor CmxIrohPendingRevocationOutbox {
         } else {
             scopeWaiters[scope] = waiters
         }
-        next.resume()
+        next.resume(returning: ())
     }
 }

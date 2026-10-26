@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "42e0256cc80059e27ca003116e524f484be7fe4c6a5b5226a76fc05737e79958";
+inline constexpr std::string_view kProtocolIrSha256 = "43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -684,7 +684,11 @@ struct SelectWorkspaceRequest;
 struct SendRequest;
 struct SendResult;
 struct SendKeyRequest;
+struct ServerBlockingRequest;
+struct ServerBlockingResult;
 struct ServerStatsRequest;
+struct ServerThreadsRequest;
+struct ServerThreadsResult;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
@@ -6293,6 +6297,15 @@ struct SendResult {
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
+struct ServerBlockingRequest {
+    friend bool operator==(const ServerBlockingRequest&, const ServerBlockingRequest&) = default;
+};
+
+struct ServerBlockingResult {
+    Json value{};
+    friend bool operator==(const ServerBlockingResult&, const ServerBlockingResult&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -6590,6 +6603,15 @@ struct ServerStatsResult {
     std::uint64_t uptime_ms{};
     std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
+};
+
+struct ServerThreadsRequest {
+    friend bool operator==(const ServerThreadsRequest&, const ServerThreadsRequest&) = default;
+};
+
+struct ServerThreadsResult {
+    Json value{};
+    friend bool operator==(const ServerThreadsResult&, const ServerThreadsResult&) = default;
 };
 
 struct SetCellPixelsRequest {
@@ -11707,9 +11729,33 @@ struct Codec<SendKeyRequest> {
 };
 
 template <>
+struct Codec<ServerBlockingRequest> {
+    static Result<Json> encode(const ServerBlockingRequest& value);
+    static Result<ServerBlockingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerBlockingResult> {
+    static Result<Json> encode(const ServerBlockingResult& value);
+    static Result<ServerBlockingResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsRequest> {
     static Result<Json> encode(const ServerStatsRequest& value);
     static Result<ServerStatsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerThreadsRequest> {
+    static Result<Json> encode(const ServerThreadsRequest& value);
+    static Result<ServerThreadsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerThreadsResult> {
+    static Result<Json> encode(const ServerThreadsResult& value);
+    static Result<ServerThreadsResult> decode(const Json& value);
 };
 
 template <>

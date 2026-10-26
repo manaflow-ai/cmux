@@ -1,4 +1,5 @@
 import Darwin
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -94,18 +95,25 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// are closed here), the host ended first (the shim closed them), or no hello came within
     /// `helloDeadline` on `clock` (the shim is detached), as Chrome gives up on a GPU channel the
     /// GPU process never establishes (content/browser/gpu/browser_gpu_channel_host_factory.cc).
-    /// The host's REPLY frames go to `replies` from here until ``detach()``; whoever holds this
-    /// attach keeps `replies` alive that long (``CEFHostStart`` owns both).
+    /// The host's REPLY frames go to `replies` from here until ``detach()``; one that comes after
+    /// `replies` is gone finds nothing (``CEFReplySinkRegistration``).
     @MainActor
     func attach(_ attachment: ChromiumHostAttachment, replies: CEFHostReplies, helloDeadline: Duration,
                 clock: any Clock<Duration>) async -> Result<Set<String>, CEFRuntime.BootError> {
+        let sink: CallbackToken
+        do throws(CallbackRegistryError) {
+            sink = try replies.replySinkToken()
+        } catch {
+            attachment.closeDescriptors()
+            return .failure(.host("no reply slot for the host's wire: \(error)"))
+        }
         let hello = CEFRemoteHello()
         // SAFETY: the +1 retain is the hello's context: CEFRemoteHello.callback takes it back once (the shim runs
         // hello exactly once per accepted attach), or the release below does when the shim refuses the wire.
         let context = unsafe Unmanaged.passRetained(hello).toOpaque()
-        // SAFETY: `replies` stays alive until detach clears the sink (this function's contract above); the sink
-        // reads it unretained on the main thread only while it is set.
-        unsafe setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFRemoteReplySink.callback)
+        // SAFETY: the sink's context is the table's token, never its address: a REPLY after the table is gone
+        // finds nothing (CEFRemoteReplySink).
+        unsafe setReplyFn(sink.context, CEFRemoteReplySink.callback)
         // SAFETY: the context is the +1 hello above; the callback is a C function of `cmux_remote_shim_hello_fn`.
         guard unsafe attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, CEFRemoteHello.callback) == 1 else {
             // SAFETY: as in detach().
@@ -176,13 +184,12 @@ private final class CEFRemoteHello {
 /// The host's REPLY frames into a ``CEFHostReplies`` (``CEFRemoteShim/attach(_:replies:helloDeadline:clock:)``).
 private struct CEFRemoteReplySink {
     /// C entry: runs on the main thread (remote_shim_runtime.h `cmux_remote_reply_fn`) with the
-    /// table as its context, and only copies the fields, which are valid during the call alone.
+    /// table's token as its context, and only copies the fields, which are valid during the call alone.
     static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
-        // The raw context is not Sendable; the main-actor table it points at is, so the closure
+        // The raw context is not Sendable; the main-actor table it names is, so the closure
         // captures the table (as the hello's callback captures its waiter).
-        // SAFETY: a non-NULL context is the reply table `attach` set, alive until detach clears the sink; the
-        // unretained read does not change its count.
-        guard let replies = unsafe context.map({ unsafe Unmanaged<CEFHostReplies>.fromOpaque($0).takeUnretainedValue() }) else { return }
+        // A token whose table is gone finds nothing (the registry counts it).
+        guard let replies = unsafe CEFReplySinkRegistration.tables.target(forContext: context) else { return }
         // SAFETY: `fields` holds `length` bytes during this call alone; Array copies them.
         let body = unsafe fields.map { unsafe Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
         MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)

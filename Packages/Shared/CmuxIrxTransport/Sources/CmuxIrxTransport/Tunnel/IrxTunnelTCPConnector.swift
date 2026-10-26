@@ -150,7 +150,8 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
         }
         defer { deadline.cancel() }
         let result: Result<Void, IrxTunnelOpenError> = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) in
+            // A continuation dropped without a resume ends the connect as failed.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Result<Void, IrxTunnelOpenError>, OnceContinuationError>) in
                 outcome.install(continuation)
                 connection.stateUpdateHandler = { state in
                     switch state {
@@ -167,7 +168,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
                     }
                 }
                 connection.start(queue: DispatchQueue(label: "dev.cmux.irx.tunnel.tcp"))
-            }
+            }) ?? .failure(IrxTunnelOpenError(status: .failed))
         } onCancel: {
             outcome.finish(.failure(IrxTunnelOpenError(status: .failed)))
         }
@@ -201,7 +202,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
     }
 
     private func receiveOnce(maximumByteCount: Int) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: max(1, maximumByteCount)) {
                 data, _, isComplete, error in
                 if let data, !data.isEmpty {
@@ -218,17 +219,17 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel {
     }
 
     func send(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: ()) }
             })
         }
     }
 
     func finishSending() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
-                continuation.resume()
+                continuation.resume(returning: ())
             })
         }
     }
@@ -244,13 +245,13 @@ final class IrxTunnelConnectOutcome: Sendable {
     private typealias Outcome = Result<Void, IrxTunnelOpenError>
 
     private struct State: Sendable {
-        var continuation: CheckedContinuation<Outcome, Never>?
+        var continuation: OnceContinuation<Outcome, OnceContinuationError>?
         var pending: Outcome?
     }
 
     private let state = Mutex(State())
 
-    func install(_ continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
+    func install(_ continuation: OnceContinuation<Result<Void, IrxTunnelOpenError>, OnceContinuationError>) {
         let pending: Outcome? = state.withLock { state in
             if let pending = state.pending { return pending }
             state.continuation = continuation
@@ -262,7 +263,7 @@ final class IrxTunnelConnectOutcome: Sendable {
     }
 
     func finish(_ result: Result<Void, IrxTunnelOpenError>) {
-        let continuation: CheckedContinuation<Outcome, Never>? = state.withLock { state in
+        let continuation: OnceContinuation<Outcome, OnceContinuationError>? = state.withLock { state in
             guard state.pending == nil else { return nil }
             state.pending = result
             let continuation = state.continuation

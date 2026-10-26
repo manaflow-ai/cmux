@@ -7,6 +7,9 @@ import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Opens what the person opened from a pane where ``LinkOpenPlacement`` says
 /// (`layout.linkPlacement`): every link and path a terminal, an agent chat, Home or a page opens
@@ -292,7 +295,8 @@ final class LinkOpener {
             }
             // An open in the background keeps the focus where it is: the daemon's move would focus the tab.
             let keepFocus = !focus
-            let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            // A move that drops its callback did not move.
+            let moved = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
                 switch destination {
                 case .besideColumn:
                     let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
@@ -304,7 +308,7 @@ final class LinkOpener {
                 case .dock(let edge):
                     TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services) { done.resume(returning: $0) }
                 }
-            }
+            }) ?? false
             let column = if case .besideColumn = destination { true } else { false }
             outbound?.finish(moved: moved)
             if moved {

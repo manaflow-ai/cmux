@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Serializes all application frames, including delivery receipts, through one bounded sender.
@@ -12,7 +13,7 @@ actor V2OrderedSocket: V2ControlSocket {
     private struct Write {
         let id: UUID
         let data: Data
-        let continuation: CheckedContinuation<Void, any Error>
+        let continuation: OnceContinuation<Void, any Error>
     }
 
     init(transport: any V2ControlSocket) { self.transport = transport }
@@ -25,7 +26,7 @@ actor V2OrderedSocket: V2ControlSocket {
             guard queue.count + (active == nil ? 0 : 1) < 1024, bytes + data.count <= 2 * 1024 * 1024 else {
                 throw V2ControlFailure.capacityExceeded
             }
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 queue.append(Write(id: id, data: data, continuation: continuation))
                 bytes += data.count
                 if sender == nil { sender = Task { await self.drain() } }

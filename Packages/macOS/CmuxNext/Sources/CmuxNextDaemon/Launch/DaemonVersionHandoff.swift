@@ -2,6 +2,9 @@ import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What the app does with a running daemon of another build after an update
 /// (plans/cmux-next/durable-sessions.md section 3).
@@ -59,9 +62,9 @@ enum ProcessExit {
         }
     }
 
-    /// True when `pid` exited within `timeout` (or was already gone).
+    /// True when `pid` exited within `timeout` (or was already gone); false when the wait was dropped unresumed.
     static func exitEvent(pid: Int32, within timeout: Duration, clock: any Clock<Duration>) async -> Bool {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let once = Once()
             let deadline = DemandTimer(owner: "daemon.handoff.exit", clock: clock)
             let queue = DispatchQueue(label: "com.cmuxterm.next.daemon.exit.\(pid)", qos: .userInitiated)
@@ -80,7 +83,7 @@ enum ProcessExit {
             // Registered before this check, so an exit between the two is
             // still seen; a process that is already gone gives no event.
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
-        }
+        }) ?? false
     }
 }
 

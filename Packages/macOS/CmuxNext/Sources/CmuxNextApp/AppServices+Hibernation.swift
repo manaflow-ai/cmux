@@ -22,7 +22,7 @@ extension AppServices {
     func startHibernation(settings: SettingsController) {
         followMemorySaver(settings)
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
@@ -94,12 +94,14 @@ extension AppServices {
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
     /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
-    /// already off screen).
+    /// already off screen). With `windowOcclusionFamily` (p03-rendering-097) a checker feeds every window's
+    /// occlusion family, so covered windows stop their frames, terminals and pages.
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
         }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`

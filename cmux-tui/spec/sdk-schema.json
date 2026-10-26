@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 19
+   "next_ordinal": 21
   },
   "clients": {
    "id": 2,
@@ -21225,6 +21225,56 @@
     "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
    ],
    "method_id": 274,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "server-threads": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "server-threads-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Every registered daemon thread with its declared, desired and kernel QoS and scheduler priority, the work lanes, and the process task role; the rows are the threads alive at the read. See spec/commands.md server-threads."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 275,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "server-blocking": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "server-threads-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "The blocking calls made on threads that disallow blocking, by call site, with their kinds and counts since start. See spec/commands.md server-blocking."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 276,
    "priority": "background",
    "ordering": "independent",
    "durability": "read_only",

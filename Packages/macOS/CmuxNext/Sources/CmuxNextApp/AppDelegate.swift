@@ -273,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
         services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
+        services.cache.cef.setAdBlockerAtFirstTab(services.features.isEnabled(.chromiumAdBlockerAtFirstTab))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
         // (p13-webui-006 to 009 move them, 010 deletes the statics).
@@ -361,6 +362,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
+        // `launch.savedPicture` off deletes the saved window pictures at once, not at the next quit (p08-startup 3C).
+        if let pictures = services.environment.windowPictures {
+            services.lifetimeFollowers.append(pictures.followSavedPicture({
+                settings.loadCount >= 1 ? settings.snapshot.savedPicture : nil
+            }, on: services.mainWork))
+        }
         // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         services.home.postLaunchFeeds(startup: order.startup)

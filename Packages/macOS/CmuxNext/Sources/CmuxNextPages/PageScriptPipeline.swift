@@ -1,5 +1,8 @@
 public import CmuxNextSettings
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// Delivers the router's envelopes to one page in send order, and renders large ones off the main
@@ -54,12 +57,12 @@ final class PageScriptPipeline {
     final class Gate {
         private var isReached = false
         private var isOpen = false
-        private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
-        private var openWaiters: [CheckedContinuation<Void, Never>] = []
+        private var reachedWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+        private var openWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
         func reached() async {
             guard !isReached else { return }
-            await withCheckedContinuation { reachedWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in reachedWaiters.append(waiter) }
         }
 
         func open() {
@@ -68,7 +71,7 @@ final class PageScriptPipeline {
             isOpen = true
             let waiters = openWaiters
             openWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
         fileprivate func markReached() {
@@ -76,12 +79,12 @@ final class PageScriptPipeline {
             isReached = true
             let waiters = reachedWaiters
             reachedWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
         func opened() async {
             guard !isOpen else { return }
-            await withCheckedContinuation { openWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in openWaiters.append(waiter) }
         }
     }
 

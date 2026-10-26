@@ -413,6 +413,68 @@ class SchemaTests(unittest.TestCase):
             self.fail(str(error)[:3000])
 
 
+class RestorePreviewTraceTests(unittest.TestCase):
+    """Invariant I9's input (p15-oracle-205): a traced case asks for the restore preview through each
+    capture's journalHead (one cut with the facet), and its trace is one invariants.py checks I9 on."""
+
+    @classmethod
+    def setUpClass(cls):
+        import invariants
+
+        cls.inv = invariants
+        cls.schema = invariants.load_schema()
+        cls.snapshot, cls.raw = invariants._restorable(cls.schema, invariants._example())
+        cls.head = cls.snapshot["facets"]["daemon"]["journalHead"]
+
+    def test_the_preview_is_asked_through_the_facets_journal_head_with_the_fixture_name(self):
+        raw = copy.deepcopy(self.raw)
+        raw["session"]["name"] = "oracle-0a1b2c"
+        asked = []
+
+        def command(cmd, **params):
+            asked.append((cmd, params))
+            return self.inv._restore_reply(raw, self.head)
+
+        reply = d.restore_preview_at(self.snapshot["facets"]["daemon"], command, "oracle-0a1b2c")
+        self.assertEqual(asked, [(d.RESTORE_PREVIEW, {"through": self.head})])
+        self.assertEqual(reply["preview"]["session"]["session"]["name"], d.SESSION_NAME)
+
+        def unknown(cmd, **params):
+            raise KeyError(cmd)
+
+        self.assertIsNone(d.restore_preview_at({"session": {}, "settings": {}}, command, "x"), "a v0 facet")
+        self.assertIsNone(d.restore_preview_at(d.not_comparable("killed"), command, "x"))
+        self.assertIsNone(d.restore_preview_at(self.snapshot["facets"]["daemon"], unknown, "x"))
+        self.assertEqual(len(asked), 1)
+
+    def test_a_traced_case_checks_i9_at_every_capture(self):
+        reply = self.inv._restore_reply(self.raw, self.head)
+        captures = [d.Capture("create-ws", "before", self.snapshot, reply),
+                    d.Capture("create-ws", "settled", self.snapshot, reply),
+                    d.Capture("read", "settled", self.snapshot, None)]
+        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"},
+                 {"id": "not-reached", "op": "settle"}]
+        trace = d.case_trace("t/i9", steps, captures)
+        self.assertEqual([s["id"] for s in trace["steps"]], ["create-ws", "read"])
+        self.assertEqual(sorted(trace["steps"][0]["restorePreviews"]), ["before", "settled"])
+        self.assertNotIn("restorePreviews", trace["steps"][1])
+        report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
+        self.assertEqual(report.checked.get("I9"), 2)
+        self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
+        self.assertIsNone(d.case_trace("t/i9", steps, []))
+
+    def test_a_trace_catches_the_skip_journal_append_mutant(self):
+        """The preview a daemon gives when a step's journal record was never appended: I9 fails."""
+        stale = copy.deepcopy(self.raw)
+        stale["workspaces"][0]["name"] = "before the rename"
+        trace = d.case_trace("t/i9", [{"id": "rename", "op": "resource.call"}],
+                             [d.Capture("rename", "settled", self.snapshot,
+                                        self.inv._restore_reply(stale, self.head))])
+        report = self.inv.check_trace(trace, schema=self.schema)
+        self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
+                         [("I9", "/daemon/session/workspaces/0/name")])
+
+
 def example_case() -> dict:
     """The schema's daemon example with the expectations of a headless daemon: it starts with no
     workspace, so one workspace is restored after the restart."""
@@ -479,6 +541,40 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(len(last["workspaces"]), 1)
         self.assertEqual(last["session"].get("name", d.SESSION_NAME), d.SESSION_NAME)
         self.assertEqual(result["checkpoints"][-1]["snapshot"]["facets"]["crashes"]["status"], "not-comparable")
+
+    def test_a_traced_case_checks_i9_at_every_capture(self):
+        """`trace` (run-case --trace): a journal checkpoint at setup and a restore preview through each
+        capture's journalHead, so invariants.py checks I9 at every capture of a real daemon case. Before the
+        kill, the only I9 violation is the tracked finding of oracle_restore_preview_tests.rs (the reducer
+        does not reduce state changes into extra.state). After the restart I9 also finds terminals whose
+        live `cwd` and `extra.last_output` are null while the journal still restores them: a daemon
+        finding, not checked here."""
+        import invariants
+
+        extra = {"snapshot_schema": SNAPSHOT_SCHEMA} if SNAPSHOT_SCHEMA else {}
+        run_id = f"{self.run_id}-trace"
+        session = d.open_session({"binary": BINARY, "run_id": run_id, "isolation": ISOLATION, "trace": True,
+                                  **extra})
+        case = example_case()
+        case["steps"] = [s for s in case["steps"] if s["op"] != "advance_clock"]
+        root = d.DEFAULT_STATE_BASE / d.short_token(run_id) / "000001"
+        result = session.run_case(case, {"case_id": "t/i9-trace", "state_root": str(root)})
+        d.remove_empty_dir(d.DEFAULT_STATE_BASE / d.short_token(run_id))
+        self.assertEqual(result["status"], "Pass", result["message"])
+        trace = result["trace"]
+        captured = [(step["id"], name) for step in trace["steps"] for name in step["checkpoints"]
+                    if "journalHead" in step["checkpoints"][name]["facets"]["daemon"]]
+        previewed = [(step["id"], name) for step in trace["steps"] for name in step.get("restorePreviews", {})]
+        self.assertTrue(captured)
+        self.assertEqual(previewed, captured)
+        report = invariants.check_trace(trace)
+        self.assertEqual(report.checked.get("I9"), len(captured), [n for n in report.not_checked
+                                                                    if n.invariant == "I9"])
+        steps = [step["id"] for step in trace["steps"]]
+        before_kill = set(steps[:steps.index("kill-daemon")])
+        others = [v for v in report.violations if v.invariant == "I9" and v.step in before_kill
+                  and not (v.pointer == "/daemon/session/extra" and "state_upsert/state_delete" in v.message)]
+        self.assertEqual(others, [])
 
     def test_two_runs_give_equal_canonical_layouts(self):
         """The layout sections relabel to equal values across two daemons. Not the whole facet yet: the

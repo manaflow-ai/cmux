@@ -3,6 +3,8 @@ import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
 import { HANDOFF_OPS } from "./handoff/protocol";
 import { MockHandoffs } from "./handoff/mock";
+import { CHECKPOINT_METHODS, type CheckpointMethod } from "./checkpoints/protocol";
+import { MockCheckpoints } from "./checkpoints/mock";
 import {
   claudeModels,
   codexModels,
@@ -185,6 +187,11 @@ export class MockAcpmuxSocket {
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
+  /// Checkpoints of the seeded repositories (mockGit.ts), so the pane's checkpoint review runs in mock mode.
+  private checkpoints = new MockCheckpoints((target) => {
+    const status = mockGitStatus(target);
+    return { ...status, changedFiles: mockGitDiff(target, "uncommitted", false).total_files };
+  });
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -372,6 +379,7 @@ export class MockAcpmuxSocket {
       params,
     });
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
+    if (CHECKPOINT_METHODS.includes(method as CheckpointMethod)) return this.checkpoints.answer(target, method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
       case "initialize":

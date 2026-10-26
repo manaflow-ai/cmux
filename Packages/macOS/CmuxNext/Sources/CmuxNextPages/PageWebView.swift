@@ -65,6 +65,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
+    /// Set from the Chromium browser's end until the page shows in an engine again or closes (a discard keeps it); a replaced one ends its wait.
+    var chromiumRecovery: PageChromiumRecovery? { didSet { if oldValue !== chromiumRecovery { oldValue?.cancel() } } }
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
@@ -95,7 +97,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// confirmation sheet, a menu or popup, a drop it reads, Web Inspector, dictation); each change
     /// tells the lifecycle.
     package let keepReasons = PageKeepReasons()
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [PageLoadWaiter] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
@@ -518,10 +520,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Gives the page the keyboard focus: while its Chromium page starts, this view holds it until the page attaches.
     public func focusPage() {
-        if let chromiumSession {
-            chromiumSession.page.setFocused(true)
-            return
-        }
+        if let chromiumSession { return chromiumSession.page.setFocused(true) }
         window?.makeFirstResponder(focusView)
     }
 

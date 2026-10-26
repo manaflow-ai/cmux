@@ -76,7 +76,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
-    init(state: WindowState, services: AppServices, frame: NSRect?) {
+    /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
+    ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
+    init(state: WindowState, services: AppServices, frame: NSRect?, window premade: ShellWindow? = nil) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
@@ -96,21 +98,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
-        let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
+        let window = premade ?? ShellWindow.main(frame: frame)
         window.keyRouter = services.keyRouter
         window.turnMeter = services.mainWork.budget.turns
-        window.title = Strings.appName
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        window.minSize = NSSize(width: 520, height: 320)
-        window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
         visibility = node
@@ -140,8 +130,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeSidebarHidden()
         followContentChanges()
         if rightSidebar.isVisible { showRightSidebar() }
-        // From the next turn: the manager registers this window and shows its first workspace first.
-        services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        // From the next turn: the manager registers this window and shows its first workspace first. Behind the
+        // launch picture the build starts it once its slices ran (`LaunchWindowBuild`, p08-startup-060).
+        if premade == nil {
+            services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        }
     }
 
     @available(*, unavailable)

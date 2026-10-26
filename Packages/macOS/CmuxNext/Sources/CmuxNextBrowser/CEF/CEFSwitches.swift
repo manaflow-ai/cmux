@@ -21,6 +21,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
     /// turn on the extensions developer mode.
     var builtInExtensions: [String] = []
+    /// The default-off feature `chromiumAdBlockerAtFirstTab` on a fork with `cmux_ext_load_command_line_async`:
+    /// ``builtInExtensions`` stay off `--load-extension` and load into each persistent profile right
+    /// before its first browser tab (``CEFBuiltInExtensionLoads``), so Home with no browser tab runs no
+    /// extension background page.
+    var builtInExtensionsAtFirstTab = false
     /// Unpacked extensions stay enabled without developer mode: true while
     /// the built-in uBlock Origin loads or the person has their own unpacked
     /// copy of it (`CEFBuiltInExtensions.Plan`).
@@ -126,7 +131,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        let loaded = builtInExtensions + loadExtensions
+        let loaded = (builtInExtensionsAtFirstTab ? [] : builtInExtensions) + loadExtensions
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
         }
@@ -161,8 +166,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
         // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
         // run times (p14-energy-046).
-        for feature in [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + chromiumFeatures
-        where !features.contains(feature) {
+        let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
+        for feature in named + chromiumFeatures where !features.contains(feature) {
             features.append(feature)
         }
         return features
@@ -191,6 +196,20 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// thread gets only from the absolute run times of p14-energy-046. It stays the default-off
     /// feature `cefTimerSlack` (``chromiumFeatures``).
     static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
+
+    /// Chromium features that quiet an idle source (Q8, p14-energy-042..044: a posting location at or above
+    /// 0.02 tasks/s in an idle session), one location each. Chromium 154.0.8037 sources:
+    /// - `PartitionAllocAdaptiveMemoryReclaimInterval` (base/allocator/partition_alloc_features.cc,
+    ///   `FEATURE_DISABLED_BY_DEFAULT`, so `disable-field-trial-config` leaves it off). Location
+    ///   `MemoryReclaimerSupport::Run` (base/allocator/partition_alloc_support.cc): every process with
+    ///   PartitionAlloc as malloc (all of them on Mac) decommits empty slot spans on its main thread every
+    ///   4 s (`MemoryReclaimer::GetRecommendedReclaimIntervalInMicroseconds`, partition_alloc/memory_reclaimer.cc),
+    ///   0.25/s each in the app's CrBrowserMain, the GPU and utility processes, and every renderer while it
+    ///   is foreground. With the feature the interval starts at 8 s and doubles up to 1 min while a reclaim
+    ///   decommits under 100 KiB (0.017/s at idle); above 200 KiB it halves back toward 4 s
+    ///   (`MemoryReclaimer::ComputeNextReclaimInterval`), so a process with memory to give back reclaims as
+    ///   often as before. Nothing visible depends on the cadence.
+    static let idleSourceOffFeatures = ["PartitionAllocAdaptiveMemoryReclaimInterval"]
 
     /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table
     /// (``CEFForkFeatures/pageSiteSharingForkAPI``, the fork train's number). API 29 has only
@@ -289,6 +308,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
+        builtInExtensionsAtFirstTab: Bool = false,
         keepsUnpackedEnabled: Bool = false,
         agentPageMainFrameCap: Int? = nil,
         pageSiteCaps: [PageSiteCap] = []
@@ -318,6 +338,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
+            builtInExtensionsAtFirstTab: builtInExtensionsAtFirstTab && !builtInExtensions.isEmpty,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             benchSwitches: bench,

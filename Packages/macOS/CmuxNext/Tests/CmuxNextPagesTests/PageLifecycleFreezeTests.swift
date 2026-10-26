@@ -106,20 +106,23 @@ struct PageLifecycleFreezeTests {
         #expect(Array(page.lifecycleSteps.dropFirst(before)) == [.visible(false), .frozen(true)])
     }
 
-    /// The frozen Chromium page's browser ends while the tab is hidden: the page reopens in WebKit
-    /// frozen (hidden in its window, fully throttled), so the lifecycle's frozen state stays true.
-    @Test func aFrozenChromiumPageThatFallsBackToWebKitStaysFrozenInWebKit() async throws {
+    /// The frozen Chromium page's browser ends while the tab is hidden: after the supervisor gave up
+    /// the hidden page still has no engine, so nothing builds WebKit or freezes; it reopens in WebKit,
+    /// running, when the tab shows (p13-webui-058).
+    @Test func aFrozenChromiumPageWhoseBrowserEndedReopensInWebKitOnlyWhenShown() async throws {
         let (view, page) = try await chromiumView()
         defer { finish(view) }
         tab.isHidden = true
         #expect(view.freezePage())
         page.onEvent?(.ended)
-        #expect(view.engineDecision.engine == .webKit)
-        #expect(view.webView.isHidden)
-        #expect(view.webView.configuration.preferences.hiddenPageThrottling == .full)
-        #expect(view.freezePage())
-        view.thawPage()
-        #expect(!view.webView.isHidden)
+        let hosting = try #require(view.chromiumHost as? FakeChromiumHosting)
+        hosting.finishSupervision(.gaveUp)
+        #expect(view.engineDecision == .chromium)
+        #expect(view.webKitPieces == nil)
+        #expect(!view.freezePage())
+        tab.isHidden = false
+        #expect(view.engineDecision == .webKit(.chromiumFailed))
+        #expect(view.webKitPieces?.view.isHidden == false)
     }
 
     // MARK: WebKit
