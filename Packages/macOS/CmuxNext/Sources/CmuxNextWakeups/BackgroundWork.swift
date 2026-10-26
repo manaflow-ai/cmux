@@ -24,6 +24,10 @@ import Dispatch
 /// To keep work low, post it, or await it from a task that is itself low
 /// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
+/// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
+/// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
+/// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
+///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
 ///
@@ -122,7 +126,7 @@ public final class BackgroundWork: Sendable {
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
-                submitted(scheduler.submit(job, at: priority, unless: { Task.isCancelled }), job, on: lane)
+                submitted(scheduler.submit(job, at: priority, posted: false, unless: { Task.isCancelled }), job, on: lane)
             }
         } onCancel: {
             scheduler.remove(id)?.abandon()
@@ -140,7 +144,22 @@ public final class BackgroundWork: Sendable {
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
         let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
-        submitted(lanes[lane.rawValue].submit(job, at: priority, unless: { false }), job, on: lane)
+        submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
+    }
+
+    /// Holds posted ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items on every lane until the
+    /// matching ``endBestEffortFence()``. Items that already run finish; higher priorities and awaited
+    /// items are not held; held items keep their priority and QoS. Fences nest. Chrome:
+    /// `ThreadPoolInstance::BeginBestEffortFence` (base/task/thread_pool/thread_pool_instance.h), raised
+    /// for startup and lowered at startup complete.
+    public func beginBestEffortFence() {
+        for lane in lanes { lane.fence() }
+    }
+
+    /// Lowers one ``beginBestEffortFence()``; when none is left, the held items start in post order
+    /// within each priority. A call with no fence up does nothing. ``shutdown()`` lifts every fence.
+    public func endBestEffortFence() {
+        for lane in lanes { lane.unfence() }
     }
 
     /// Abandons a refused item and reports a queued one.
@@ -153,7 +172,8 @@ public final class BackgroundWork: Sendable {
     }
 
     /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``
-    /// ones, refuses new ones the same way, and returns when every block-shutdown item has finished.
+    /// ones, refuses new ones the same way, lifts the best-effort fence so held block-shutdown items run,
+    /// and returns when every block-shutdown item has finished.
     /// Quit awaits it after its own saves.
     public func shutdown() async {
         for lane in lanes {
