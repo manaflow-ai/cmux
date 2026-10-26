@@ -174,7 +174,7 @@ final class TabContentCache {
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler) {
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
-        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
         wireNotices()
