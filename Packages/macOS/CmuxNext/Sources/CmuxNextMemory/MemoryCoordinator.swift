@@ -27,9 +27,9 @@ public import CmuxNextCompat
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
-/// schedule: the pressure events and the slicer's frames are its only inputs. The override is also
-/// its vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), which
-/// hears the kernel through Chromium's own platform voter.
+/// schedule: the pressure events and the slicer's frames are its only inputs. The level is also its
+/// vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), next to
+/// Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
@@ -47,19 +47,17 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     public private(set) var kernelLevel: MemoryPressureLevel
 
     /// A level that replaces the kernel's until it is set back to nil (`debug.hibernation.pressure`).
-    /// Each change of ``pressureVote`` it makes is told to the vote's observers after the new limits.
     public var pressureOverride: MemoryPressureLevel? {
         didSet {
             guard pressureOverride != oldValue else { return }
             levelInputsDidChange()
-            if pressureVote != (oldValue ?? .normal) { voteHandlers.call(pressureVote) }
         }
     }
 
     /// The level cmux votes into in-process Chromium's pressure aggregator (``MemoryPressureVoteSource``):
-    /// ``pressureOverride``, or normal (no vote) without one. The kernel's level reaches Chromium
-    /// through Chromium's own platform voter, so it is not part of the vote.
-    public var pressureVote: MemoryPressureLevel { pressureOverride ?? .normal }
+    /// ``level``, the override when set, else the cmux level. Normal is Chromium's none. Each change of
+    /// ``level`` is told to the vote's observers after the new limits and the level consumers.
+    public var pressureVote: MemoryPressureLevel { level }
 
     /// The `memory.saver` mode. Changing it changes only the limits of consumers that take a mode
     /// share at the current level.
@@ -172,6 +170,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         for entry in consumers.liveEntries() {
             (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(newLevel)
         }
+        voteHandlers.call(newLevel)
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.

@@ -4,12 +4,12 @@
 /// (`SystemMemoryPressureEvaluatorMac`, started by content/browser/browser_main_loop.cc
 /// `CreateMemoryPressureMonitor`) is the app's one accepted second pressure source (p07-memory DC2).
 ///
-/// The aggregator takes the highest vote, so the vote carries only what that platform voter cannot
-/// see: the memory coordinator's debug override (`debug.hibernation.pressure`). With no override the
-/// vote is ``MemoryPressureLevel/normal``, which is no vote (Chromium's `MEMORY_PRESSURE_LEVEL_NONE`):
-/// the kernel's level already reaches Chromium through its own voter, and voting it a second time
-/// would run Chromium's pressure listeners twice per kernel event. A vote can raise Chromium's level
-/// and hold it after a kernel normal event; it never lowers it.
+/// The vote is the memory coordinator's level: its debug override (`debug.hibernation.pressure`)
+/// when set, else the cmux level. ``MemoryPressureLevel/normal`` is Chromium's
+/// `MEMORY_PRESSURE_LEVEL_NONE`. The aggregator takes the highest vote, so a vote can raise Chromium's
+/// level and hold it after a kernel normal event; it never lowers it. Chromium's listeners run only
+/// when the aggregate changes (the voter's `SetVote` is called with `notify_listeners` false), so a
+/// kernel event that both voters report runs them once.
 ///
 /// ```swift
 /// observation = coordinator.observePressureVote { [weak self] vote in self?.send(vote) }
@@ -17,7 +17,7 @@
 /// ```
 @MainActor
 public protocol MemoryPressureVoteSource: AnyObject {
-    /// The vote now; ``MemoryPressureLevel/normal`` is no vote.
+    /// The vote now; ``MemoryPressureLevel/normal`` is Chromium's none.
     var pressureVote: MemoryPressureLevel { get }
 
     /// Calls `handler` on the main actor once per change of ``pressureVote``, in the turn of the change,

@@ -1,13 +1,13 @@
 public import CmuxNextCompat
 import CmuxNextSignposts
 
-/// cmux's vote in Chromium's memory pressure aggregator (p07-memory-051): the memory coordinator's
-/// ``MemoryPressureVoteSource/pressureVote`` reaches the fork's `cmux_memory_pressure_vote`, one
+/// cmux's vote in Chromium's memory pressure aggregator (p07-memory-051): the memory coordinator's level
+/// (``MemoryPressureVoteSource/pressureVote``) reaches the fork's `cmux_memory_pressure_vote`, one
 /// `MemoryPressureVoter` that the fork makes with `MultiSourceMemoryPressureMonitor::CreateVoter`
 /// (components/memory_pressure/multi_source_memory_pressure_monitor.h) next to the platform voter that
 /// content/browser/browser_main_loop.cc `CreateMemoryPressureMonitor` starts. Chromium takes the highest
 /// vote, so the debug override holds Chromium's level after a kernel normal event, and a vote of normal
-/// (Chromium's `MEMORY_PRESSURE_LEVEL_NONE`) gives the level back to the kernel. Nothing calls
+/// (Chromium's `MEMORY_PRESSURE_LEVEL_NONE`) gives the level back to Chromium's platform voter. Nothing calls
 /// Chromium's `NotifyMemoryPressure` directly.
 ///
 /// One call per change of the vote, none for a repeated one. Chromium starts with no cmux voter, which is
@@ -15,9 +15,9 @@ import CmuxNextSignposts
 /// Chromium runs is sent once it is ready (``chromiumDidStart()``). On a fork without the call the shim
 /// returns at once and nothing changes in Chromium.
 ///
-/// Chromium's pressure listeners run inside the call on the main thread; each call is one
-/// ``SignpostName/cefMemoryPressureVote`` interval, so their time shows apart from the coordinator's
-/// release slices, which run on later frames.
+/// Each call is one ``SignpostName/cefMemoryPressureVote`` interval on the main thread: the synchronous part
+/// of the vote (in process, the sync listeners Chromium runs when the aggregate changes; in host library
+/// mode, one post). Chromium's async listeners run later, in `cef.pump` slices or in the host process.
 @MainActor
 final class CEFMemoryPressureVote {
     /// Sends one vote (`base::MemoryPressureLevel`: 0 none, 1 moderate, 2 critical) to Chromium; false when
@@ -95,7 +95,7 @@ extension CEFEngine {
     /// Chromium's own platform voter (``CEFMemoryPressureVote``). A vote made before Chromium starts reaches it once
     /// it is ready. The process has one Chromium: the engine made last gives its source.
     ///
-    /// - Parameter source: The app's memory coordinator (its debug override is the vote).
+    /// - Parameter source: The app's memory coordinator (its level is the vote).
     /// - Returns: This engine.
     public func votingMemoryPressure(of source: any MemoryPressureVoteSource) -> CEFEngine {
         CEFRuntime.shared.memoryPressureVote.follow(source)

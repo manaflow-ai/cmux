@@ -418,10 +418,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
 
-    /// cmux's memory pressure vote into in-process Chromium's aggregator (`cmux_shim_memory_pressure_vote`):
-    /// Chromium's pressure listeners run inside the call, on the main thread, so the interval is their main-thread
-    /// time; the memory coordinator's release slices run on later frames. Message: `level=<0 none|1 moderate|2
-    /// critical>`. Ring: B/E; begin arg0 the level. Once per change of the coordinator's vote.
+    /// cmux's memory pressure vote into Chromium's aggregator (`cmux_shim_memory_pressure_vote`), the synchronous
+    /// part of the call on the main thread: in process, the vote and the sync listeners Chromium runs when the
+    /// aggregate changes; in host library mode, one post to the Chromium Host. Async listeners are not in it: in
+    /// process they run in later `cef.pump` slices, in host mode in the host process. The memory coordinator's
+    /// release slices run on later frames. Message: `level=<0 none|1 moderate|2 critical>`. Ring: B/E; begin arg0
+    /// the level. Once per change of the coordinator's vote.
     case cefMemoryPressureVote = 82
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).

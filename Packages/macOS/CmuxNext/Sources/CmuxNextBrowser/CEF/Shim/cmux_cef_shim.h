@@ -1060,8 +1060,13 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, cons
 // cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
 // own platform voter (content/browser/browser_main_loop.cc
 // CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
-// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. Chromium's
-// listeners run inside the call. Main thread, after cmux_shim_initialize.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. The fork
+// calls MemoryPressureVoter::SetVote(level, /*notify_listeners=*/false), so
+// Chromium's listeners run only when the aggregate level changes, and a
+// kernel event that the platform voter also reports does not run them twice.
+// Inside the call run only the sync listeners (async ones are posted tasks
+// that run in later cmux_shim_do_work calls); in host library mode the call
+// is one post to the Chromium Host. Main thread, after cmux_shim_initialize.
 // Returns 1 when the fork took the vote, 0 when the fork lacks the call,
 // for a level out of range, or once quit began (nothing changes).
 CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);

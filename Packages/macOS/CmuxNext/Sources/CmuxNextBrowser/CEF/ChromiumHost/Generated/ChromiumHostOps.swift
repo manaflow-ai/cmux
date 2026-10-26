@@ -49,9 +49,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case tabSetColorScheme = 173, pageSchemeSetGroup = 174, tabDiscard = 175
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "5397af351911fb9d334b7d592cc41a1a9982a6348e0f498314a27aa999c36cd9"
+    static let abiIdentity = "3915d7323e4876bb7af8a80ce145686dfc20cf236cf41904271439eef25986a1"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "6c7965a449e55d674820e1a3e2e4c6497754a89b890c45d5ee4d7d6ecc2272ce"
+    static let wireIdentity = "ed415e2b8a4693429763bd866cb8d793e112135cdc046db2e6233e1e6e8543ea"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,

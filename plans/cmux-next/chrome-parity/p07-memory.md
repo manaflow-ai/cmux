@@ -412,8 +412,8 @@ at the end; the hour-0 baseline (075) gives every "today" value.
   content/browser/browser_main_loop.cc `CreateMemoryPressureMonitor`) is the one accepted second
   source in the app; no search above counts it, as it lives in the Chromium framework. cmux reaches
   Chromium's `MultiSourceMemoryPressureMonitor` only through its own voter (051: fork
-  `cmux_memory_pressure_vote`, `CEFMemoryPressureVote`), which votes the coordinator's debug override
-  and none when it clears; nothing in cmux calls `NotifyMemoryPressure`.
+  `cmux_memory_pressure_vote`, `CEFMemoryPressureVote`), which votes the debug override and the cmux
+  level (section 3.A; Chromium's aggregator takes the max); nothing in cmux calls `NotifyMemoryPressure`.
 - **DC3 budgets from RAM.** `rg -n 'physicalMemory' Packages/macOS/CmuxNext/Sources` hits only
   CmuxNextMemory/SubsystemBudget.swift and CmuxNextHangReports/HardwareClass.swift. MQ-CAPS has 0 hits
   outside SubsystemBudget.swift (today 34). MQ-RUST-CAPS literals live only in
