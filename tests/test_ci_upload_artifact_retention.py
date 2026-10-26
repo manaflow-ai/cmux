@@ -14,7 +14,9 @@ discount change, would bill them; the rule holds here so it holds everywhere. A 
   IPA or an xcframework, by name or path), whatever its retention,
 
 unless tests/upload_artifact_retention_allowlist.json lists the step with a reason. An entry is
-"<workflow file>::<job id>::<artifact name as written>". An entry that no longer matches a
+"<workflow file>::<job id>::<artifact name as written>", with "#2", "#3" ... appended for a later
+step of the same job that writes the same name, so each step is listed on its own. An entry that
+no longer matches a
 failing step fails too, so the list only shrinks. Same-run handoffs use retention-days: 1;
 anything a later run or a person reads goes to R2 (scripts/ci/upload-r2-object.py), PR and
 capture objects under ci-tmp/.
@@ -41,6 +43,7 @@ def workflow_files(root: Path = ROOT) -> list[Path]:
     files = sorted((root / ".github/workflows").glob("*.yml"))
     files += sorted((root / ".github/workflows").glob("*.yaml"))
     files += sorted((root / ".github/actions").glob("*/action.yml"))
+    files += sorted((root / ".github/actions").glob("*/action.yaml"))
     return files
 
 
@@ -52,13 +55,17 @@ def upload_steps(path: Path, root: Path = ROOT):
         jobs = {"(composite)": {"steps": (doc.get("runs") or {}).get("steps") or []}}
     else:
         jobs = doc.get("jobs") or {}
+    seen: dict[str, int] = {}
     for job_id, job in jobs.items():
         for step in (job or {}).get("steps") or []:
-            uses = str(step.get("uses", ""))
-            if not uses.startswith("actions/upload-artifact@"):
+            uses = str(step.get("uses", "")).strip()
+            # actions/upload-artifact@REF and actions/upload-artifact/merge@REF both store an artifact.
+            if not re.match(r"actions/upload-artifact(/merge)?@", uses):
                 continue
             options = step.get("with") or {}
-            yield f"{rel}::{job_id}::{options.get('name', '')}", options
+            key = f"{rel}::{job_id}::{options.get('name', '')}"
+            seen[key] = seen.get(key, 0) + 1
+            yield (key if seen[key] == 1 else f"{key}#{seen[key]}"), options
 
 
 def tokens(text: str) -> set[str]:
@@ -66,17 +73,17 @@ def tokens(text: str) -> set[str]:
 
 
 def is_large(options: dict) -> bool:
-    name = str(options.get("name", ""))
-    # Drop ${{ ... }} expressions: their contents name inputs, not the artifact's kind.
-    name = re.sub(r"\$\{\{.*?\}\}", "-", name)
-    if tokens(name) & LARGE_TOKENS:
+    # Expression contents count too: `${{ inputs.app }}` may well name an app.
+    if tokens(str(options.get("name", ""))) & LARGE_TOKENS:
         return True
     for line in str(options.get("path", "")).splitlines():
-        line = line.strip().rstrip("/").lower()
+        line = line.strip().lower()
         if line.startswith("!"):
             continue
-        if line.endswith(LARGE_SUFFIXES) or line.endswith(tuple(s + "/*" for s in LARGE_SUFFIXES)):
-            return True
+        # Any segment: build/cmux.app/Contents/**, a.xcarchive/dSYMs, out/*.zip, x.dSYM/.
+        for segment in line.split("/"):
+            if segment.rstrip("*").endswith(LARGE_SUFFIXES):
+                return True
     return False
 
 
@@ -120,12 +127,26 @@ class RuleTests(unittest.TestCase):
     def test_large_kinds_fail_by_name_or_path(self):
         for options in ({"name": "cmux-nightly-unsigned-app"}, {"name": "nightly-next-dsyms-${{ x }}"},
                         {"name": "ui-tests-xcresult"}, {"name": "cmux-next-capture-1"},
-                        {"name": "out", "path": "build/cmux.zip"}, {"name": "out", "path": "a.dSYM/"}):
+                        {"name": "out", "path": "build/cmux.zip"}, {"name": "out", "path": "a.dSYM/"},
+                        {"name": "out", "path": "x/cmux.xcarchive/dSYMs"}, {"name": "out", "path": "b/cmux.app/Contents/**"},
+                        {"name": "out", "path": "out/*.dmg"}, {"name": "receipt-${{ inputs.app }}"}):
             options["retention-days"] = 1
             self.assertTrue(problems(options), options)
         self.assertEqual(problems({"name": "approval-receipt", "retention-days": 1}), [])
         self.assertEqual(problems({"name": "happy-path", "retention-days": 1}), [])
-        self.assertEqual(problems({"name": "receipt-${{ inputs.app }}", "retention-days": 1}), [])
+        self.assertEqual(problems({"name": "out", "path": "!x.zip\nreport.json", "retention-days": 1}), [])
+
+    def test_a_repeated_name_in_one_job_is_listed_per_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            step = "      - uses: actions/upload-artifact@v4\n        with:\n          name: same\n"
+            merge = "      - uses: actions/upload-artifact/merge@v4\n        with:\n          name: same\n"
+            (root / ".github/workflows/w.yml").write_text("jobs:\n  j:\n    steps:\n" + step + step + merge)
+            self.assertEqual(sorted(violations(root)), [".github/workflows/w.yml::j::same",
+                                                        ".github/workflows/w.yml::j::same#2",
+                                                        ".github/workflows/w.yml::j::same#3"])
 
 
 class WorkflowTests(unittest.TestCase):
