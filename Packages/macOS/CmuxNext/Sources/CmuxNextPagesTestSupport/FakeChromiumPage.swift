@@ -32,7 +32,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     /// Every URL the host loaded, in order.
     public private(set) var loaded: [URL] = []
-    /// How many times the host reloaded the document.
+    /// How many times the host reloaded the document (``reload()``; p13-webui-039 and p07-memory-049 both read it).
     public private(set) var reloads = 0
     /// The last zoom the host set; nil before any.
     public private(set) var zoom: Double?
@@ -44,8 +44,6 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var discards = 0
     /// A discard took and no load ran since (the engine reloads the entry when the page shows).
     public private(set) var isDiscarded = false
-    /// How many times the host reloaded the page (``reload()``).
-    public private(set) var reloads = 0
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
