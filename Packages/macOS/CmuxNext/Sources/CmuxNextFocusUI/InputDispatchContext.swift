@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 public import CmuxNextSignposts
 
 /// The input event being dispatched now: the one source the key router, the menu key gate, the action
@@ -120,6 +121,13 @@ public final class InputDispatchContext {
 
     /// The innermost event being dispatched, nil between dispatches.
     public var event: NSEvent? { stack.last?.event }
+
+    /// The input a `switch.*` interval begun now answers (`switch.workspace`, `switch.tab`, `switch.pane_focus`):
+    /// the `NSEvent.timestamp` of the key or click being dispatched, the event an action run's `action.*` input age
+    /// reads (`ActionRegistry.inputTimestamp(of:)`). Nil between dispatches, so a switch a socket, CLI or daemon reply
+    /// starts has no input age however recent the last click was. Chrome stamps an input's latency with the
+    /// dispatched event's own time (`EventMetrics::Create`, cc/metrics/event_metrics.h).
+    public var inputTimestamp: TimeInterval? { ActionRegistry.inputTimestamp(of: event) }
 
     /// Whether the innermost event being dispatched is a key-down.
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }

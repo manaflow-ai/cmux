@@ -35,4 +35,20 @@ struct InputDispatchContextTests {
         #expect(context.event == nil)
         #expect(!context.isKeyDown)
     }
+
+    /// A switch begun now takes the key or click being dispatched as its input; a mouse move is none, and nothing
+    /// is between dispatches (`NSApp.currentEvent` keeps the last event after its dispatch ends).
+    @Test func theSwitchInputIsTheDispatchedKeyOrClick() throws {
+        let context = InputDispatchContext()
+        let click = try Self.event(.leftMouseUp, at: 7)
+        let key = try Self.event(.keyDown, at: 8)
+        let moved = try Self.event(.mouseMoved, at: 9)
+        #expect(context.inputTimestamp == nil)
+        context.dispatching(click) {
+            #expect(context.inputTimestamp == 7)
+            context.dispatching(key) { #expect(context.inputTimestamp == 8) }
+            context.dispatching(moved) { #expect(context.inputTimestamp == nil) }
+        }
+        #expect(context.inputTimestamp == nil, "after the dispatch ends, a later switch has no input")
+    }
 }

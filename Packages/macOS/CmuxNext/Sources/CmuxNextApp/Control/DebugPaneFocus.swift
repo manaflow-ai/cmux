@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSettings
 import CmuxNextSignposts
 
@@ -21,7 +22,7 @@ import CmuxNextSignposts
 /// deltas, responder echoes, topology reports and moves in a hidden workspace (the reducer only remembers
 /// those) write nothing. A recorded row starts at the interval's begin and its `signpost_ms` is the
 /// interval. Each coordinator times into its ``FocusCoordinator/paneFocusTimer`` (``timer`` unless a test
-/// passes its own) and reads its input from its ``FocusCoordinator/keyInput``.
+/// passes its own) and reads its input from its ``FocusCoordinator/keyInput`` and ``FocusCoordinator/inputDispatch``.
 ///
 /// Chrome has no focus-move metric: a click or key that moves focus is an input event, timed by
 /// EventLatency from the event's timestamp to the frame that presents its effect (cc/metrics/event_metrics.h,
@@ -62,9 +63,8 @@ enum DebugPaneFocus {
     static func began(_ coordinator: FocusCoordinator) {
         let key = ObjectIdentifier(coordinator), timer = coordinator.paneFocusTimer
         guard !timer.awaitsShow(key) else { return }
-        // The key whose binding runs now (KeyRouter), else the event being sent: its age is the input stage.
-        let event = (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent : nil
-        timer.began(key, inputTimestamp: coordinator.keyInput?.timestamp ?? event?.timestamp)
+        // The key whose binding runs now (KeyRouter), else the key or click being dispatched: its age is the input stage.
+        timer.began(key, inputTimestamp: coordinator.keyInput?.timestamp ?? coordinator.inputDispatch?.inputTimestamp)
     }
 
     /// A drain of `coordinator` starts with `event`: a move begins when the event is a focus intent.

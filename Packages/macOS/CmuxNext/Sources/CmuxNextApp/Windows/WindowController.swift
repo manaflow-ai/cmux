@@ -122,6 +122,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.window = window
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
+        focus.inputDispatch = services.inputDispatch
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()

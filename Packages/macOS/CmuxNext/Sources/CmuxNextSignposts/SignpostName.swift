@@ -15,8 +15,8 @@
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
-/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep`` and
-/// ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``,
+/// ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab`` and ``switchPaneFocus`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -123,10 +123,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 102, PL-trace). The main thread's IOSurface contents handoff of that frame.
     case keyEchoContents = 32
 
-    // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
+    // MARK: switch (PL-switch)
 
-    /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
-    /// workspace. Ring: AB/AE; begin arg0 the input age in us.
+    /// A workspace switch (task 027, `DebugWorkspaceSwitch`, every build): the intent
+    /// (`WindowManager.show(workspaceID:in:)`) to the ``CommitBoundary`` after its turn, which shows the new
+    /// workspace. An intent that shows nothing in its turn, or a superseded one, ends `commit=missed`. Ring: AB/AE;
+    /// begin arg0 the input age in us (all ones without an input event); end arg0 the boundary's `EndCode`.
     case switchWorkspace = 9
     /// A tab switch (``TabSwitchSignpost``, every build): the intent to the app's commit that shows the destination
     /// tab's content. Begin message `kind=<cold|warm|page>`. A switch to a live Chromium page ends at the commit after

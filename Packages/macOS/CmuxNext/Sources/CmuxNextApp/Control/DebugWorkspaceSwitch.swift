@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextSignposts
 
 /// `debug.workspace_switch`: the app's own time per workspace switch (`SwitchFrameTimer`), from the
 /// intent (`WindowManager.show(workspaceID:in:)`, every entry: a sidebar click, Cmd-1…9, next or
 /// previous workspace, the palette, a socket action) to the shown content (`WindowController.show`)
-/// to the Core Animation commit that carries it. `input_ms` is the triggering event's age (a click's
-/// release, a key), so a switch that waits on its event shows there. Stages: `park`, `sidebar`,
+/// to the Core Animation commit that carries it. `input_ms` is the age of the key or click being
+/// dispatched (``InputDispatchContext/inputTimestamp``, the action run's input), so a switch that waits
+/// on its event shows there; a socket or CLI switch has none. Stages: `park`, `sidebar`,
 /// `root`, `theme`, `did_show` (since the intent). Lawrence 2026-10-21: "changing workspaces is laggy".
 ///
 /// Every switch is also the `switch.workspace` trace interval in every build, recording or not (perf-hot
@@ -19,10 +21,8 @@ enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch", signpost: SignpostName.switchWorkspace)
 
     /// The window whose switch begins now (a switch is keyed by its window's controller).
-    static func began(_ owner: AnyObject) {
-        let event = NSApp.currentEvent
-        let input = event.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil }
-        timer.began(ObjectIdentifier(owner), inputTimestamp: input)
+    static func began(_ owner: WindowController) {
+        timer.began(ObjectIdentifier(owner), inputTimestamp: owner.services.inputDispatch.inputTimestamp)
     }
 
     static func mark(_ owner: AnyObject, _ stage: StaticString) {
