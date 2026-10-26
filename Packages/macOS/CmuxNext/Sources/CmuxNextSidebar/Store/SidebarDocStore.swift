@@ -79,6 +79,9 @@ public final class SidebarDocStore {
     @ObservationIgnored private var earlyBatches: [Data] = []
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
+    /// The live list the last `show` projected over, in its order: `showsPinned` projects over it, so it reads what
+    /// `shown` draws whether or not the memo (`projectionCache`) is still kept.
+    @ObservationIgnored var lastLiveOrder: [SidebarDocWorkspaceRef] = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
@@ -202,7 +205,7 @@ public final class SidebarDocStore {
     /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
     public func showsPinned(group item: String) -> Bool? {
         guard isActive, shown != nil else { return nil }
-        let projection = projection(live: projectionCache?.live ?? Array(lastLive))
+        let projection = projection(live: lastLiveOrder)
         return projection.map { $0.bandGroups.contains { $0.id == item && $0.pinned } } ?? records.isPinned(group: item)
     }
 

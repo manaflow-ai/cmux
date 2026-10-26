@@ -53,6 +53,36 @@ import Testing
         #expect(consumer.memoryUsage?.entries == 1)
     }
 
+    /// A Pin/Unpin after a release reads the projection over the live list `show` drew, in its order: the unplaced
+    /// workspaces list in live order, so a projection over the live set in any other order would leave the mirror's
+    /// rows (a drag reads them) unlike what the sidebar draws.
+    @Test func showsPinnedAfterAReleaseProjectsOverTheShownLiveOrder() async throws {
+        let store = try await Fixture.loaded()
+        let registry = FakeRegistry()
+        store.registerMemoryConsumer(with: registry)
+        let consumer = try #require(registry.entries.first?.liveConsumer)
+        let unplaced = (0..<12).reversed().map { Fixture.ref("new-\($0)") }
+        let live = Fixture.placed.map(Fixture.ref) + unplaced
+        store.show(live: live)
+        let shown = try #require(store.shown, "the store shows no projection")
+        #expect(shown.unplaced == unplaced)
+
+        #expect(consumer.releaseMemory(within: Self.slice(0)) == .done)
+        #expect(store.projectionCache == nil, "a release at critical kept the memo")
+
+        let before = Fixture.views
+        #expect(store.showsPinned(group: "g_0") == false)
+        #expect(Fixture.views == before + 1, "the Pin/Unpin read did not rebuild the memo with one reducer call")
+        let rebuilt = try #require(store.projectionCache, "the Pin/Unpin read cached no projection")
+        #expect(rebuilt.live == live, "the Pin/Unpin read projected over a live list other than the shown one")
+        #expect(rebuilt.projection == shown, "the mirror's last view is not what the sidebar draws")
+
+        let afterPin = Fixture.views
+        store.show(live: live)
+        #expect(Fixture.views == afterPin, "the next show rebuilt the memo the Pin/Unpin read cached")
+        #expect(store.shown == shown)
+    }
+
     @Test func theProjectionMemoLeavesTheRegistryWithItsStore() {
         let registry = FakeRegistry()
         do {

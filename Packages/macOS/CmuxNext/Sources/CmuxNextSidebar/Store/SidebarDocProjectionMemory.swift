@@ -6,7 +6,8 @@ package import CmuxNextCompat
 ///
 /// The memo is one entry and the next `projection(live:)` rebuilds it with one reducer `view` call, so
 /// it takes no partial limit: a new limit frees nothing, and a release at critical drops the entry.
-/// What the sidebar draws (`shown`) stays.
+/// What the sidebar draws (`shown`) and the live list it was built over (`lastLiveOrder`, which `showsPinned`
+/// projects over) stay, so the rebuild gives the same projection and the mirror's rows stay as shown.
 @MainActor
 final class SidebarDocProjectionMemory: MemoryConsumer {
     /// The consumer's name in the memory report.

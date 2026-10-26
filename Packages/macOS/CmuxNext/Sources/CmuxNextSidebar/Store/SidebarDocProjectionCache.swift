@@ -9,7 +9,7 @@ import Foundation
 /// again) reuses the projection: no reducer view call and no rebuild of every row (sidebar-churn-typing.py).
 nonisolated struct SidebarDocProjectionCache {
     let version: UInt64
-    /// The live list it was built over, as given (`showsPinned` projects over it again).
+    /// The live list it was built over, as given.
     let live: [SidebarDocWorkspaceRef]
     let liveSet: Set<SidebarDocWorkspaceRef>
     /// The live workspaces it does not place, in live order.
