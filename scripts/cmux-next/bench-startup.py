@@ -98,7 +98,8 @@ the executable after the launch, before any result is written.
 --order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run. A
 term A|B is any one of the marks (the earliest that arrived): a launch marks
 launch.agent_page_warmup when the warm-up made its page and
-launch.agent_page_warmup_not_needed when an agent page had started WebKit first.
+launch.agent_page_warmup_not_needed when an agent page had started WebKit first or
+agent pages open in Chromium.
 """
 import argparse
 import glob
@@ -165,7 +166,7 @@ MARKS = [
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up made its page"),
-    ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
+    ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit, or agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),

@@ -29,7 +29,9 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). The agent
+    /// pages' WebKit warm-up makes no WebKit page when they open in Chromium (`AgentPageWarmup.start(webUI:)`
+    /// decides when it runs and marks `launch.agent_page_warmup_not_needed`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
                                      spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) }, spareWarming: { [weak self] in self?.newTabSpares.startWarming() },

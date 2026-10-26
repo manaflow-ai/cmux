@@ -4,13 +4,14 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// The agent pages' WebKit warm-up (p08-startup-017): when its page may be made and when it goes,
-/// and which engine a new agent page opens in, decided with no side effect.
+/// which engine a new agent page opens in, decided with no side effect, and no warm-up page while agent
+/// pages open in Chromium (p13-webui-046).
 @Suite struct AgentPageWarmupPlanTests {
     @Test func aWarmupQueuedPastTheSettleStillMakesItsPage() {
         var plan = AgentPageWarmupPlan()
         let settleDropped = plan.settle()
         #expect(!settleDropped, "no page yet: nothing goes")
-        #expect(plan.start() == true, "the afterStartup warm-up still starts; its page goes once its load ends")
+        #expect(plan.start(agentPagesShowInWebKit: true) == true, "the afterStartup warm-up still starts; its page goes once its load ends")
         #expect(plan.pageAlive)
         let loadDropped = plan.loadEnded()
         #expect(loadDropped, "the empty page goes, WebKit's setup and the pool stay")
@@ -19,7 +20,7 @@ import Testing
 
     @Test func aWarmupBeforeTheSettleKeepsItsPageUntilTheSettle() {
         var plan = AgentPageWarmupPlan()
-        #expect(plan.start() == false, "made before the settle: kept for the first agent page")
+        #expect(plan.start(agentPagesShowInWebKit: true) == false, "made before the settle: kept for the first agent page")
         let loadDropped = plan.loadEnded()
         #expect(!loadDropped, "its load ending does not drop it before the settle")
         let settleDropped = plan.settle()
@@ -30,13 +31,13 @@ import Testing
     @Test func anAgentPageMadeFirstMeansNoWarmup() {
         var plan = AgentPageWarmupPlan()
         plan.agentPageMade()
-        #expect(plan.start() == nil, "that page started WebKit")
+        #expect(plan.start(agentPagesShowInWebKit: true) == nil, "that page started WebKit")
         #expect(!plan.pageAlive)
     }
 
     @Test func anAgentPageLoadedDropsTheWarmupPage() {
         var plan = AgentPageWarmupPlan()
-        _ = plan.start()
+        _ = plan.start(agentPagesShowInWebKit: true)
         let loadedDropped = plan.agentPageLoaded()
         #expect(loadedDropped)
         let settleDropped = plan.settle()
@@ -45,9 +46,40 @@ import Testing
 
     @Test func theWarmupStartsOncePerRun() {
         var plan = AgentPageWarmupPlan()
-        _ = plan.start()
+        _ = plan.start(agentPagesShowInWebKit: true)
         _ = plan.settle()
-        #expect(plan.start() == nil)
+        #expect(plan.start(agentPagesShowInWebKit: true) == nil)
+    }
+
+    @Test func noWarmupWhileAgentPagesOpenInChromium() {
+        var plan = AgentPageWarmupPlan()
+        #expect(plan.start(agentPagesShowInWebKit: false) == nil, "a WebKit page warms nothing a Chromium agent page uses")
+        #expect(!plan.started)
+        #expect(!plan.pageAlive)
+        let settleDropped = plan.settle()
+        #expect(!settleDropped, "no page was made")
+    }
+
+    @MainActor @Test func chromiumDefaultMakesNoWebKitWarmupPage() {
+        let hosting = FakeChromiumHosting()
+        let warmup = AgentPageWarmup(chromiumChat: { true })
+        #expect(!warmup.start(webUI: .agentPaneTestHost(chromium: hosting)),
+                "Chromium is the default and takes the agent chat: no WKWebView at launch")
+    }
+
+    @MainActor @Test func aWebKitAgentChatStillWarms() {
+        let hosting = FakeChromiumHosting()
+        hosting.preference = .webkit
+        let warmup = AgentPageWarmup(chromiumChat: { true })
+        #expect(warmup.start(webUI: .agentPaneTestHost(chromium: hosting)), "the person chose WebKit")
+        warmup.settle()
+    }
+
+    @MainActor @Test func chromiumChatOffStillWarms() {
+        let warmup = AgentPageWarmup(chromiumChat: { false })
+        #expect(warmup.start(webUI: .agentPaneTestHost(chromium: FakeChromiumHosting())),
+                "the agent chat stays on WebKit")
+        warmup.settle()
     }
 
     @MainActor @Test func newAgentPagesShowInWebKitUnlessChromiumTakesTheChat() {
