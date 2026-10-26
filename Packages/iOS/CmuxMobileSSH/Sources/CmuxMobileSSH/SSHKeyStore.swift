@@ -59,8 +59,10 @@ public actor SSHKeyStore {
         guard SecureEnclave.isAvailable else { throw SSHKeyStoreError.secureEnclaveUnavailable }
         var flags: SecAccessControlCreateFlags = [.privateKeyUsage]
         if requiresBiometry { flags.insert(.biometryCurrentSet) }
-        var error: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, &error) else {
+        // SAFETY: a nil error pointer asks Security for no CFError, so nothing is written
+        // (the old local Unmanaged<CFError> was never read and leaked its +1 reference);
+        // the nil allocator is the default one.
+        guard let access = unsafe SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, nil) else {
             throw SSHKeyStoreError.keychain(errSecParam)
         }
         let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
@@ -155,7 +157,8 @@ public actor SSHKeyStore {
         SecItemDelete(query as CFDictionary)
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
+        // SAFETY: a nil result pointer asks Security for no output, so nothing is written.
+        let status = unsafe SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else { throw SSHKeyStoreError.keychain(status) }
     }
 
@@ -164,7 +167,9 @@ public actor SSHKeyStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching writes at most one retained reference into
+        // `result`, a local AnyObject? that outlives the call and owns it after.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             throw status == errSecItemNotFound ? SSHKeyStoreError.missingSecret : SSHKeyStoreError.keychain(status)
         }

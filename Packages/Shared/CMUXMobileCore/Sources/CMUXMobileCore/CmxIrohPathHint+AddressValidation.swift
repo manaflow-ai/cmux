@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 private struct CmxIrohPathHintValidator {
@@ -125,14 +120,7 @@ private struct CmxIrohPathHintValidator {
   }
 
   private func ipv6LiteralBytes(_ host: String) -> [UInt8]? {
-    var address = in6_addr()
-    let parsed = host.withCString { pointer in
-      inet_pton(AF_INET6, pointer, &address)
-    }
-    guard parsed == 1 else {
-      return nil
-    }
-    return withUnsafeBytes(of: &address) { Array($0) }
+    CmxIPLiteral(host, family: .ipv6)?.bytes
   }
 
   private func ipv6AddressIsAllowed(_ bytes: [UInt8]) -> Bool {

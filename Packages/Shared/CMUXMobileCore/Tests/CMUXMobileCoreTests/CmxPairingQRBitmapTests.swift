@@ -127,9 +127,12 @@ import Testing
         let height = image.height
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        try rgba.withUnsafeMutableBytes { buffer in
+        // SAFETY: the context draws into `rgba`, width * height * 4 bytes, exactly
+        // bytesPerRow * height for 8-bit RGBA; it lives only inside this closure, while the
+        // buffer is valid.
+        try unsafe rgba.withUnsafeMutableBytes { buffer in
             let context = try #require(
-                CGContext(
+                unsafe CGContext(
                     data: buffer.baseAddress,
                     width: width,
                     height: height,

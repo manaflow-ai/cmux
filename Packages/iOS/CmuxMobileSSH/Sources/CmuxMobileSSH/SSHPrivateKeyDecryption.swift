@@ -75,34 +75,39 @@ struct SSHPrivateKeyDecryption {
     private func aesDecrypt(_ input: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         let ctr = spec.isCTR
         #if canImport(CommonCrypto)
+        guard key.count == spec.keyLength, iv.count == spec.ivLength else { throw SSHPrivateKeyParseError.malformed }
         var cryptor: CCCryptorRef?
-        let createStatus = key.withUnsafeBufferPointer { keyPtr in
-            iv.withUnsafeBufferPointer { ivPtr in
-                CCCryptorCreateWithMode(
-                    CCOperation(kCCDecrypt),
-                    CCMode(ctr ? kCCModeCTR : kCCModeCBC),
-                    CCAlgorithm(kCCAlgorithmAES),
-                    CCPadding(ccNoPadding),
-                    ivPtr.baseAddress,
-                    keyPtr.baseAddress,
-                    key.count,
-                    nil,
-                    0,
-                    0,
-                    ctr ? CCModeOptions(kCCModeOptionCTR_BE) : 0,
-                    &cryptor
-                )
-            }
-        }
-        guard createStatus == kCCSuccess, let cryptor else { throw SSHPrivateKeyParseError.malformed }
-        defer { CCCryptorRelease(cryptor) }
-        var output = [UInt8](repeating: 0, count: input.count)
+        // SAFETY: CommonCrypto reads key.count bytes of `key` (16, 24 or 32, the AES key
+        // size the spec names) and one 16-byte AES block of `iv` (ivLength is 16 for every
+        // spec), both checked above; no tweak is passed (nil, 0). It writes one cryptor
+        // reference into `cryptor`, a local that outlives the call.
+        let createStatus = unsafe CCCryptorCreateWithMode(
+            CCOperation(kCCDecrypt),
+            CCMode(ctr ? kCCModeCTR : kCCModeCBC),
+            CCAlgorithm(kCCAlgorithmAES),
+            CCPadding(ccNoPadding),
+            iv,
+            key,
+            key.count,
+            nil,
+            0,
+            0,
+            ctr ? CCModeOptions(kCCModeOptionCTR_BE) : 0,
+            &cryptor
+        )
+        // SAFETY: on success `cryptor` holds the reference the create call wrote; it is
+        // released once below.
+        guard createStatus == kCCSuccess, let cryptor = unsafe cryptor else { throw SSHPrivateKeyParseError.malformed }
+        // SAFETY: `cryptor` was created above, is used only in this call, and is released once.
+        defer { unsafe CCCryptorRelease(cryptor) }
+        let capacity = input.count
+        var output = [UInt8](repeating: 0, count: capacity)
         var moved = 0
-        let status = input.withUnsafeBufferPointer { inPtr in
-            output.withUnsafeMutableBufferPointer { outPtr in
-                CCCryptorUpdate(cryptor, inPtr.baseAddress, input.count, outPtr.baseAddress, outPtr.count, &moved)
-            }
-        }
+        // SAFETY: the update reads input.count bytes of `input` and, with no padding and a
+        // whole number of blocks (decrypt checks input.count % blockSize), writes at most
+        // input.count bytes into `output`, which holds `capacity` (= input.count) bytes,
+        // the size passed; `moved` is a local Int. The cryptor is live until the release.
+        let status = unsafe CCCryptorUpdate(cryptor, input, input.count, &output, capacity, &moved)
         guard status == kCCSuccess, moved == input.count else { throw SSHPrivateKeyParseError.malformed }
         return output
         #else

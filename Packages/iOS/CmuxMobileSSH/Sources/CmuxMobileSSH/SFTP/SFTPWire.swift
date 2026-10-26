@@ -69,12 +69,15 @@ struct SFTPWriter {
 
     mutating func byte(_ value: UInt8) { body.append(value) }
 
-    mutating func uint32(_ value: UInt32) {
-        withUnsafeBytes(of: value.bigEndian) { body.append(contentsOf: $0) }
-    }
+    mutating func uint32(_ value: UInt32) { appendBigEndian(value) }
 
-    mutating func uint64(_ value: UInt64) {
-        withUnsafeBytes(of: value.bigEndian) { body.append(contentsOf: $0) }
+    mutating func uint64(_ value: UInt64) { appendBigEndian(value) }
+
+    /// Most significant byte first, with no pointer to the value's storage.
+    private mutating func appendBigEndian<T: FixedWidthInteger & UnsignedInteger>(_ value: T) {
+        for shift in stride(from: T.bitWidth - 8, through: 0, by: -8) {
+            body.append(UInt8(truncatingIfNeeded: value >> shift))
+        }
     }
 
     mutating func string(_ value: Data) {

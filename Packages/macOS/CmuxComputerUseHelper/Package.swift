@@ -15,9 +15,13 @@ import PackageDescription
 //   CmuxCuaHelperCore   -> CCuaDriverABI, Security (admission, control pipe, socket, runtime bridge)
 //   cmux-cua-helper     -> CmuxCuaHelperCore (the executable in "cmux Computer Use (dev).app")
 
+// Strict memory safety (p10-stability-078): the package is outside the CmuxNext
+// closure the settings lander writes, so it carries the setting itself; every
+// `unsafe` in its sources has a SAFETY argument above it.
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("ExistentialAny"),
+    .strictMemorySafety(),
 ]
 
 let package = Package(
