@@ -195,7 +195,9 @@ enum LinkGuard {
 /// GETs through LinkGuard: an ephemeral session, redirects re-checked, the
 /// connected address re-checked, a size cap. One instance, a background queue.
 /// cmux: Sendable (URLSession's delegate protocols are): the jobs, the timeout and the session
-/// live behind one checked lock instead of an NSLock and plain vars (p10-stability-040).
+/// live behind one checked lock instead of an NSLock and plain vars (p10-stability-040). The
+/// delegate methods only adapt URLSession's types to the per-task rules below (`track`, `redirect`,
+/// `respond`, `receive`, `connected`, `complete`), which tests drive without the network.
 final class GuardedFetcher: NSObject, URLSessionDataDelegate, Sendable {
     static let shared = GuardedFetcher()
     struct Result: Sendable { var data: Data; var url: URL }
@@ -223,7 +225,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate, Sendable {
         set { state.withLock { $0.timeout = newValue } }
     }
     let queue: OperationQueue = { let q = OperationQueue(); q.maxConcurrentOperationCount = 1; q.qualityOfService = .utility; return q }()
-    /// Made on first use (the timeout set before the first fetch configures it).
+    /// Made on first use (the timeout set before the first fetch configures it), on the fetcher's queue.
     private var session: URLSession {
         let (existing, timeout) = state.withLock { ($0.session, $0.timeout) }
         if let existing { return existing }
@@ -258,42 +260,96 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate, Sendable {
                          forHTTPHeaderField: "User-Agent")
             req.setValue(html ? "text/html,application/xhtml+xml" : "image/*", forHTTPHeaderField: "Accept")
             let task = session.dataTask(with: req)
-            let id = task.taskIdentifier, job = Job(limit: limit, stopAtHeadEnd: html, url: url, done: done)
-            state.withLock { $0.jobs[id] = job }
+            track(task.taskIdentifier, url: url, limit: limit, html: html, done: done)
             task.resume()
         }
     }
 
-    private func job(_ t: URLSessionTask) -> Job? {
-        let id = t.taskIdentifier
-        return state.withLock { $0.jobs[id] }
+    // MARK: Per-task rules (the delegate methods below call them on the fetcher's queue)
+
+    /// Task `id` fetches `url`: at most `limit` bytes; `html`: stop at `</head>` (a longer page is cut, not refused).
+    func track(_ id: Int, url: URL, limit: Int, html: Bool, done: @escaping Done) {
+        let job = Job(limit: limit, stopAtHeadEnd: html, url: url, done: done)
+        state.withLock { $0.jobs[id] = job }
     }
 
-    /// Changes the task's job in place (nil: no such job). The job is moved out and back, so its
+    /// Whether task `id` follows a redirect to `next`; false refuses it (the job keeps the refusal
+    /// and the caller cancels the task). nil: no such task.
+    func redirect(_ id: Int, to next: URL) -> Bool? {
+        guard let j = state.withLock({ $0.jobs[id] }) else { return nil }
+        // cmux: decided outside the lock (LinkGuard.check resolves the name); the delegate queue is serial.
+        let refusal: LinkGuard.Refusal?
+        if j.redirects + 1 > LinkGuard.maxRedirects { refusal = .redirectLimit }
+        else if j.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http" { refusal = .downgrade }
+        else { refusal = LinkGuard.check(next) }
+        update(id) { job in
+            job.redirects += 1
+            if let refusal { job.refusal = refusal } else { job.url = next }
+        }
+        return refusal == nil
+    }
+
+    /// Whether task `id` reads a response of `expectedLength` bytes (-1: unknown); false refuses it
+    /// as too large. An HTML page is never refused for its length (it stops at `</head>`).
+    func respond(_ id: Int, expectedLength: Int64) -> Bool {
+        let tooLarge = update(id) { j -> Bool in
+            guard expectedLength > Int64(truncatingIfNeeded: j.limit) /* Int is 64-bit */, !j.stopAtHeadEnd else { return false }
+            j.refusal = .tooLarge
+            return true
+        } ?? false
+        return !tooLarge
+    }
+
+    /// Task `id` received `data`; true: the task stops now (over its limit, or past `</head>`).
+    func receive(_ id: Int, _ data: Data) -> Bool {
+        update(id) { j -> Bool in
+            j.data.append(data)
+            if j.data.count > j.limit {
+                if j.stopAtHeadEnd { j.data = j.data.prefix(j.limit); j.finishedEarly = true } else { j.refusal = .tooLarge }
+                return true
+            }
+            if j.stopAtHeadEnd, let tail = String(data: j.data.suffix(data.count + 8), encoding: .isoLatin1), tail.range(of: "</head>", options: .caseInsensitive) != nil {
+                j.finishedEarly = true
+                return true
+            }
+            return false
+        } ?? false
+    }
+
+    /// Task `id` connected to `addresses` (its transactions' remote addresses): one that is not
+    /// public refuses the response (DNS rebinding between our resolution and URLSession's).
+    func connected(_ id: Int, to addresses: [String]) {
+        guard let bad = addresses.first(where: { !LinkGuard.isPublicAddress($0) && !LinkGuard.isTestAddress($0) }) else { return }
+        update(id) { j in j.refusal = j.refusal ?? .connectedTo(bad) }
+    }
+
+    /// Task `id` ended with `error` and `response`: its `done` runs once, with the first refusal,
+    /// the network error (a stop of our own is not one), a non-2xx status or the data.
+    func complete(_ id: Int, error: Error?, response: URLResponse?) {
+        guard let j = state.withLock({ $0.jobs.removeValue(forKey: id) }) else { return }
+        if let r = j.refusal { j.done(.failure(r)); return }
+        if let error, !j.finishedEarly { j.done(.failure(.network(String(describing: (error as NSError).code)))); return }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { j.done(.failure(.network("HTTP \(http.statusCode)"))); return }
+        j.done(.success(Result(data: j.data, url: response?.url ?? j.url)))
+    }
+
+    /// Changes task `id`'s job in place (nil: no such job). The job is moved out and back, so its
     /// data buffer is not copied.
     @discardableResult
-    private func update<R: Sendable>(_ t: URLSessionTask, _ body: @Sendable (inout Job) -> R) -> R? {
-        let id = t.taskIdentifier
-        return state.withLock { s in
+    private func update<R: Sendable>(_ id: Int, _ body: @Sendable (inout Job) -> R) -> R? {
+        state.withLock { s in
             guard var j = s.jobs.removeValue(forKey: id) else { return nil }
             defer { s.jobs[id] = j }
             return body(&j)
         }
     }
 
+    // MARK: URLSessionDataDelegate
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        guard let j = job(task), let next = request.url else { completionHandler(nil); return }
-        // cmux: decided outside the lock (LinkGuard.check resolves the name); the delegate queue is serial.
-        let refusal: LinkGuard.Refusal?
-        if j.redirects + 1 > LinkGuard.maxRedirects { refusal = .redirectLimit }
-        else if j.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http" { refusal = .downgrade }
-        else { refusal = LinkGuard.check(next) }
-        update(task) { job in
-            job.redirects += 1
-            if let refusal { job.refusal = refusal } else { job.url = next }
-        }
-        if refusal != nil { completionHandler(nil); task.cancel(); return }
+        guard let next = request.url, let follow = redirect(task.taskIdentifier, to: next) else { completionHandler(nil); return }
+        guard follow else { completionHandler(nil); task.cancel(); return }
         var r = request; r.httpShouldHandleCookies = false
         completionHandler(r)
     }
@@ -309,43 +365,18 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate, Sendable {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
-        let expected = response.expectedContentLength
-        let tooLarge = update(dataTask) { j -> Bool in
-            guard expected > Int64(truncatingIfNeeded: j.limit) /* Int is 64-bit */, !j.stopAtHeadEnd else { return false }
-            j.refusal = .tooLarge
-            return true
-        } ?? false
-        completionHandler(tooLarge ? .cancel : .allow)
+        completionHandler(respond(dataTask.taskIdentifier, expectedLength: response.expectedContentLength) ? .allow : .cancel)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let cancel = update(dataTask) { j -> Bool in
-            j.data.append(data)
-            if j.data.count > j.limit {
-                if j.stopAtHeadEnd { j.data = j.data.prefix(j.limit); j.finishedEarly = true } else { j.refusal = .tooLarge }
-                return true
-            }
-            if j.stopAtHeadEnd, let tail = String(data: j.data.suffix(data.count + 8), encoding: .isoLatin1), tail.range(of: "</head>", options: .caseInsensitive) != nil {
-                j.finishedEarly = true
-                return true
-            }
-            return false
-        } ?? false
-        if cancel { dataTask.cancel() }
+        if receive(dataTask.taskIdentifier, data) { dataTask.cancel() }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
-        let bad = metrics.transactionMetrics.compactMap(\.remoteAddress).first { !LinkGuard.isPublicAddress($0) && !LinkGuard.isTestAddress($0) }
-        guard let bad else { return }
-        update(task) { j in j.refusal = j.refusal ?? .connectedTo(bad) }
+        connected(task.taskIdentifier, to: metrics.transactionMetrics.compactMap(\.remoteAddress))
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let id = task.taskIdentifier
-        guard let j = state.withLock({ $0.jobs.removeValue(forKey: id) }) else { return }
-        if let r = j.refusal { j.done(.failure(r)); return }
-        if let error, !j.finishedEarly { j.done(.failure(.network(String(describing: (error as NSError).code)))); return }
-        if let http = task.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { j.done(.failure(.network("HTTP \(http.statusCode)"))); return }
-        j.done(.success(Result(data: j.data, url: task.response?.url ?? j.url)))
+        complete(task.taskIdentifier, error: error, response: task.response)
     }
 }

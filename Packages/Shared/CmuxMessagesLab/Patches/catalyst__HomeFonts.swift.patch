@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/HomeFonts.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/HomeFonts.swift
-@@ -26,25 +26,51 @@
+@@ -26,25 +26,43 @@
      typealias Weight = NSFont.Weight
      #endif
  
@@ -8,12 +8,8 @@
 +    /// every font here (a `static let` of NSFont is a global of a non-Sendable type). It is the
 +    /// base of every fallback below.
 +    static var body: UIFont {
-+        store.withLockUnchecked { fonts in
-+            if let held = fonts[bodyKey] { return held }
-+            let font = makeSystem(bodyKey.size, .regular, base: nil)
-+            fonts.updateValue(font, forKey: bodyKey) // dictionary write
-+            return font
-+        }
++        if let held = store.withLock({ $0[bodyKey] }) { return held.font }
++        return hold(bodyKey, bounded: false) { makeSystem(bodyKey.size, .regular, base: nil) }
 +    }
 +    private static let bodyKey = Key(size: 13, weight: 0, traits: 0, monospaced: false, name: "body")
 +
@@ -26,13 +22,9 @@
 -        let size = Fixture.bodyFont.pointSize - 1
 +    /// cmux: made once in the store and always held, as the body font (it was a `static let` of NSFont).
 +    static var code: UIFont {
-+        let base = body
-+        return store.withLockUnchecked { fonts in
-+            if let held = fonts[codeKey] { return held }
-+            let font = makeCode(base)
-+            fonts.updateValue(font, forKey: codeKey) // dictionary write
-+            return font
-+        }
++        if let held = store.withLock({ $0[codeKey] }) { return held.font }
++        let base = Held(font: body)
++        return hold(codeKey, bounded: false) { makeCode(base.font) }
 +    }
 +    private static let codeKey = Key(size: 12, weight: 0, traits: 0, monospaced: true, name: "code")
 +
@@ -62,7 +54,7 @@
  
      /// `systemFont(ofSize:weight:)` for the off-main row renderers (RowDrawing,
      /// MarkdownLayout): made once per size and weight and held for the life of
-@@ -54,39 +80,44 @@
+@@ -54,39 +72,44 @@
      /// returns an optional, and then to the body font itself.
      static func system(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
          let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: false)
@@ -118,7 +110,7 @@
              #endif
          }
      }
-@@ -94,9 +125,9 @@
+@@ -94,9 +117,9 @@
      /// `monospacedDigitSystemFont(ofSize:weight:)`, held like `system(ofSize:weight:)`.
      static func monospacedDigit(ofSize size: CGFloat, weight: Weight = .regular) -> UIFont {
          let key = Key(size: quantized(size), weight: weight.rawValue, traits: 0, monospaced: false, name: "digits")
@@ -130,58 +122,78 @@
          }
      }
  
-@@ -107,7 +138,7 @@
+@@ -107,7 +130,7 @@
      static func font(_ base: UIFont, adding traits: UIFontDescriptor.SymbolicTraits) -> UIFont? {
          let all = base.fontDescriptor.symbolicTraits.union(traits)
          let key = Key(size: quantized(base.pointSize), weight: 0, traits: all.rawValue, monospaced: false, name: base.fontName)
 -        if let hit = store.withLock({ $0[key] }) { return hit }
-+        if let hit = store.withLockUnchecked({ $0[key] }) { return hit }
++        if let hit = store.withLock({ $0[key] }) { return hit.font }
          #if canImport(UIKit)
          guard let d = base.fontDescriptor.withSymbolicTraits(all) else { return nil }
          // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
-@@ -116,7 +147,7 @@
+@@ -116,11 +139,8 @@
          // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
          guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = UIFont(descriptor: d, size: key.size) else { return nil }
          #endif
 -        return store.withLock { fonts in
-+        return store.withLockUnchecked { fonts in
-             if let held = fonts[key] { return held }
-             if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
-             return font
-@@ -131,7 +162,11 @@
+-            if let held = fonts[key] { return held }
+-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
+-            return font
+-        }
++        let made = Held(font: font)
++        return hold(key, bounded: true) { made.font }
+     }
+ 
+     private struct Key: Hashable {
+@@ -131,7 +151,13 @@
          var name = ""
      }
  
 -    private static let store = OSAllocatedUnfairLock<[Key: UIFont]>(initialState: [:])
-+    // cmux: NSFont is not Sendable, so the store is the lock's unchecked form (p10-stability-040).
++    /// cmux: a held font as the store's value (p10-stability-040). The SDK does not mark NSFont
++    /// Sendable; this is the one place a font crosses threads, and it is never changed after it is made.
++    // crash-allow: a font is immutable once made, and Core Text fonts are thread-safe (Core Text Programming Guide)
++    private struct Held: @unchecked Sendable { let font: UIFont }
++
 +    // Lock carve-out: the row renderers make and read fonts synchronously on their own threads.
-+    // Safe: a held font is never mutated, and Core Text documents its font objects (NSFont is
-+    // toll-free bridged to CTFont) as usable from several threads at once.
-+    private static let store = OSAllocatedUnfairLock<[Key: UIFont]>(uncheckedState: [:])
++    private static let store = OSAllocatedUnfairLock<[Key: Held]>(initialState: [:])
  
      /// The exact size: a rounded size draws other pixels (the HA HA glyph is 42% of its box,
      /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
-@@ -149,12 +184,15 @@
+@@ -149,15 +175,24 @@
              .fault("HomeFonts store is full (\(limit, privacy: .public) fonts): later fonts are not held")
      }
  
 -    private static func cached(_ key: Key, make: () -> UIFont) -> UIFont {
-+    private static func cached(_ key: Key, make: (UIFont) -> UIFont) -> UIFont {
-+        if let held = store.withLockUnchecked({ $0[key] }) { return held }
-         // Made under the lock: one creation per key, and no thread drops it.
+-        // Made under the lock: one creation per key, and no thread drops it.
 -        // `make` must not call back into the store (the lock is not reentrant).
 -        store.withLock { fonts in
-+        // `make` must not call back into the store (the lock is not reentrant); cmux: it gets the
-+        // body font, taken before the lock, as the base of its fallbacks.
-+        let base = body
-+        return store.withLockUnchecked { fonts in
++    private static func cached(_ key: Key, make: @Sendable (UIFont) -> UIFont) -> UIFont {
++        if let held = store.withLock({ $0[key] }) { return held.font }
++        // cmux: `make` gets the body font, taken before the lock, as the base of its fallbacks.
++        let base = Held(font: body)
++        return hold(key, bounded: true) { make(base.font) }
++    }
++
++    /// The font held for `key`, made by `make` when there is none. Made under the lock: one
++    /// creation per key, and no thread drops it. `make` must not call back into the store (the
++    /// lock is not reentrant). `bounded`: a full store returns the font unheld (the body and code
++    /// fonts are always held).
++    private static func hold(_ key: Key, bounded: Bool, make: @Sendable () -> UIFont) -> UIFont {
++        store.withLock { fonts -> Held in
              if let held = fonts[key] { return held }
 -            let font = make()
-+            let font = make(base)
-             if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
-             return font
-         }
-@@ -167,4 +205,3 @@
+-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
+-            return font
+-        }
++            let made = Held(font: make())
++            if !bounded || fonts.count < limit { fonts.updateValue(made, forKey: key) } else { full() } // dictionary write
++            return made
++        }.font
+     }
+ 
+     /// The reference an AppKit factory annotated nonnull returned, read as an
+@@ -167,4 +202,3 @@
          unsafeBitCast(font, to: UIFont?.self)
      }
  }

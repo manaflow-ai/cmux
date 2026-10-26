@@ -32,23 +32,19 @@ import UniformTypeIdentifiers
 /// profile kept: Core Animation colour-matches a P3 screenshot), so a large
 /// screenshot never blocks a frame. Until a thumbnail arrives the tile is the
 /// placeholder grey.
-///
-/// cmux: main-actor (its layers and its thumbnail cache are the compose view's); the
-/// geometry, text and decode helpers are nonisolated (p10-stability-040).
-@MainActor
 final class ComposeAttachmentStrip {
     // cmux: small thumbnails in a row (iMessage-style inline), not Messages' stacked
     // 177 x 118 tiles: two pasted screenshots made the field ~280 pt tall and pushed
     // the text line to the bottom.
-    nonisolated static let boxWidth: CGFloat = 128           // cmux: widest image thumbnail (was 177)
-    nonisolated static let imageMaxHeight: CGFloat = 64      // cmux: thumbnail height cap (was 118)
-    nonisolated static let corner: CGFloat = 10              // cmux: smaller tiles, smaller corners (was 16)
-    nonisolated static let left: CGFloat = 11.8              // measured
-    nonisolated static let top: CGFloat = 7                  // measured
-    nonisolated static let gap: CGFloat = 6                  // cmux: between tiles in a row and between rows (was 3)
-    nonisolated static let fileWidth: CGFloat = 200          // cmux: file pill width (was the 177 box)
-    nonisolated static let fileHeight: CGFloat = 52          // cmux: file pill height (was 89)
-    nonisolated static let removeSize: CGFloat = 18          // estimate
+    static let boxWidth: CGFloat = 128           // cmux: widest image thumbnail (was 177)
+    static let imageMaxHeight: CGFloat = 64      // cmux: thumbnail height cap (was 118)
+    static let corner: CGFloat = 10              // cmux: smaller tiles, smaller corners (was 16)
+    static let left: CGFloat = 11.8              // measured
+    static let top: CGFloat = 7                  // measured
+    static let gap: CGFloat = 6                  // cmux: between tiles in a row and between rows (was 3)
+    static let fileWidth: CGFloat = 200          // cmux: file pill width (was the 177 box)
+    static let fileHeight: CGFloat = 52          // cmux: file pill height (was 89)
+    static let removeSize: CGFloat = 18          // estimate
 
     struct Tile: Equatable { var id: ID; var rect: CGRect; var image: Bool }
 
@@ -72,13 +68,13 @@ final class ComposeAttachmentStrip {
         pills.zPosition = -1
     }
 
-    nonisolated static func isImage(_ a: Attachment) -> Bool {
+    static func isImage(_ a: Attachment) -> Bool {
         a.kind == "image" && (a.width ?? 0) > 0 && (a.height ?? 0) > 0 && a.asset != nil
     }
 
     /// Tiles (field coordinates, top-left of the field) and the strip height
     /// (what the field grows by).
-    nonisolated static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
+    static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
         // cmux: tiles flow left to right and wrap to a new row at the field's right edge.
         var tiles: [Tile] = []
         let right = max(left + fileWidth, width - left)
@@ -102,10 +98,10 @@ final class ComposeAttachmentStrip {
     }
 
     // cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
-    nonisolated static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
-    nonisolated static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
+    static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
+    static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
     /// "PDF Document · 7 KB" (the type's localized description and the size).
-    nonisolated static func kindText(_ a: Attachment) -> String {
+    static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
         guard a.byteSize > 0 else { return kind }
         return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize), countStyle: .file))"
@@ -216,7 +212,7 @@ final class ComposeAttachmentStrip {
     }
 
     /// The text cut with an ellipsis to a width.
-    nonisolated static func fit(_ s: String, _ f: UIFont, _ w: CGFloat) -> String {
+    static func fit(_ s: String, _ f: UIFont, _ w: CGFloat) -> String {
         if TextDraw.width(s, font: f) <= w { return s }
         var t = s
         while !t.isEmpty && TextDraw.width(t + "\u{2026}", font: f) > w { t.removeLast() }
@@ -246,7 +242,7 @@ final class ComposeAttachmentStrip {
     }
 
     /// A downsampled, orientation-corrected thumbnail; never larger than the source.
-    nonisolated static func thumbnail(_ asset: String, maxPixels: Int) -> CGImage? {
+    static func thumbnail(_ asset: String, maxPixels: Int) -> CGImage? {
         let url = URL(string: asset).flatMap { $0.isFileURL ? $0 : nil } ?? URL(fileURLWithPath: asset)
         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         let opts: [CFString: Any] = [

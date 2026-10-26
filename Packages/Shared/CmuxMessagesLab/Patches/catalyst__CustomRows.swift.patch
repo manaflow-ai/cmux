@@ -90,9 +90,9 @@
 -    static var host: CustomRowHosting?
 -    /// Live views are shown in this app: custom rows measure with their provider. Set before
 -    /// the first rows are derived (appkit-native: on; Catalyst, iOS: off, the stub).
-+    static var host: CustomRowHosting? { // cmux: in `registry`
-+        get { registry.withLock { $0.host } }
-+        set { registry.withLock { $0.host = newValue } }
++    static var host: CustomRowHosting? { // cmux: in `lock`
++        get { lock.withLock { $0.host } }
++        set { lock.withLock { $0.host = newValue } }
 +    }
 +    /// Live views are shown in this app: custom rows measure with their provider
 +    /// (appkit-native: on; Catalyst, iOS: off, the stub). cmux: a constant (nothing sets it,
@@ -111,19 +111,19 @@
 -    static func register(_ p: TranscriptCustomRowProvider) { lock.lock(); providers[p.kind] = p; lock.unlock(); cache.clear() }
 -    static func unregister(_ kind: String) { lock.lock(); providers[kind] = nil; lock.unlock(); cache.clear() }
 -    static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.lock(); defer { lock.unlock() }; return providers[kind] }
-+    /// cmux: the providers, the host and the estimate flag behind one lock (they were globals
-+    /// under an NSLock the checker could not see). Lock carve-out: rows measure and draw
-+    /// synchronously on the loader queue and the row bitmap threads.
++    /// cmux: the providers, the host and the estimate flag inside the lock (an NSLock beside
++    /// globals the checker could not see). Lock carve-out: rows measure and draw synchronously
++    /// on the loader queue and the row bitmap threads.
 +    private struct Registry: Sendable {
 +        var providers: [String: any TranscriptCustomRowProvider] = [:]
 +        var host: (any CustomRowHosting)?
 +        var mayEstimate = false
 +    }
-+    private static let registry = OSAllocatedUnfairLock(initialState: Registry())
++    private static let lock = OSAllocatedUnfairLock(initialState: Registry())
 +
-+    static func register(_ p: TranscriptCustomRowProvider) { let kind = p.kind; registry.withLock { $0.providers[kind] = p }; cache.clear() }
-+    static func unregister(_ kind: String) { registry.withLock { $0.providers[kind] = nil }; cache.clear() }
-+    static func provider(_ kind: String) -> TranscriptCustomRowProvider? { registry.withLock { $0.providers[kind] } }
++    static func register(_ p: TranscriptCustomRowProvider) { let kind = p.kind; lock.withLock { $0.providers[kind] = p }; cache.clear() }
++    static func unregister(_ kind: String) { lock.withLock { $0.providers[kind] = nil }; cache.clear() }
++    static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.withLock { $0.providers[kind] } }
  
      /// The provider when its live view is shown here, or when it draws the row itself (`drawsRow`).
      static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? {
@@ -132,9 +132,9 @@
      /// Some row got an estimate (a main-only provider measured off main): hosts look for rows
      /// to correct near the viewport. Never set for histories without custom rows.
 -    static var mayEstimate = false
-+    static var mayEstimate: Bool { // cmux: in `registry`
-+        get { registry.withLock { $0.mayEstimate } }
-+        set { registry.withLock { $0.mayEstimate = newValue } }
++    static var mayEstimate: Bool { // cmux: in `lock`
++        get { lock.withLock { $0.mayEstimate } }
++        set { lock.withLock { $0.mayEstimate = newValue } }
 +    }
      /// The next measure of `id`'s custom parts runs again (heightDidChange).
      static func invalidate(_ id: ID) { cache.bump(id) }

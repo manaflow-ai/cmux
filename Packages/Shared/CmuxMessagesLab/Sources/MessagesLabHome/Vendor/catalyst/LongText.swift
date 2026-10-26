@@ -753,81 +753,90 @@ final class LongTextLayout: @unchecked Sendable {
     }
 }
 
-/// cmux: the counters behind one checked lock (the measure threads bumped plain globals;
-/// p10-stability-040). Lock carve-out: a counter bump or read, from any thread.
+/// cmux: the counters live in LongTextCenter's lock (the measure threads bumped plain globals;
+/// p10-stability-040): a bump or a read from any thread.
 enum LongTextStats {
     enum Counter: Sendable { case blocksMeasured, publishes, indexBuilds, streamExtends }
-    private struct State: Sendable {
+    struct Counts: Sendable {
         var blocksMeasured = 0, publishes = 0, indexBuilds = 0, streamExtends = 0
         var lastFoldMs: [String: Double] = [:]
-    }
-    private static let state = OSAllocatedUnfairLock(initialState: State())
-    /// One more of `counter`.
-    static func count(_ counter: Counter) {
-        state.withLock { s in
+        mutating func count(_ counter: Counter) {
             switch counter {
-            case .blocksMeasured: s.blocksMeasured += 1
-            case .publishes: s.publishes += 1
-            case .indexBuilds: s.indexBuilds += 1
-            case .streamExtends: s.streamExtends += 1
+            case .blocksMeasured: blocksMeasured += 1
+            case .publishes: publishes += 1
+            case .indexBuilds: indexBuilds += 1
+            case .streamExtends: streamExtends += 1
             }
         }
     }
-    static var blocksMeasured: Int { state.withLock { $0.blocksMeasured } }
-    static var publishes: Int { state.withLock { $0.publishes } }
-    static var indexBuilds: Int { state.withLock { $0.indexBuilds } }
-    static var streamExtends: Int { state.withLock { $0.streamExtends } }
+    /// One more of `counter`.
+    static func count(_ counter: Counter) { LongTextCenter.lock.withLock { $0.stats.count(counter) } }
+    static var blocksMeasured: Int { LongTextCenter.lock.withLock { $0.stats.blocksMeasured } }
+    static var publishes: Int { LongTextCenter.lock.withLock { $0.stats.publishes } }
+    static var indexBuilds: Int { LongTextCenter.lock.withLock { $0.stats.indexBuilds } }
+    static var streamExtends: Int { LongTextCenter.lock.withLock { $0.stats.streamExtends } }
     /// Phases of the last fold change (ms), for the bench.
     static var lastFoldMs: [String: Double] {
-        get { state.withLock { $0.lastFoldMs } }
-        set { state.withLock { $0.lastFoldMs = newValue } }
+        get { LongTextCenter.lock.withLock { $0.stats.lastFoldMs } }
+        set { LongTextCenter.lock.withLock { $0.stats.lastFoldMs = newValue } }
     }
 }
 
 /// Main-thread delivery of measured line counts, in batches. `handler(lineages, apply)`
 /// must call `apply` once (the window view keeps its anchor around it).
 enum LongTextCenter {
-    /// cmux: set and called on the main thread only (the window view's; `publish` runs on main).
-    /// Its closure is not Sendable (it holds the window view), so it sits in the lock's unchecked
-    /// form: the lock orders a set before the main-thread publish that reads it.
-    static var handler: ((Set<Int>, () -> Void) -> Void)? {
-        get { handlerStore.withLockUnchecked { $0 } }
-        set { handlerStore.withLockUnchecked { $0 = newValue } }
+    typealias Handler = (Set<Int>, () -> Void) -> Void
+    /// cmux: the window view's handler as lock state (p10-stability-040). It holds the view, so it
+    /// is not Sendable; it cannot be main-actor while its setter, MessagesWindowView.init, is not.
+    // crash-allow: set on the main thread (MessagesWindowView.init) and called only by publish, which runs on main
+    fileprivate struct MainHandler: @unchecked Sendable { let call: Handler }
+    /// Set and called on the main thread only.
+    static var handler: Handler? {
+        get { lock.withLock { $0.handler }?.call }
+        set {
+            let held = newValue.map(MainHandler.init(call:))
+            lock.withLock { $0.handler = held }
+        }
     }
-    private static let handlerStore = OSAllocatedUnfairLock<((Set<Int>, () -> Void) -> Void)?>(uncheckedState: nil)
-    /// cmux: the batch behind a checked lock (it was globals under an NSLock). Lock carve-out:
-    /// the measure threads add to it, main takes it; neither does work under the lock.
-    private struct Batch: Sendable {
+    /// cmux: the batch, the handler and the counters behind one checked lock (they were globals,
+    /// the batch under an NSLock). Lock carve-out: the measure threads add to the batch and count,
+    /// main takes the batch; none does work under the lock.
+    fileprivate struct State: Sendable {
+        var batch = Batch()
+        var handler: MainHandler?
+        var stats = LongTextStats.Counts()
+    }
+    fileprivate struct Batch: Sendable {
         var dirty: [ObjectIdentifier: LongTextLayout] = [:]
         var replaced: [@Sendable () -> Void] = []
         var replacedLineages = Set<Int>()
         var scheduled = false
     }
-    private static let batch = OSAllocatedUnfairLock(initialState: Batch())
+    fileprivate static let lock = OSAllocatedUnfairLock(initialState: State())
 
     static func schedule(_ l: LongTextLayout) {
-        let go = batch.withLock { b -> Bool in
-            b.dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
-            defer { b.scheduled = true }
-            return !b.scheduled
+        let go = lock.withLock { s -> Bool in
+            s.batch.dirty.updateValue(l, forKey: ObjectIdentifier(l)) // dictionary write
+            defer { s.batch.scheduled = true }
+            return !s.batch.scheduled
         }
         if go { DispatchQueue.main.async { publish() } }
     }
     /// `apply` runs on the main thread, in the next publish.
     static func scheduleReplace(lineage: Int, _ apply: @escaping @Sendable () -> Void) {
-        let go = batch.withLock { b -> Bool in
-            b.replaced.append(apply)
-            b.replacedLineages.insert(lineage)
-            defer { b.scheduled = true }
-            return !b.scheduled
+        let go = lock.withLock { s -> Bool in
+            s.batch.replaced.append(apply)
+            s.batch.replacedLineages.insert(lineage)
+            defer { s.batch.scheduled = true }
+            return !s.batch.scheduled
         }
         if go { DispatchQueue.main.async { publish() } }
     }
 
     static func publish() {
-        let taken = batch.withLock { b -> Batch in
-            defer { b = Batch() }
-            return b
+        let taken = lock.withLock { s -> Batch in
+            defer { s.batch = Batch() }
+            return s.batch
         }
         let ls = Array(taken.dirty.values).filter { !$0.retired }
         let rs = taken.replaced

@@ -30,12 +30,8 @@ enum HomeFonts {
     /// every font here (a `static let` of NSFont is a global of a non-Sendable type). It is the
     /// base of every fallback below.
     static var body: UIFont {
-        store.withLockUnchecked { fonts in
-            if let held = fonts[bodyKey] { return held }
-            let font = makeSystem(bodyKey.size, .regular, base: nil)
-            fonts.updateValue(font, forKey: bodyKey) // dictionary write
-            return font
-        }
+        if let held = store.withLock({ $0[bodyKey] }) { return held.font }
+        return hold(bodyKey, bounded: false) { makeSystem(bodyKey.size, .regular, base: nil) }
     }
     private static let bodyKey = Key(size: 13, weight: 0, traits: 0, monospaced: false, name: "body")
 
@@ -46,13 +42,9 @@ enum HomeFonts {
     /// user's fixed-pitch font instead of a nil inside the attributes.
     /// cmux: made once in the store and always held, as the body font (it was a `static let` of NSFont).
     static var code: UIFont {
-        let base = body
-        return store.withLockUnchecked { fonts in
-            if let held = fonts[codeKey] { return held }
-            let font = makeCode(base)
-            fonts.updateValue(font, forKey: codeKey) // dictionary write
-            return font
-        }
+        if let held = store.withLock({ $0[codeKey] }) { return held.font }
+        let base = Held(font: body)
+        return hold(codeKey, bounded: false) { makeCode(base.font) }
     }
     private static let codeKey = Key(size: 12, weight: 0, traits: 0, monospaced: true, name: "code")
 
@@ -138,7 +130,7 @@ enum HomeFonts {
     static func font(_ base: UIFont, adding traits: UIFontDescriptor.SymbolicTraits) -> UIFont? {
         let all = base.fontDescriptor.symbolicTraits.union(traits)
         let key = Key(size: quantized(base.pointSize), weight: 0, traits: all.rawValue, monospaced: false, name: base.fontName)
-        if let hit = store.withLockUnchecked({ $0[key] }) { return hit }
+        if let hit = store.withLock({ $0[key] }) { return hit.font }
         #if canImport(UIKit)
         guard let d = base.fontDescriptor.withSymbolicTraits(all) else { return nil }
         // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
@@ -147,11 +139,8 @@ enum HomeFonts {
         // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = UIFont(descriptor: d, size: key.size) else { return nil }
         #endif
-        return store.withLockUnchecked { fonts in
-            if let held = fonts[key] { return held }
-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
-            return font
-        }
+        let made = Held(font: font)
+        return hold(key, bounded: true) { made.font }
     }
 
     private struct Key: Hashable {
@@ -162,11 +151,13 @@ enum HomeFonts {
         var name = ""
     }
 
-    // cmux: NSFont is not Sendable, so the store is the lock's unchecked form (p10-stability-040).
+    /// cmux: a held font as the store's value (p10-stability-040). The SDK does not mark NSFont
+    /// Sendable; this is the one place a font crosses threads, and it is never changed after it is made.
+    // crash-allow: a font is immutable once made, and Core Text fonts are thread-safe (Core Text Programming Guide)
+    private struct Held: @unchecked Sendable { let font: UIFont }
+
     // Lock carve-out: the row renderers make and read fonts synchronously on their own threads.
-    // Safe: a held font is never mutated, and Core Text documents its font objects (NSFont is
-    // toll-free bridged to CTFont) as usable from several threads at once.
-    private static let store = OSAllocatedUnfairLock<[Key: UIFont]>(uncheckedState: [:])
+    private static let store = OSAllocatedUnfairLock<[Key: Held]>(initialState: [:])
 
     /// The exact size: a rounded size draws other pixels (the HA HA glyph is 42% of its box,
     /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
@@ -184,18 +175,24 @@ enum HomeFonts {
             .fault("HomeFonts store is full (\(limit, privacy: .public) fonts): later fonts are not held")
     }
 
-    private static func cached(_ key: Key, make: (UIFont) -> UIFont) -> UIFont {
-        if let held = store.withLockUnchecked({ $0[key] }) { return held }
-        // Made under the lock: one creation per key, and no thread drops it.
-        // `make` must not call back into the store (the lock is not reentrant); cmux: it gets the
-        // body font, taken before the lock, as the base of its fallbacks.
-        let base = body
-        return store.withLockUnchecked { fonts in
+    private static func cached(_ key: Key, make: @Sendable (UIFont) -> UIFont) -> UIFont {
+        if let held = store.withLock({ $0[key] }) { return held.font }
+        // cmux: `make` gets the body font, taken before the lock, as the base of its fallbacks.
+        let base = Held(font: body)
+        return hold(key, bounded: true) { make(base.font) }
+    }
+
+    /// The font held for `key`, made by `make` when there is none. Made under the lock: one
+    /// creation per key, and no thread drops it. `make` must not call back into the store (the
+    /// lock is not reentrant). `bounded`: a full store returns the font unheld (the body and code
+    /// fonts are always held).
+    private static func hold(_ key: Key, bounded: Bool, make: @Sendable () -> UIFont) -> UIFont {
+        store.withLock { fonts -> Held in
             if let held = fonts[key] { return held }
-            let font = make(base)
-            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
-            return font
-        }
+            let made = Held(font: make())
+            if !bounded || fonts.count < limit { fonts.updateValue(made, forKey: key) } else { full() } // dictionary write
+            return made
+        }.font
     }
 
     /// The reference an AppKit factory annotated nonnull returned, read as an

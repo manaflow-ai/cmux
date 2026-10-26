@@ -13,21 +13,36 @@ import os // cmux: OSAllocatedUnfairLock
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
-    /// The scope's scale for work inside a Swift task or off the main thread.
-    @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: what a scope binds (p10-stability-040): the view's scale (nil: the process fallback),
+    /// whether it draws the thread view's elevated rows (`Fixture.elevated`), and off the main thread
+    /// the palette its draw started with (`Fixture.palette`; main is where the palette changes).
+    struct Scope: Sendable {
+        var scale: CGFloat?
+        var elevated = false
+        var palette: Fixture.Palette?
+        func same(as other: Scope) -> Bool { scale == other.scale && elevated == other.elevated && palette === other.palette }
+    }
+    /// The scope for work inside a Swift task or off the main thread.
+    @TaskLocal static var scoped: Scope? = nil
     /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
     /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
     /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
     /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
     /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
     // crash-allow: read and written only on the main thread (`with` and `current` check it).
-    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+    nonisolated(unsafe) static var mainThreadScoped: Scope? = nil
 
+    /// The scope that runs now, nil outside any scope.
+    static var scope: Scope? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
     /// The scale of the scope that runs now, nil outside any scope.
-    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+    static var current: CGFloat? { scope?.scale }
+    /// The scope draws the thread view's elevated rows.
+    static var elevated: Bool { scope?.elevated ?? false }
+    /// The palette an off-main scope's draw started with.
+    static var palette: Fixture.Palette? { scope?.palette }
 
-    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
-    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+    /// Runs `body` in scope `s`, binding no task local where no task runs.
+    static func with<T>(_ s: Scope, _ body: () throws -> T) rethrows -> T {
         if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
             let outer = mainThreadScoped
             mainThreadScoped = s
@@ -41,9 +56,16 @@ enum RenderScaleScope {
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
-    static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.current != s else { return try body() }
-        return try RenderScaleScope.with(s, body)
+    /// cmux: `elevated`: `body` draws the thread view's rows (`Fixture.elevated`). Off the main thread the
+    /// scope also keeps the palette of its start, so one draw reads one palette (p10-stability-040).
+    static func withRenderScale<T>(_ s: CGFloat, elevated: Bool = false, _ body: () throws -> T) rethrows -> T {
+        let outer = RenderScaleScope.scope ?? RenderScaleScope.Scope()
+        var inner = outer
+        if s > 0 { inner.scale = s }
+        if elevated { inner.elevated = true }
+        if inner.palette == nil, !Thread.isMainThread { inner.palette = Fixture.currentPalette }
+        guard !inner.same(as: outer) else { return try body() }
+        return try RenderScaleScope.with(inner, body)
     }
 }
 
@@ -185,13 +207,11 @@ struct Metrics: Hashable {
     var width: CGFloat
     /// The window's current layout width (main thread only). Off-main work
     /// takes the width as a parameter captured on main.
-    /// cmux: behind a lock (a default argument reads it on any thread; p10-stability-040).
+    /// cmux: held with Fixture's process fallbacks (a default argument reads it on any thread; p10-stability-040).
     static var current: Metrics {
-        get { currentStore.withLock { $0 } }
-        set { currentStore.withLock { $0 = newValue } }
+        get { Fixture.fallbackMetrics }
+        set { Fixture.fallbackMetrics = newValue }
     }
-    // Lock carve-out: one value, a load or a store per access.
-    private static let currentStore = OSAllocatedUnfairLock(initialState: Metrics(width: Fixture.windowWidth))
 
     var dx: CGFloat { width - Fixture.windowWidth }
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
