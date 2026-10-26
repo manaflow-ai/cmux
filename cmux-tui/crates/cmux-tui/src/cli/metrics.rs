@@ -15,6 +15,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::localization::MetricsMessages;
@@ -138,7 +139,7 @@ fn exchange(stream: &mut UnixStream, params: Value) -> Result<Result<Value, Valu
 }
 
 /// The human form of a reply: one aligned row per histogram, then the
-/// summary line.
+/// summary line. Columns align in terminal cells (a CJK title fills two per char).
 pub(super) fn table(reply: &Value, messages: &MetricsMessages) -> String {
     if reply.get("recording").and_then(Value::as_bool) == Some(false) {
         return messages.not_recording.to_owned();
@@ -158,13 +159,13 @@ pub(super) fn table(reply: &Value, messages: &MetricsMessages) -> String {
     rows.extend(histograms.iter().map(row));
     let columns = rows[0].len();
     let widths: Vec<usize> = (0..columns)
-        .map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0))
+        .map(|column| rows.iter().map(|row| row[column].width()).max().unwrap_or(0))
         .collect();
     let mut text = String::new();
     for row in &rows {
         let mut line = String::new();
         for (column, cell) in row.iter().enumerate() {
-            let pad = widths[column] - cell.chars().count();
+            let pad = widths[column] - cell.width();
             if column == 0 || column == 1 {
                 line.push_str(cell);
                 line.push_str(&" ".repeat(pad));

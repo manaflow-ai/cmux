@@ -135,6 +135,43 @@ fn cli_metrics_table_aligns_every_column_in_both_catalogs() {
     let japanese = table(&reply, &catalog_for_locale("ja").metrics);
     assert!(japanese.starts_with("名前"), "{japanese}");
     assert!(japanese.ends_with("(pid 4242)"), "{japanese}");
+    // Each CJK title fills two terminal cells per char: the columns still line up on screen.
+    for text in [&english, &japanese] {
+        let lines: Vec<&str> = text.lines().take(3).collect();
+        let header = cell_spans(lines[0]);
+        assert_eq!(header.len(), 8, "{text}");
+        for line in &lines[1..] {
+            let cells = cell_spans(line);
+            assert_eq!(cells.len(), header.len(), "{text}");
+            for (column, (cell, title)) in cells.iter().zip(&header).enumerate() {
+                // NAME and UNIT are left-aligned, the numbers right-aligned.
+                let (at, expected) = if column < 2 { (cell.0, title.0) } else { (cell.1, title.1) };
+                assert_eq!(at, expected, "column {column} is out of line:\n{text}");
+            }
+        }
+    }
+}
+
+/// The start and end terminal-cell offsets of each space-separated cell of a table line.
+fn cell_spans(line: &str) -> Vec<(usize, usize)> {
+    use unicode_width::UnicodeWidthChar;
+    let mut spans = Vec::new();
+    let mut offset = 0;
+    let mut start = None;
+    for character in line.chars() {
+        if character == ' ' {
+            if let Some(begin) = start.take() {
+                spans.push((begin, offset));
+            }
+        } else if start.is_none() {
+            start = Some(offset);
+        }
+        offset += character.width().unwrap_or(0);
+    }
+    if let Some(begin) = start {
+        spans.push((begin, offset));
+    }
+    spans
 }
 
 #[test]
