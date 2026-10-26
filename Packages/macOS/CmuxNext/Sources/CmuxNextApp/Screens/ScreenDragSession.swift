@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSidebar
 import CmuxNextTabs
 
@@ -9,8 +10,9 @@ import CmuxNextTabs
 /// drag here. Released over a workspace row in any window's sidebar, the
 /// screen moves into that workspace; over a sidebar gap, into a new
 /// workspace; outside every window, into a new window (tear-off).
-/// Anywhere else, or on Escape, it returns to its slot. Event-driven: a
-/// local event monitor for the drag's mouse events, no timers.
+/// Anywhere else, on Escape, or at a press after a lost release, it returns
+/// to its slot. Event-driven: an input tap intercept for the drag's events,
+/// alive for the drag only, no timers.
 @MainActor
 final class ScreenDragSession {
     private let services: AppServices
@@ -19,7 +21,8 @@ final class ScreenDragSession {
     private let source: WorkspaceModel
     private weak var strip: TabStripView?
     private let tabID: StripTabID
-    private var monitor: Any?
+    /// The drag's input tap intercept; cancelled when the drag ends (and when the session goes).
+    private var input: InputSubscription?
     private var targets: [ObjectIdentifier: SidebarTabDropTarget] = [:]
     private var lastTarget: SidebarTabDropTarget?
     /// Called once the drag ended (the bar drops its reference).
@@ -35,21 +38,29 @@ final class ScreenDragSession {
     }
 
     func begin() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) { [weak self] event in
-            guard let self else { return event }
-            switch event.type {
-            case .leftMouseDragged:
-                self.track(Self.screenPoint(of: event))
-                return nil
-            case .leftMouseUp:
-                self.finish(at: Self.screenPoint(of: event))
-                return nil
-            case .keyDown where event.keyCode == 53:
-                self.finish(at: nil)
-                return nil
-            default:
-                return event
-            }
+        input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
+            self?.handle(event) ?? .pass
+        }
+    }
+
+    private func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
+        switch event.type {
+        case .leftMouseDragged:
+            track(Self.screenPoint(of: event))
+            return .consume
+        case .leftMouseUp:
+            finish(at: Self.screenPoint(of: event))
+            return .consume
+        case .leftMouseDown:
+            // A lost mouse-up (a nested tracking loop dequeued it): back to the slot, as the tab
+            // drag does; the press goes on to what it hit.
+            finish(at: nil)
+            return .pass
+        case .keyDown where event.keyCode == 53:
+            finish(at: nil)
+            return .consume
+        default:
+            return .pass
         }
     }
 
@@ -86,8 +97,9 @@ final class ScreenDragSession {
     }
 
     private func finish(at point: CGPoint?) {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        guard let input else { return }
+        input.cancel()
+        self.input = nil
         let hit = point.flatMap { track($0) }
         for target in targets.values { target.dropEnded(committed: nil) }
         strip?.restoreDetachedTab(tabID)

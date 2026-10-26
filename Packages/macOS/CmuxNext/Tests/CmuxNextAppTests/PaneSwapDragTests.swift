@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextInput
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import Testing
@@ -24,6 +25,8 @@ struct PaneSwapDragTests {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
             .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))], activeScreenID: "s", focusedPane: "p1")
         let root: LayoutRootView
+        /// The drags' input tap: Escape reaches a drag through it.
+        let tap = InputEventTap()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         private(set) var swaps: [(PaneID, PaneID)] = []
@@ -36,7 +39,7 @@ struct PaneSwapDragTests {
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             for (pane, strip) in provider.strips {
-                drags.append(PaneSwapDrag(strip: strip, pane: pane, layout: { [root] in root },
+                drags.append(PaneSwapDrag(strip: strip, pane: pane, input: tap, layout: { [root] in root },
                                           swap: { [unowned self] in swaps.append(($0, $1)) }))
             }
         }
@@ -89,6 +92,29 @@ struct PaneSwapDragTests {
         defer { window.window.orderOut(nil) }
         window.drag(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+        #expect(window.tap.subscriberCount(.key, stage: .intercept) == 0, "the drop left the drag's Escape intercept")
+    }
+
+    /// Escape cancels a pane drag through the input tap (p04-input-015): the tap stops the key, the
+    /// preview goes, the release swaps nothing, and the drag's Escape intercept lives for the drag only.
+    @Test func escapeCancelsTheDragThroughTheTapAndDropsItsIntercept() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        #expect(window.tap.subscriberCount(.key, stage: .intercept) == 0, "an intercept before any drag")
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
+        #expect(window.tap.subscriberCount(.key, stage: .intercept) == 1, "the drag did not watch Escape")
+        let other = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
+                                                  windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                                  isARepeat: false, keyCode: 0))
+        #expect(window.tap.send(other) == .pass, "the drag took a key that is not Escape")
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
+                                                   windowNumber: 0, context: nil, characters: "\u{1b}",
+                                                   charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        #expect(window.tap.send(escape) == .consume, "Escape went on to a responder")
+        #expect(window.tap.subscriberCount(.key, stage: .intercept) == 0, "Escape left the drag's intercept")
+        window.release()
+        #expect(window.swaps.isEmpty, "the release after Escape swapped \(window.swaps)")
+        #expect(window.tap.subscriberCount(.key, stage: .intercept) == 0)
     }
 
     /// The press decides, not where the pan begins: a drag from a tab is the tab's own drag.
@@ -127,7 +153,7 @@ struct PaneSwapDragTests {
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         strip.layoutSubtreeIfNeeded()
-        let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { nil }, swap: { _, _ in })
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), layout: { nil }, swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
         let cell = try #require(strip.cells[TabID("b")])
         let point = strip.convert(strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip), to: nil)
