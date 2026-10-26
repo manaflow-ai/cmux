@@ -2,7 +2,8 @@
 //! driven through the connection frame handler as a reader drives it: a CLI
 //! (agent) split is automation and the verified app's split is frontend,
 //! both committed by the terminal work pool off the frame's thread; a v2
-//! `origin` claim only lowers the cause; and only an `event-cause-v1`
+//! `origin` claim only lowers the cause; a script's op, run on the script
+//! host's own thread, is automation; and only an `event-cause-v1`
 //! subscriber sees `cause` on its event lines.
 
 use std::sync::Arc;
@@ -159,6 +160,33 @@ fn event_cause_of_a_v2_request_is_narrowed_by_its_claim() {
         let causes = structural_causes(&events);
         assert!(!causes.is_empty(), "{name}: no structural event");
         assert!(causes.iter().all(|cause| *cause == expected), "{name}: {causes:?}");
+    }
+    mux.shutdown();
+}
+
+/// A script's op runs on a thread of the script host (`DaemonRouter::call`),
+/// outside every connection frame: what it sets off is automation, also on
+/// a thread whose own cause is frontend.
+#[test]
+fn event_cause_of_a_script_op_is_automation() {
+    use cmux_app_host::script::ScriptRouter;
+    let mux = mux("script-router");
+    let router = crate::scripts::router::DaemonRouter::new(&mux, "scr_cause");
+    for (name, outer) in [("unscoped", None), ("in-frontend", Some(EventCause::Frontend))] {
+        let events = mux.subscribe();
+        {
+            let _outer = outer.map(EventCauseScope::enter);
+            router
+                .call(
+                    "workspace.create",
+                    json!({"name": name, "initial_content": "empty"}),
+                    json!({}),
+                )
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+        let causes = structural_causes(&events);
+        assert!(!causes.is_empty(), "{name}: no structural event");
+        assert!(causes.iter().all(|cause| *cause == EventCause::Automation), "{name}: {causes:?}");
     }
     mux.shutdown();
 }

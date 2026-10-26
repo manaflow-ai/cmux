@@ -220,10 +220,13 @@ pub(super) fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
+    // The start keeps the cause of the frame that asked for it.
+    let cause = crate::event_cause::EventCause::current();
     let spawned = std::thread::Builder::new()
         .name("mux-agent-start".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
+            let _cause = crate::event_cause::EventCauseScope::enter(cause);
             let result = match keyed_gate(&socket, &params) {
                 Ok(()) => run(&worker_mux, client, socket, params).map_err(|r| (r, None)),
                 Err(refused) => Err(refused),

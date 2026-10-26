@@ -7,7 +7,6 @@ mod machine_catalog;
 
 use super::*;
 use crate::event_cause::{EventCause, EventCauseScope};
-use crate::panic_free::RecoverPoison;
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -59,8 +58,9 @@ pub(super) fn handle_connection_frame_at(
     }
     // Every event this frame sets off, here or on a thread it hands work
     // to, carries the connection's cause (crate::event_cause).
-    let _cause = EventCauseScope::enter(connection_cause(mux, client));
-    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
+    let (remote, cause) = mux.frame_client(client);
+    let _cause = EventCauseScope::enter(cause);
+    if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,
             client,
@@ -181,17 +181,6 @@ pub(super) fn handle_connection_frame_at(
             None => true,
         },
     }
-}
-
-/// The scheduling cause of `client`'s requests, from the origin its
-/// connection derives (`RequestOrigin::event_cause`). A client with no
-/// record is an agent's, as the origin gate treats it.
-fn connection_cause(mux: &Mux, client: u64) -> EventCause {
-    let state = mux.control_clients.state.lock().recover_poison();
-    state
-        .clients
-        .get(&client)
-        .map_or(EventCause::Automation, |record| record.origin.derive().event_cause())
 }
 
 /// The feature routes that answer a line before the `Command` parse.

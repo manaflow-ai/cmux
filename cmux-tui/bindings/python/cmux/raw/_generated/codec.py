@@ -641,6 +641,7 @@ ENUM_BY_PATH = {
     'types/ConversationThreadStatus': models.ConversationThreadStatus,
     'types/CursorStyle': models.CursorStyle,
     'types/DetachReason': models.DetachReason,
+    'types/EventCause': models.EventCause,
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
     'types/HomeChiefState': models.HomeChiefState,
     'types/HomeInboxKind': models.HomeInboxKind,

@@ -3238,6 +3238,20 @@ Result<EmptyResult> Codec<EmptyResult>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<EventCause>::encode(const EventCause& value) {
+    switch (value) {
+        case EventCause::frontend: return Json(std::string("frontend"));
+        case EventCause::automation: return Json(std::string("automation"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<EventCause> Codec<EventCause>::decode(const Json& value) {
+    if (value == Json(std::string("frontend"))) return EventCause::frontend;
+    if (value == Json(std::string("automation"))) return EventCause::automation;
+    return make_error(ErrorCode::decode, "unknown EventCause value");
+}
+
 Result<Json> Codec<ExportLayoutResult>::encode(const ExportLayoutResult& value) {
     (void)value;
     Json::Object object;
@@ -33990,6 +34004,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("agent_session_id", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (!value.last_prompt.is_absent()) {
         auto encoded = encode_value(value.last_prompt);
         if (!encoded) return std::move(encoded).error();
@@ -34045,6 +34064,12 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.agent_session_id = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_last_prompt = value.find("last_prompt");
     if (field_last_prompt) {
@@ -34259,6 +34284,11 @@ Result<Json> Codec<AgentPresenceChangedEvent>::encode(const AgentPresenceChanged
     } else {
         object.emplace("agent", Json(nullptr));
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.line) {
         auto encoded = encode_value(*value.line);
         if (!encoded) return std::move(encoded).error();
@@ -34329,6 +34359,12 @@ Result<AgentPresenceChangedEvent> Codec<AgentPresenceChangedEvent>::decode(const
             if (!decoded) return std::move(decoded).error();
             result.agent = std::move(decoded).value();
         }
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_line = value.find("line");
     if (!field_line) {
@@ -34420,6 +34456,11 @@ Result<Json> Codec<BellEvent>::encode(const BellEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("bell")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -34430,6 +34471,12 @@ Result<BellEvent> Codec<BellEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     BellEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -34461,6 +34508,11 @@ Result<Json> Codec<BookmarksChangedEvent>::encode(const BookmarksChangedEvent& v
     auto encoded_browser_profile_id = encode_value(value.browser_profile_id);
     if (!encoded_browser_profile_id) return std::move(encoded_browser_profile_id).error();
     object.emplace("browser_profile_id", std::move(encoded_browser_profile_id).value());
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -34485,6 +34537,12 @@ Result<BookmarksChangedEvent> Codec<BookmarksChangedEvent>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_browser_profile_id);
         if (!decoded) return std::move(decoded).error();
         result.browser_profile_id = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_event = value.find("event");
     if (!field_event) {
@@ -34644,6 +34702,11 @@ Result<Json> Codec<ChiefChangedEvent>::encode(const ChiefChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("chief-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_change = encode_value(value.change);
     if (!encoded_change) return std::move(encoded_change).error();
     object.emplace("change", std::move(encoded_change).value());
@@ -34657,6 +34720,12 @@ Result<ChiefChangedEvent> Codec<ChiefChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ChiefChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_change = value.find("change");
     if (!field_change) {
         return make_error(ErrorCode::decode, "missing required field 'change'");
@@ -34691,6 +34760,11 @@ Result<Json> Codec<ClientAttachedEvent>::encode(const ClientAttachedEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("client-attached")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_client = encode_value(value.client);
     if (!encoded_client) return std::move(encoded_client).error();
     object.emplace("client", std::move(encoded_client).value());
@@ -34718,6 +34792,12 @@ Result<ClientAttachedEvent> Codec<ClientAttachedEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ClientAttachedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_client = value.find("client");
     if (!field_client) {
         return make_error(ErrorCode::decode, "missing required field 'client'");
@@ -34778,6 +34858,11 @@ Result<Json> Codec<ClientChangedEvent>::encode(const ClientChangedEvent& value) 
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("client-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_client = encode_value(value.client);
     if (!encoded_client) return std::move(encoded_client).error();
     object.emplace("client", std::move(encoded_client).value());
@@ -34802,6 +34887,12 @@ Result<ClientChangedEvent> Codec<ClientChangedEvent>::decode(const Json& value) 
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ClientChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_client = value.find("client");
     if (!field_client) {
         return make_error(ErrorCode::decode, "missing required field 'client'");
@@ -34853,6 +34944,11 @@ Result<Json> Codec<ClientDetachedEvent>::encode(const ClientDetachedEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("client-detached")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_client = encode_value(value.client);
     if (!encoded_client) return std::move(encoded_client).error();
     object.emplace("client", std::move(encoded_client).value());
@@ -34863,6 +34959,12 @@ Result<ClientDetachedEvent> Codec<ClientDetachedEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ClientDetachedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_client = value.find("client");
     if (!field_client) {
         return make_error(ErrorCode::decode, "missing required field 'client'");
@@ -34888,6 +34990,11 @@ Result<Json> Codec<ClientListInvalidatedEvent>::encode(const ClientListInvalidat
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("client-list-invalidated")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -34895,6 +35002,12 @@ Result<ClientListInvalidatedEvent> Codec<ClientListInvalidatedEvent>::decode(con
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ClientListInvalidatedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_event = value.find("event");
     if (!field_event) {
         return make_error(ErrorCode::decode, "missing required field 'event'");
@@ -34915,6 +35028,11 @@ Result<Json> Codec<CloudConversationChangedEvent>::encode(const CloudConversatio
         auto encoded = encode_value(*value.account);
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
+    }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
     }
     if (value.change) {
         auto encoded = encode_value(*value.change);
@@ -34947,6 +35065,12 @@ Result<CloudConversationChangedEvent> Codec<CloudConversationChangedEvent>::deco
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_change = value.find("change");
     if (!field_change) {
@@ -35018,6 +35142,11 @@ Result<Json> Codec<CloudConversationLiveEvent>::encode(const CloudConversationLi
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -35040,6 +35169,12 @@ Result<CloudConversationLiveEvent> Codec<CloudConversationLiveEvent>::decode(con
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
@@ -35084,6 +35219,11 @@ Result<Json> Codec<CloudConversationResyncedEvent>::encode(const CloudConversati
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -35119,6 +35259,12 @@ Result<CloudConversationResyncedEvent> Codec<CloudConversationResyncedEvent>::de
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
@@ -35194,6 +35340,11 @@ Result<Json> Codec<CloudConversationRunChangedEvent>::encode(const CloudConversa
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -35219,6 +35370,12 @@ Result<CloudConversationRunChangedEvent> Codec<CloudConversationRunChangedEvent>
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
@@ -35272,6 +35429,11 @@ Result<Json> Codec<CloudConversationTypingEvent>::encode(const CloudConversation
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -35293,6 +35455,12 @@ Result<CloudConversationTypingEvent> Codec<CloudConversationTypingEvent>::decode
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
@@ -35337,6 +35505,11 @@ Result<Json> Codec<CloudHostReplicaNeededEvent>::encode(const CloudHostReplicaNe
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-host-replica-needed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (!value.expires_at.is_absent()) {
         auto encoded = encode_value(value.expires_at);
         if (!encoded) return std::move(encoded).error();
@@ -35352,6 +35525,12 @@ Result<CloudHostReplicaNeededEvent> Codec<CloudHostReplicaNeededEvent>::decode(c
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudHostReplicaNeededEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_expires_at = value.find("expires_at");
     if (field_expires_at) {
         if (field_expires_at->is_null()) {
@@ -35392,6 +35571,11 @@ Result<Json> Codec<CloudInboxChangedEvent>::encode(const CloudInboxChangedEvent&
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.entries) {
         auto encoded = encode_value(*value.entries);
         if (!encoded) return std::move(encoded).error();
@@ -35417,6 +35601,12 @@ Result<CloudInboxChangedEvent> Codec<CloudInboxChangedEvent>::decode(const Json&
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_entries = value.find("entries");
     if (!field_entries) {
@@ -35470,6 +35660,11 @@ Result<Json> Codec<CloudInboxResetEvent>::encode(const CloudInboxResetEvent& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_seq = encode_value(value.seq);
     if (!encoded_seq) return std::move(encoded_seq).error();
     object.emplace("seq", std::move(encoded_seq).value());
@@ -35485,6 +35680,12 @@ Result<CloudInboxResetEvent> Codec<CloudInboxResetEvent>::decode(const Json& val
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_seq = value.find("seq");
     if (!field_seq) {
@@ -35516,6 +35717,11 @@ Result<Json> Codec<CloudMuxResyncedEvent>::encode(const CloudMuxResyncedEvent& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.pending) {
         auto encoded = encode_value(*value.pending);
         if (!encoded) return std::move(encoded).error();
@@ -35538,6 +35744,12 @@ Result<CloudMuxResyncedEvent> Codec<CloudMuxResyncedEvent>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_pending = value.find("pending");
     if (!field_pending) {
@@ -35582,6 +35794,11 @@ Result<Json> Codec<CloudMuxWakeEvent>::encode(const CloudMuxWakeEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_seq = encode_value(value.seq);
     if (!encoded_seq) return std::move(encoded_seq).error();
     object.emplace("seq", std::move(encoded_seq).value());
@@ -35604,6 +35821,12 @@ Result<CloudMuxWakeEvent> Codec<CloudMuxWakeEvent>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_seq = value.find("seq");
     if (!field_seq) {
@@ -35643,6 +35866,11 @@ Result<Json> Codec<CloudSessionNeededEvent>::encode(const CloudSessionNeededEven
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-session-needed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (!value.expires_at.is_absent()) {
         auto encoded = encode_value(value.expires_at);
         if (!encoded) return std::move(encoded).error();
@@ -35658,6 +35886,12 @@ Result<CloudSessionNeededEvent> Codec<CloudSessionNeededEvent>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudSessionNeededEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_expires_at = value.find("expires_at");
     if (field_expires_at) {
         if (field_expires_at->is_null()) {
@@ -35698,6 +35932,11 @@ Result<Json> Codec<CloudSubscriptionStateEvent>::encode(const CloudSubscriptionS
         if (!encoded) return std::move(encoded).error();
         object.emplace("account", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (!value.conversation.is_absent()) {
         auto encoded = encode_value(value.conversation);
         if (!encoded) return std::move(encoded).error();
@@ -35726,6 +35965,12 @@ Result<CloudSubscriptionStateEvent> Codec<CloudSubscriptionStateEvent>::decode(c
         auto decoded = decode_value<std::string>(*field_account);
         if (!decoded) return std::move(decoded).error();
         result.account = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_conversation = value.find("conversation");
     if (field_conversation) {
@@ -35962,6 +36207,11 @@ Result<Json> Codec<ConfigReloadRequestedEvent>::encode(const ConfigReloadRequest
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("config-reload-requested")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -35969,6 +36219,12 @@ Result<ConfigReloadRequestedEvent> Codec<ConfigReloadRequestedEvent>::decode(con
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConfigReloadRequestedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_event = value.find("event");
     if (!field_event) {
         return make_error(ErrorCode::decode, "missing required field 'event'");
@@ -35985,6 +36241,11 @@ Result<Json> Codec<ConversationChangedEvent>::encode(const ConversationChangedEv
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.change) {
         auto encoded = encode_value(*value.change);
         if (!encoded) return std::move(encoded).error();
@@ -36012,6 +36273,12 @@ Result<ConversationChangedEvent> Codec<ConversationChangedEvent>::decode(const J
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_change = value.find("change");
     if (!field_change) {
         return make_error(ErrorCode::decode, "missing required field 'change'");
@@ -36072,6 +36339,11 @@ Result<Json> Codec<ConversationDraftEvent>::encode(const ConversationDraftEvent&
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-draft")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -36088,6 +36360,12 @@ Result<ConversationDraftEvent> Codec<ConversationDraftEvent>::decode(const Json&
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationDraftEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -36131,6 +36409,11 @@ Result<Json> Codec<ConversationInboxChangedEvent>::encode(const ConversationInbo
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-inbox-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -36155,6 +36438,12 @@ Result<ConversationInboxChangedEvent> Codec<ConversationInboxChangedEvent>::deco
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationInboxChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -36213,6 +36502,11 @@ Result<Json> Codec<ConversationLiveEvent>::encode(const ConversationLiveEvent& v
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-live")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -36230,6 +36524,12 @@ Result<ConversationLiveEvent> Codec<ConversationLiveEvent>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationLiveEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -36268,6 +36568,11 @@ Result<Json> Codec<ConversationRunChangedEvent>::encode(const ConversationRunCha
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-run-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -36288,6 +36593,12 @@ Result<ConversationRunChangedEvent> Codec<ConversationRunChangedEvent>::decode(c
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationRunChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -36335,6 +36646,11 @@ Result<Json> Codec<ConversationTypingEvent>::encode(const ConversationTypingEven
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("conversation-typing")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -36351,6 +36667,12 @@ Result<ConversationTypingEvent> Codec<ConversationTypingEvent>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationTypingEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -36496,6 +36818,11 @@ Result<Json> Codec<EmptyEvent>::encode(const EmptyEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("empty")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -36503,6 +36830,12 @@ Result<EmptyEvent> Codec<EmptyEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     EmptyEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_event = value.find("event");
     if (!field_event) {
         return make_error(ErrorCode::decode, "missing required field 'event'");
@@ -36602,6 +36935,11 @@ Result<Json> Codec<FrontendProjectionChangedEvent>::encode(const FrontendProject
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("frontend-projection-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_frontend = encode_value(value.frontend);
     if (!encoded_frontend) return std::move(encoded_frontend).error();
     object.emplace("frontend", std::move(encoded_frontend).value());
@@ -36627,6 +36965,12 @@ Result<FrontendProjectionChangedEvent> Codec<FrontendProjectionChangedEvent>::de
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     FrontendProjectionChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_frontend = value.find("frontend");
     if (!field_frontend) {
         return make_error(ErrorCode::decode, "missing required field 'frontend'");
@@ -36702,6 +37046,11 @@ Result<Json> Codec<GraphicsStatusEvent>::encode(const GraphicsStatusEvent& value
         if (!encoded) return std::move(encoded).error();
         object.emplace("attempts", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.cell_height) {
         auto encoded = encode_value(*value.cell_height);
         if (!encoded) return std::move(encoded).error();
@@ -36747,6 +37096,12 @@ Result<GraphicsStatusEvent> Codec<GraphicsStatusEvent>::decode(const Json& value
         auto decoded = decode_value<std::uint16_t>(*field_attempts);
         if (!decoded) return std::move(decoded).error();
         result.attempts = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_cell_height = value.find("cell_height");
     if (field_cell_height) {
@@ -36809,6 +37164,11 @@ Result<Json> Codec<HistoryChangedEvent>::encode(const HistoryChangedEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("history-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_kinds = encode_value(value.kinds);
     if (!encoded_kinds) return std::move(encoded_kinds).error();
     object.emplace("kinds", std::move(encoded_kinds).value());
@@ -36822,6 +37182,12 @@ Result<HistoryChangedEvent> Codec<HistoryChangedEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     HistoryChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_kinds = value.find("kinds");
     if (!field_kinds) {
         return make_error(ErrorCode::decode, "missing required field 'kinds'");
@@ -36856,6 +37222,11 @@ Result<Json> Codec<KeybindingsChangedEvent>::encode(const KeybindingsChangedEven
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("keybindings-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_origin = encode_value(value.origin);
     if (!encoded_origin) return std::move(encoded_origin).error();
     object.emplace("origin", std::move(encoded_origin).value());
@@ -36869,6 +37240,12 @@ Result<KeybindingsChangedEvent> Codec<KeybindingsChangedEvent>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     KeybindingsChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_origin = value.find("origin");
     if (!field_origin) {
         return make_error(ErrorCode::decode, "missing required field 'origin'");
@@ -36908,6 +37285,11 @@ Result<Json> Codec<LayoutChangedEvent>::encode(const LayoutChangedEvent& value) 
         if (!encoded) return std::move(encoded).error();
         object.emplace("active_pane", std::move(encoded).value());
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.layout) {
         auto encoded = encode_value(*value.layout);
         if (!encoded) return std::move(encoded).error();
@@ -36943,6 +37325,12 @@ Result<LayoutChangedEvent> Codec<LayoutChangedEvent>::decode(const Json& value) 
         auto decoded = decode_value<Id>(*field_active_pane);
         if (!decoded) return std::move(decoded).error();
         result.active_pane = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_layout = value.find("layout");
     if (field_layout) {
@@ -36997,6 +37385,11 @@ Result<Json> Codec<MachineUsageChangedEvent>::encode(const MachineUsageChangedEv
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("machine-usage-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.usage) {
         auto encoded = encode_value(*value.usage);
         if (!encoded) return std::move(encoded).error();
@@ -37011,6 +37404,12 @@ Result<MachineUsageChangedEvent> Codec<MachineUsageChangedEvent>::decode(const J
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     MachineUsageChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_usage = value.find("usage");
     if (!field_usage) {
         return make_error(ErrorCode::decode, "missing required field 'usage'");
@@ -37043,6 +37442,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_body = encode_value(value.body);
     if (!encoded_body) return std::move(encoded_body).error();
     object.emplace("body", std::move(encoded_body).value());
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.desktop) {
         auto encoded = encode_value(*value.desktop);
         if (!encoded) return std::move(encoded).error();
@@ -37089,6 +37493,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_body);
         if (!decoded) return std::move(decoded).error();
         result.body = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_desktop = value.find("desktop");
     if (field_desktop) {
@@ -37283,6 +37693,11 @@ Result<Json> Codec<PairingRequestedEvent>::encode(const PairingRequestedEvent& v
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("pairing-requested")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_code = encode_value(value.code);
     if (!encoded_code) return std::move(encoded_code).error();
     object.emplace("code", std::move(encoded_code).value());
@@ -37302,6 +37717,12 @@ Result<PairingRequestedEvent> Codec<PairingRequestedEvent>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     PairingRequestedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_code = value.find("code");
     if (!field_code) {
         return make_error(ErrorCode::decode, "missing required field 'code'");
@@ -37354,6 +37775,11 @@ Result<Json> Codec<PairingResolvedEvent>::encode(const PairingResolvedEvent& val
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("pairing-resolved")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_request = encode_value(value.request);
     if (!encoded_request) return std::move(encoded_request).error();
     object.emplace("request", std::move(encoded_request).value());
@@ -37364,6 +37790,12 @@ Result<PairingResolvedEvent> Codec<PairingResolvedEvent>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     PairingResolvedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_request = value.find("request");
     if (!field_request) {
         return make_error(ErrorCode::decode, "missing required field 'request'");
@@ -37562,6 +37994,11 @@ Result<Json> Codec<ParticipantAvatarChangedEvent>::encode(const ParticipantAvata
     } else {
         object.emplace("avatar", Json(nullptr));
     }
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_participant = encode_value(value.participant);
     if (!encoded_participant) return std::move(encoded_participant).error();
     object.emplace("participant", std::move(encoded_participant).value());
@@ -37584,6 +38021,12 @@ Result<ParticipantAvatarChangedEvent> Codec<ParticipantAvatarChangedEvent>::deco
             if (!decoded) return std::move(decoded).error();
             result.avatar = std::move(decoded).value();
         }
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_participant = value.find("participant");
     if (!field_participant) {
@@ -37610,6 +38053,11 @@ Result<Json> Codec<PersonalChangedEvent>::encode(const PersonalChangedEvent& val
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("personal-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_personal_revision = encode_value(value.personal_revision);
     if (!encoded_personal_revision) return std::move(encoded_personal_revision).error();
     object.emplace("personal_revision", std::move(encoded_personal_revision).value());
@@ -37620,6 +38068,12 @@ Result<PersonalChangedEvent> Codec<PersonalChangedEvent>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     PersonalChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_personal_revision = value.find("personal_revision");
     if (!field_personal_revision) {
         return make_error(ErrorCode::decode, "missing required field 'personal_revision'");
@@ -37645,6 +38099,11 @@ Result<Json> Codec<ProgramStatusChangedEvent>::encode(const ProgramStatusChanged
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("program-status-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.program_status) {
         auto encoded = encode_value(*value.program_status);
         if (!encoded) return std::move(encoded).error();
@@ -37662,6 +38121,12 @@ Result<ProgramStatusChangedEvent> Codec<ProgramStatusChangedEvent>::decode(const
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ProgramStatusChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_program_status = value.find("program_status");
     if (!field_program_status) {
         return make_error(ErrorCode::decode, "missing required field 'program_status'");
@@ -38359,6 +38824,11 @@ Result<Json> Codec<ScrollChangedEvent>::encode(const ScrollChangedEvent& value) 
     auto encoded_at_bottom = encode_value(value.at_bottom);
     if (!encoded_at_bottom) return std::move(encoded_at_bottom).error();
     object.emplace("at_bottom", std::move(encoded_at_bottom).value());
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_offset = encode_value(value.offset);
     if (!encoded_offset) return std::move(encoded_offset).error();
     object.emplace("offset", std::move(encoded_offset).value());
@@ -38380,6 +38850,12 @@ Result<ScrollChangedEvent> Codec<ScrollChangedEvent>::decode(const Json& value) 
         auto decoded = decode_value<bool>(*field_at_bottom);
         if (!decoded) return std::move(decoded).error();
         result.at_bottom = std::move(decoded).value();
+    }
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
     }
     const Json* field_offset = value.find("offset");
     if (!field_offset) {
@@ -38415,6 +38891,11 @@ Result<Json> Codec<SettingsChangedEvent>::encode(const SettingsChangedEvent& val
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("settings-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_keys = encode_value(value.keys);
     if (!encoded_keys) return std::move(encoded_keys).error();
     object.emplace("keys", std::move(encoded_keys).value());
@@ -38431,6 +38912,12 @@ Result<SettingsChangedEvent> Codec<SettingsChangedEvent>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SettingsChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_keys = value.find("keys");
     if (!field_keys) {
         return make_error(ErrorCode::decode, "missing required field 'keys'");
@@ -38474,6 +38961,11 @@ Result<Json> Codec<SizeStateEvent>::encode(const SizeStateEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("size-state")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     if (value.self_participant) {
         auto encoded = encode_value(*value.self_participant);
         if (!encoded) return std::move(encoded).error();
@@ -38492,6 +38984,12 @@ Result<SizeStateEvent> Codec<SizeStateEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SizeStateEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_self_participant = value.find("self_participant");
     if (field_self_participant) {
         auto decoded = decode_value<std::string>(*field_self_participant);
@@ -38532,6 +39030,11 @@ Result<Json> Codec<StatusEvent>::encode(const StatusEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("status")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_message = encode_value(value.message);
     if (!encoded_message) return std::move(encoded_message).error();
     object.emplace("message", std::move(encoded_message).value());
@@ -38542,6 +39045,12 @@ Result<StatusEvent> Codec<StatusEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     StatusEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_message = value.find("message");
     if (!field_message) {
         return make_error(ErrorCode::decode, "missing required field 'message'");
@@ -38567,6 +39076,11 @@ Result<Json> Codec<SurfaceExitedEvent>::encode(const SurfaceExitedEvent& value) 
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("surface-exited")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -38577,6 +39091,12 @@ Result<SurfaceExitedEvent> Codec<SurfaceExitedEvent>::decode(const Json& value) 
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SurfaceExitedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -38602,6 +39122,11 @@ Result<Json> Codec<SurfaceOutputEvent>::encode(const SurfaceOutputEvent& value) 
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("surface-output")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -38612,6 +39137,12 @@ Result<SurfaceOutputEvent> Codec<SurfaceOutputEvent>::decode(const Json& value) 
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SurfaceOutputEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -38637,6 +39168,11 @@ Result<Json> Codec<SurfaceResizeFailedEvent>::encode(const SurfaceResizeFailedEv
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("surface-resize-failed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_cols = encode_value(value.cols);
     if (!encoded_cols) return std::move(encoded_cols).error();
     object.emplace("cols", std::move(encoded_cols).value());
@@ -38670,6 +39206,12 @@ Result<SurfaceResizeFailedEvent> Codec<SurfaceResizeFailedEvent>::decode(const J
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SurfaceResizeFailedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_cols = value.find("cols");
     if (!field_cols) {
         return make_error(ErrorCode::decode, "missing required field 'cols'");
@@ -38748,6 +39290,11 @@ Result<Json> Codec<SurfaceResizedEvent>::encode(const SurfaceResizedEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("surface-resized")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_cols = encode_value(value.cols);
     if (!encoded_cols) return std::move(encoded_cols).error();
     object.emplace("cols", std::move(encoded_cols).value());
@@ -38771,6 +39318,12 @@ Result<SurfaceResizedEvent> Codec<SurfaceResizedEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SurfaceResizedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_cols = value.find("cols");
     if (!field_cols) {
         return make_error(ErrorCode::decode, "missing required field 'cols'");
@@ -39378,6 +39931,11 @@ Result<Json> Codec<TerminalReapedEvent>::encode(const TerminalReapedEvent& value
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("terminal-reaped")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_grace_ms = encode_value(value.grace_ms);
     if (!encoded_grace_ms) return std::move(encoded_grace_ms).error();
     object.emplace("grace_ms", std::move(encoded_grace_ms).value());
@@ -39398,6 +39956,12 @@ Result<TerminalReapedEvent> Codec<TerminalReapedEvent>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TerminalReapedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_grace_ms = value.find("grace_ms");
     if (!field_grace_ms) {
         return make_error(ErrorCode::decode, "missing required field 'grace_ms'");
@@ -39445,6 +40009,11 @@ Result<Json> Codec<TerminalRegistryChangedEvent>::encode(const TerminalRegistryC
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("terminal-registry-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -39462,6 +40031,12 @@ Result<TerminalRegistryChangedEvent> Codec<TerminalRegistryChangedEvent>::decode
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TerminalRegistryChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
         return make_error(ErrorCode::decode, "missing required field 'generation'");
@@ -39514,6 +40089,11 @@ Result<Json> Codec<TitleChangedEvent>::encode(const TitleChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("title-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -39529,6 +40109,12 @@ Result<TitleChangedEvent> Codec<TitleChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TitleChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -39560,6 +40146,11 @@ Result<Json> Codec<TreeChangedEvent>::encode(const TreeChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("tree-changed")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -39567,6 +40158,12 @@ Result<TreeChangedEvent> Codec<TreeChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TreeChangedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_event = value.find("event");
     if (!field_event) {
         return make_error(ErrorCode::decode, "missing required field 'event'");
@@ -39746,6 +40343,11 @@ Result<Json> Codec<WindowTitleRequestedEvent>::encode(const WindowTitleRequested
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("window-title-requested")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
     auto encoded_title = encode_value(value.title);
     if (!encoded_title) return std::move(encoded_title).error();
     object.emplace("title", std::move(encoded_title).value());
@@ -39756,6 +40358,12 @@ Result<WindowTitleRequestedEvent> Codec<WindowTitleRequestedEvent>::decode(const
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     WindowTitleRequestedEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
     const Json* field_title = value.find("title");
     if (!field_title) {
         return make_error(ErrorCode::decode, "missing required field 'title'");
