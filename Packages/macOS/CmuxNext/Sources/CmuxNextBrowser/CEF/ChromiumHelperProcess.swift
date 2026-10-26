@@ -19,6 +19,7 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         case utility
         case other
 
+        #if DEBUG || CMUX_BENCH_HOOKS
         /// The kind as `debug.webui` names it: `renderer`, `extension_renderer`, `gpu`, `network`,
         /// `utility` or `other`.
         public var name: String {
@@ -36,6 +37,7 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         public var rendererClientID: Int32? {
             if case .renderer(let clientID) = self { clientID } else { nil }
         }
+        #endif
     }
 
     public var pid: Int32

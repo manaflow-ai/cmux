@@ -16,9 +16,12 @@ public import WebKit
 /// - `pages`: one object per live ``PageWebView``, oldest first:
 ///   - `page` (string): the descriptor id. `instance` (number): ``PageRegistry/instance(of:)``.
 ///   - `engine`: `chromium` or `webkit`. `group`: the process group, null until p13-webui-012.
-///   - `state`: `visible` or `hidden` (as the host last told the engine). `hidden_for_s`: seconds
-///     since it was hidden, null while visible.
-///   - `keep_reasons` (strings): the reasons the host sees now, of `visible`, `loading`, `focused`.
+///   - `state`: `visible` or `hidden` to the person: hidden when the host told the engine so or
+///     when the page is a parked spare (Chrome counts no spare renderer as visible).
+///     `engine_visible` (bool): what the host last told the engine (true for a spare parked in a
+///     window). `hidden_for_s`: seconds since it was hidden, null while visible.
+///   - `keep_reasons` (strings): the reasons the host sees now, of `visible` (never a spare's),
+///     `loading`, `focused`.
 ///   - `spare`: `new_tab` (the parked New Tab page), `page_host_pool` (PageHostPool's parked host) or null.
 ///   - `pooled` (bool): made by PageHostPool. `window_number`: null in no window.
 ///   - `browser_id`: the Chromium browser id, null on WebKit.
@@ -111,14 +114,15 @@ nonisolated public struct WebUICensus: Sendable {
             let process = view.chromiumPage.map { rendererProcess($0) }
             let isNewTabSpare = newTabSpare != nil && view.webKitView === newTabSpare
             newTabSpareSeen = newTabSpareSeen || isNewTabSpare
+            let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil
             var keepReasons: [String] = []
-            if !census.hidden { keepReasons.append("visible") }
+            if !census.hidden, spare == nil { keepReasons.append("visible") }
             if census.loading { keepReasons.append("loading") }
             if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
                 keepReasons.append("focused")
             }
             return Page(page: view.pageID, instance: registry.instance(of: view), census: census, keepReasons: keepReasons,
-                        spare: isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil,
+                        spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
                         webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
@@ -158,6 +162,7 @@ nonisolated public struct WebUICensus: Sendable {
             [
                 "page": .string(page.page), "instance": number(page.instance), "engine": .string(page.census.engine),
                 "group": .null, "state": .string(page.census.hidden ? "hidden" : "visible"),
+                "engine_visible": .bool(page.census.engineVisible),
                 "hidden_for_s": page.census.hiddenForSeconds.map { .number($0) } ?? .null,
                 "keep_reasons": .array(page.keepReasons.map { .string($0) }),
                 "spare": page.spare.map { .string($0) } ?? .null, "pooled": .bool(page.census.pooled),
@@ -186,5 +191,17 @@ nonisolated public struct WebUICensus: Sendable {
         return ["pages": .array(pageRows), "spares": .array(spareRows), "browser_tabs": .array(tabRows),
                 "processes": .array(processRows)]
     }
+}
+
+/// What a ``PageWebView`` keeps for its census row (PageWebView+Debug.swift).
+struct PageCensusState {
+    /// The visibility the host last gave the engine.
+    var engineVisible = false
+    /// In a spare's parking view (``PageWebView/noteCensusParked(_:in:)``).
+    var parked = false
+    /// When the page was last hidden; nil while it shows.
+    var hiddenSince: Date?
+    /// Native pushes (``PageWebView/evaluateInPage(_:)``) while hidden: one integer add each.
+    var pushesWhileHidden = 0
 }
 #endif

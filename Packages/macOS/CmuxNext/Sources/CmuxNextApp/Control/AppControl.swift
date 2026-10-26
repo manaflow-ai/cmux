@@ -1,15 +1,11 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextBridge
-import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
-import CmuxNextPages
-import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -171,14 +167,6 @@ final class AppControl {
             },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
-            },
-            // Every page, spare and Chromium helper process: state, keep reasons, pids and what reached
-            // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after the read.
-            .async("debug.webui") { [weak services] call in
-                guard let census = await AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .null }
-                return await census.report {
-                    ChromiumHelperProcess.list().map { WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID) }
-                }
             },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
@@ -566,26 +554,4 @@ final class AppControl {
         publisher?.stop()
         service?.stop()
     }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.webui`'s main-actor half: every page, spare and Chromium browser tab now.
-    private static func webUICensus(_ services: AppServices?, reset: Bool) -> WebUICensus? {
-        guard let services else { return nil }
-        let registry = services.webUI.registry, pages = registry.pages()
-        let cef = services.cache.cef
-        let census = WebUICensus(
-            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.webView,
-            spareWindow: WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
-            browserTabs: services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry in
-                (entry.tab as? CEFTab).map { WebUICensus.Host(name: id, rendererClients: $0.rendererClientIDs) }
-            },
-            rendererProcess: { page in
-                let tab = (page as? CEFPageChromiumPage)?.tab
-                return (tab?.browserID, tab?.rendererClientIDs ?? [])
-            },
-            webKitPID: { WebContentProcess.identifier(of: $0) })
-        if reset { pages.forEach { $0.resetCensusCounters() } }
-        return census
-    }
-    #endif
 }
