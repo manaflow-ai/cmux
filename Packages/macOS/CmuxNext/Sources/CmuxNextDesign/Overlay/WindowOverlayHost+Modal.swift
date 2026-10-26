@@ -22,7 +22,7 @@ extension WindowOverlayHost {
             }
             otherWindowTookKey = false
             modalLeftWindowUsable = false
-            keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
+            keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, // raw-observer-allow: needs the sender, the window that took the keys; AppEvents hands none
                                                                  queue: .main) { [weak self] note in
                 let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
                 // main-proof: observer on queue: .main

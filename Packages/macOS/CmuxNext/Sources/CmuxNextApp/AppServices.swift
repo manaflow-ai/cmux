@@ -58,7 +58,7 @@ final class AppServices {
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
-    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
     private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?

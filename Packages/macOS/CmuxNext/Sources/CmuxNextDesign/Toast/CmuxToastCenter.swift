@@ -4,7 +4,7 @@ import CmuxNextWakeups
 /// The one toast presenter (R96). Toasts show on their window's overlay
 /// (`CmuxToastHosting`, the R84 `WindowOverlayHost` in the app), at most
 /// three per window with the newest at the bottom (`CmuxToastStack`). Each
-/// ends after its duration on the injected clock; the pointer on a toast
+/// ends after its duration on a `visible` deadline (``deadlines``); the pointer on a toast
 /// holds it. Cmd-Z runs the newest undo toast only when the focused
 /// responder has nothing of its own to undo: the key dispatcher (owned by
 /// the keybindings lead) asks `takesUndoKey(in:)` and calls `runUndo(in:)`.
@@ -16,16 +16,19 @@ public final class CmuxToastCenter {
         let handle: CmuxToastHandle
         let view: CmuxToastView
         weak var window: NSWindow?
-        let timer: DemandTimer
+        /// Its time on screen; the pointer on it holds it.
+        let timer: any ComponentDeadline
     }
 
     public let host: any CmuxToastHosting
-    private let clock: any Clock<Duration>
+    /// Where the toasts' deadlines come from: the composition root sets the app's deadline scheduler
+    /// (``ComponentDeadlines/on(_:)``); until then, and in tests, the clock passed at init.
+    public var deadlines: ComponentDeadlines
     private var entries: [Int: Entry] = [:]
     private var stacks: [ObjectIdentifier: CmuxToastStack] = [:]
     private var nextSerial = 1
     /// Notices the person closed, quiet until their timer ends.
-    private var quieted: [QuietKey: DemandTimer] = [:]
+    private var quieted: [QuietKey: any ComponentDeadline] = [:]
     /// How long a notice the person closed stays quiet: the same message
     /// (same id, no action) asked for again in that time does not show.
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
@@ -42,7 +45,7 @@ public final class CmuxToastCenter {
     }
 
     public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastOverlayHost()) {
-        self.clock = clock
+        deadlines = .clock(clock)
         self.host = host
     }
 
@@ -72,7 +75,7 @@ public final class CmuxToastCenter {
         let repeats = newest.flatMap { entries[$0]?.handle.toast } == toast
         let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
         stacks[key] = stack
-        entries[serial] = Entry(handle: handle, view: view, window: window, timer: DemandTimer(owner: "toast", clock: clock))
+        entries[serial] = Entry(handle: handle, view: view, window: window, timer: deadlines.deadline(owner: "toast", workClass: .visible))
         // A same-id toast goes at once (its successor takes the slot, and two
         // different toasts never crossfade); one pushed over the limit fades.
         // A successor of the newest toast shows in its slot at once, so a
@@ -164,9 +167,10 @@ public final class CmuxToastCenter {
         if let toast = entries[serial]?.handle.toast, toast.action == nil, closedCooldown > .zero {
             let quiet = QuietKey(toast)
             quieted[quiet]?.cancel()
-            let timer = DemandTimer(owner: "toast.quiet", clock: clock)
+            // Nothing shows when the quiet ends: it only lets the notice show again.
+            let timer = deadlines.deadline(owner: "toast.quiet", workClass: .background)
             quieted[quiet] = timer
-            timer.scheduleOnMain(after: closedCooldown) { [weak self] in self?.quieted[quiet] = nil }
+            timer.schedule(after: closedCooldown) { [weak self] in self?.quieted[quiet] = nil }
         }
         end(serial, .closed)
     }
@@ -207,7 +211,7 @@ public final class CmuxToastCenter {
 
     private func startTimer(_ serial: Int) {
         guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
-        entry.timer.scheduleOnMain(after: entry.handle.toast.duration) { [weak self] in
+        entry.timer.schedule(after: entry.handle.toast.duration) { [weak self] in
             self?.end(serial, .timeout)
         }
     }

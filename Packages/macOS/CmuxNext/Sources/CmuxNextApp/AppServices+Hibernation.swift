@@ -99,9 +99,9 @@ extension AppServices {
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
-            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }, workspaceEvents: workspaceEvents, mainWork: mainWork))
         }
-        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(workspaceEvents: workspaceEvents, mainWork: mainWork) }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`

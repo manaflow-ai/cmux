@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -359,7 +360,8 @@ import Testing
                 windows: { [weak self] in self.map { $0.isTracking ? [$0.tracked] : [] } ?? [] },
                 orderedWindows: { [weak self] in self?.order() ?? [] },
                 facts: { [policy] in policy.read($0) }, isAppHidden: { [weak self] in self?.appHidden ?? false },
-                drawsWhenOccluded: false, center: center, workspaceCenter: NotificationCenter())
+                drawsWhenOccluded: false, center: center, workspaceEvents: AppEvents(center: NotificationCenter()),
+                mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             checker.onChange = { [weak self] window, offScreen in
                 guard let self else { return }
                 changes.append(Change(window == ObjectIdentifier(tracked) ? tracked : other, offScreen))
@@ -392,6 +394,8 @@ import Testing
         let coverWindow: NSWindow
         let center = NotificationCenter()
         let workspaceCenter = NotificationCenter()
+        /// The checker's displays' sleep and wake, on ``workspaceCenter``; kept here, as a subscription holds its fan-out weakly.
+        let workspaceEvents: AppEvents
         let policy = FakeDrawPolicy()
         let checker: WindowOcclusionChecker
         let pane: Pane
@@ -413,9 +417,10 @@ import Testing
             policy.facts[ObjectIdentifier(window)] = WindowOcclusionFacts(id: ObjectIdentifier(window), frame: window.frame, isActive: true)
             policy.facts[ObjectIdentifier(coverWindow)] = WindowOcclusionFacts(id: ObjectIdentifier(coverWindow), frame: coverWindow.frame,
                                                                               isVisible: false, systemVisible: false)
+            workspaceEvents = AppEvents(center: workspaceCenter)
             checker = WindowOcclusionChecker(windows: { return [window, coverWindow] }, orderedWindows: { return [coverWindow, window] },
                                              facts: { [policy] in policy.read($0) }, isAppHidden: { false }, drawsWhenOccluded: false,
-                                             center: center, workspaceCenter: workspaceCenter)
+                                             center: center, workspaceEvents: workspaceEvents, mainWork: services.mainWork)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-occluded-discard-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

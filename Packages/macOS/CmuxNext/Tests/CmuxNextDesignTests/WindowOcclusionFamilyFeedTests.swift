@@ -26,7 +26,8 @@ import Testing
             facts: { window in
                 WindowOcclusionFacts(id: ObjectIdentifier(window), frame: frame(window), systemVisible: true, isActive: window === key)
             },
-            isAppHidden: { false }, drawsWhenOccluded: false, center: NotificationCenter())
+            isAppHidden: { false }, drawsWhenOccluded: false, center: NotificationCenter(),
+            workspaceEvents: AppEvents(center: NotificationCenter()), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 
     @Test func theBackOfTwoSameSizeWindowsIsOccludedWhileTheSystemSaysVisible() {

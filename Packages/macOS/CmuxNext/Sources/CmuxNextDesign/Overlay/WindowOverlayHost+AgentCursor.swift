@@ -106,6 +106,8 @@ final class AgentCursorCarrierView: NSView {
         tracking = area
     }
 
+    // local-monitor-allow: the moves go to the carrier's PointerFrameHover, on its window's FrameInputCoalescer
+    // (recipe R-input); in the routed panel the host's tap routing hovers them instead
     override func mouseMoved(with event: NSEvent) {
         // In the routed panel the host's routing hovers this move already.
         if let routedPanel, window === routedPanel { return }
