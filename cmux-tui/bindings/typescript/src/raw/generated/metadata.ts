@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
+/* cmux-tui mux protocol 12, IR 57eb402651a526576df3d48227be527d812151a80f7a65b6d9bf8753fd527433. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692" as const;
+export const SDK_IR_SHA256 = "57eb402651a526576df3d48227be527d812151a80f7a65b6d9bf8753fd527433" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3215,7 +3215,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -12251,6 +12251,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsIpc": {
+    "additional_properties": false,
+    "constraints": [
+      "methods lists every method that ran since daemon start, ordered by id."
+    ],
+    "fields": {
+      "methods": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsMethodLatency"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -12545,6 +12565,114 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "ServerStatsLockWait"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMethodLatency": {
+    "additional_properties": false,
+    "constraints": [
+      "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
+      "id is the method id of the daemon.request trace slice; class is its request_latency_us class.",
+      "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the handling thread's lock waits in between."
+    ],
+    "fields": {
+      "class": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "handler_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "latency_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "lock_wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "method": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsPercentiles": {
+    "additional_properties": false,
+    "constraints": [
+      "Percentiles are log-linear bucket upper bounds, at most 25% above the true value."
+    ],
+    "fields": {
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p50": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p95": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -13005,7 +13133,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "write_path is present only when the request names it in include.",
       "request_path_io is present only when the request names it in include.",
       "slow_requests is present only when the request names it in include.",
-      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
+      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+      "ipc is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -13022,6 +13151,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "ipc": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpc"
         }
       },
       "journal_writer": {

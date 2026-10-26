@@ -4,8 +4,10 @@ internal import CmuxNextSettings
 
 /// `debug.daemon.wire`: the app side of the daemon wire since launch (``DaemonWireStats``): bytes and
 /// lines each way, inbound lines by kind, JSON decodes per line, terminal output bytes the app copied,
-/// and connections and bridge spawns by role, for the p05-ipc benches (Debug and bench builds).
-/// `{"reset": true}` zeroes the traffic counters after the report; connection counts never reset.
+/// connections and bridge spawns by role, and each method's send-to-reply time (`methods`, the app
+/// end of the daemon's `server-stats` `ipc`), for the p05-ipc benches (Debug and bench builds).
+/// `{"reset": true}` zeroes the traffic counters and the method histograms after the report;
+/// connection counts never reset.
 /// It reads atomics only, so it runs off the main thread (socket threading policy) and answers while
 /// the main thread is busy.
 public struct DaemonWireControl: Sendable {
@@ -52,6 +54,24 @@ public struct DaemonWireControl: Sendable {
             ]),
             "bridge_spawns": byRole(snapshot.bridgeSpawns),
             "bridge_spawns_total": number(snapshot.bridgeSpawnsTotal),
+            "methods": .array(snapshot.methods.map(methodRow)),
+        ])
+    }
+
+    /// One method's row: `method`, `id` (the schema id, null for `other`) and `send_to_reply_us`
+    /// with `count`, `p50`, `p95`, `p99` and `max`, the keys of the daemon's `ipc` rows.
+    static func methodRow(_ latency: DaemonWireStats.MethodLatency) -> JSONValue {
+        func number(_ value: UInt64) -> JSONValue { .number(Double(value)) }
+        return .object([
+            "method": .string(latency.method),
+            "id": latency.id.map { JSONValue.number(Double($0)) } ?? .null,
+            "send_to_reply_us": .object([
+                "count": number(latency.count),
+                "p50": number(latency.p50Micros),
+                "p95": number(latency.p95Micros),
+                "p99": number(latency.p99Micros),
+                "max": number(latency.maxMicros),
+            ]),
         ])
     }
 }

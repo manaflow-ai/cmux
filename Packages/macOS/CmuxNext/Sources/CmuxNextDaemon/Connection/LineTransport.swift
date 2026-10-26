@@ -41,6 +41,8 @@ final class LineTransport: Sendable {
         var pending: [UInt64: Waiter] = [:]
         /// Request ids in send order, for id-less error responses.
         var order: [UInt64] = []
+        /// When each pending request was sent, while a recorder times replies (never in a release build).
+        var sent: [UInt64: DaemonWireStats.RequestStamp] = [:]
         var closed: TransportCloseReason?
         var sawShutdown = false
         /// Stream-0 events routed so far (raw events and `controlStreams`
@@ -284,9 +286,11 @@ final class LineTransport: Sendable {
             }
             let payload: Data
             do { payload = try body(id) } catch { return error }
+            let stamp = recorder?.requestSent(waiter.cmd)
             state.withLock { state in
                 state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
+                if let stamp { state.sent.updateValue(stamp, forKey: id) }
             }
             submittedID = id
             var line = payload
@@ -331,6 +335,7 @@ final class LineTransport: Sendable {
             let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
+            state.sent.removeAll()
             return waiters
         }
         let error = Self.closedError(reason)
@@ -438,16 +443,17 @@ final class LineTransport: Sendable {
             recorder?.lineRead(.ignored)
             return
         }
-        let waiter: (UInt64, Waiter)? = state.withLock { state in
+        let waiter: (UInt64, Waiter, DaemonWireStats.RequestStamp?)? = state.withLock { state in
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
-            return (state.eventCount, waiter)
+            return (state.eventCount, waiter, state.sent.removeValue(forKey: id))
         }
-        guard let (barrier, waiter) = waiter else {
+        guard let (barrier, waiter, sent) = waiter else {
             recorder?.lineRead(.droppedReply)
             return
         }
+        if let sent { recorder?.replied(sent) }
         recorder?.lineRead(Self.replyKind(waiter, ok: envelope.ok == true))
         if envelope.ok == true {
             if case .reply(_, let slot) = waiter {

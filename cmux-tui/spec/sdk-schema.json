@@ -5770,6 +5770,134 @@
     "Latency histograms are in microseconds; batch_size counts events."
    ]
   },
+  "ServerStatsIpc": {
+   "kind": "object",
+   "fields": {
+    "methods": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsMethodLatency"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "methods lists every method that ran since daemon start, ordered by id."
+   ]
+  },
+  "ServerStatsMethodLatency": {
+   "kind": "object",
+   "fields": {
+    "method": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "class": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "latency_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "handler_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "lock_wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
+    "id is the method id of the daemon.request trace slice; class is its request_latency_us class.",
+    "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the handling thread's lock waits in between."
+   ]
+  },
+  "ServerStatsPercentiles": {
+   "kind": "object",
+   "fields": {
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p50": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p95": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p99": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Percentiles are log-linear bucket upper bounds, at most 25% above the true value."
+   ]
+  },
   "ServerStatsLockHolder": {
    "kind": "object",
    "fields": {
@@ -6197,6 +6325,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "ipc": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpc"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6208,7 +6344,8 @@
     "write_path is present only when the request names it in include.",
     "request_path_io is present only when the request names it in include.",
     "slow_requests is present only when the request names it in include.",
-    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
+    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+    "ipc is present only when the request names it in include."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -19767,7 +19904,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

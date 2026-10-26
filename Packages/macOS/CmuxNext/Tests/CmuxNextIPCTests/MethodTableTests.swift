@@ -114,6 +114,18 @@ private func dense<Entry: Hashable & Sendable>(
         #expect(table.v12ID(named: "") == nil)
     }
 
+    /// `methods` lists every command and v2 operation once, in id order, and no event.
+    @Test func methodsListsEveryCommandAndOperationInIDOrder() {
+        let table = Self.fixture
+        let ids = table.methods.map(\.id)
+        #expect(ids == ids.sorted())
+        #expect(Set(ids).count == ids.count)
+        #expect(table.methods.contains { $0.name == "close-tab" })
+        #expect(table.methods.contains { $0.name == "workspace.list" })
+        #expect(!table.methods.contains { $0.name == "output" })
+        #expect(table.methods.allSatisfy { table.method($0.id) == $0 })
+    }
+
     @Test func idsSplitIntoFamilyAndOrdinal() {
         let id = MethodID(rawValue: 0x6203)
         #expect(id.family == 0x62 && id.ordinal == 0x03)

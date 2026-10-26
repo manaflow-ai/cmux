@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextIPC
 import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextRemoteFetch
@@ -75,7 +76,8 @@ public struct CmuxNextApp {
         // video wallpapers list the windows above theirs on its system lane, never on main.
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
-        let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
+        // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build.
+        let wireStats = DaemonWireStats.forBuild(methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),

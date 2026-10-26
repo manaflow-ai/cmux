@@ -580,8 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
-unknown names are ignored.
+sections: `resource_projection`, `write_path`, `request_path_io`,
+`slow_requests`, `requests` and `ipc`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -636,9 +636,16 @@ object{
     query:histogram, browser:histogram, agent:histogram, cloud:histogram,
     other:histogram
   },
-  dispatch_queue_us?:histogram
+  dispatch_queue_us?:histogram,
+  ipc?:object{
+    methods:array<object{
+      method:string, id:uint16, class:string,
+      latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
+    }>
+  }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+percentiles = object{count:uint64,p50:uint64,p95:uint64,p99:uint64,max:uint64}
 ```
 
 `resource_projection` splits the topology projection that every topology
@@ -715,6 +722,21 @@ reply is queued. The time a reply then waits for the writer thread's socket
 write is not counted. `dispatch_queue_us` is the time from a request's parse
 to its handler's start: the wait in the connection's request queue (0 for a
 line answered inline).
+
+`ipc` adds the same requests by method (Chrome's per-message IPC timing):
+one row per method that ran since daemon start, ordered by `id`. `method` is
+the `cmd` tag, the `cmux.protocol/2` operation, or `route:<class>` for the
+lines a feature route answers; `id` is the method id of its trace slice
+(below) and `class` its `request_latency_us` class. `latency_us` is the
+`request_latency_us` time; `handler_us` is from the handler's start to its
+reply entering the outbound queue; `lock_wait_us` is the time the handling
+thread waited for locks in that span (the registry lock and every contended
+`LockHolder` lock). For a request a worker answers later, `handler_us` runs
+to the worker's reply and `lock_wait_us` counts only the dispatching
+thread's waits. Percentiles are log-linear bucket upper bounds, at most 25%
+above the true value, so they agree with a client-side measurement within
+one bucket. Recording takes no lock and allocates only the first time a
+method runs.
 
 In a trace, each request is the slice `daemon.request`: arg0 is the method
 id (a command's row in the command table, `0x4000` plus a resource

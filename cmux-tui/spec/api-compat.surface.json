@@ -21470,6 +21470,100 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/ipc": {
+        "ty": "object"
+      },
+      "/data/ipc/methods": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/ipc/methods/*": {
+        "ty": "object"
+      },
+      "/data/ipc/methods/*/class": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/handler_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/id": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/latency_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/lock_wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc/methods/*/method": {
+        "ty": "string",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

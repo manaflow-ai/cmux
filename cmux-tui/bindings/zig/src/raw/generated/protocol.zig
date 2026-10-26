@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692";
+pub const ir_sha256 = "57eb402651a526576df3d48227be527d812151a80f7a65b6d9bf8753fd527433";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2324,6 +2324,10 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsIpc = struct {
+    methods: []const ServerStatsMethodLatency,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -2374,6 +2378,23 @@ pub const ServerStatsLockWaits = struct {
     dropped: u64,
     long_waits: u64,
     recent: []const ServerStatsLockWait,
+};
+
+pub const ServerStatsMethodLatency = struct {
+    class: []const u8,
+    handler_us: ServerStatsPercentiles,
+    id: u16,
+    latency_us: ServerStatsPercentiles,
+    lock_wait_us: ServerStatsPercentiles,
+    method: []const u8,
+};
+
+pub const ServerStatsPercentiles = struct {
+    count: u64,
+    max: u64,
+    p50: u64,
+    p95: u64,
+    p99: u64,
 };
 
 pub const ServerStatsRegistryLock = struct {
@@ -2447,6 +2468,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    ipc: ?ServerStatsIpc = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
     request_latency_us: ?ServerStatsRequestLatency = null,
@@ -2459,6 +2481,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "ipc",
         "request_latency_us",
         "request_path_io",
         "resource_projection",

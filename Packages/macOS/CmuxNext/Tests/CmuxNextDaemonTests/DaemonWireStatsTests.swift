@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextTrace
 import Darwin
 import Foundation
 import Testing
@@ -195,6 +197,106 @@ struct DaemonWireStatsTests {
         #expect(try await DaemonConnection.perform(IdentifyRequest(), on: transport).app == "cmux-tui")
     }
 
+    // MARK: Send-to-reply by method (p05-ipc-009)
+
+    /// A trace clock that moves `stepNanos` forward on every read.
+    static func steppingClock(stepNanos: UInt64) -> TraceClock {
+        let now = SteppingNanos(stepNanos)
+        return TraceClock(reader: TraceClock.Reader(uptimeNanos: { now.next() }, continuousNow: { ContinuousClock.now }))
+    }
+
+    /// Each reply is timed from its request's write in the method its `cmd` names; a `cmd` the
+    /// table does not list counts as `other`. The clock moves 1.5 ms per read, and a request reads
+    /// it twice (its send, its reply), so every sample is exactly 1500 µs.
+    @Test func repliesAreTimedByMethodFromTheirSend() async throws {
+        let stats = DaemonWireStats(methods: [.init(id: 0x0101, name: IdentifyRequest.command)],
+                                    clock: Self.steppingClock(stepNanos: 1_500_000))
+        let daemon = try FakeWireDaemon(outputBytesPerAttach: 0)
+        defer { daemon.stop() }
+        let transport = try LineTransport(path: daemon.path, role: .control, stats: stats)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        defer { transport.close() }
+        _ = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
+        _ = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
+        _ = try await transport.request(cmd: "not-in-the-table", timeout: .seconds(5)) { id in
+            Data("{\"id\":\(id),\"cmd\":\"not-in-the-table\"}".utf8)
+        }
+
+        let methods = stats.snapshot().methods
+        #expect(methods.map(\.method) == [IdentifyRequest.command, DaemonWireStats.Method.otherName])
+        let identify = try #require(methods.first)
+        #expect(identify.id == 0x0101)
+        #expect(identify.count == 2)
+        #expect(identify.maxMicros == 1500)
+        let bound = DaemonMethodLatency.upperBound(ofBucket: DaemonMethodLatency.bucket(forMicros: 1500))
+        #expect([identify.p50Micros, identify.p95Micros, identify.p99Micros] == [bound, bound, bound])
+        #expect(methods.last?.id == nil)
+        #expect(methods.last?.count == 1)
+    }
+
+    /// The buckets are the daemon's (cmux-tui `LogLinearHistogram`): values under 4 have their own
+    /// bucket, then four per power of two; a bucket's upper bound is the largest value it holds, and
+    /// the last bucket takes everything from 2^30 µs.
+    @Test func bucketsAreTheDaemons() {
+        #expect((0..<4).map { DaemonMethodLatency.bucket(forMicros: UInt64($0)) } == [0, 1, 2, 3])
+        // The daemon's bucket_index(1000) is 39 and bucket_upper_bound(39) is 1023.
+        #expect(DaemonMethodLatency.bucket(forMicros: 1000) == 39)
+        #expect(DaemonMethodLatency.upperBound(ofBucket: 39) == 1023)
+        #expect(DaemonMethodLatency.upperBound(ofBucket: 8) == 4)
+        for micros: UInt64 in [4, 5, 7, 8, 100, 1499, 1500, 65_535, 1 << 20, (1 << 29) + 5] {
+            let bucket = DaemonMethodLatency.bucket(forMicros: micros)
+            let bound = DaemonMethodLatency.upperBound(ofBucket: bucket)
+            #expect(bound >= micros, "\(micros)")
+            #expect(DaemonMethodLatency.bucket(forMicros: bound) == bucket, "\(micros)")
+            #expect(DaemonMethodLatency.bucket(forMicros: bound + 1) == bucket + 1, "\(micros)")
+        }
+        #expect(DaemonMethodLatency.bucket(forMicros: 1 << 40) == DaemonMethodLatency.bucketCount - 1)
+    }
+
+    /// A bench's exact percentiles (nearest rank over the raw samples) and the histogram's share a
+    /// bucket, for the skewed samples of the daemon's `server_stats_ipc` test.
+    @Test func percentilesAgreeWithTheSamplesWithinOneBucket() throws {
+        let latency = DaemonMethodLatency(methods: [.init(id: 1, name: "ping")])
+        var samples: [UInt64] = (0..<UInt64(1000)).map { (i: UInt64) -> UInt64 in 20 + (i * i * i) / 12_500 + (i * 37) % 101 }
+        for micros in samples { latency.record(slot: 0, micros: micros) }
+        samples.sort()
+        func exact(_ fraction: Double) -> UInt64 {
+            samples[max(1, Int((Double(samples.count) * fraction).rounded(.up))) - 1]
+        }
+        let row = try #require(latency.snapshot().first)
+        #expect(row.count == 1000)
+        #expect(row.maxMicros == samples.last)
+        for (fraction, reported) in [(0.50, row.p50Micros), (0.95, row.p95Micros), (0.99, row.p99Micros)] {
+            let truth = exact(fraction)
+            #expect(DaemonMethodLatency.bucket(forMicros: reported) == DaemonMethodLatency.bucket(forMicros: truth),
+                    "p\(fraction): reported \(reported), exact \(truth)")
+            #expect(reported >= truth)
+        }
+    }
+
+    /// Timing a request and its reply allocates nothing.
+    @Test func timingARequestAllocatesNothing() throws {
+        let stats = DaemonWireStats(methods: [.init(id: 0x0101, name: IdentifyRequest.command)])
+        let recorder = stats.recorder()
+        let control = WireMallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let cmd = IdentifyRequest.command
+        let timed = WireMallocProbe.allocations {
+            for _ in 0..<10_000 { recorder.replied(recorder.requestSent(cmd)) }
+        }
+        #expect(timed == 0)
+        #expect(stats.snapshot().methods.first?.count == 10_000)
+    }
+
+    @Test func resetZeroesTheMethodHistograms() {
+        let stats = DaemonWireStats(methods: [.init(id: 1, name: "ping")])
+        let recorder = stats.recorder()
+        recorder.replied(recorder.requestSent("ping"))
+        #expect(stats.snapshot().methods.count == 1)
+        stats.resetTraffic()
+        #expect(stats.snapshot().methods.isEmpty)
+    }
+
     static func configuration(role: DaemonClientRole) -> DaemonConnection.Configuration {
         var configuration = DaemonConnection.Configuration(requiredCapabilities: [], terminalEnvironment: nil, role: role,
                                                            relayIdentity: role == .pageRelay ? PageRelayIdentity() : nil)
@@ -343,5 +445,47 @@ private final class FakeWireDaemon: Sendable {
             }
             return true
         }
+    }
+}
+
+/// A clock reading that moves a fixed step forward on every read.
+private final class SteppingNanos: Sendable {
+    private let now = Atomic<UInt64>(1_000_000_000)
+    private let step: UInt64
+
+    init(_ step: UInt64) { self.step = step }
+
+    func next() -> UInt64 { now.add(step, ordering: .relaxed).newValue }
+}
+
+/// Counts the allocations one thread makes, through libmalloc's `malloc_logger` hook (the one malloc
+/// stack logging uses), as FeatureListTests' probe does.
+private struct WireMallocProbe {
+    typealias Logger = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
+
+    /// `MALLOC_LOG_TYPE_ALLOCATE` (libmalloc stack_logging.h).
+    static let allocateType: UInt32 = 2
+    static let count = Atomic<Int>(0)
+    static let thread = Atomic<UInt64>(0)
+
+    /// The allocations `body` makes on this thread, or nil when the hook is missing.
+    static func allocations(_ body: () -> Void) -> Int? {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return nil }
+        let slot = symbol.assumingMemoryBound(to: Logger?.self)
+        var id: UInt64 = 0
+        pthread_threadid_np(nil, &id)
+        count.store(0, ordering: .relaxed)
+        thread.store(id, ordering: .relaxed)
+        let previous = slot.pointee
+        slot.pointee = { type, _, _, _, _, _ in
+            guard type & WireMallocProbe.allocateType != 0 else { return }
+            var id: UInt64 = 0
+            pthread_threadid_np(nil, &id)
+            if id == WireMallocProbe.thread.load(ordering: .relaxed) { _ = WireMallocProbe.count.wrappingAdd(1, ordering: .relaxed) }
+        }
+        body()
+        slot.pointee = previous
+        thread.store(0, ordering: .relaxed)
+        return count.load(ordering: .relaxed)
     }
 }
