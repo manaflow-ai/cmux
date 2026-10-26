@@ -54,14 +54,15 @@ extension ScreenContentView {
     var layoutOffset: CGFloat { panBase ?? scrollState.spring.value }
 
     /// Shows a pan event on the strip container: its translation (and its rings' plane's) moves to the
-    /// camera; the pan's first event takes the offset the views are laid out at as its base. No display
-    /// frame and no overlay sync is asked for: the rings move with the translation, and nothing else the
-    /// overlay sync places moves. Returns false when the container cannot carry it (``pansOnContainer``).
-    func presentPanOnContainer() -> Bool { // perf-hot: 0.3ms motion-frame
+    /// camera, or to `offset` (a resampled pan, ``presentFramePan(at:)``); the pan's first event takes
+    /// the offset the views are laid out at as its base. No display frame and no overlay sync is asked
+    /// for: the rings move with the translation, and nothing else the overlay sync places moves.
+    /// Returns false when the container cannot carry it (``pansOnContainer``).
+    func presentPanOnContainer(at offset: CGFloat? = nil) -> Bool { // perf-hot: 0.3ms motion-frame
         guard pansOnContainer else { return false }
         let base = panBase ?? laidOutStripOffset
         panBase = base
-        stripContainer.setTranslation(geometry.viewShift(offset: scrollState.spring.value) - geometry.viewShift(offset: base))
+        stripContainer.setTranslation(geometry.viewShift(offset: offset ?? scrollState.spring.value) - geometry.viewShift(offset: base))
         updateScrollbar()
         if !userMotionActive {
             userMotionActive = true
@@ -72,13 +73,14 @@ extension ScreenContentView {
 
     /// Ends a pan on the container at the gesture's end with a fling on the render server: the
     /// camera rests on the fling's target, the views lay out there once, and the translation (of the
-    /// container and its rings' plane) springs from where the strip shows to zero with the release velocity.
+    /// container and its rings' plane) springs from where the strip shows (a resampled pan shows a little
+    /// behind the camera) to zero with the release velocity.
     /// Returns false, changing nothing, when the spring would not animate here; the CPU steps it then.
     func startPanFling() -> Bool {
         let spring = Motion.panes.renderSpring(.scroll)
         guard spring.animates(StripClipContainerView.translationKeyPath, in: stripContainer) else { return false }
         let camera = scrollState.spring
-        let displacement = geometry.viewShift(offset: camera.value) - geometry.viewShift(offset: camera.target)
+        let displacement = stripContainer.translation + geometry.viewShift(offset: layoutOffset) - geometry.viewShift(offset: camera.target)
         scrollState.spring.snap()
         panBase = nil
         // The fling first: the layout pass below then leaves the translation to it.

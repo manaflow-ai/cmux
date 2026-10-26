@@ -167,11 +167,13 @@ extension ScreenContentView {
     /// the frame ticks: until its finger lifts, so a gap of a frame or two between trackpad events
     /// never drops the window's display link (an idle scheduler drops its link, and the next event
     /// would make a new one). A pan on the strip container (``panBase``) shows each event in its own
-    /// turn and keeps none.
-    func displayFrameBegan() -> Bool {
+    /// turn and keeps none, unless it is resampled: then this frame shows it at `frameTime`
+    /// (``presentFramePan(at:)``) and the ticks run until the finger lifts.
+    func displayFrameBegan(at frameTime: TimeInterval? = nil) -> Bool {
         panPresentedInFrame = false
         if panPresentationPending { applyPresentation() }
-        return isUserScrolling && panBase == nil
+        presentFramePan(at: frameTime)
+        return isUserScrolling && (panBase == nil || scrollState.resamplesPan)
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)

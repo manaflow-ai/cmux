@@ -70,14 +70,31 @@ extension ScreenContentView {
         cpuTakesCamera()
         // And from a fling on the render server, where it shows.
         takeCameraFromServer()
+        // Feature `stripPanResampling`: the pan shows at each frame's time (`presentFramePan`). Not under
+        // Reduce Motion, as resampled drags (p04-input-040).
+        scrollState.resamplesPan = context.resamplesStripPan && !context.reduceMotion
         scrollState.reduce(.gestureBegan)
     }
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
+        // A resampled pan on the strip container: after its first event, the next frame shows it.
+        if scrollState.resamplesPan, panBase != nil, pansOnContainer {
+            context.requestFrames()
+            return
+        }
         // On the strip container: one layer property, no frame. Else the panes move (`presentPan`).
         if !presentPanOnContainer() { presentPan() }
+    }
+
+    /// A display frame began during a resampled pan (``ColumnScrollState/resamplesPan``): the pan
+    /// events since the last frame show now, at the offset resampled at `frameTime` (Chrome's scroll
+    /// resampling at the begin-frame, `ui/base/prediction/linear_resampling.cc`). Nil `frameTime` (a
+    /// frame stepped by hand) shows the real offset.
+    func presentFramePan(at frameTime: TimeInterval?) { // perf-hot: 0.3ms motion-frame
+        guard scrollState.resamplesPan, panBase != nil, let offset = scrollState.framePan(at: frameTime) else { return }
+        if !presentPanOnContainer(at: offset) { presentPan() }
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the

@@ -567,8 +567,8 @@ public final class LayoutRootView: NSView {
         let policy = Motion.panes.policy
         var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
-            // Pan events that waited in the last frame show first, then the springs step.
-            if view.displayFrameBegan() { panning = true }
+            // Pan events that waited in the last frame show first (resampled at the frame's time), then the springs step.
+            if view.displayFrameBegan(at: driver.frameTime) { panning = true }
             if view.step(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
@@ -586,7 +586,7 @@ public final class LayoutRootView: NSView {
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan that moves the frames keeps the ticks until its finger lifts
-        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps them only resampled.
         return moving || panning
     }
 
