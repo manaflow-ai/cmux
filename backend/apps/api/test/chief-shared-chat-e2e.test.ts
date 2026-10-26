@@ -88,8 +88,8 @@ const say = async (p: Person, conversation: string, text: string) => {
 const spawns = (chief: string, conversation: string) =>
   runInDurableObject(brainOf(chief, conversation), async (_i, state) => state.storage.sql.exec<{ task: string }>(`SELECT task FROM cb_spawn ORDER BY n`).toArray().map((r) => r.task))
 const human = (p: Person) => ({ id: p.user, kind: "human", display_name: p.name })
-const inboxKind = async (p: Person, conversation: string) =>
-  ((await read(p.token, "inbox.list", { limit: 50 })).json.value?.entries ?? []).find((e: any) => e.conversation === conversation)?.kind as string | undefined
+const inboxEntry = async (p: Person, conversation: string) =>
+  ((await read(p.token, "inbox.list", { limit: 50 })).json.value?.entries ?? []).find((e: any) => e.conversation === conversation) as { kind?: string; preview?: string; last_author?: string } | undefined
 
 describe("Chief multiplayer: several people in one Chief's conversation", { timeout: 180_000 }, () => {
   it("the owner shares the Chief with teammates: live for each, attributed, answered by name, owner-only effects, no access for others", async () => {
@@ -128,7 +128,10 @@ describe("Chief multiplayer: several people in one Chief's conversation", { time
     expect((await op(ben.token, "participants.add", { conversation, participant: human(carol) })).error?.code).toBe("forbidden")
 
     // Ann keeps it as her Chief; for Ben it is a group with someone else's Chief.
-    await until(conversation, chief.id, members, async () => [await inboxKind(ann, conversation), await inboxKind(ben, conversation)], (k) => k[0] === "chief" && k[1] === "group", "inbox kinds")
+    const [annRow, benRow] = await until(conversation, chief.id, members, async () => [await inboxEntry(ann, conversation), await inboxEntry(ben, conversation)], (k) => k[0]?.kind === "chief" && k[1]?.kind === "group", "inbox kinds")
+    // Ben's first row shows nothing from before he joined (since_join), not Ann's last private line.
+    expect(JSON.stringify(benRow)).not.toContain("private")
+    expect(annRow).toBeDefined()
 
     // Live: each member's socket gets the other's message within a second, with its author.
     const annLive = await connect(conversation, ann.token)

@@ -111,7 +111,7 @@ struct HomeGroupInfoView: View {
     /// One member row; Remove only for another member of a group (a person I shared my Chief with)
     /// while no action runs.
     private func memberRow(_ member: HomeGroupMember) -> HomeGroupMemberRow {
-        guard model.info.isGroup || (model.info.canAddPeople && !member.isAgent), !member.isMe, !model.isRunning else {
+        guard model.info.canRename || (model.info.canAddPeople && !member.isAgent), !member.isMe, !model.isRunning else {
             return HomeGroupMemberRow(member: member, colors: colors, onRemove: nil)
         }
         let current: HomeGroupInfoModel = model

@@ -268,8 +268,10 @@ export const fanOut = ({ before, request, commit, counts, everyone }: FanOutInpu
   const row = (user: string, isRemoved: boolean): InboxBump => {
     const count = isRemoved ? undefined : countFor(user)
     const peer = dmPeer(head, user)
-    const author = lastMessage && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     const joined = findParticipant(head, user)?.joined_seq
+    // Under since_join a person never sees a message from before they joined, in the preview either.
+    const hidden = lastMessage !== undefined && head.settings?.history_visible === "since_join" && lastMessage.seq <= (joined ?? 0)
+    const author = lastMessage && !hidden && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     return {
       user,
       conversation: head.id,
@@ -278,8 +280,8 @@ export const fanOut = ({ before, request, commit, counts, everyone }: FanOutInpu
       title: head.title,
       last_seq: head.last_seq,
       last_at: lastAt,
-      preview,
-      ...(previewAttachments ? { preview_attachments: previewAttachments } : {}),
+      preview: hidden ? "" : preview,
+      ...(previewAttachments && !hidden ? { preview_attachments: previewAttachments } : {}),
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
       ...(isRemoved ? { removed: true } : {}),
