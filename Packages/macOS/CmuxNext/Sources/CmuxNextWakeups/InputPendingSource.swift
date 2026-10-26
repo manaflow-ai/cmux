@@ -4,7 +4,8 @@ public import Foundation
 /// work yields to it (Chrome's input-pending check before a scheduled task).
 @MainActor
 public protocol InputPendingSource: AnyObject {
-    /// Whether a key or mouse-button event for this app has been generated but not dispatched yet.
+    /// Whether input for this app that a person waits on (a key, a mouse button, a scroll begin or
+    /// a drag) has been generated but not dispatched yet.
     ///
     /// - Parameter uptime: Now, in seconds since boot (the `NSEvent.timestamp` base).
     func hasPendingInput(uptime: TimeInterval) -> Bool
