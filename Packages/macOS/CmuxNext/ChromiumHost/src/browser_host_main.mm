@@ -109,6 +109,7 @@ std::atomic<bool> g_quit_deadline_armed{false};
 void ArmQuitDeadline() {
   if (g_quit_deadline_armed.exchange(true)) return;
   std::thread([] {
+    // wakeup-allow: deadline the quit's one hard deadline, armed once when the quit starts; the process ends at it
     std::this_thread::sleep_for(std::chrono::seconds(cmux_host::kQuitLimitSeconds));
     _exit(0);  // no atexit handlers or destructors: they could wait on the hung thread
   }).detach();

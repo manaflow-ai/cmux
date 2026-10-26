@@ -5,7 +5,7 @@ import QuartzCore
 import Testing
 
 /// Divider drags at most twice per frame (feature `pointerFrameDrags`, p04-input-031): with the
-/// window's PointerFrameCoalescer (p04-input-030) the first drag event of a frame interval moves the
+/// window's FrameInputCoalescer (p04-input-030) the first drag event of a frame interval moves the
 /// divider in its own turn and the rest move it once more at the frame, to the latest point
 /// (Chromium's rAF-aligned input, `main_thread_event_queue.cc`); every event still feeds the release
 /// velocity at its own timestamp, and the release lands the pending move first.

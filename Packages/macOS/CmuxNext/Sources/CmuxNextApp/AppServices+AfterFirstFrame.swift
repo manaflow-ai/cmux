@@ -6,13 +6,26 @@ import CmuxNextWakeups
 
 // Launch work no first frame needs, one StartupScheduler post per service (`LaunchServicePosts`, p08-startup-017).
 extension AppServices {
-    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace repair (built here
-    /// when no window's content built it first).
+    /// The starts `init` does not make (`serviceStartPosts()`), then the free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace
+    /// repair (built here when no window's content built it first).
     func postNonPaintServices(on startup: StartupScheduler) {
+        serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
         LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
+    }
+
+    /// The service starts `init` used to make, one post each (p08-startup-031; startup-DESIGN.md section 5, S6
+    /// to S10). `init` keeps their wiring: the updater's and the tips' closures, the Restart cmux-tui… binding,
+    /// the no-activate keyboard guard and the notifications' `services`.
+    func serviceStartPosts() -> LaunchServicePosts {
+        LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.surfaceInvariant.observeWindowOcclusion() },
+                                         inputVerification: { [weak self] in if let self { input.start(services: self) } },
+                                         notifications: { [weak self] in self?.notifications.start() },
+                                         updaterWork: { [weak self] in self?.updater.startAttachedWork() },
+                                         serverUpdates: { [weak self] in self?.serverUpdates.start() },
+                                         browserHost: { [weak self] in self?.startBrowserHost() })
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab

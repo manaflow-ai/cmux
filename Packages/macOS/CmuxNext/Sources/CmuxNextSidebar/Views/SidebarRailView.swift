@@ -1,6 +1,8 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The thin rail (`sidebar.style` = rail, plans/cmux-next/minimal-sidebar.md): one short tick
 /// per workspace in sidebar order, a collapsed group as one tick, a gap between groups. The
@@ -19,6 +21,10 @@ public final class SidebarRailView: NSView {
     /// The ticks drawn now, in this view's (flipped) coordinates.
     private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
     private var marks: [[SidebarRailMark]] = []
+    /// The rail's pointer moves for its hover cards (feature `pointerFrameHover`, `hoverFrameInput`).
+    private lazy var hoverMoves = PointerFrameHover(owner: "SidebarRailView.hover", view: self) { [weak self] point in
+        self?.pointer(at: point)
+    }
 
     override public var isFlipped: Bool { true }
     /// Ticks start at the trailing edge (a sidebar on the window's right side).
@@ -138,15 +144,30 @@ public final class SidebarRailView: NSView {
         trackingArea = area
     }
 
-    override public func mouseMoved(with event: NSEvent) { pointer(event) }
-    override public func mouseEntered(with event: NSEvent) { pointer(event) }
-    override public func mouseExited(with event: NSEvent) { pointer(event) }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the cards follow a frame
+    /// interval's first move at once and the rest once at its frame, at the latest point. Nil: each move.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
 
-    private func pointer(_ event: NSEvent) {
-        cards?.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    override public func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override public func mouseEntered(with event: NSEvent) {
+        hoverMoves.flush()
+        pointer(at: event.locationInWindow)
+    }
+    override public func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
+        pointer(at: event.locationInWindow)
+    }
+
+    private func pointer(at windowPoint: CGPoint) {
+        cards?.pointerMoved(to: window.map { $0.convertPoint(toScreen: windowPoint) })
     }
 
     override public func mouseDown(with event: NSEvent) {
+        hoverMoves.flush() // the frame's pending hover lands before the press
         let point = convert(event.locationInWindow, from: nil)
         guard let model, let tick = tick(at: point), case let .workspace(id) = tick.mark.target else { return }
         model.noteUserIntent()

@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 14020,
-            "T2": 19680
+            "T1": 17590,
+            "T2": 20520
           },
           "stories": {
             "T1": [
@@ -37,10 +37,16 @@
               "pane-stress",
               "perf-gate",
               "sidebar",
+              "sidebar-mirror-rebuild",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
+              "sidebar-stress",
               "switch",
               "tab-switch",
               "tab-switch-repeat",
-              "tab-switch-stages"
+              "tab-switch-stages",
+              "typing",
+              "typing-stress"
             ],
             "T2": [
               "action-sweep-light-1",
@@ -59,10 +65,13 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
               "command-pan-stress",
               "launch-after-reboot",
               "new-surfaces-stress",
-              "perceived-speed"
+              "perceived-speed",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -77,7 +86,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 19680
+            "T2": 20520
           },
           "stories": {
             "T2": [
@@ -97,10 +106,13 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
               "command-pan-stress",
               "launch-after-reboot",
               "new-surfaces-stress",
-              "perceived-speed"
+              "perceived-speed",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -115,7 +127,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 7000
+            "T1": 8920
           },
           "stories": {
             "T0": [
@@ -134,21 +146,25 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "sidebar-rows-live",
+              "sidebar-scroll-release",
               "switch",
               "tab-switch",
-              "tab-switch-repeat"
+              "tab-switch-repeat",
+              "typing-stress"
             ]
           }
         },
         {
           "index": 1,
           "seconds": {
-            "T0": 120,
-            "T1": 7020
+            "T0": 150,
+            "T1": 8670
           },
           "stories": {
             "T0": [
-              "launch-warm"
+              "launch-warm",
+              "typing-terminal"
             ],
             "T1": [
               "activation",
@@ -166,7 +182,10 @@
               "palette-open",
               "perf-gate",
               "sidebar",
-              "tab-switch-stages"
+              "sidebar-mirror-rebuild",
+              "sidebar-stress",
+              "tab-switch-stages",
+              "typing"
             ]
           }
         }
