@@ -30,9 +30,30 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - page: The page's descriptor (its origin and policy).
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
+    ///   - window: The pane window the page joins (``PageChromiumWindow``); nil gives the page a window of its own.
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws -> any PageChromiumPage
+}
+
+/// The Chromium window a page tab shows in (p13-webui-063): the page tabs of one cmux pane of one main
+/// window share one, as a Chrome `Browser` holds every tab of its tab strip in one window
+/// (chrome/browser/ui/browser.h, `Browser::tab_strip_model`). A second page in the pane joins that
+/// window instead of building one. A page with none (the update card, the icon picker panel, a
+/// preload) keeps a window of its own.
+public nonisolated struct PageChromiumWindow: Hashable, Sendable {
+    /// The main window's id.
+    public var window: String
+    /// The pane's key in that window.
+    public var pane: String
+
+    /// - Parameters:
+    ///   - window: The main window's id.
+    ///   - pane: The pane's key.
+    public init(window: String, pane: String) {
+        self.window = window
+        self.pane = pane
+    }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -104,6 +125,14 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Moves the page into `window` (its tab moved to another pane), document, history and renderer
+    /// kept, as Chrome moves a dragged tab between tab strips with its `WebContents`
+    /// (chrome/browser/ui/tabs/tab_strip_model.cc, `DetachWebContentsAtForInsertion`, then
+    /// `InsertWebContentsAt`). The window it left closes once its last page left. No effect when the
+    /// page is in `window` already.
+    ///
+    /// - Parameter window: The pane window the page shows in now.
+    func moveWindow(to window: PageChromiumWindow)
     /// Freezes the hidden page (its timers, tasks and rendering stop; memory and state stay) or thaws
     /// it, as Chrome's `WebContents::SetPageFrozen` (content/public/browser/web_contents.h), which
     /// freezes hidden pages only: hide it (``setVisible(_:)`` false) before, and thaw it before it

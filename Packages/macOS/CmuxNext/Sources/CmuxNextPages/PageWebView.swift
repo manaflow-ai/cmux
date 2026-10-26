@@ -65,6 +65,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
+    /// The pane window the Chromium page shows in (``PageChromiumWindow``), nil for one of its own. The
+    /// pane that shows the page's tab sets it; a new value moves a live page there
+    /// (``PageChromiumPage/moveWindow(to:)``), and a page still being made moves once it attaches.
+    public var chromiumWindow: PageChromiumWindow? {
+        didSet {
+            guard let chromiumWindow, chromiumWindow != oldValue else { return }
+            chromiumSession?.page.moveWindow(to: chromiumWindow)
+        }
+    }
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).

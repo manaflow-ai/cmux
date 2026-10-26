@@ -126,11 +126,13 @@ extension PageWebView {
         #endif
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
+            // Read in the task's turn, after the opening turn set it (``PageOpenRequest/chromiumWindow``).
+            let window = self?.chromiumWindow
             do {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
@@ -140,11 +142,14 @@ extension PageWebView {
                 return
             }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, madeIn: window)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork) async {
+    /// `madeIn`: the pane window the page was made in; a tab that moved to another pane meanwhile moves the page
+    /// there once it is the view's page.
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
+                                madeIn: PageChromiumWindow?) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock)
@@ -173,6 +178,7 @@ extension PageWebView {
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
+        if let chromiumWindow, chromiumWindow != madeIn { page.moveWindow(to: chromiumWindow) }
         scriptTarget.bridge = bridge
         bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
         page.setZoom(pageZoom)

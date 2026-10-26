@@ -18,7 +18,8 @@ import Testing
         struct NoPages: Error {}
 
         func serves(_ page: PageDescriptor) -> Bool { !unserved.contains(page.id) }
-        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage { throw NoPages() }
+        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
+            -> any PageChromiumPage { throw NoPages() }
     }
 
     /// Asserts `servesOpens` gives `expected` and agrees with claim's engine decision over the pooled pages.

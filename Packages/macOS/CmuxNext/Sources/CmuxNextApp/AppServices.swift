@@ -732,6 +732,7 @@ final class AppServices {
         _ = cache  // built here, as before
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
         pages.showsStandIns = features.isEnabled(.pageStandIn)
+        pages.sharesChromiumWindows = features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
