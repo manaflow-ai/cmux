@@ -2,12 +2,11 @@ public import CmuxNextDaemon
 
 /// The name a workspace the user never named takes from its front tab
 /// (hq#1957, `workspaces.autoName`). Pure, so every case is tested; the
-/// sidebar row (`AppServices.sidebarPageFace`) and the one-time rename
+/// sidebar row (`AppServices.sidebarPageFace`) and persistent naming
 /// (`WorkspaceAutoNamer`) both read it.
 ///
-/// A workspace is the user's to name while it has a title or a name the
-/// daemon did not give (`NewWorkspaceName.isDefaultWorkspaceName`): the rule
-/// never names it then.
+/// A workspace is the user's to name while it has a title or user-owned name.
+/// An automatically supplied name remains automatic after its first chat title.
 public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// What the rule reads of the workspace's front tab.
     public enum Front: Equatable, Sendable {
@@ -53,7 +52,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
         return Self.derived(front)
     }
 
-    /// The name to write to the daemon once (variant `persist`), or nil to
+    /// The name to write to the daemon (variant `persist`), or nil to
     /// write nothing: only a front chat's generated title, and only for a
     /// daemon that supports the name-source protocol. The local daemon is
     /// accepted for compatibility with older callers; remote daemons must set
@@ -82,7 +81,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
                           allowsLegacyDefaults: allowsLegacyDefaults)
     }
 
-    /// Whether the user named the workspace: a title, or a name the daemon did not give.
+    /// Whether a title or name-source authority protects the workspace from automatic naming.
     public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
         guard (title ?? "").isEmpty else { return true }
