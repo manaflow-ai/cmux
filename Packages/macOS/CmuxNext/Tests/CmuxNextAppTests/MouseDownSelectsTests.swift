@@ -91,7 +91,7 @@ private typealias StripTab = CmuxNextTabs.TabID
         let view = try harness.view(BandHarness.workspace)
         var drags = 0, ended = 0
         view.onDragged = { _, _ in drags += 1; return true }
-        view.onDragEnded = { ended += 1 }
+        view.onDragEnded = { _ in ended += 1 }
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         view.mouseDragged(with: try harness.event(.leftMouseDragged, on: view, dy: 30))
         view.mouseUp(with: try harness.event(.leftMouseUp, on: view, dy: 30))
@@ -130,7 +130,7 @@ private typealias StripTab = CmuxNextTabs.TabID
         let view = try harness.view(BandHarness.home)
         var drags = 0, ended = 0
         view.onDragged = { _, _ in drags += 1; return true }
-        view.onDragEnded = { ended += 1 }
+        view.onDragEnded = { _ in ended += 1 }
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         view.mouseDragged(with: try harness.event(.leftMouseDragged, on: view, dy: 30))
         view.mouseUp(with: try harness.event(.leftMouseUp, on: view, dy: 30))
