@@ -170,14 +170,14 @@ const baseline: Props = {
   currentId: current.sessionId,
   asks,
   onSelect: () => undefined,
-  onAnswer: () => Promise.resolve(),
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 const empty: Props = {
   sessions: [current, ...hidden],
   currentId: current.sessionId,
   onSelect: () => undefined,
-  onAnswer: () => Promise.resolve(),
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
@@ -207,7 +207,7 @@ const capped: Props = {
   sessions: [...cappedInput, ...cappedReview, ...hidden],
   currentId: current.sessionId,
   onSelect: () => undefined,
-  onAnswer: () => Promise.resolve(),
+  onAnswer: () => Promise.resolve("answered" as const),
 };
 
 /// The new chat the lists sit in: no turns yet, in the fixture project's folder.

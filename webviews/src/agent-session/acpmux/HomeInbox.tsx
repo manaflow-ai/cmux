@@ -264,7 +264,10 @@ function InboxRow({
         {when && <span className="acpmux-home-meta">{when}</span>}
       </button>
       {answers.length > 0 && (
-        <fieldset className="acpmux-home-inbox-answers" aria-label={[ask, item.detail, chat].filter(Boolean).join(", ")}>
+        <fieldset
+          className="acpmux-home-inbox-answers"
+          aria-label={[ask, item.detail, chat].filter(Boolean).join(", ")}
+        >
           {allow && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
