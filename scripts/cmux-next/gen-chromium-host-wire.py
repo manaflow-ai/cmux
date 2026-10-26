@@ -58,6 +58,13 @@ Inputs (paths relative to --root, the repository by default):
          CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet.
          `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are;
          --check-return-use and --check-pre-attach accept a listed site's calls of its exports.
+         --swift-sites drops a site that is done: an async call in the token form (inside a closure
+         handed to CEFRuntime's sendAsync, siteCall or profileWrite, CEFRuntime+HostReplies.swift,
+         which await the answer the same way in both backends), a mint_returns id call in the mint
+         form (its id keys a `.reply(for:` wait for its reply_event), and a site listed with needs
+         `kept`: a local export called only on the in-process path, which `change` names by an
+         identifier of the site's file (CEFRuntimeBoot.inProcess, loadInProcess). Every other need
+         names work still to do, and its site stays listed until the task doing it drops the entry.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -119,7 +126,9 @@ Commands:
   ... --check-ops                           only the ops JSON, against the header and CEFShimLibrary
   ... --list-missing                        the live queue: export, class, missing side
   ... --swift-sites [--by-file]             Swift call sites that change in host mode: async,
-                                            mint, view, local, and post-like results read
+                                            mint, view, local, and post-like results read; an
+                                            async site that reads its wire:REPLY answer in the
+                                            call's turn, outside host_mode_rewrites, adds sync-reply
   ... --check-return-use                    exit 1 when a Swift caller binds, guards, compares or
                                             returns the result of a post, view, preinit or policy,
                                             outside host_mode_rewrites
@@ -179,7 +188,18 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+# The one need that settles a listed site for --swift-sites: a local export called only on the in-process
+# path, which the entry's change names by an identifier of the site's file (KEPT_PATH). Every other need
+# names work still to do: its site stays listed until the code that does the work removes the entry.
+SETTLED_NEEDS = ("kept",)
+KEPT_PATH = re.compile(r"\b\w*[iI]nProcess\w*\b")  # CEFRuntimeBoot.inProcess, loadInProcess
+# CEFRuntime functions that send an async op and await its answer the same way in both backends
+# (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
+# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
+# returns nothing sent for it), so it stays listed.
+TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
+TOKEN_FORM_CLASSES = ("async",)
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -833,6 +853,15 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
                 problems.append(f"{label}: {name!r} is no classified export")
             elif entry.get("needs") == "after_attach" and name in ops and ops[name].cls != "mirror":
                 problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
+            elif entry.get("needs") == "kept" and name in ops and ops[name].cls != "local":
+                problems.append(f"{label}: needs kept is for local exports called only in process; {name} is {ops[name].cls}")
+        kept_path = KEPT_PATH.search(str(entry.get("change") or "")) if entry.get("needs") == "kept" else None
+        if entry.get("needs") == "kept" and kept_path is None:
+            problems.append(f"{label}: needs kept names the in-process-only path in change (CEFRuntimeBoot.inProcess, "
+                            f"loadInProcess)")
+        elif kept_path is not None and (root / APP / rel).is_file() \
+                and kept_path.group(0).split(".")[-1] not in (root / APP / rel).read_text(encoding="utf-8"):
+            problems.append(f"{label}: change names {kept_path.group(0)!r}, which {APP}/{rel} does not use")
         if entry.get("needs") not in REWRITE_NEEDS:
             problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
         if not isinstance(entry.get("change"), str) or not entry["change"].strip():
@@ -1753,6 +1782,8 @@ class Site:
     owner: str = ""  # the innermost type declaration around the call ("" at file scope)
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
+    token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
+    mint_form: bool = False  # a mint_returns id call whose id keys the wait for its reply_event (in_mint_form)
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -1854,16 +1885,19 @@ def result_used(text: str, start: int, end: int) -> bool:
         if text[end:close].strip():
             return False  # one statement among several
         head_start = text.rfind("\n", 0, brace) + 1
-        head = text[head_start:brace]
+        # The head of this brace only: `if v >= 5 { return call {` heads the closure with `return call`.
+        head = re.split(r"[{};]", text[head_start:brace])[-1]
+        before = text[:brace].rstrip()
+        # A closure stored or passed returns the result, also inside a statement's head
+        # (`switch text.withCString({ shim.x($0) })`); only the block after a head drops it.
+        if not before or re.search(r"[=(\[,:]$", before):
+            return True
         if CONTROL_HEAD.search(head):
             return False
         if FUNC_HEAD.match(head):
             return "->" in head  # a single-expression body returns its value
         if GETTER_HEAD.match(head):
             return True
-        before = text[:brace].rstrip()
-        if not before or re.search(r"[=(\[,:]$", before):
-            return True  # a closure stored or passed: it returns the result
         start, end = expression_start(text, len(before)), close + 1
     return True
 
@@ -1941,21 +1975,160 @@ def context_at(scopes: list[Scope], index: int) -> tuple[str, str]:
     return owner, function
 
 
+# A parameter that is a closure taking the CEFShimLibrary first (`_ body: (CEFShimLibrary, Int32) -> Int32`).
+SHIM_CLOSURE_PARAM = re.compile(r":\s*(?:@\w+\s+)*\(\s*(?:_\s+\w+\s*:\s*)?CEFShimLibrary\s*[,)]")
+# A closure's first parameter when it names one (`{ library, browser in`, `{ (library: CEFShimLibrary) in`).
+CLOSURE_PARAM_NAME = re.compile(r"\s*(?:\[[^\]]*\]\s*)?\(?\s*([A-Za-z_]\w*)\b[^{}]*?\bin\b")
+
+
+def shim_closure_takers(files: list[tuple[str, str, list[Scope]]]) -> set[str]:
+    """Functions that hand the CEFShimLibrary to a closure argument (`call { $0.extReload($1, id) }`)."""
+    return {scope.name for _, _, scopes in files for scope in scopes
+            if scope.kind == "func" and SHIM_CLOSURE_PARAM.search(scope.head)}
+
+
+def shim_closure_receivers(masked: str, takers: set[str]) -> list[tuple[int, str]]:
+    """(open brace, receiver name) of every closure passed to a shim closure taker: `$0`, or the
+    closure's first parameter when it names one."""
+    if not takers:
+        return []
+    found = []
+    names = "|".join(re.escape(t) for t in sorted(takers))
+    for m in re.finditer(rf"(?<![\w.])(?:{names})\s*([({{])", masked):
+        if re.search(r"\bfunc\s+$", masked[:m.start()]):
+            continue  # the declaration
+        brace = m.end() - 1
+        if m.group(1) == "(":
+            inner = masked[m.end():].lstrip()
+            if inner.startswith("{"):
+                brace = len(masked) - len(inner)  # the closure is the first argument
+            else:
+                close = matching_close(masked, m.end() - 1, "(", ")")
+                after = masked[close + 1:].lstrip()
+                if not after.startswith("{"):
+                    continue
+                brace = len(masked) - len(after)  # a trailing closure
+        named = CLOSURE_PARAM_NAME.match(masked, brace + 1)
+        receiver = named.group(1) if named and named.group(1) != "_" else "$0"
+        found.append((brace, receiver))
+    return found
+
+
 def swift_sites(root: Path) -> list[Site]:
+    """Every call of a CEFShimLibrary function: through `shim`, or through the closure parameter of
+    a function that passes the library to its closure argument."""
     props = shim_properties(root)
     sites: list[Site] = []
-    for rel, masked, scopes in swift_files(root):
-        for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked):
-            export = props.get(m.group(1))
+    files = swift_files(root)
+    takers = shim_closure_takers(files)
+    for rel, masked, scopes in files:
+        calls = {(m.start(), m.end(), m.group(1))
+                 for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked)}
+        for brace, receiver in shim_closure_receivers(masked, takers):
+            if receiver == "shim":
+                continue  # the pattern above finds it
+            close = matching_close(masked, brace, "{", "}")
+            pattern = re.compile(rf"(?<![\w$]){re.escape(receiver)}[?!]?\.([A-Za-z_]\w*)\s*\(")
+            calls |= {(m.start(), m.end(), m.group(1)) for m in pattern.finditer(masked, brace, close)}
+        for begin, end, prop in sorted(calls):
+            export = props.get(prop)
             if export is None:
                 continue
-            open_index = m.end() - 1
-            close = matching_close(masked, open_index, "(", ")")
-            start = expression_start(masked, m.start())
-            owner, function = context_at(scopes, m.start())
-            sites.append(Site(rel, masked.count("\n", 0, m.start()) + 1, export, m.group(1),
-                              result_used(masked, start, close + 1), owner, function, m.start()))
+            close = matching_close(masked, end - 1, "(", ")")
+            start = expression_start(masked, begin)
+            owner, function = context_at(scopes, begin)
+            sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
+                              result_used(masked, start, close + 1), owner, function, begin,
+                              in_token_form(masked, scopes, begin), in_mint_form(masked, scopes, start)))
     return sites
+
+
+def closure_callee(masked: str, brace: int) -> str:
+    """The function a closure that opens at `brace` is handed to: `f(...) {`, `f {` or `f(x, label: {`;
+    "" when the brace opens no argument closure."""
+    left = masked[:brace].rstrip()
+    if left.endswith(")"):  # a trailing closure after the call's parentheses
+        left = masked[:matching_open(masked, len(left) - 1, "(", ")")].rstrip()
+    elif left.endswith(("(", ",", ":")):  # an argument: the call is the unclosed `(` before it
+        depth = 0
+        for i in range(brace - 1, -1, -1):
+            if masked[i] in ")]}":
+                depth += 1
+            elif masked[i] in "([{":
+                if depth == 0:
+                    if masked[i] != "(":
+                        return ""
+                    left = masked[:i].rstrip()
+                    break
+                depth -= 1
+        else:
+            return ""
+    m = re.search(r"\b([A-Za-z_]\w*)$", left)
+    return m.group(1) if m else ""
+
+
+def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
+    """Whether the call at `index` is inside a closure handed to one of TOKEN_FORM_CALLS, within the
+    innermost function around it."""
+    floor = max((s.open for s in scopes if s.kind == "func" and s.open < index < s.close), default=-1)
+    brace = enclosing_brace(masked, index)
+    while brace > floor:
+        if closure_callee(masked, brace) in TOKEN_FORM_CALLS:
+            return True
+        brace = enclosing_brace(masked, brace)
+    return False
+
+
+MINT_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*$")
+REPLY_WAIT = re.compile(r"\.reply\(\s*for\s*:")
+
+
+def in_mint_form(masked: str, scopes: list[Scope], start: int) -> bool:
+    """Whether the call whose expression starts at `start` is in the mint form: its result is bound to a
+    local (`let message = shim.devToolsCall(...)`) that keys, directly or through locals made from it, a
+    `.reply(for:` wait later in the same function. The minted id is the key in both backends: the host
+    answers it in the export's reply_event, a refusal included, so nothing reads an answer in the call."""
+    line_start = masked.rfind("\n", 0, start) + 1
+    bound = MINT_BINDING.search(masked, line_start, start)
+    body = min((s for s in scopes if s.kind == "func" and s.open < start < s.close),
+               key=lambda s: s.close - s.open, default=None)
+    if bound is None or body is None:
+        return False
+    rest = masked[start:body.close]
+    names = {bound.group(1)}
+    for m in re.finditer(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=([^\n]*)", rest):
+        if any(re.search(rf"\b{re.escape(n)}\b", m.group(2)) for n in names):
+            names.add(m.group(1))
+    for m in REPLY_WAIT.finditer(rest):
+        key = first_argument(rest, m.end(), matching_close(rest, rest.index("(", m.start()), "(", ")"))
+        if any(re.search(rf"\b{re.escape(n)}\b", key) for n in names):
+            return True
+    return False
+
+
+def first_argument(text: str, begin: int, close: int) -> str:
+    """text[begin:close] up to its first comma outside nested brackets."""
+    depth = 0
+    for i in range(begin, close):
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth -= 1
+        elif text[i] == "," and depth == 0:
+            return text[begin:i]
+    return text[begin:close]
+
+
+def site_settled(model: Model, site: Site, op: Op) -> bool:
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
+    the token form, a mint_returns id call in the mint form, or a site a `kept` host_mode_rewrites entry
+    settles (SETTLED_NEEDS)."""
+    if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
+        return True
+    rewrite = rewrite_for(model, site)
+    return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
 def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
@@ -1971,6 +2144,37 @@ def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
         masked = mask_swift_source(source)
         out.append((rel, masked, swift_scopes(masked)))
     return out
+
+
+def rewrite_site_problems(model: Model, root: Path) -> list[str]:
+    """Every host_mode_rewrites function exists in its file and uses one of the entry's exports by
+    its CEFShimLibrary name (a call, or an optional function read): an entry that names no site
+    accepts nothing and only reads like a rule."""
+    if not (root / SHIM_LIBRARY).is_file():
+        return []  # a tree without the sources
+    names: dict[str, set[str]] = {}
+    for prop, export in shim_properties(root).items():
+        names.setdefault(export, set()).add(prop)
+    files = {rel: (masked, scopes) for rel, masked, scopes in swift_files(root)}
+    problems = []
+    for rewrite in model.rewrites:
+        path = f"{APP}/{rewrite.path}"
+        if not (root / path).is_file():
+            continue  # load_ops reports it
+        masked, scopes = files.get(path) or (mask_swift_source((root / path).read_text(encoding="utf-8")), [])
+        if not scopes:
+            scopes = swift_scopes(masked)
+        props = sorted(p for export in rewrite.exports for p in names.get(export, ()))
+        uses = re.compile(rf"\.(?:{'|'.join(map(re.escape, props))})\b") if props else None
+        for owner, function in rewrite.functions:
+            bodies = [s for s in scopes if s.kind == "func" and s.name == function
+                      and owner in ("", context_at(scopes, s.open)[0])]
+            label = f"host_mode_rewrites {rewrite.site!r}: {owner + '.' if owner else ''}{function}"
+            if not bodies:
+                problems.append(f"{label} is no function of {path}")
+            elif uses is None or not any(uses.search(masked, s.open, s.close) for s in bodies):
+                problems.append(f"{label} uses none of {', '.join(rewrite.exports)}: name the function that calls them")
+    return problems
 
 
 def rewrite_for(model: Model, site: Site, needs: tuple[str, ...] | None = None) -> Rewrite | None:
@@ -2150,7 +2354,7 @@ def main(argv: list[str]) -> int:
             return report_sites(model, root, args)
         if args.list_missing or args.check or args.check_ops:
             if model is not None:
-                problems += shim_library_problems(model, root)
+                problems += shim_library_problems(model, root) + rewrite_site_problems(model, root)
             if args.list_missing:
                 for row in missing_sides(model, header, per_export, root):
                     print("\t".join(row))
@@ -2191,11 +2395,16 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def site_reasons(op: Op, site: Site) -> list[str]:
-    """Why a call site changes in host mode: its class, and result-read when it reads a stand-in result."""
+def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
+    """Why a call site changes in host mode: its class; result-read when it reads a stand-in result;
+    sync-reply when it reads, in the call's turn, an answer that comes later in the op's wire:REPLY
+    (the result or the out-parameters) and no host_mode_rewrites entry (needs reply) moves it to the
+    token API (CEFHostReplies, task 018)."""
     reasons = [op.cls] if op.cls in SITE_CLASSES else []
     if site.used and op.cls in POST_LIKE:
         reasons.append("result-read")
+    if site.used and op.cls == "async" and op.reply_event == REPLY_WIRE and rewrite_for(model, site, ("reply",)) is None:
+        reasons.append("sync-reply")
     return reasons
 
 
@@ -2203,9 +2412,9 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None:
+        if op is None or site_settled(model, site, op):
             continue
-        reasons = site_reasons(op, site)
+        reasons = site_reasons(model, op, site)
         if reasons:
             rows.append((site, op.cls, reasons))
     if args.check_return_use:
