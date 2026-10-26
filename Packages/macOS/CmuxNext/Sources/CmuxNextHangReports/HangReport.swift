@@ -81,6 +81,32 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         }
     }
 
+    /// cmux's Interaction to Next Paint for the report period (p04-input-097; web.dev/articles/inp):
+    /// how many interactions a person made (key press to release, click, drag), the longest, the
+    /// longest after ignoring one for each 50, and the kind of the longest. Numbers and a closed
+    /// kind only; absent from the wire when there is none.
+    public struct InteractionLatency: Codable, Sendable, Equatable {
+        /// The kinds ``kindOfWorst`` may name.
+        public static let kinds: Set<String> = ["key", "tap", "drag"]
+
+        /// Interactions in the period.
+        public var count: Int
+        /// The longest interaction, in milliseconds.
+        public var worstMs: Double
+        /// The INP value: the longest after ignoring one for each 50, in milliseconds.
+        public var highPctMs: Double
+        /// `key`, `tap` or `drag`.
+        public var kindOfWorst: String
+
+        /// Makes the value from its parts.
+        public init(count: Int, worstMs: Double, highPctMs: Double, kindOfWorst: String) {
+            self.count = count
+            self.worstMs = worstMs
+            self.highPctMs = highPctMs
+            self.kindOfWorst = kindOfWorst
+        }
+    }
+
     /// The wire schema version (``schemaVersion``).
     public var schema: Int = HangReport.schemaVersion
     /// A random id per report: the server stores a retried report once.
@@ -107,6 +133,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var metrics = Metrics()
     /// Allowlisted signpost interval histograms.
     public var intervals: [IntervalHistogram] = []
+    /// Interaction latency (INP), nil when the period had no interaction.
+    public var interactionLatency: InteractionLatency?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,

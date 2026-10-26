@@ -43,6 +43,34 @@ struct PrivacyLeakScannerTests {
         #expect(findings(planting: HangReportFixtures.appUUID, at: "uuid").isEmpty)
     }
 
+    @Test func interactionLatencyIsNumbersAndAClosedKindAndPassesTheScan() throws {
+        let builder = HangReportFixtures.builder()
+        let interactions = HangReport.InteractionLatency(count: 120, worstMs: 300.04, highPctMs: 40.26, kindOfWorst: "key")
+        let report = builder.build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [],
+                                   interactions: interactions)
+        #expect(report.interactionLatency == HangReport.InteractionLatency(count: 120, worstMs: 300, highPctMs: 40.3,
+                                                                           kindOfWorst: "key"))
+        let body = try HangReport.encoder.encode(report)
+        #expect(scanner.findings(in: body).isEmpty)
+        #expect(String(decoding: body, as: UTF8.self)
+            .contains(#""interactionLatency":{"count":120,"highPctMs":40.3,"kindOfWorst":"key","worstMs":300}"#))
+
+        // Anything outside the closed set, or not a finite duration, never reaches the wire.
+        for unsafe in [
+            HangReport.InteractionLatency(count: 3, worstMs: 9, highPctMs: 9, kindOfWorst: "/Users/alice"),
+            HangReport.InteractionLatency(count: 0, worstMs: 9, highPctMs: 9, kindOfWorst: "key"),
+            HangReport.InteractionLatency(count: 3, worstMs: .nan, highPctMs: 9, kindOfWorst: "tap"),
+            HangReport.InteractionLatency(count: 3, worstMs: 9, highPctMs: -1, kindOfWorst: "drag"),
+        ] {
+            let built = builder.build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [],
+                                      interactions: unsafe)
+            #expect(built.interactionLatency == nil)
+        }
+        let none = builder.build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [])
+        let noneBody = try HangReport.encoder.encode(none)
+        #expect(!String(decoding: noneBody, as: UTF8.self).contains("interactionLatency"))
+    }
+
     @Test func refusesTextThatIsNotJSON() {
         #expect(scanner.findings(in: Data("not json".utf8)).map(\.kind) == [.notJSON])
     }

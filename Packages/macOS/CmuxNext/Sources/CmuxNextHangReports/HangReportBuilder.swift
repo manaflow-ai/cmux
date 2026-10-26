@@ -50,8 +50,10 @@ public nonisolated struct HangReportBuilder: Sendable {
         self.resolver = resolver
     }
 
-    /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
-    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> HangReport {
+    /// The report of `watchdog`'s findings, the MetricKit deliveries and the interaction latency
+    /// since the last report.
+    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
+                      interactions: HangReport.InteractionLatency? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: context.counts)
@@ -66,6 +68,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
+        report.interactionLatency = interactions.flatMap(Self.safeInteractions)
         return report
     }
 
@@ -123,6 +126,20 @@ public nonisolated struct HangReportBuilder: Sendable {
             }
         }
         return Array(order.compactMap { merged[$0] }.prefix(HangReport.maxIntervals))
+    }
+
+    /// `interactions` with a positive count, a known kind and milliseconds in 0...``HistogramBucket/maxMs``
+    /// rounded to 0.1 (the percentile at most the worst), else nil.
+    static func safeInteractions(_ interactions: HangReport.InteractionLatency) -> HangReport.InteractionLatency? {
+        guard interactions.count > 0, HangReport.InteractionLatency.kinds.contains(interactions.kindOfWorst),
+              let worst = safeMs(interactions.worstMs), let high = safeMs(interactions.highPctMs) else { return nil }
+        return HangReport.InteractionLatency(count: interactions.count, worstMs: worst, highPctMs: min(high, worst),
+                                             kindOfWorst: interactions.kindOfWorst)
+    }
+
+    /// Milliseconds in 0...``HistogramBucket/maxMs``, rounded to 0.1, else nil.
+    static func safeMs(_ value: Double) -> Double? {
+        value.isFinite && value >= 0 && value <= Double(HistogramBucket.maxMs) ? (value * 10).rounded() / 10 : nil
     }
 
     /// A ratio in 0...1000 ms per s, else nil.

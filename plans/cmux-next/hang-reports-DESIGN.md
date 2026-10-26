@@ -151,6 +151,13 @@ in its outbox (at most 3, at most 14 days) and tries again at the next trigger.
 }
 ```
 
+Optional `interactionLatency` (p04-input-097, cmux's INP): `{"count": 120, "worstMs": 300,
+"highPctMs": 40.3, "kindOfWorst": "key"}`. `count` is the interactions in the period (key press
+to release, click, drag); `worstMs` the longest; `highPctMs` the longest after ignoring one for
+each 50 (Chrome's INP high percentile, from a fixed list of the 11 worst); `kindOfWorst` is `key`,
+`tap` or `drag`. Milliseconds are 0 to 86400000, rounded to 0.1; the key is absent when there was
+no interaction.
+
 Limits: 20 hangs, 5 CPU exceptions, 64 frames per stack, 32 buckets per histogram, 64
 intervals. `hangs[].source` is `metrickit` or `watchdog`; `kind` is `hang` (2 s and more, or
 a MetricKit hang) or `stall` (250 ms to 2 s, watchdog). Frames are innermost first; for a
