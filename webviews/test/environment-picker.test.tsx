@@ -416,6 +416,30 @@ test("Return on a search never moves a chat by itself", async () => {
   expect(calls).toEqual([]);
 });
 
+test("a started chat with a folder action keeps the chip actionable", async () => {
+  const folders: string[] = [];
+  await mount(true, {
+    ...startedOn("local"),
+    onBrowseFolder: async () => "/Users/you/src/other",
+    onNewChat: (cwd: string) => folders.push(cwd),
+  });
+  await openPicker();
+  expect(machineRows().map(rowText)).toEqual([
+    expect.stringContaining("cosmic-gray"),
+    expect.stringContaining("gpu-box"),
+    expect.stringContaining("cloud-1"),
+    expect.stringContaining("build-cloud"),
+  ]);
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toContain(
+    t("composer.chooseFolderMenu"),
+  );
+  const folder = newRows().find(
+    (row) => row.querySelector(".acpmux-menu-label")?.textContent === t("composer.chooseFolderMenu"),
+  )!;
+  await act(async () => folder.click());
+  expect(folders).toEqual(["/Users/you/src/other"]);
+});
+
 test("a started chat with no move to offer keeps the fixed computer label", async () => {
   const fixed = () =>
     [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
