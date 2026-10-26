@@ -17,10 +17,11 @@ struct AgentPaneAskAnswerTests {
     /// A host whose daemon listens on `socket`.
     private actor Host: AgentPaneHostProviding {
         let socket: String?
-        init(socket: String?) { self.socket = socket }
+        let environment: AcpmuxEnvironment
+        init(socket: String?, environment: AcpmuxEnvironment) { (self.socket, self.environment) = (socket, environment) }
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
         func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {
-            socket == self.socket ? AgentPaneAskAnswerTests.environment : nil
+            socket == self.socket ? environment : nil
         }
     }
 
@@ -47,7 +48,7 @@ struct AgentPaneAskAnswerTests {
     /// A home (no chat of its own) on this Mac's acpmux, and acpmux with one ask of `tests` open.
     private static func home(chat: String? = nil, socket: String? = socket) -> (AgentPaneModel, Answerer, Clock) {
         let clock = Clock()
-        let model = AgentPaneModel(host: Host(socket: socket), sessionId: chat,
+        let model = AgentPaneModel(host: Host(socket: socket, environment: environment), sessionId: chat,
                                    transport: AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now })))
         model.transport.acpmuxSocket = socket
         let answerer = Answerer()
@@ -57,7 +58,7 @@ struct AgentPaneAskAnswerTests {
         return (model, answerer, clock)
     }
 
-    private static func ask(_ session: String = "tests", _ permission: String = "p1", _ option: String) -> AgentPaneAskAnswer {
+    private static func ask(_ session: String = "tests", _ permission: String = "p1", option: String) -> AgentPaneAskAnswer {
         AgentPaneAskAnswer(["sessionId": session, "permissionId": permission, "optionId": option])!
     }
 
@@ -80,7 +81,7 @@ struct AgentPaneAskAnswerTests {
             approval: AgentApproval(session: "local/tests", permission: "p2", digest: "d2", summary: "Delete the cache"),
             allowOnce: "allow_once", denyOnce: "reject_once")
         model.transport.gestures.record(click: true)
-        #expect(Self.code(await Self.send(Self.ask("local/tests", "p2", "reject_once"), model, answerer)) == nil)
+        #expect(Self.code(await Self.send(Self.ask("local/tests", "p2", option: "reject_once"), model, answerer)) == nil)
         #expect(answerer.answers.last.map { "\($0.permission) \($0.allow)" } == "p2 false")
     }
 
@@ -102,7 +103,7 @@ struct AgentPaneAskAnswerTests {
             return next
         }
         #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), model, answerer)) == nil)
-        #expect(Self.code(await Self.send(Self.ask("tests", "p2", "allow_once"), model, answerer)) == "refused", "the same click")
+        #expect(Self.code(await Self.send(Self.ask("tests", "p2", option: "allow_once"), model, answerer)) == "refused", "the same click")
         #expect(answerer.answers.count == 1)
     }
 
@@ -115,7 +116,7 @@ struct AgentPaneAskAnswerTests {
             #expect(Self.code(await Self.send(Self.ask(option: option), model, answerer)) == "refused", "\(option)")
         }
         model.transport.gestures.record(click: true)
-        #expect(Self.code(await Self.send(Self.ask("tests", "gone", "allow_once"), model, answerer)) == "refused")
+        #expect(Self.code(await Self.send(Self.ask("tests", "gone", option: "allow_once"), model, answerer)) == "refused")
         #expect(answerer.answers.isEmpty)
         #expect(answerer.pending["local/tests p1"] != nil, "the ask still waits for its own answer")
     }
@@ -127,10 +128,10 @@ struct AgentPaneAskAnswerTests {
         let (own, answerer, _) = Self.home(chat: "tests")
         own.transport.gestures.record(click: true)
         #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), own, answerer)) == "unsupported", "the chat itself")
-        #expect(Self.code(await Self.send(Self.ask("local/tests", "p1", "allow_once"), own, answerer)) == "unsupported")
+        #expect(Self.code(await Self.send(Self.ask("local/tests", "p1", option: "allow_once"), own, answerer)) == "unsupported")
         let (home, _, _) = Self.home()
         home.transport.gestures.record(click: true)
-        #expect(Self.code(await Self.send(Self.ask("build-box/tests", "p1", "allow_once"), home, answerer)) == "unsupported", "a peer's chat")
+        #expect(Self.code(await Self.send(Self.ask("build-box/tests", "p1", option: "allow_once"), home, answerer)) == "unsupported", "a peer's chat")
         home.remoteChat = true
         #expect(Self.code(await Self.send(Self.ask(option: "allow_once"), home, answerer)) == "unsupported", "another machine's pane")
         let (elsewhere, _, _) = Self.home(socket: "/tmp/acpmux-chief.sock")
