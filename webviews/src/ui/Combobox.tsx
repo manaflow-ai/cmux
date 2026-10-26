@@ -192,6 +192,10 @@ export function Combobox({
             aria-current={isItemCurrent?.(item) ? true : undefined}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
+            onPointerDownCapture={() => {
+              // A new gesture cannot inherit a press whose click was cancelled outside.
+              pressActivatedRef.current = undefined;
+            }}
             onMouseDown={(event) => {
               if (event.button !== 0) {
                 pressActivatedRef.current = undefined;
