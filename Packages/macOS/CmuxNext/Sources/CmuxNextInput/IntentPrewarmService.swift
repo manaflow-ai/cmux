@@ -62,8 +62,6 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
     private let dwellTimer: MainDeadline?
     /// Nil: no key-step prewarm (`directionalPrewarm` off).
     private let stepTimer: MainDeadline?
-    /// The held prewarms a key step started, which a step the other way cancels.
-    private var stepTargets: [Target] = []
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
     /// - Parameters:
@@ -130,7 +128,7 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
     /// Nothing starts in Low Power Mode on battery or at memory pressure warning or worse.
     public func prewarm(_ target: Target, trigger: IntentPrewarmTrigger) {
         guard !queue.contains(target), let warmer, admits() else { return }
-        if let evicted = queue.admit(target) {
+        if let evicted = queue.admit(target, trigger: trigger) {
             warmer.cancelPrewarm(evicted)
             counters.evicted += 1
         }
@@ -163,17 +161,14 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
     private func stepElapsed(_ following: [Target]) {
         for target in following where !queue.contains(target) && warmer?.isCold(target) == true {
             prewarm(target, trigger: .keyStep)
-            if queue.contains(target) { stepTargets.append(target) }
         }
-        stepTargets.removeAll { !queue.contains($0) }
     }
 
-    /// A step the other way: the old direction's pending step and held key-step prewarms are cancelled.
+    /// A step the other way: the old direction's pending step and held key-step prewarms are cancelled. The
+    /// queue keeps each held prewarm's trigger, so a hover's or a press's prewarm stays.
     private func cancelSteps() {
         stepTimer?.cancel()
-        let dropped = stepTargets.filter { queue.contains($0) }
-        stepTargets = []
-        for target in dropped { queue.remove(target) }
+        let dropped = queue.removeAll(startedBy: .keyStep)
         counters.cancelledByDirection += dropped.count
         for target in dropped { warmer?.cancelPrewarm(target) }
     }
@@ -201,7 +196,6 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
         guard level != .normal else { return }
         cancelPending()
         guard level == .critical else { return }
-        stepTargets = []
         let dropped = queue.removeAll()
         counters.cancelledByPressure += dropped.count
         for target in dropped { warmer?.cancelPrewarm(target) }

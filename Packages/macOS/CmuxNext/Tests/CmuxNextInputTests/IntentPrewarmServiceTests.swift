@@ -314,6 +314,40 @@ struct IntentPrewarmServiceTests {
         #expect(rig.service.stepDirection == .backward)
     }
 
+    @Test func aKeyStepTargetEvictedThenHoveredAgainIsTheHoversNotTheDirections() {
+        let rig = Rig()
+        rig.warmer.cold = ["x", "h1", "h2"]
+        rig.service.stepped(.forward) { ["x"] }
+        rig.deadlines.fire()
+        rig.service.prewarm("h1", trigger: .hoverDwell)
+        rig.service.prewarm("h2", trigger: .hoverDwell)
+        #expect(rig.service.queue.held == ["h1", "h2"], "the hovers evicted the key step's x")
+        rig.service.prewarm("x", trigger: .hoverDwell)
+        #expect(rig.service.queue.held == ["h2", "x"])
+        let cancelledBefore = rig.warmer.cancelled
+
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled == cancelledBefore, "the hover's x is no key step's")
+        #expect(rig.service.queue.held == ["h2", "x"])
+        #expect(rig.service.counters.cancelledByDirection == 0)
+    }
+
+    @Test func aCommittedOrForgottenKeyStepTargetHoveredAgainIsNotCancelledByDirection() {
+        let rig = Rig()
+        rig.warmer.cold = ["x", "y"]
+        rig.service.stepped(.forward) { ["x", "y"] }
+        rig.deadlines.fire()
+        rig.service.committed("x")
+        rig.service.forget("y")
+        rig.service.prewarm("x", trigger: .hoverDwell)
+        rig.service.prewarm("y", trigger: .pointerDown)
+
+        rig.service.stepped(.backward) { [] }
+        #expect(rig.warmer.cancelled.isEmpty)
+        #expect(rig.service.queue.held == ["x", "y"])
+        #expect(rig.service.counters.cancelledByDirection == 0)
+    }
+
     @Test func aStepTheOtherWayDropsTheOldDirectionsPendingStep() {
         let rig = Rig()
         rig.service.stepped(.forward) { ["b"] }
