@@ -15,6 +15,8 @@ public enum StreamDemuxError: Error, Sendable, Equatable {
     case reservedStream
     /// The id has a sink that has not seen its stream-end yet (an id is reusable only after stream-end).
     case streamInUse(UInt16)
+    /// ``StreamDemux/endAll()`` ran: the connection is gone and no frame or stream-end will come.
+    case connectionClosed
 }
 
 /// Routes the frames of one connection to per-stream sinks without ever waiting (Chrome's
@@ -29,6 +31,9 @@ public enum StreamDemuxError: Error, Sendable, Equatable {
 ///   later item until one ``StreamSinkItem/startsFreshState``. A stopped consumer therefore costs its
 ///   own stream a snapshot and never delays another stream or the control replies.
 /// - A frame for a stream with no sink is counted (``unknownItemCount``) until that stream's end.
+/// - Connection loss (``endAll()``) is terminal: a later register throws
+///   ``StreamDemuxError/connectionClosed`` and a later route returns ``Route/closed``, as
+///   `MultiplexRouter` marks an endpoint created after `encountered_error_` peer-closed.
 ///
 /// ``route(_:to:)`` and ``end(_:)`` are called on the reader thread; ``register(_:limits:resync:)`` on any
 /// thread. Each takes a short `Mutex` critical section and nothing else.
@@ -41,6 +46,8 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         case dropped
         /// No sink has this stream id; counted until its stream-end.
         case unknown
+        /// The connection was lost (``endAll()``); nothing is routed or counted.
+        case closed
     }
 
     /// A sink's bounds. An item is admitted when the queue is empty even if it alone is larger, so
@@ -63,10 +70,19 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         /// Items for streams with no sink, per stream, until that stream's end.
         var unknown: [UInt16: Int] = [:]
         var unknownTotal = 0
+        /// Set by ``endAll()`` and never cleared: the demux serves one connection.
+        var closed = false
 
         mutating func forgetUnknown(_ stream: UInt16) {
             if let stale = unknown.removeValue(forKey: stream) { unknownTotal -= stale }
         }
+    }
+
+    /// What ``route(_:to:)`` found for a stream id.
+    private enum Lookup: Sendable {
+        case sink(Sink)
+        case unknown
+        case closed
     }
 
     private let defaultLimits: Limits
@@ -84,28 +100,36 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
     ) throws(StreamDemuxError) -> Sink {
         guard stream != 0 else { throw .reservedStream }
         let sink = Sink(stream: stream, limits: limits ?? defaultLimits, resync: resync)
-        let registered = table.withLock { table -> Bool in
-            guard table.sinks[stream] == nil else { return false }
+        let refusal = table.withLock { table -> StreamDemuxError? in
+            guard !table.closed else { return .connectionClosed }
+            guard table.sinks[stream] == nil else { return .streamInUse(stream) }
             table.sinks[stream] = sink
             // Frames counted as unknown belong to an older use of the id that never saw its end.
             table.forgetUnknown(stream)
-            return true
+            return nil
         }
-        guard registered else { throw .streamInUse(stream) }
+        if let refusal { throw refusal }
         return sink
     }
 
     /// Reader thread. Hands `item` to the stream's sink; never waits.
     @discardableResult
     public func route(_ item: Item, to stream: UInt16) -> Route {
-        let sink = table.withLock { table -> Sink? in
-            if let sink = table.sinks[stream] { return sink }
+        let lookup = table.withLock { table -> Lookup in
+            if table.closed { return .closed }
+            if let sink = table.sinks[stream] { return .sink(sink) }
             table.unknown[stream, default: 0] += 1
             table.unknownTotal += 1
-            return nil
+            return .unknown
         }
-        guard let sink else { return .unknown }
-        return sink.push(item) ? .delivered : .dropped
+        switch lookup {
+        case .sink(let sink):
+            return sink.push(item) ? .delivered : .dropped
+        case .unknown:
+            return .unknown
+        case .closed:
+            return .closed
+        }
     }
 
     /// Reader thread, on the stream's stream-end. The consumer gets what is queued, then nil; the id is
@@ -118,11 +142,12 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         sink?.finish()
     }
 
-    /// Connection loss ends every stream.
+    /// Connection loss ends every stream, and every later register and route sees the loss.
     public func endAll() {
         let sinks = table.withLock { table -> [Sink] in
             let sinks = Array(table.sinks.values)
             table = Table()
+            table.closed = true
             return sinks
         }
         for sink in sinks { sink.finish() }

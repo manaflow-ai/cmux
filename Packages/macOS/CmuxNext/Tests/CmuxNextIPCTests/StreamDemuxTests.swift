@@ -209,7 +209,19 @@ import Testing
         #expect(await first.next()?.seq == 9)
         #expect(await first.next() == nil)
         #expect(demux.unknownItemCount == 0)
-        #expect(demux.route(Chunk(seq: 10, bytes: 1), to: 1) == .unknown)
+        #expect(demux.route(Chunk(seq: 10, bytes: 1), to: 1) == .closed)
+        #expect(demux.unknownItemCount == 0)
+    }
+
+    @Test func registerAfterConnectionLossThrowsInsteadOfParkingForever() async throws {
+        let demux = StreamDemux<Chunk>()
+        demux.endAll()
+        // A view that registers after the reader's EOF must not get an open sink nothing will end.
+        #expect(throws: StreamDemuxError.connectionClosed) { _ = try demux.register(4) {} }
+        #expect(demux.route(Chunk(seq: 1, bytes: 1), to: 4) == .closed)
+        #expect(demux.unknownItemCount == 0)
+        demux.end(4)
+        #expect(throws: StreamDemuxError.connectionClosed) { _ = try demux.register(4) {} }
     }
 }
 
