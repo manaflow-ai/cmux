@@ -9,11 +9,15 @@
 //! cheap, lossless memory before it discards anything). There is no thread or
 //! timer per consumer: the source's own event drives the delivery.
 //!
-//! The sources are [`MemoryRegistry::watch_system_pressure`]: on macOS one
-//! libdispatch memory-pressure source that re-reads the kernel level on each
-//! event (`system_memory_pressure_evaluator_mac.cc`), on Linux one PSI trigger
-//! on `/proc/pressure/memory`. Other code (the app's `memory.limit` push) can set
-//! the level with [`MemoryRegistry::set_level`].
+//! The level is the worst vote of the registry's [`Voter`]s (Chrome's
+//! `base/memory/memory_pressure_voter.h`: a `MemoryPressureVoteAggregator`
+//! takes the max of every live vote). Each source owns one voter, so two
+//! sources never overwrite each other and a source that ends withdraws its
+//! vote. The kernel source is [`MemoryRegistry::watch_system_pressure`]: on
+//! macOS one libdispatch memory-pressure source that re-reads the kernel level
+//! on each event (`system_memory_pressure_evaluator_mac.cc`), on Linux one PSI
+//! trigger on `/proc/pressure/memory`. The app's `memory.limit` push votes
+//! through a voter of its own ([`MemoryRegistry::voter`]).
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -61,7 +65,7 @@ impl MemoryConsumer {
     /// in another process). `release` runs on each level change: at warning
     /// or critical it frees what that level asks for, back at normal it may
     /// fill again. It runs on the pressure source's thread and must not
-    /// block, register a consumer or set the level.
+    /// block, register a consumer, vote or drop a [`Voter`].
     pub fn new(
         name: impl Into<String>,
         retention: Retention,
@@ -98,9 +102,19 @@ pub struct ConsumerReport {
 
 #[derive(Default)]
 struct State {
+    /// The worst live vote (normal with none).
     level: PressureLevel,
     next_id: u64,
     consumers: Vec<(u64, Arc<MemoryConsumer>)>,
+    votes: Vec<(u64, PressureLevel)>,
+}
+
+impl State {
+    fn take_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
 }
 
 #[derive(Default)]
@@ -120,15 +134,28 @@ impl Shared {
         self.delivery.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn set_level(&self, level: PressureLevel) {
+    /// Sets voter `id`'s vote (`None` withdraws it) and delivers the new
+    /// worst vote when it changed.
+    fn vote(&self, id: u64, vote: Option<PressureLevel>) {
         let _delivery = self.delivery();
-        let mut consumers = {
+        let (level, mut consumers) = {
             let mut state = self.state();
+            let index = state.votes.iter().position(|(voter, _)| *voter == id);
+            match (index, vote) {
+                (Some(index), Some(vote)) => state.votes[index].1 = vote,
+                (Some(index), None) => drop(state.votes.remove(index)),
+                (None, Some(vote)) => state.votes.push((id, vote)),
+                (None, None) => {}
+            }
+            let level = state.votes.iter().map(|(_, vote)| *vote).max().unwrap_or_default();
             if state.level == level {
                 return;
             }
             state.level = level;
-            state.consumers.iter().map(|(_, consumer)| consumer.clone()).collect::<Vec<_>>()
+            (
+                level,
+                state.consumers.iter().map(|(_, consumer)| consumer.clone()).collect::<Vec<_>>(),
+            )
         };
         // Lossless first, lossy last; registration order within each.
         consumers.sort_by_key(|consumer| consumer.retention);
@@ -149,15 +176,16 @@ impl MemoryRegistry {
         Self::default()
     }
 
-    /// The current level.
+    /// The current level: the worst live vote.
     pub fn level(&self) -> PressureLevel {
         self.shared.state().level
     }
 
-    /// Sets the level; on a change every consumer hears it once, lossless
-    /// ones first. A repeated level does nothing.
-    pub fn set_level(&self, level: PressureLevel) {
-        self.shared.set_level(level);
+    /// A new voter, voting normal until it votes; dropping it withdraws its
+    /// vote. One per source (the kernel watch, the app's push).
+    pub fn voter(&self) -> Voter {
+        let id = self.shared.state().take_id();
+        Voter { shared: Arc::downgrade(&self.shared), id }
     }
 
     /// Adds `consumer` until the returned [`Registration`] drops. Under
@@ -168,8 +196,7 @@ impl MemoryRegistry {
         let _delivery = self.shared.delivery();
         let (id, level) = {
             let mut state = self.shared.state();
-            let id = state.next_id;
-            state.next_id += 1;
+            let id = state.take_id();
             state.consumers.push((id, consumer.clone()));
             (id, state.level)
         };
@@ -193,38 +220,48 @@ impl MemoryRegistry {
             .collect()
     }
 
-    /// Starts this process's kernel pressure source feeding this registry
-    /// until the returned watch drops. Start one per process.
+    /// Starts this process's kernel pressure source voting in this registry
+    /// until the returned watch drops or the source fails; either way its
+    /// vote is withdrawn. Start one per process.
     pub fn watch_system_pressure(&self) -> Result<PressureWatch, WatchError> {
-        let registry = Arc::downgrade(&self.shared);
+        let voter = self.voter();
         #[cfg(target_os = "macos")]
         {
-            pressure_macos::Watch::start(WeakRegistry(registry))
-                .map(|source| PressureWatch { source })
+            pressure_macos::Watch::start(voter).map(|source| PressureWatch { source })
         }
         #[cfg(target_os = "linux")]
         {
-            pressure_linux::Watch::start(WeakRegistry(registry))
-                .map(|source| PressureWatch { source })
+            pressure_linux::Watch::start(voter).map(|source| PressureWatch { source })
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
-            drop(registry);
+            drop(voter);
             Err(WatchError::Unsupported)
         }
     }
 }
 
-/// The registry as a pressure source holds it: a source never keeps its
-/// registry alive.
-#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
-pub(crate) struct WeakRegistry(Weak<Shared>);
+/// One source's vote in a registry (Chrome's `MemoryPressureVoter`). It
+/// never keeps its registry alive; dropping it withdraws the vote.
+pub struct Voter {
+    shared: Weak<Shared>,
+    id: u64,
+}
 
-#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
-impl WeakRegistry {
-    pub(crate) fn set_level(&self, level: PressureLevel) {
-        if let Some(shared) = self.0.upgrade() {
-            shared.set_level(level);
+impl Voter {
+    /// Votes `level`; when the worst vote changes, every consumer hears the
+    /// new level once, lossless ones first. A repeated vote does nothing.
+    pub fn set_level(&self, level: PressureLevel) {
+        if let Some(shared) = self.shared.upgrade() {
+            shared.vote(self.id, Some(level));
+        }
+    }
+}
+
+impl Drop for Voter {
+    fn drop(&mut self) {
+        if let Some(shared) = self.shared.upgrade() {
+            shared.vote(self.id, None);
         }
     }
 }
@@ -263,6 +300,10 @@ pub struct PressureWatch {
 pub enum WatchError {
     /// This platform has no pressure source (or, on Linux, no PSI).
     Unsupported,
+    /// The system has the source but this process may not use it: an
+    /// unprivileged process on Linux before 6.5, or a read-only
+    /// `/proc/pressure` in a container. A normal case, like `Unsupported`.
+    NotPermitted(std::io::Error),
     /// The source could not start.
     Io(std::io::Error),
 }
@@ -271,6 +312,9 @@ impl fmt::Display for WatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unsupported => f.write_str("no memory pressure source on this system"),
+            Self::NotPermitted(error) => {
+                write!(f, "memory pressure source not permitted for this process: {error}")
+            }
             Self::Io(error) => write!(f, "memory pressure source: {error}"),
         }
     }
@@ -280,7 +324,7 @@ impl std::error::Error for WatchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Unsupported => None,
-            Self::Io(error) => Some(error),
+            Self::NotPermitted(error) | Self::Io(error) => Some(error),
         }
     }
 }
