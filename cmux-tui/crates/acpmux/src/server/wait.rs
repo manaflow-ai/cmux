@@ -176,6 +176,9 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                 .get(id)
                 .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
                 .unwrap_or(true);
+            // A failed turn whose retry is not settled yet is not over for a waiter: the row
+            // it answers with says whether a retry waits, and when (`retry`).
+            let seq_ok = seq_ok && !retry_unsettled(hub, id, &s);
             let ended = turn_ended.as_ref().is_some_and(|t| t.matches(&s));
             let hit = seq_ok && (ended || until.iter().any(|u| u.matches(&s)));
             let mut row = s.clone();
@@ -238,6 +241,15 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
             None => wake.await,
         }
     }
+}
+
+/// Whether the row `s` of the chat `id` here ends on a failed turn that may still be retried
+/// and its retry is not settled yet (`Hub::retry_unsettled`). A closed chat is settled.
+fn retry_unsettled(hub: &Hub, id: &str, s: &Value) -> bool {
+    let last = &s["lastTurn"];
+    s["status"] != "closed"
+        && last["status"] == "failed"
+        && last["turnId"].as_str().is_some_and(|turn| hub.retry_unsettled(id, turn))
 }
 
 /// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.

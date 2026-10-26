@@ -412,6 +412,18 @@ impl Hub {
         still_cut(session, &cut_turn).then_some(retry)
     }
 
+    /// Whether it is not settled yet if the chat's ended turn `turn_id` is retried: its end is
+    /// still being settled (`Ending`), or its retry waits but its time is not set yet.
+    /// `_acpmux/wait` answers for a failed turn only once it is, so the row it answers with has
+    /// the `retry` that waits, if one does (`server/wait.rs`).
+    pub(crate) fn retry_unsettled(&self, session_id: &str, turn_id: &str) -> bool {
+        match self.auto_resumes.lock().get(session_id) {
+            Some(Mark::Ending(t)) => t == turn_id,
+            Some(Mark::Waiting { turn, retry: None, .. }) => turn == turn_id,
+            _ => false,
+        }
+    }
+
     /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
     /// stays, as firing, until its turn starts. Else why it does not: `superseded` when a newer
     /// turn took its mark or the chat moved on, `stopped` when Stop or close took it.
