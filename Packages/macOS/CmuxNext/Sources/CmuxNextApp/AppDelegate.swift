@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // At once: the user's Ghostty keybinds and unbinds route the first key press (in memory,
         // from the loaded config); only the claims probe reads files, after the first agent page painted.
         ghosttyKeybinds.start()
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload(runtime: .shared, work: launchReads.work)
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload(runtime: .shared, work: launchReads.work, mainWork: mainWork)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.start(after: order.startup)
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.

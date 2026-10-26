@@ -12,43 +12,43 @@ final class GhosttyConfigLiveReload {
     /// Ends the launch's in-memory config files (``GhosttyRuntime/endLaunchConfig()``) once the watch starts,
     /// and says what the launch read.
     private let endLaunch: @MainActor () -> GhosttyRuntime.LaunchConfig?
-    /// Whether the files the launch read changed on the disk since (``GhosttyConfigFiles/changed(reader:)``),
-    /// asked off the main thread.
-    private let launchFilesChanged: @MainActor (GhosttyConfigFiles) async -> Bool
+    /// Asks whether the files the launch read changed on the disk since (``GhosttyConfigFiles/changed(reader:)``)
+    /// off the main thread, and answers on a later main turn.
+    private let checkLaunchFiles: @MainActor (GhosttyConfigFiles, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
     private let notifications: NotificationCenter
     private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
     private var watchers: [ConfigFileWatcher] = []
     private var observer: (any NSObjectProtocol)?
     private var started = false
-    /// The check of the launch's config files against the disk, once the watch is armed (tests await it).
-    private(set) var launchCheck: Task<Void, Never>?
 
     /// - Parameters:
     ///   - files: The files to watch.
     ///   - reload: Reloads the config from the disk.
     ///   - endLaunch: Ends the launch's config files and says what the launch read.
-    ///   - launchFilesChanged: Whether the launch's files changed on the disk; it must not block the main thread.
+    ///   - checkLaunchFiles: Whether the launch's files changed on the disk, answered later; it never blocks the main thread.
     ///   - notifications: Where ``GhosttyRuntime/configDidChange`` is posted.
     init(
         files: @escaping @MainActor () -> [String],
         reload: @escaping @MainActor () -> Void,
         endLaunch: @escaping @MainActor () -> GhosttyRuntime.LaunchConfig?,
-        launchFilesChanged: @escaping @MainActor (GhosttyConfigFiles) async -> Bool,
+        checkLaunchFiles: @escaping @MainActor (GhosttyConfigFiles, @escaping @MainActor @Sendable (Bool) -> Void) -> Void,
         notifications: NotificationCenter = .default
     ) {
         self.files = files
         self.reload = reload
         self.endLaunch = endLaunch
-        self.launchFilesChanged = launchFilesChanged
+        self.checkLaunchFiles = checkLaunchFiles
         self.notifications = notifications
     }
 
-    /// The app's live reload of the terminal runtime's config; the launch check reads the disk on `work`'s files lane.
-    convenience init(runtime: GhosttyRuntime, work: BackgroundWork) {
+    /// The app's live reload of the terminal runtime's config: the launch check stats the files on `work`'s files
+    /// lane and answers in `mainWork`'s visible class.
+    convenience init(runtime: GhosttyRuntime, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.init(files: { runtime.liveReloadConfigFiles }, reload: { runtime.reloadConfig() },
                   endLaunch: { runtime.endLaunchConfig() },
-                  launchFilesChanged: { files in
-                      (try? await work.run(.userVisible, mayBlock: .files) { files.changed() }) ?? false
+                  checkLaunchFiles: { files, answer in
+                      work.run(.userVisible, mayBlock: .files) { files.changed() }
+                          .reply(on: mainWork, class: .visible, owner: "ghostty.configLaunchCheck") { answer($0) }
                   })
     }
 
@@ -59,7 +59,6 @@ final class GhosttyConfigLiveReload {
             reloadTimer.cancel()
             if let observer { notifications.removeObserver(observer) }
             watchers.forEach { $0.stop() }
-            launchCheck?.cancel()
         }
     }
 
@@ -83,8 +82,8 @@ final class GhosttyConfigLiveReload {
         // with no stamps to compare, so it reloads once.
         switch launch {
         case .memory(let files):
-            launchCheck = Task { [weak self, launchFilesChanged] in
-                guard await launchFilesChanged(files), let self, self.started else { return }
+            checkLaunchFiles(files) { [weak self] changed in
+                guard changed, let self, self.started else { return }
                 self.reload()
             }
         case .disk: reload()
@@ -94,7 +93,6 @@ final class GhosttyConfigLiveReload {
 
     func stop() {
         started = false
-        launchCheck?.cancel()
         reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()

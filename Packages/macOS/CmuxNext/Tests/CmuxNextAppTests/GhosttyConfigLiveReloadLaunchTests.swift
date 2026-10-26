@@ -18,27 +18,40 @@ import Testing
         GhosttyConfigLiveReload(files: { calls.names.append("files"); return [] },
                                 reload: { calls.names.append("reload") },
                                 endLaunch: { calls.names.append("endLaunch"); return launch },
-                                launchFilesChanged: { _ in calls.names.append("check"); return changed },
+                                checkLaunchFiles: { _, answer in
+                                    calls.names.append("check")
+                                    calls.answers.append { answer(changed) }
+                                },
                                 notifications: NotificationCenter())
     }
 
-    @Test func aLaunchFileChangedBeforeTheWatchReloadsOnceAfterTheLaunchEnded() async throws {
+    @Test func aLaunchFileChangedBeforeTheWatchReloadsOnceAfterTheLaunchEnded() throws {
         let calls = LiveReloadCalls()
         let live = Self.liveReload(calls, launch: .memory(try Self.launchFiles()), changed: true)
         live.start()
-        await live.launchCheck?.value
-        #expect(calls.names == ["endLaunch", "files", "check", "reload"],
-                "the launch ends before the watch lists its files, and the check runs once the watch is armed")
+        #expect(calls.names == ["endLaunch", "files", "check"],
+                "the launch ends before the watch lists its files, and the check starts once the watch is armed")
+        calls.answer()
+        #expect(calls.names == ["endLaunch", "files", "check", "reload"], "the answer comes on a later turn")
         live.stop()
     }
 
-    @Test func unchangedLaunchFilesNeedNoReload() async throws {
+    @Test func unchangedLaunchFilesNeedNoReload() throws {
         let calls = LiveReloadCalls()
         let live = Self.liveReload(calls, launch: .memory(try Self.launchFiles()), changed: false)
         live.start()
-        await live.launchCheck?.value
+        calls.answer()
         #expect(calls.names == ["endLaunch", "files", "check"])
         live.stop()
+    }
+
+    @Test func anAnswerAfterStopReloadsNothing() throws {
+        let calls = LiveReloadCalls()
+        let live = Self.liveReload(calls, launch: .memory(try Self.launchFiles()), changed: true)
+        live.start()
+        live.stop()
+        calls.answer()
+        #expect(calls.names == ["endLaunch", "files", "check"])
     }
 
     @Test func aDiskLaunchHasNoStampsSoItReloadsOnce() {
@@ -46,7 +59,7 @@ import Testing
         let live = Self.liveReload(calls, launch: .disk, changed: false)
         live.start()
         live.start()
-        #expect(live.launchCheck == nil)
+        #expect(calls.answers.isEmpty, "nothing to compare")
         #expect(calls.names == ["endLaunch", "files", "reload"], "one reload, and a second start does nothing")
         live.stop()
     }
@@ -73,4 +86,12 @@ import Testing
 @MainActor
 final class LiveReloadCalls {
     var names: [String] = []
+    /// The launch checks' answers, held until ``answer()`` (the files lane's reply on a later main turn).
+    var answers: [@MainActor () -> Void] = []
+
+    func answer() {
+        let pending = answers
+        answers = []
+        pending.forEach { $0() }
+    }
 }
