@@ -25,9 +25,10 @@ final class CEFInProcessPump {
     ///   - gate: The runtime's gate for requests from Chromium threads (they find it through the callback context).
     ///   - makeTimer: Makes the pump's one timer (a test's counter).
     ///   - inputPolicy: The input policy (feature `cefPumpInputPolicy`); nil never holds for input.
+    ///   - crashKeys: The app's crash keys: each pass runs with Chromium's state at `inPump` (nil: none).
     ///   - work: One pump pass.
     init(shim: CEFShimLibrary, wakeUps: MainWakeUpQueue, gate: CEFPumpCrossThreadGate, makeTimer: MakeTimer,
-         inputPolicy: CEFPumpInputPolicy?, logger: Logger, work: @escaping () -> Void) {
+         inputPolicy: CEFPumpInputPolicy?, crashKeys: CrashKeySlots?, logger: Logger, work: @escaping () -> Void) {
         let forkAPI = shim.forkAPIVersion()
         if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
             logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
@@ -36,7 +37,8 @@ final class CEFInProcessPump {
         // keep the ms path.
         let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
         logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
-        pump = CEFMessagePump(work: work, timer: makeTimer(wakeUps), gate: gate, absoluteRunTimes: absoluteRunTimes)
+        pump = CEFMessagePump(work: work, timer: makeTimer(wakeUps), gate: gate, absoluteRunTimes: absoluteRunTimes,
+                              crashKeys: crashKeys)
         if let inputPolicy { pump.setInputPolicy(inputPolicy) }
     }
 }

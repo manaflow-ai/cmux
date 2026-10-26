@@ -169,7 +169,7 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
+    /// One item's budget on `lane` (a jank past it, a hang dump 2 s later): a file operation 5 s,
     /// a system call 30 s (`getaddrinfo`'s own timeout, see ``systemWidth``), CPU work 10 s.
     public static func hangDeadline(_ lane: BlockingLane) -> Duration {
         switch lane {
