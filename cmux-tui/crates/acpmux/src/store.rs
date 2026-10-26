@@ -301,11 +301,6 @@ pub struct SessionMeta {
     /// for a session a person or client started. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subsession: Option<SubsessionLink>,
-    /// A sub-session's folder as its start checked it, by device and inode (`cwd_pin.rs`): every
-    /// later start of its harness runs only while `cwd` still leads to that very folder. `None`
-    /// for every other session. Never copied to a fork or a moved-in session.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
     /// This session's own sub-session limits, set at runtime by the person
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]

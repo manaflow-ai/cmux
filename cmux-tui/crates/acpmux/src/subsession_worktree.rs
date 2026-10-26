@@ -557,7 +557,10 @@ pub fn verify_made(source: Dir<'_>, made: &Worktree, at: Dir<'_>) -> Result<(), 
         Err(format!("{} is not the worktree that was made: {what}", made.root.display()))
     };
     let canonical = |p: &str| std::fs::canonicalize(p).ok();
-    if made.root_pin.is_none() || crate::cwd_pin::CwdPin::of(&made.root) != made.root_pin {
+    // Off unix there is no identity to compare (`CwdPin`); the git checks below still hold.
+    if cfg!(unix)
+        && (made.root_pin.is_none() || crate::cwd_pin::CwdPin::of(&made.root) != made.root_pin)
+    {
         return moved("another folder is at its path");
     }
     let top = git(at, &["rev-parse", "--path-format=absolute", "--show-toplevel"])?;
@@ -856,6 +859,17 @@ mod tests {
         let at = Dir::held(&made.root, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// Off unix there is no folder identity: an untouched worktree is proven by git alone.
+    #[cfg(not(unix))]
+    #[test]
+    fn a_made_worktree_is_proven_by_git_alone_off_unix() {
+        let (_scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        assert_eq!(made.root_pin, None);
+        let at = Dir::from(made.cwd.as_path());
+        assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
     }
 
     #[test]

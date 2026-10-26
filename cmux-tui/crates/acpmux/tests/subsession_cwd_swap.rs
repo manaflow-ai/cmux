@@ -138,9 +138,7 @@ async fn a_folder_swapped_while_its_start_waits_gets_no_harness() {
         d
     })
     .unwrap();
-    for folder in
-        ["parent", "home", "checked", "stand-in", "linked", "other", "respawn", "stand-in-2"]
-    {
+    for folder in ["parent", "home", "checked", "stand-in", "linked", "other"] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
     }
     let settings = root.join("cmux-next.json");
@@ -207,30 +205,5 @@ async fn a_folder_swapped_while_its_start_waits_gets_no_harness() {
         assert!(!root.join(folder).join(MARKER).exists(), "nothing started in {folder}");
     }
 
-    // 3. Started, then swapped: `respawn` starts its harness, then another folder takes its
-    //    name; a later start of its harness (a restart here) never runs in that folder.
-    let waiting = start_in_background(&hub, &parent, &root.join("respawn"), "respawn");
-    app.until_waiting(&parent).await;
-    trust_the_card(&hub, &parent).await;
-    let start = waiting.await.unwrap();
-    let child =
-        start["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{start}")).to_owned();
-    assert!(root.join("respawn").join(MARKER).exists(), "it started in its own folder: {start}");
-    app.ok("_acpmux/wait", json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}))
-        .await;
-    std::fs::rename(root.join("respawn"), root.join("respawn-moved")).unwrap();
-    std::fs::rename(root.join("stand-in-2"), root.join("respawn")).unwrap();
-    let only = std::collections::BTreeSet::from([child.clone()]);
-    let restarted = hub.restart_harnesses(None, Some(&only)).await;
-    assert!(
-        !root.join("respawn").join(MARKER).exists(),
-        "its harness started again in the folder that took its name: {restarted:?}"
-    );
-    assert_eq!(restarted.now, 0, "{restarted:?}");
-    let failed = restarted.failed.iter().find(|(id, _)| *id == child);
-    assert!(
-        failed.is_some_and(|(_, why)| why.contains("no longer the folder that was checked")),
-        "{restarted:?}"
-    );
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -151,7 +151,6 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
-        meta.cwd_pin = checked_cwd.as_ref().and_then(super::subsession_guard::CheckedFolder::pin);
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -557,33 +556,6 @@ impl Hub {
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session).await?;
-        // A sub-session's harness execs only in the folder its start checked, or in the one
-        // worktree care brought back in its place (`renew_cwd_pin`; `cwd_pin.rs`).
-        let pin = session.meta().cwd_pin;
-        super::subsession_guard::still_pinned(&session.meta().cwd, pin)?;
-        Box::pin(crate::cwd_pin::CwdPin::scope(pin, self.cold_start_ready(session, profile))).await
-    }
-
-    /// A sub-session whose folder worktree care just recreated or restored (a new folder, by
-    /// acpmux, at its path): its harness starts in that one from now on. Only those two call it;
-    /// any other folder at the path is still refused (`still_pinned`).
-    pub(super) fn renew_cwd_pin(&self, session: &Arc<Session>) {
-        let meta = session.meta();
-        let Some(pin) = meta.cwd_pin else { return };
-        let Some(now) = crate::cwd_pin::CwdPin::of(&meta.cwd).filter(|now| *now != pin) else {
-            return;
-        };
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd_pin = Some(now);
-        self.save_meta(session);
-        self.append(session, "mux", "cwd_pin_renewed", json!({"cwd": meta.cwd}));
-    }
-
-    /// [`Hub::cold_start`] once its folder is ready.
-    async fn cold_start_ready(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        profile: &HarnessProfile,
-    ) -> Result<Arc<ChildAgent>, RpcError> {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -1218,9 +1190,6 @@ impl Hub {
         }
         self.wait_startup().await;
         let meta = session.meta();
-        // A sub-session's harness starts again only in the folder its start checked, before its
-        // folder profile is read (`cwd_pin.rs`).
-        super::subsession_guard::still_pinned(&meta.cwd, meta.cwd_pin)?;
         let agent = meta.harness.clone();
         let (profile, defaults) = {
             let cfg = self.config.read().await;
@@ -1230,12 +1199,6 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
-        // Its spawn is pinned in `cold_start`. A spawn its harness's own check failed (the
-        // folder moved since) says why.
-        let started = self.ensure_child(session, &spawn).await;
-        started.map_err(|e| {
-            let pin = session.meta().cwd_pin;
-            super::subsession_guard::still_pinned(&meta.cwd, pin).err().unwrap_or(e)
-        })
+        self.ensure_child(session, &spawn).await
     }
 }

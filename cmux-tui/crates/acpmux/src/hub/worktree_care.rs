@@ -399,9 +399,6 @@ impl Hub {
             Err(error) => ("worktree_restore_failed", json!({"error": error.to_string()})),
         };
         self.append(session, "mux", kind, detail);
-        if kind == "worktree_restored" {
-            self.renew_cwd_pin(session);
-        }
     }
 }
 

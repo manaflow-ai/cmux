@@ -291,11 +291,6 @@ impl CheckedFolder {
         Ok(())
     }
 
-    /// Its device and inode, kept in the session's meta (`SessionMeta::cwd_pin`); None off unix.
-    pub(super) fn pin(&self) -> Option<crate::cwd_pin::CwdPin> {
-        self.pin
-    }
-
     /// The open handle on it (unix): git runs in this very folder through it
     /// (`subsession_worktree::Dir`).
     pub(super) fn held(&self) -> Option<Arc<std::fs::File>> {
@@ -316,24 +311,6 @@ fn moved_refusal(cwd: &Path) -> RpcError {
         ),
         json!({"cwd": cwd}),
     )
-}
-
-/// Ok unless `pin` is set and `cwd` no longer leads to that folder: a sub-session's harness
-/// starts again (a restart, a route change, a dead agent's next prompt) only in the folder its
-/// start checked (`SessionMeta::cwd_pin`). A folder whose volume remounted with another device
-/// number is refused too: nothing starts in a folder that may not be the one checked.
-/// A missing folder passes: nothing can start in it, and worktree care brings a reclaimed one
-/// back before the spawn (`Hub::cold_start`, which then checks again).
-pub(super) fn still_pinned(
-    cwd: &Path,
-    pin: Option<crate::cwd_pin::CwdPin>,
-) -> Result<(), RpcError> {
-    let Some(pin) = pin else { return Ok(()) };
-    match std::fs::metadata(cwd) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        _ if crate::cwd_pin::CwdPin::of(cwd) != Some(pin) => Err(moved_refusal(cwd)),
-        _ => Ok(()),
-    }
 }
 
 /// Ok when `start` (a sub-session's folder in the worktree just made from `source`) is in that

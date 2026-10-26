@@ -76,7 +76,6 @@ impl Hub {
                 self.append(session, "mux", "worktree_recreated", json!({
                     "cwd": cwd, "root": origin.root, "branch": origin.branch, "from": from, "at": at
                 }));
-                self.renew_cwd_pin(session);
                 return Ok(());
             }
             result => {

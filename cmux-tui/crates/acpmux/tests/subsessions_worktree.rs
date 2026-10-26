@@ -151,19 +151,6 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
         "the repository's post-checkout hook ran outside the agent's sandbox"
     );
 
-    // Worktree care reclaimed its worktree (removed and pruned): its next prompt recreates it, a
-    // new folder at the same path, and its harness starts there (its pin renewed).
-    app.ok("_acpmux/wait", json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}))
-        .await;
-    hub.detach_child(&hub.resolve(&child).unwrap()).await;
-    // Moved off its path rather than deleted, so the recreated folder cannot reuse its inode.
-    std::fs::rename(&wt, root.join("reclaimed")).unwrap();
-    git(&repo, &["worktree", "prune"]);
-    let text = json!([{"type": "text", "text": "back"}]);
-    let back = app.call("session/prompt", json!({"sessionId": child, "prompt": text})).await;
-    assert!(back.get("error").is_none(), "a recreated worktree is its own folder again: {back}");
-    assert!(wt.join(".git").exists(), "recreated");
-
     // A second start with the same name takes the next free one.
     let again =
         p.ok(START, json!({"prompt": "echo again", "name": "Child task", "worktree": true})).await;
