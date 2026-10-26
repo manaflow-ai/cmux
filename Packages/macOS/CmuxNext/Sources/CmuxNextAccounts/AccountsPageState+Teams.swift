@@ -145,6 +145,7 @@ extension AccountsModel {
         guard let active = services.activeTeam else { return nil }
         let model = teamsModel
         let activeID = active.id
+        model.noteTeams(active.teams.map(\.id))
         let rows = active.teams.map { team in
             let role = model.role(of: team.id)
             let open = model.openTeamID == team.id
@@ -193,13 +194,13 @@ extension AccountsModel {
         }
         var buttons: [AccountsPageState.Button] = []
         let busy = model.isSaving || model.form != nil && model.form != .create
-        if viewer.permissions.updateTeam {
+        if isAdmin, viewer.permissions.updateTeam {
             buttons.append(.init(id: "team.rename", title: AccountsStrings.teamsRename, disabled: busy, help: nil, destructive: false))
         }
-        if viewer.permissions.deleteTeam {
+        if isAdmin, viewer.permissions.deleteTeam {
             buttons.append(.init(id: "team.delete", title: AccountsStrings.teamsDelete, disabled: busy, help: nil, destructive: true))
         }
-        let showsInvitations = isAdmin || viewer.permissions.inviteMembers
+        let showsInvitations = isAdmin && viewer.permissions.inviteMembers
         return .init(
             loading: nil, error: nil, facts: facts,
             membersTitle: AccountsStrings.teamsMembers,

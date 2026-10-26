@@ -32,10 +32,13 @@ public extension AuthCoordinator {
         guard isAuthenticated else { throw CMUXTeamError.signedOut }
         guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
         let generation = sessionGeneration
+        // A team-list read already in flight answers with the old name.
+        teamListGeneration &+= 1
         let renamed = try await runPhase(.teamManagement, timeout: timeouts.network) {
             try await manager.renameTeam(id: id, displayName: name.value)
         }
-        guard generation == sessionGeneration, isAuthenticated else { throw AuthError.unauthorized }
+        guard generation == sessionGeneration, isAuthenticated else { throw CMUXTeamError.signedOut }
+        teamListGeneration &+= 1
         if let index = availableTeams.firstIndex(where: { $0.id == id }) {
             availableTeams[index] = CMUXAuthTeam(id: id, displayName: renamed.displayName, slug: availableTeams[index].slug)
         }
@@ -49,15 +52,21 @@ public extension AuthCoordinator {
     func deleteTeam(id: String) async throws {
         guard isAuthenticated else { throw CMUXTeamError.signedOut }
         guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
-        guard !isSelectingTeam, !isCreatingTeam else { throw CMUXTeamError.busy }
+        guard !isSelectingTeam, !isCreatingTeam, !isDeletingTeam else { throw CMUXTeamError.busy }
+        // No switch or create starts until the delete and its fallback selection are saved.
+        isDeletingTeam = true
+        defer { isDeletingTeam = false }
         let generation = sessionGeneration
         let wasActive = resolvedTeamID == id
+        // A team-list read already in flight answers with the team still in it,
+        // and its selection may name the deleted team.
+        teamListGeneration &+= 1
+        teamMutationGeneration &+= 1
         try await runPhase(.teamManagement, timeout: timeouts.network) {
             try await manager.deleteTeam(id: id)
         }
-        guard generation == sessionGeneration, isAuthenticated else { throw AuthError.unauthorized }
-        // A refresh already in flight read the list with the team in it: this
-        // change is newer than its answer.
+        guard generation == sessionGeneration, isAuthenticated else { throw CMUXTeamError.signedOut }
+        teamListGeneration &+= 1
         teamMutationGeneration &+= 1
         availableTeams.removeAll { $0.id == id }
         if wasActive { selectedTeamID = availableTeams.first?.id }
@@ -66,6 +75,6 @@ public extension AuthCoordinator {
         // The account's selection pointed at the deleted team; save the
         // fallback so other devices and the web follow it. Best effort: the
         // local selection is already correct.
-        try? await selectTeam(id: fallback)
+        try? await persistDeleteFallback(id: fallback)
     }
 }

@@ -82,6 +82,19 @@ import Testing
         #expect(detail.readOnly == "Only team admins can rename or delete this team.")
     }
 
+    /// The server lets only admins rename, delete or list invitations: a member
+    /// whose permissions say otherwise still sees the team read-only.
+    @Test func aMemberWithEditPermissionsStillSeesItReadOnly() async throws {
+        let services = MockAccountsServices()
+        services.permissiveMemberTeamIDs = ["team-acme"]
+        let model = await loaded(services)
+        _ = try await run(model, "team.details", team: "team-acme")
+        let detail = try #require(try row(model, "team-acme").detail)
+        #expect(detail.buttons.isEmpty)
+        #expect(detail.invitations == nil)
+        #expect(detail.readOnly != nil)
+    }
+
     @Test func renamingValidatesTheNameThenRenamesEverywhere() async throws {
         let model = await loaded()
         _ = try await run(model, "team.details", team: "team-personal")

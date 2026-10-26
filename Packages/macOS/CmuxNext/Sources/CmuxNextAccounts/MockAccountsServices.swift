@@ -46,6 +46,11 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
         get { teamSource.subscribedTeams }
         set { teamSource.subscribedTeams = newValue }
     }
+    /// Member teams whose members hold update, delete and invite permissions (still not admins).
+    public var permissiveMemberTeamIDs: Set<String> {
+        get { teamSource.permissiveMemberTeams }
+        set { teamSource.permissiveMemberTeams = newValue }
+    }
     /// Answer memberships without roles, as the sign-in service alone does.
     public var rolesUnknown = false
     public var failure: (any Error)?

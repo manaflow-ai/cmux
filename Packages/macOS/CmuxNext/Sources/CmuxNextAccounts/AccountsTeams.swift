@@ -19,6 +19,9 @@ final class MockTeamSource: ActiveTeamSource {
     var adminTeams: Set<String> = ["team-personal"]
     /// Teams with an active subscription (delete is refused).
     var subscribedTeams: Set<String> = []
+    /// Member teams whose members may still invite and edit (the sign-in service's
+    /// default member permissions): the server refuses rename and delete to any non-admin.
+    var permissiveMemberTeams: Set<String> = []
     @ObservationIgnored private var created = 0
 
     var resolvedTeamID: String? { selectedTeamID ?? availableTeams.first?.id }
@@ -54,7 +57,8 @@ final class MockTeamSource: ActiveTeamSource {
         return CMUXTeamDetail(
             team: .init(id: id, displayName: team.displayName),
             viewer: .init(userId: "user-you", role: admin ? .admin : .member,
-                          permissions: admin ? Self.adminPermissions : CMUXTeamPermissions(readMembers: true)),
+                          permissions: admin || permissiveMemberTeams.contains(id)
+                              ? Self.adminPermissions : CMUXTeamPermissions(readMembers: true)),
             members: members, invitations: invitations,
             billing: .init(planId: subscribedTeams.contains(id) ? "team" : nil, seats: nil, memberLimit: nil,
                            memberCount: members.count, hasActiveSubscription: subscribedTeams.contains(id)))
