@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -72,6 +73,13 @@ class RunnerdCase(unittest.TestCase):
     def receipt(self, sha: str, suite: str = "build", arm: str = "-", profile: str = "oracle") -> dict:
         digest = runnerd.Key(sha, suite, arm, profile).digest
         return json.loads((self.root / "jobs" / digest / "receipt.json").read_text())
+
+    def settle(self) -> None:
+        """Waits for the dispatcher to exit: it does once no job runs and its upkeep chores are done."""
+        deadline = time.time() + 30
+        while (self.root / "dispatcher.json").exists():
+            self.assertLess(time.time(), deadline, "the dispatcher did not exit")
+            time.sleep(0.05)
 
 
 class JoiningTests(RunnerdCase):
@@ -165,8 +173,67 @@ class JoiningTests(RunnerdCase):
         self.assertEqual(one, two)
         self.assertEqual(Path(one).name, f"{SHA_A}-oracle")
         self.assertNotEqual(one, three)
+        self.settle()
         index = json.loads((self.root / "index.json").read_text())
         self.assertIn(f"targets/{SHA_A}-oracle", index["entries"])
+
+    def test_target_tag_selects_its_own_target_dir(self) -> None:
+        script = 'echo "$RUNNERD_TARGET_DIR"'
+        plain = self.submit(SHA_A, script, "--target-cache", "--extra", "features=").stdout.strip()
+        tagged = self.submit(SHA_A, script, "--target-cache", "--target-tag", "feat-oracle").stdout.strip()
+        self.assertEqual(Path(plain).name, f"{SHA_A}-oracle")
+        self.assertEqual(Path(tagged).name, f"{SHA_A}-oracle-feat-oracle")
+        refused = self.submit(SHA_A, script, "--target-tag", "feat-oracle")
+        self.assertEqual(refused.returncode, 2)
+
+    def test_two_jobs_never_share_a_target_dir_at_once(self) -> None:
+        marker = Path(self.tmp.name) / "active"
+        marker.mkdir()
+        script = 'touch {m}/$$; ls {m} | wc -l >> {c}; sleep 0.5; rm {m}/$$'.format(m=marker, c=self.counter)
+        with concurrent.futures.ThreadPoolExecutor(3) as pool:
+            results = list(pool.map(lambda leaf: self.submit(SHA_A, script, "--target-cache", "--extra", leaf),
+                                    ["leaf=0", "leaf=1", "leaf=2"]))
+        self.assertEqual([r.returncode for r in results], [0, 0, 0])
+        self.assertEqual(self.runs(), ["1", "1", "1"])
+
+    def test_fresh_reruns_a_done_key(self) -> None:
+        self.submit(SHA_A, self.counting("a", 0.1))
+        self.submit(SHA_A, self.counting("a", 0.1))
+        fresh = self.submit(SHA_A, self.counting("a", 0.1), "--fresh")
+        self.assertEqual(fresh.returncode, 0)
+        self.assertIn("queued job", fresh.stderr)
+        self.assertEqual(self.runs(), ["a", "a"])
+
+    def test_a_rerun_keeps_the_last_attempts_output(self) -> None:
+        script = 'echo "$RUNNERD_OUT"; echo result > "$RUNNERD_OUT/r"; exit 5'
+        first = Path(self.submit(SHA_A, script).stdout.strip())
+        second = Path(self.submit(SHA_A, script).stdout.strip())
+        self.assertNotEqual(first, second)
+        self.assertEqual((first / "r").read_text(), "result\n")
+        third = Path(self.submit(SHA_A, script).stdout.strip())
+        self.settle()
+        self.assertFalse(first.exists())
+        self.assertTrue((second / "r").is_file())
+        self.assertTrue((third / "r").is_file())
+
+    def test_scratch_is_removed_however_the_job_ends(self) -> None:
+        script = 'echo "$RUNNERD_SCRATCH"; mkdir "$RUNNERD_SCRATCH/wt"; echo x > "$RUNNERD_SCRATCH/wt/f"; sleep 30'
+        result = self.submit(SHA_A, script, "--timeout", "1")
+        self.assertIn("timed out", result.stderr)
+        scratch = Path(result.stdout.strip())
+        self.assertEqual(scratch.parent, self.root / "jobs" / self.receipt(SHA_A)["digest"])
+        self.assertFalse(scratch.exists())
+        self.settle()
+        self.assertEqual(list((self.root / "trash").iterdir()), [])
+
+    def test_a_reused_receipt_leaves_the_trash_to_the_dispatcher(self) -> None:
+        self.submit(SHA_A, self.counting("a", 0.1))
+        self.settle()
+        leftover = self.root / "trash" / "big-evicted-target"
+        leftover.mkdir()
+        reused = self.submit(SHA_A, self.counting("a", 0.1))
+        self.assertIn("reused job", reused.stderr)
+        self.assertTrue(leftover.exists())
 
     def test_dispatcher_death_requeues_the_running_job(self) -> None:
         proc = subprocess.Popen([sys.executable, "-I", str(RUNNERD), "--root", str(self.root), "submit", "--sha", SHA_A,
@@ -189,14 +256,28 @@ class JoiningTests(RunnerdCase):
 class QuotaTests(RunnerdCase):
     scope = "systemd"
 
+    def test_timeout_kills_setsid_processes_through_the_job_cgroup(self) -> None:
+        pidfile = Path(self.tmp.name) / "escaped"
+        script = f"setsid sh -c 'echo $$ > {pidfile}; exec sleep 300' & sleep 300"
+        result = self.submit(SHA_A, script, "--timeout", "2")
+        self.assertIn("timed out", result.stderr)
+        escaped = int(pidfile.read_text())
+        deadline = time.time() + 10
+        while runnerd.process_start_time(escaped) is not None and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertIsNone(runnerd.process_start_time(escaped), "a setsid process outlived its job")
+        self.settle()
+        self.assertFalse(Path(self.receipt(SHA_A)["cgroup"]).exists())
+
     def test_jobs_run_niced_inside_one_quota_scope(self) -> None:
         script = ('cg=$(cut -d: -f3 /proc/self/cgroup); echo "$cg"; cat "/sys/fs/cgroup$cg/../cpu.max" '
-                  '"/sys/fs/cgroup$cg/cpu.max" 2>/dev/null | grep -v max | head -n 1; '
-                  'cat "/sys/fs/cgroup$cg/memory.max"; nice')
+                  '"/sys/fs/cgroup$cg/../memory.max"; nice')
         result = self.submit(SHA_A, script)
         self.assertEqual(result.returncode, 0, result.stderr)
         cgroup, cpu, memory, niceness = result.stdout.split("\n")[:4]
-        self.assertIn("cmux-oracle-runnerd-", cgroup)
+        scope, job = cgroup.rsplit("/", 1)
+        self.assertIn("cmux-oracle-runnerd-", scope)
+        self.assertEqual(job, f"job-{runnerd.Key(SHA_A, 'build', '-', 'oracle').digest}-1")
         self.assertEqual(cpu, "24000000 100000")
         self.assertEqual(int(memory), 600 * 2**30)
         self.assertEqual(int(niceness), min(19, os.nice(0) + runnerd.NICE))
@@ -239,6 +320,10 @@ class EvictionTests(unittest.TestCase):
             self.assertTrue((layout.root / "jobs/build").exists())
             runnerd.empty_trash(layout)
             self.assertEqual(list(layout.trash.iterdir()), [])
+
+    def test_refuses_to_run_off_linux(self) -> None:
+        with unittest.mock.patch.object(runnerd.sys, "platform", "darwin"):
+            self.assertEqual(runnerd.main(["status"]), 2)
 
     def test_hold_outside_the_root_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

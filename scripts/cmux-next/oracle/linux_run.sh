@@ -2,30 +2,33 @@
 # linux_run.sh: daemon-side oracle builds and suite runs on the Linux VM, every one through the
 # runnerd.py queue (p15-oracle-007, p15-oracle-024; spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
 #
-#   linux_run.sh build REF [--profile P] [--features F] [--leaf-rebuild] [--receipt FILE]
-#       Builds cmux-tui at REF. The last stdout line is the binary path (oracle.py build_daemon reads it).
+#   linux_run.sh build REF [--profile P] [--features F] [--leaf-rebuild] [--receipt FILE] [--fresh]
+#       Builds cmux-tui at REF. The last stdout line is the binary path.
 #       The build receipt (cmux-oracle-build-v1: sha, every gitlink, rustc, cold or warm, times, binary
 #       sha256) is build.json next to the binary, copied to FILE. --leaf-rebuild also times a rebuild
 #       after touching crates/cmux-tui/src/main.rs (task 201's incremental number).
-#   linux_run.sh run REF [--suite S] [--arm A] [--profile P] [--features F] [-- ORACLE_RUN_ARGS...]
+#   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Builds REF, then `oracle.py run --binary BIN --ref SHA` in the queue. The last stdout line is the
 #       run directory; the exit code is oracle.py's. --arm is NAME=old|new, launch-config or - (default).
-#   linux_run.sh diff BASE HEAD [--suite S] [--profile P] [--features F] [--out DIR] [-- ORACLE_RUN_ARGS...]
+#       --side names one of two otherwise identical runs (a diff of one SHA against itself).
+#   linux_run.sh diff BASE HEAD [--suite S] [--profile P] [--features F] [--out DIR] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Both runs (builds and suites in parallel, joined with any identical request), then
 #       `oracle.py diff --base-run --head-run`. Exit code is oracle.py diff's.
 #   linux_run.sh status [--json] | gc [--budget-gb N]
 #
 # Each job is keyed (sha, suite, arm, profile) plus the content of this script and the oracle sources,
-# so 20 submits of one BASE/HEAD pair build twice and run each side once; a finished key is reused.
-# Builds run in /tmp/oracle-wt/<job> (a `git clone --shared` of this repo, removed after the build) with
-# ghostty-next initialized from the SHA's own gitlink; CMUX_GHOSTTY_SRC is never used. The cargo target
-# dir is runnerd's per-SHA cache. Defaults: profile and feature `oracle` (p15-oracle-201), cargo -j 240.
+# so 20 submits of one BASE/HEAD pair build twice and run each side once. A finished build is reused;
+# a run is reused only when oracle.py exited 0 (a run with unexpected results, flakes or infra errors
+# runs again on the next request), and --fresh reruns one anyway. --shuffle without --seed gets a
+# random seed, which is then part of the key. Builds run in RUNNERD_SCRATCH/wt (a `git clone --shared`
+# of this repo that runnerd removes when the job ends) with ghostty-next initialized from the SHA's own
+# gitlink; CMUX_GHOSTTY_SRC is never used. The cargo target dir is runnerd's per-SHA, per-feature cache.
+# Defaults: profile and feature `oracle` (p15-oracle-201), cargo -j 240. Linux only.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 SELF="$HERE/linux_run.sh"
-WT_BASE=/tmp/oracle-wt
 DEFAULT_PROFILE=oracle
 DEFAULT_FEATURES=oracle
 CARGO_JOBS=240
@@ -61,13 +64,14 @@ run_key_paths() {
 # --- build ------------------------------------------------------------------------------
 
 cmd_build() {
-  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" leaf=0 receipt=""
+  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" leaf=0 receipt="" fresh=()
   while (($#)); do
     case "$1" in
       --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
       --features) features="${2?--features needs a value}"; shift 2 ;;
       --leaf-rebuild) leaf=1; shift ;;
       --receipt) receipt="${2:?--receipt needs a file}"; shift 2 ;;
+      --fresh) fresh=(--fresh); shift ;;
       -*) die "build: unknown option $1" ;;
       *) [[ -z "$ref" ]] || die "build: one REF"; ref="$1"; shift ;;
     esac
@@ -75,8 +79,10 @@ cmd_build() {
   [[ -n "$ref" ]] || die "build needs REF"
   local sha binary
   sha="$(resolve_sha "$ref")"
-  binary="$(runnerd submit --sha "$sha" --suite build --profile "$profile" --target-cache --timeout "$BUILD_TIMEOUT" \
-    --key-path "$SELF" --extra "features=$features" --extra "leaf=$leaf" \
+  # Features select the artifact, so they select the target dir too; runnerd never runs two jobs in one.
+  local tag="feat-${features:-none}"
+  binary="$(runnerd submit --sha "$sha" --suite build --profile "$profile" --target-cache --target-tag "${tag//,/+}" \
+    --timeout "$BUILD_TIMEOUT" --key-path "$SELF" --extra "features=$features" --extra "leaf=$leaf" "${fresh[@]}" \
     -- bash "$SELF" _build "$sha" "$profile" "$features" "$leaf" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   if [[ -n "$receipt" ]]; then
@@ -106,11 +112,9 @@ job_build() {
   in_job _build
   local sha="$1" profile="$2" features="$3" leaf="$4"
   local target="${RUNNERD_TARGET_DIR:?_build needs runnerd --target-cache}"
-  JOB_WT="$WT_BASE/$RUNNERD_JOB"  # global: the EXIT trap runs after this function returns
+  # runnerd removes its scratch dir when the job ends, a timeout or a recovery included.
+  local JOB_WT="${RUNNERD_SCRATCH:?_build needs the runnerd scratch dir}/wt"
   unset CMUX_GHOSTTY_SRC
-  mkdir -p "$WT_BASE"
-  rm -rf "$JOB_WT"
-  trap 'rm -rf "$JOB_WT"' EXIT
   local common refdir gitlink
   common="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)"
   git clone --quiet --shared --no-checkout "$common" "$JOB_WT" >&2
@@ -197,32 +201,42 @@ PY
 
 # Parses the options shared by run and diff into OPT_* globals; the rest after -- goes to oracle.py run.
 parse_run_options() {
-  OPT_SUITE=all OPT_ARM=- OPT_PROFILE="$DEFAULT_PROFILE" OPT_FEATURES="$DEFAULT_FEATURES" OPT_OUT=""
-  OPT_REFS=() OPT_PASS=()
+  OPT_SUITE=all OPT_ARM=- OPT_SIDE="" OPT_PROFILE="$DEFAULT_PROFILE" OPT_FEATURES="$DEFAULT_FEATURES" OPT_OUT=""
+  OPT_FRESH=() OPT_REFS=() OPT_PASS=()
   while (($#)); do
     case "$1" in
       --suite) OPT_SUITE="${2:?--suite needs a value}"; shift 2 ;;
       --arm) OPT_ARM="${2:?--arm needs a value}"; shift 2 ;;
+      --side) OPT_SIDE="${2:?--side needs a value}"; shift 2 ;;
       --profile) OPT_PROFILE="${2:?--profile needs a value}"; shift 2 ;;
       --features) OPT_FEATURES="${2?--features needs a value}"; shift 2 ;;
       --out) OPT_OUT="${2:?--out needs a value}"; shift 2 ;;
+      --fresh) OPT_FRESH=(--fresh); shift ;;
       --) shift; OPT_PASS=("$@"); break ;;
       -*) die "unknown option $1 (oracle.py run options go after --)" ;;
       *) OPT_REFS+=("$1"); shift ;;
     esac
   done
-  local arg
+  [[ "$OPT_SIDE" =~ ^[A-Za-z0-9._-]*$ ]] || die "--side $OPT_SIDE: letters, digits and . _ - only"
+  local arg seeded=0 shuffled=0
   for arg in "${OPT_PASS[@]}"; do
     case "$arg" in
       --out | --out=* | --binary | --binary=* | --ref | --ref=* | --suite | --suite=* | --switch | --switch=* | --arm | --arm=*)
         die "$arg: set by linux_run.sh (use --suite, --arm and --out before --)" ;;
+      --seed | --seed=*) seeded=1 ;;
+      --shuffle) shuffled=1 ;;
     esac
   done
+  # The order is part of the result, so its seed is part of the key: a later --shuffle request gets
+  # its own order instead of the first one's receipt, and both sides of a diff run one order.
+  if ((shuffled && !seeded)); then
+    OPT_PASS+=(--seed "$(python3 -I -c 'import random; print(random.SystemRandom().randrange(1, 2**31))')")
+  fi
 }
 
-# run_one SHA: builds, then queues the run; prints the run dir; returns oracle.py run's exit code.
+# run_one SHA [SIDE]: builds, then queues the run; prints the run dir; returns oracle.py run's exit code.
 run_one() {
-  local sha="$1" binary dir
+  local sha="$1" side="${2:-}" binary dir code=0
   binary="$(cmd_build "$sha" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   local key_args=() extra_args=() arg
@@ -230,18 +244,20 @@ run_one() {
   for arg in "${OPT_PASS[@]}"; do
     extra_args+=(--extra "arg=$arg")
   done
+  [[ -z "$side" ]] || extra_args+=(--extra "side=$side")
   dir="$(runnerd submit --sha "$sha" --suite "$OPT_SUITE" --arm "$OPT_ARM" --profile "$OPT_PROFILE" \
     --timeout "$RUN_TIMEOUT" --hold "$binary" "${key_args[@]}" --extra "binary=$binary" "${extra_args[@]}" \
-    -- bash "$SELF" _run "$sha" "$binary" "$OPT_SUITE" "$OPT_ARM" -- "${OPT_PASS[@]}" | tail -n 1)"
-  [[ -f "$dir/receipt.json" ]] || die "run of $sha wrote no receipt"
+    "${OPT_FRESH[@]}" -- bash "$SELF" _run "$sha" "$binary" "$OPT_SUITE" "$OPT_ARM" -- "${OPT_PASS[@]}" \
+    | tail -n 1)" || code=$?
+  [[ -f "$dir/receipt.json" ]] || die "run of $sha wrote no receipt (exit $code)"
   echo "$dir"
-  return "$(cat "$(dirname "$dir")/oracle-exit")"
+  return "$code"
 }
 
 cmd_run() {
   parse_run_options "$@"
   ((${#OPT_REFS[@]} == 1)) || die "run needs one REF"
-  run_one "$(resolve_sha "${OPT_REFS[0]}")"
+  run_one "$(resolve_sha "${OPT_REFS[0]}")" "$OPT_SIDE"
 }
 
 job_run() {
@@ -259,10 +275,11 @@ job_run() {
   local out="$RUNNERD_OUT/run" code=0
   python3 -I "$HERE/oracle.py" run --suite "$suite" "${arm_args[@]}" --binary "$binary" --ref "$sha" \
     --out "$out" "$@" >&2 || code=$?
-  # A run with unexpected results is still a result to reuse; only a run with no receipt failed.
+  # The run dir goes to every waiter whatever the exit; a non-zero exit (unexpected results, flaky cases,
+  # infra errors) also makes runnerd rerun the key on the next request instead of reusing this result.
   [[ -f "$out/receipt.json" ]] || exit "$((code == 0 ? 1 : code))"
-  echo "$code" > "$RUNNERD_OUT/oracle-exit"
   echo "$out"
+  exit "$code"
 }
 
 # --- diff -------------------------------------------------------------------------------
@@ -270,26 +287,20 @@ job_run() {
 cmd_diff() {
   parse_run_options "$@"
   ((${#OPT_REFS[@]} == 2)) || die "diff needs BASE and HEAD"
-  local base head
+  [[ -z "$OPT_SIDE" ]] || die "diff: --side is for run (diff names its sides base and head)"
+  local base head base_side="" head_side=""
   base="$(resolve_sha "${OPT_REFS[0]}")"
   head="$(resolve_sha "${OPT_REFS[1]}")"
-  local arg seeded=0 shuffled=0
-  for arg in "${OPT_PASS[@]}"; do
-    case "$arg" in
-      --seed | --seed=*) seeded=1 ;;
-      --shuffle) shuffled=1 ;;
-    esac
-  done
-  # Both sides must run one order, and the seed is part of both keys.
-  if ((shuffled && !seeded)); then
-    OPT_PASS+=(--seed "$(python3 -I -c 'import random; print(random.SystemRandom().randrange(1, 2**31))')")
+  # One SHA against itself (a determinism check) must run twice, not join one job and compare it with itself.
+  if [[ "$base" == "$head" ]]; then
+    base_side=base head_side=head
   fi
 
   DIFF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/oracle-linux-diff.XXXXXX")"
   trap 'rm -rf "$DIFF_TMP"' EXIT
-  (run_one "$base" > "$DIFF_TMP/base" || true) &
+  (run_one "$base" "$base_side" > "$DIFF_TMP/base" || true) &
   local base_pid=$!
-  (run_one "$head" > "$DIFF_TMP/head" || true) &
+  (run_one "$head" "$head_side" > "$DIFF_TMP/head" || true) &
   local head_pid=$!
   wait "$base_pid" "$head_pid"
   local base_dir head_dir
@@ -307,6 +318,8 @@ cmd_diff() {
 main() {
   local command="${1:-}"
   (($#)) && shift
+  # Builds and suite runs never start on a Mac (CLAUDE.md: no local cargo builds); the fleet runs those.
+  [[ "$(uname -s)" == Linux ]] || die "the oracle queue runs on the Linux VM only; nothing was queued"
   case "$command" in
     build) cmd_build "$@" ;;
     run) cmd_run "$@" ;;
@@ -314,7 +327,7 @@ main() {
     status | gc) runnerd "$command" "$@" ;;
     _build) job_build "$@" ;;
     _run) job_run "$@" ;;
-    *) sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) sed -n '2,/^#$/p' "$SELF" | sed '$d; s/^# \{0,1\}//' >&2; exit 2 ;;
   esac
 }
 

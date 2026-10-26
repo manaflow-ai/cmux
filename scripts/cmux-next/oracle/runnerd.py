@@ -4,8 +4,9 @@
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md, section 3G and task 007. Stdlib only, Linux only
 (pidfd), Python 3.9+, safe under `python3 -I`.
 
-    runnerd.py submit --sha SHA --suite S [--arm A] [--profile P] [--target-cache]
-                      [--key-path PATH]... [--extra K=V]... [--timeout SEC] -- COMMAND...
+    runnerd.py submit --sha SHA --suite S [--arm A] [--profile P] [--target-cache [--target-tag T]]
+                      [--key-path PATH]... [--extra K=V]... [--hold PATH]... [--timeout SEC] [--fresh]
+                      -- COMMAND...
     runnerd.py status [--json]
     runnerd.py gc [--budget-gb N]
 
@@ -14,13 +15,22 @@ Spec: plans/cmux-next/chrome-parity/p15-oracle.md, section 3G and task 007. Stdl
   --extra strings (what else changes the result: the build recipe, the corpus, the run arguments).
 - A request whose key is queued or running joins that job; a request whose key already finished with
   exit 0 reuses its receipt and runs nothing. A failed job is not reused: the next submit reruns it.
+  --fresh reruns a finished key too (a confirm or flake rerun of a nondeterministic suite run).
 - Jobs run FIFO, at most --slots at once (default 2: the two arms of one diff), in a dispatcher that
   lives in one `systemd-run --scope -p CPUQuota=24000% -p MemoryMax=600G` under `nice -n 10`, so all
   queued work together stays inside one quota and agent shells keep 120 cores and the rest of memory.
-- A job writes its results to RUNNERD_OUT (ROOT/jobs/<digest>/out). --target-cache also gives it
-  RUNNERD_TARGET_DIR=ROOT/targets/<sha>-<profile>, a per-SHA cargo target dir that is only a cache.
-  Target dirs and job dirs share one 150 GB budget, evicted least recently used first; --hold PATH
-  keeps another job's output (a built binary) while this job waits or runs.
+- A job writes its results to RUNNERD_OUT (ROOT/jobs/<digest>/out/<seq>, one dir per attempt; a
+  rerun keeps the previous attempt's, which its waiters may still be reading) and its scratch files
+  (a worktree) to RUNNERD_SCRATCH, which the dispatcher removes when the job ends however it ends.
+  --target-cache also gives it RUNNERD_TARGET_DIR=ROOT/targets/<sha>-<profile>[-<tag>], a per-SHA
+  cargo target dir that is only a cache; --target-tag names what else selects the artifact (cargo
+  features). Two jobs never use one target dir at once. Target dirs and job dirs share one 150 GB
+  budget, evicted least recently used first; --hold PATH keeps another job's output (a built
+  binary) while this job waits or runs.
+- Under the systemd scope (Delegate=yes) each job runs in its own child cgroup, so a timeout, a
+  recovery or the end of the job kills every process it started, setsid ones too (cgroup.kill).
+  Sizing the cache and deleting evicted dirs happen on an upkeep thread, never on the dispatcher's
+  loop or in a submit.
 
 Chrome reference (chromium/src):
 - net/http/http_cache.cc, http_cache_transaction.cc: concurrent requests for one cache key share one
@@ -40,8 +50,9 @@ Files under ROOT (default /tmp/oracle-runnerd, or ORACLE_RUNNERD_ROOT):
     wake                 FIFO: a submit writes one byte so the dispatcher looks at the spool
     spool/<seq>-<digest> one empty file per queued job; the lowest seq runs next
     jobs/<digest>/       receipt.json (the job's state and, when done, its receipt), stdout, log,
-                         out/ (RUNNERD_OUT), waiters/<fifo> (one per waiting submit)
-    targets/<sha>-<profile>/  cargo target dirs (RUNNERD_TARGET_DIR)
+                         out/<seq>/ (RUNNERD_OUT), scratch/ (RUNNERD_SCRATCH while the job runs),
+                         waiters/<fifo> (one per waiting submit)
+    targets/<sha>-<profile>[-<tag>]/  cargo target dirs (RUNNERD_TARGET_DIR)
     index.json           {"seq", "entries": {"targets/<name>" | "jobs/<digest>": {"bytes", "used"}}}
     trash/               evicted dirs, deleted outside the lock
 """
@@ -54,13 +65,16 @@ import fcntl
 import hashlib
 import json
 import os
+import queue
 import re
+import select
 import selectors
 import shutil
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -68,7 +82,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
-HERE = Path(__file__).resolve().parent
 DEFAULT_ROOT = Path("/tmp/oracle-runnerd")
 JOB_SCHEMA = "cmux-oracle-runnerd-job-v1"
 INDEX_SCHEMA = "cmux-oracle-runnerd-index-v1"
@@ -82,6 +95,9 @@ DEFAULT_TIMEOUT = 4 * 3600
 # A waiter starts a new dispatcher when the one it waits on dies; past this it stops and reports.
 MAX_DISPATCHER_STARTS = 5
 LOG_TAIL_LINES = 40
+# After cgroup.kill, how long the upkeep thread waits for the job cgroup to empty before leaving it.
+CGROUP_DRAIN_SECONDS = 10.0
+CGROUP_FS = Path("/sys/fs/cgroup")
 SCOPES = ("systemd", "none")
 # Jobs get this environment and nothing else from the submit that created them. CMUX_GHOSTTY_SRC is
 # left out on purpose: each SHA builds the ghostty-next of its own worktree (p15-oracle-024), and so is
@@ -287,9 +303,25 @@ class Request:
     target_cache: bool
     timeout: float
     holds: Tuple[Path, ...] = ()
+    target_tag: str = ""
+    fresh: bool = False
+
+    def validate(self) -> None:
+        self.key.validate()
+        if self.target_tag and not (self.target_cache and NAME_RE.match(self.target_tag)):
+            raise RunnerError(f"--target-tag {self.target_tag!r}: needs --target-cache; letters, digits and "
+                              ". _ , = + : - only")
+
+    @property
+    def target(self) -> Optional[str]:
+        """Name of the cargo target dir under ROOT/targets, or None without --target-cache."""
+        if not self.target_cache:
+            return None
+        name = f"{self.key.sha}-{self.key.profile}"
+        return f"{name}-{self.target_tag}" if self.target_tag else name
 
     def as_json(self, layout: Layout) -> Dict[str, Any]:
-        return {"argv": list(self.argv), "cwd": self.cwd, "env": self.env, "targetCache": self.target_cache,
+        return {"argv": list(self.argv), "cwd": self.cwd, "env": self.env, "target": self.target,
                 "timeout": self.timeout, "holds": sorted({hold_entry(layout, path) for path in self.holds})}
 
 
@@ -311,8 +343,10 @@ class Settings:
         if self.scope == "none":
             return inner
         user = [] if os.geteuid() == 0 else ["--user"]
+        # Delegate=yes lets the dispatcher give each job its own child cgroup (cgroup.kill on a timeout).
         return ["systemd-run", *user, "--scope", "--quiet", "--collect", f"--unit={unit}",
-                "-p", f"CPUQuota={CPU_QUOTA}", "-p", f"MemoryMax={MEMORY_MAX}", "--", *inner]
+                "-p", f"CPUQuota={CPU_QUOTA}", "-p", f"MemoryMax={MEMORY_MAX}", "-p", "Delegate=yes",
+                "--", *inner]
 
 
 def settings_from_env(root: Path, env: Mapping[str, str]) -> Settings:
@@ -420,8 +454,8 @@ def busy_entries(layout: Layout) -> List[str]:
         if receipt and receipt["state"] in ("queued", "running"):
             names.append(f"jobs/{receipt['digest']}")
             names.extend(receipt["request"].get("holds", []))
-            if receipt.get("targetDir"):
-                names.append(f"targets/{Path(receipt['targetDir']).name}")
+            if receipt["request"].get("target"):
+                names.append(f"targets/{receipt['request']['target']}")
     return names
 
 
@@ -527,7 +561,7 @@ def submit(settings: Settings, request: Request, stdout=None, stderr=None) -> in
     stdout = stdout or sys.stdout.buffer
     stderr = stderr or sys.stderr
     layout = settings.layout
-    request.key.validate()
+    request.validate()
     if "RUNNERD_JOB" in os.environ:
         raise RunnerError("submit from inside a runnerd job would wait on its own queue; run the command directly")
     layout.ensure()
@@ -540,8 +574,10 @@ def submit(settings: Settings, request: Request, stdout=None, stderr=None) -> in
         with queue_lock(layout):
             receipt = read_json(job_dir / "receipt.json")
             state = receipt["state"] if receipt else None
-            # A failed job is reused only by the submits that waited on it; a new submit reruns it.
-            if state == "done" or (state == "failed" and not first):
+            finished = state in ("done", "failed")
+            # A failed job is reused only by the submits that waited on it; a new submit reruns it, and
+            # so does a --fresh one of a done job.
+            if finished and not (first and (state == "failed" or request.fresh)):
                 if first:
                     receipt["reuses"] += 1
                     receipt["submits"] += 1
@@ -549,7 +585,7 @@ def submit(settings: Settings, request: Request, stdout=None, stderr=None) -> in
                     touch_entries(layout, receipt)
                 result = read_result(layout, digest)
             else:
-                if state in (None, "failed"):
+                if state is None or finished:
                     mode = "queued"
                     create_job(layout, request)
                 else:
@@ -563,7 +599,6 @@ def submit(settings: Settings, request: Request, stdout=None, stderr=None) -> in
                 if mode == "queued":
                     wake_dispatcher(layout)
         if waiter is None:
-            empty_trash(layout)
             return emit(result, "reused" if first else "finished", job_dir, stdout, stderr)
         if first:
             print(f"runnerd: {mode} job {digest} ({request.key.label()}); log {job_dir / 'log'}", file=stderr)
@@ -585,22 +620,35 @@ def submit(settings: Settings, request: Request, stdout=None, stderr=None) -> in
 
 
 def create_job(layout: Layout, request: Request) -> None:
-    """Under the lock: a fresh job dir (a failed one goes to the trash) and its spool entry."""
+    """Under the lock: the job's receipt for a new attempt and its spool entry."""
     for path in request.holds:
         hold_entry(layout, path)
         if not path.exists():
             raise RunnerError(f"--hold {path}: evicted since its job finished; submit that job again")
     job_dir = layout.job(request.key.digest)
-    index = load_index(layout)
     if job_dir.exists():
-        index["entries"].pop(f"jobs/{request.key.digest}", None)
-        move_to_trash(layout, job_dir)
+        retire_attempts(layout, job_dir)
+    index = load_index(layout)
     index["seq"] += 1
     seq = index["seq"]
     write_json(layout.index, index)
-    job_dir.mkdir()
+    job_dir.mkdir(exist_ok=True)
     write_json(job_dir / "receipt.json", new_receipt(layout, request, seq))
     spool_entry(layout, seq, request.key.digest).touch()
+
+
+def attempt_dirs(job_dir: Path) -> List[Path]:
+    return sorted((p for p in (job_dir / "out").glob("*") if p.name.isdigit()), key=lambda p: int(p.name))
+
+
+def retire_attempts(layout: Layout, job_dir: Path) -> None:
+    """Under the lock, before a rerun: the last attempt's output stays, because the submits that just got
+    it may still be reading it (a run dir) and a queued job may hold it (a binary); older ones go."""
+    move_to_trash(layout, job_dir / "scratch")
+    if f"jobs/{job_dir.name}" in busy_entries(layout):
+        return
+    for old in attempt_dirs(job_dir)[:-1]:
+        move_to_trash(layout, old)
 
 
 def spool_entry(layout: Layout, seq: int, digest: str) -> Path:
@@ -639,12 +687,75 @@ def emit(result: Result, mode: str, job_dir: Path, stdout, stderr) -> int:
 @dataclass
 class Running:
     digest: str
+    seq: int
     proc: subprocess.Popen
     pidfd: int
     deadline: float
     started: float
-    target: Optional[Path]
+    target: Optional[str]
+    cgroup: Optional[Path]
     timed_out: bool = False
+
+
+@dataclass(frozen=True)
+class Chore:
+    """Slow file work for the upkeep thread: empty and remove a job cgroup, size index entries (names
+    under ROOT) and mark them used, evict above the budget, delete the trash."""
+    sizes: Tuple[str, ...] = ()
+    cgroup: Optional[Path] = None
+
+
+class Upkeep:
+    """One thread does every chore in order, so the dispatcher's loop never walks a target dir or
+    deletes one: it keeps starting, reaping and timing out jobs meanwhile. Each chore ends with one byte
+    on `done_fd`; only the loop's thread reads it and counts `pending`, so no state is shared."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.chores: "queue.Queue[Chore]" = queue.Queue()
+        self.done_fd, self._done_write = os.pipe()
+        os.set_blocking(self.done_fd, False)
+        self.pending = 0
+        threading.Thread(target=self._work, name="runnerd-upkeep", daemon=True).start()
+
+    def add(self, chore: Chore) -> None:
+        self.pending += 1
+        self.chores.put(chore)
+
+    def collect(self) -> None:
+        try:
+            while True:
+                done = os.read(self.done_fd, 4096)
+                if not done:
+                    return
+                self.pending -= len(done)
+        except BlockingIOError:
+            return
+
+    def _work(self) -> None:
+        while True:
+            chore = self.chores.get()
+            try:
+                self._do(chore)
+            except OSError as error:  # a chore that fails leaves its sizes stale; the queue goes on
+                print(f"runnerd: upkeep {chore}: {error}", file=sys.stderr, flush=True)
+            finally:
+                os.write(self._done_write, b".")
+
+    def _do(self, chore: Chore) -> None:
+        layout = self.settings.layout
+        if chore.cgroup is not None:
+            remove_cgroup(chore.cgroup)
+        sizes = {name: tree_bytes(layout.root / name) for name in chore.sizes if (layout.root / name).exists()}
+        if sizes:
+            with queue_lock(layout):
+                index = load_index(layout)
+                now = time.time()
+                for name, size in sizes.items():
+                    index["entries"][name] = {"bytes": size, "used": now}
+                evict(layout, index, self.settings.budget, busy_entries(layout) + list(sizes))
+                write_json(layout.index, index)
+        empty_trash(layout)
 
 
 @dataclass
@@ -652,6 +763,8 @@ class Dispatcher:
     settings: Settings
     lock_fd: int
     running: Dict[str, Running] = field(default_factory=dict)
+    cgroup_base: Optional[Path] = None
+    upkeep: Optional[Upkeep] = None
 
     @property
     def layout(self) -> Layout:
@@ -660,24 +773,31 @@ class Dispatcher:
     def run(self) -> int:
         layout = self.layout
         os.set_inheritable(self.lock_fd, False)
+        if self.settings.scope == "systemd":
+            self.cgroup_base = own_cgroup()
+        upkeep = self.upkeep = Upkeep(self.settings)
         wake_fd = os.open(layout.wake, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
         selector = selectors.DefaultSelector()
-        selector.register(wake_fd, selectors.EVENT_READ, None)
+        selector.register(wake_fd, selectors.EVENT_READ, "wake")
+        selector.register(upkeep.done_fd, selectors.EVENT_READ, "upkeep")
         with queue_lock(layout):
             self.recover()
+        upkeep.add(Chore())  # the trash an earlier dispatcher left
         while True:
             with queue_lock(layout):
                 for running in self.start_jobs():
                     selector.register(running.pidfd, selectors.EVENT_READ, running.digest)
-                if not self.running:
+                if not self.running and not upkeep.pending:
                     layout.dispatcher_info.unlink(missing_ok=True)
                     os.close(self.lock_fd)
                     return 0
             deadlines = [r.deadline for r in self.running.values() if not r.timed_out]
             timeout = max(0.0, min(deadlines) - time.time()) if deadlines else None
             for key, _ in selector.select(timeout):
-                if key.data is None:
+                if key.data == "wake":
                     drain(wake_fd)
+                elif key.data == "upkeep":
+                    upkeep.collect()
             now = time.time()
             for running in list(self.running.values()):
                 if running.proc.poll() is not None:
@@ -687,10 +807,11 @@ class Dispatcher:
                     self.finish(running)
                 elif now >= running.deadline and not running.timed_out:
                     running.timed_out = True
-                    kill_group(running.proc.pid)
+                    kill_job(running.proc.pid, running.cgroup)
 
     def recover(self) -> None:
-        """Under the lock, before the first job: a dead dispatcher's running jobs run again."""
+        """Under the lock, before the first job: a dead dispatcher's running jobs run again, after
+        everything they started is killed."""
         queued = {p.name.split("-", 1)[1] for p in self.layout.spool.iterdir()}
         for receipt_path in self.layout.jobs.glob("*/receipt.json"):
             receipt = read_json(receipt_path)
@@ -698,8 +819,11 @@ class Dispatcher:
                 continue
             if receipt["state"] == "running":
                 pid = receipt.get("pid")
-                if pid and process_start_time(pid) == receipt.get("pidStart"):
-                    kill_group(pid)
+                alive = bool(pid) and process_start_time(pid) == receipt.get("pidStart")
+                cgroup = Path(receipt["cgroup"]) if receipt.get("cgroup") else None
+                kill_job(pid if alive else None, cgroup)
+                if cgroup is not None:
+                    self.upkeep.add(Chore(cgroup=cgroup))
                 receipt["state"] = "queued"
                 receipt["recovered"] = receipt.get("recovered", 0) + 1
                 write_json(receipt_path, receipt)
@@ -707,42 +831,62 @@ class Dispatcher:
                 spool_entry(self.layout, receipt["seq"], receipt["digest"]).touch()
 
     def start_jobs(self) -> List[Running]:
+        """FIFO, except that a job whose target dir another running job builds in waits for it: two cargo
+        builds in one dir serialize on its lock, so the second's times would be the first's, and the
+        uplifted binary would be whichever finished last."""
         started = []
-        entries = sorted(self.layout.spool.iterdir())
-        while entries and len(self.running) < self.settings.slots:
-            entry = entries.pop(0)
+        busy_targets = {r.target for r in self.running.values() if r.target is not None}
+        for entry in sorted(self.layout.spool.iterdir()):
+            if len(self.running) >= self.settings.slots:
+                break
             digest = entry.name.split("-", 1)[1]
+            receipt = read_json(self.layout.job(digest) / "receipt.json")
+            if receipt is None or receipt["state"] != "queued":
+                entry.unlink()
+                continue
+            target = receipt["request"].get("target")
+            if target is not None and target in busy_targets:
+                continue
             entry.unlink()
-            running = self.start(digest)
+            running = self.start(digest, receipt)
             if running is not None:
                 self.running[digest] = running
                 started.append(running)
+                if running.target is not None:
+                    busy_targets.add(running.target)
         return started
 
-    def start(self, digest: str) -> Optional[Running]:
+    def start(self, digest: str, receipt: Dict[str, Any]) -> Optional[Running]:
         layout = self.layout
         job_dir = layout.job(digest)
-        receipt = read_json(job_dir / "receipt.json")
-        if receipt is None or receipt["state"] != "queued":
-            return None
         request = receipt["request"]
-        key = receipt["key"]
-        out = job_dir / "out"
-        if out.exists():
-            move_to_trash(layout, out)
-        out.mkdir()
+        seq = int(receipt["seq"])
+        out = job_dir / "out" / str(seq)
+        scratch = job_dir / "scratch"
+        for directory in (out, scratch):
+            if directory.exists():
+                move_to_trash(layout, directory)
+            directory.mkdir(parents=True)
         env = dict(request["env"])
-        env.update({"RUNNERD_JOB": digest, "RUNNERD_OUT": str(out), "RUNNERD_ROOT": str(layout.root)})
-        target = None
-        if request["targetCache"]:
-            target = layout.targets / f"{key['sha']}-{key['profile']}"
-            target.mkdir(exist_ok=True)
-            env["RUNNERD_TARGET_DIR"] = str(target)
-            receipt["targetDir"] = str(target)
+        env.update({"RUNNERD_JOB": digest, "RUNNERD_OUT": str(out), "RUNNERD_SCRATCH": str(scratch),
+                    "RUNNERD_ROOT": str(layout.root)})
+        target = request.get("target")
+        if target is not None:
+            (layout.targets / target).mkdir(exist_ok=True)
+            env["RUNNERD_TARGET_DIR"] = str(layout.targets / target)
+            receipt["targetDir"] = str(layout.targets / target)
+        argv = list(request["argv"])
+        cgroup = None
+        if self.cgroup_base is not None:
+            cgroup = self.cgroup_base / f"job-{digest}-{seq}"
+            cgroup.mkdir(exist_ok=True)
+            # The job moves itself into its cgroup before it execs the command, so nothing it starts
+            # is ever outside it.
+            argv = ["sh", "-c", 'echo $$ > "$0/cgroup.procs" && exec "$@"', str(cgroup), *argv]
         now = time.time()
         with open(job_dir / "stdout", "wb") as out_file, open(job_dir / "log", "wb") as log_file:
             try:
-                proc = subprocess.Popen(request["argv"], cwd=request["cwd"], env=env, stdin=subprocess.DEVNULL,
+                proc = subprocess.Popen(argv, cwd=request["cwd"], env=env, stdin=subprocess.DEVNULL,
                                         stdout=out_file, stderr=log_file, start_new_session=True)
             except OSError as error:
                 log_file.write(f"runnerd: cannot start {request['argv'][0]}: {error}\n".encode())
@@ -753,9 +897,10 @@ class Dispatcher:
                 return None
         receipt.update({"state": "running", "started": now, "pid": proc.pid,
                         "pidStart": process_start_time(proc.pid), "dispatcher": os.getpid(),
-                        "quota": self.quota()})
+                        "cgroup": str(cgroup) if cgroup else None, "quota": self.quota()})
         write_json(job_dir / "receipt.json", receipt)
-        return Running(digest, proc, os.pidfd_open(proc.pid), now + float(request["timeout"]), now, target)
+        return Running(digest, seq, proc, os.pidfd_open(proc.pid), now + float(request["timeout"]), now, target,
+                       cgroup)
 
     def quota(self) -> Dict[str, Any]:
         if self.settings.scope == "none":
@@ -763,11 +908,12 @@ class Dispatcher:
         return {"scope": "systemd", "cpuQuota": CPU_QUOTA, "memoryMax": MEMORY_MAX, "nice": NICE}
 
     def finish(self, running: Running) -> None:
+        """Short: the receipt, the waiters and the scratch dir. Killing what the job left behind,
+        sizing and eviction are the upkeep thread's."""
         layout = self.layout
         job_dir = layout.job(running.digest)
-        sizes = {f"jobs/{running.digest}": tree_bytes(job_dir)}
-        if running.target is not None:
-            sizes[f"targets/{running.target.name}"] = tree_bytes(running.target)
+        if running.cgroup is not None:
+            kill_job(None, running.cgroup)
         with queue_lock(layout):
             receipt = read_json(job_dir / "receipt.json") or {}
             code = running.proc.returncode
@@ -775,13 +921,10 @@ class Dispatcher:
             receipt.update({"state": "done" if code == 0 and not running.timed_out else "failed", "exit": code,
                             "finished": now, "wallSeconds": now - running.started, "timedOut": running.timed_out})
             write_json(job_dir / "receipt.json", receipt)
-            index = load_index(layout)
-            for name, size in sizes.items():
-                index["entries"][name] = {"bytes": size, "used": now}
-            evict(layout, index, self.settings.budget, busy_entries(layout) + list(sizes))
-            write_json(layout.index, index)
+            move_to_trash(layout, job_dir / "scratch")
             notify_waiters(job_dir)
-        empty_trash(layout)
+        sizes = (f"jobs/{running.digest}",) + ((f"targets/{running.target}",) if running.target else ())
+        self.upkeep.add(Chore(sizes=sizes, cgroup=running.cgroup))
 
 
 def notify_waiters(job_dir: Path) -> None:
@@ -807,6 +950,55 @@ def drain(fd: int) -> None:
             pass
     except BlockingIOError:
         pass
+
+
+def own_cgroup() -> Path:
+    """The dispatcher's cgroup v2 dir: its systemd scope, delegated to it (Delegate=yes)."""
+    for line in Path("/proc/self/cgroup").read_text(encoding="ascii").splitlines():
+        if line.startswith("0::"):
+            path = CGROUP_FS / line[3:].lstrip("/")
+            if os.access(path, os.W_OK):
+                return path
+            raise RunnerError(f"{path}: not writable; the scope needs Delegate=yes")
+    raise RunnerError("no cgroup v2 hierarchy in /proc/self/cgroup")
+
+
+def kill_job(pid: Optional[int], cgroup: Optional[Path]) -> None:
+    """SIGKILL to the job's process group (pid must be its live leader) and, under the systemd scope,
+    to every process in its cgroup, setsid ones too."""
+    if pid:
+        kill_group(pid)
+    if cgroup is not None:
+        try:
+            (cgroup / "cgroup.kill").write_text("1", encoding="ascii")
+        except FileNotFoundError:
+            pass
+
+
+def remove_cgroup(cgroup: Path) -> None:
+    """Upkeep: waits on cgroup.events (a POLLPRI notification, not a timer loop) until the killed job
+    cgroup is empty, then removes it; one still busy after CGROUP_DRAIN_SECONDS goes with its scope."""
+    kill_job(None, cgroup)
+    deadline = time.monotonic() + CGROUP_DRAIN_SECONDS
+    try:
+        events = os.open(cgroup / "cgroup.events", os.O_RDONLY | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return
+    try:
+        poller = select.poll()
+        poller.register(events, select.POLLPRI | select.POLLERR)
+        while b"populated 0" not in os.pread(events, 4096, 0):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            poller.poll(remaining * 1000)
+    finally:
+        os.close(events)
+    try:
+        cgroup.rmdir()
+    except OSError as error:
+        if error.errno not in (errno.ENOENT, errno.EBUSY):
+            raise
 
 
 def kill_group(pid: int) -> None:
@@ -885,6 +1077,9 @@ def build_parser() -> argparse.ArgumentParser:
     submit_p.add_argument("--arm", default="-", help="switch arm (NAME=ARM) or - (default)")
     submit_p.add_argument("--profile", default="oracle")
     submit_p.add_argument("--target-cache", action="store_true", help="give the job a per-SHA cargo target dir")
+    submit_p.add_argument("--target-tag", default="",
+                          help="what else selects the cargo artifact (features): part of the target dir name")
+    submit_p.add_argument("--fresh", action="store_true", help="rerun the key even when a finished receipt exists")
     submit_p.add_argument("--key-path", type=Path, action="append", default=[],
                           help="file or checkout dir whose content is part of the key (repeat)")
     submit_p.add_argument("--extra", action="append", default=[], help="K=V string that is part of the key (repeat)")
@@ -909,6 +1104,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if not sys.platform.startswith("linux") or not hasattr(os, "pidfd_open"):
+        print("runnerd: the oracle queue runs on the Linux VM only (it needs pidfd_open, Linux 5.3+ and "
+              "Python 3.9+); nothing was queued", file=sys.stderr)
+        return 2
     root = args.root.resolve()
     try:
         if args.command == "_dispatch":
@@ -922,7 +1121,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             extra = tuple(args.extra) + tuple(f"path:{path_digest(p)}" for p in args.key_path)
             request = Request(Key(args.sha, args.suite, args.arm, args.profile, extra), tuple(command),
                               os.getcwd(), job_environment(os.environ), args.target_cache, args.timeout,
-                              tuple(args.hold))
+                              tuple(args.hold), args.target_tag, args.fresh)
             return submit(settings, request)
         if args.command == "status":
             report = status(settings.layout)
