@@ -1618,7 +1618,19 @@ class ServerStatsSlowRequest:
     busy_ms: int
     duration_ms: Union[int, None]
     method: str
+    stack: List[ServerStatsSlowRequestFrame]
+    stack_error: Union[str, None]
+    stack_truncated: bool
     started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequestFrame:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequestFrame'
+    image: Union[str, None]
+    image_id: Union[str, None]
+    offset: int
+    symbol: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -6179,6 +6191,7 @@ __all__ = [
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsSlowRequest',
+    'ServerStatsSlowRequestFrame',
     'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',

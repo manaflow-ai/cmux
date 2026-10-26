@@ -11,9 +11,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
+use cmux_holder::wire::TraceStart;
 use cmux_holder::{Listed, SpawnRequest};
 
 use super::{HolderSink, HolderTerminal};
+
+mod trace;
 use crate::panic_free::RecoverPoison;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
@@ -27,6 +30,11 @@ struct LinkSlot {
     /// already dying (killed, its link not yet seen closed) is lost, and a
     /// new holder would otherwise keep the closed tab's shell running.
     pending_close: HashMap<u32, u32>,
+    /// The trace recording the daemon runs, kept until its stop: a holder
+    /// that starts while it runs (a holder restart) gets its TRACE_START
+    /// when its link is published, as the CLOSEs do. Changed only under
+    /// [`HolderService::trace_control`].
+    trace: Option<TraceStart>,
 }
 
 /// The holder of one terminal host root (one daemon session).
@@ -39,6 +47,11 @@ pub(crate) struct HolderService {
     /// caller that holds a surface lock may wait for it: a surface's kill
     /// and acknowledgements use [`Self::open_link`] only.
     connecting: Mutex<()>,
+    /// Held from reading the recording ([`LinkSlot::trace`]) or publishing
+    /// a link until its TRACE_START or TRACE_STOP went out, so the holder
+    /// gets them in the order the recording changed. Taken after
+    /// `connecting` (a publish) and before `link`.
+    trace_control: Mutex<()>,
     next_chan: AtomicU32,
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
@@ -84,6 +97,7 @@ impl HolderService {
             token: load_or_create_token(host_root)?,
             link: Mutex::default(),
             connecting: Mutex::new(()),
+            trace_control: Mutex::new(()),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             claiming: RwLock::new(()),
@@ -197,8 +211,10 @@ impl HolderService {
         }
     }
 
-    /// Make `link` the current link and send the CLOSEs that waited for it.
+    /// Make `link` the current link and send the CLOSEs and the trace
+    /// recording that waited for it.
     fn publish(&self, link: &Arc<HolderLink>) {
+        let _trace = self.trace_control.lock().recover_poison();
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
@@ -209,6 +225,7 @@ impl HolderService {
                 eprintln!("cmux-tui: end holder terminal {chan}: {error}");
             }
         }
+        self.send_recording(link);
     }
 
     /// Start `request` on the holder. Returns the terminal (its custody
@@ -684,7 +701,7 @@ mod tests {
     use super::*;
 
     /// The next frame the link sent on `stream`; panics when it ends.
-    fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
+    pub(super) fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
         loop {
             if let Some(frame) = reader.next_frame().unwrap() {
                 return frame;
@@ -698,16 +715,49 @@ mod tests {
 
     /// Answer a HELLO with a WELCOME listing `listed` (channel, terminal id).
     fn welcome(stream: &UnixStream, reader: &mut wire::Reader, listed: &[(u32, [u8; 16])]) {
+        welcome_granting(stream, reader, listed, None);
+    }
+
+    /// [`welcome`] granting `granted` capability bits (`None`: a holder
+    /// older than them, whose WELCOME has no such field).
+    pub(super) fn welcome_granting(
+        stream: &UnixStream,
+        reader: &mut wire::Reader,
+        listed: &[(u32, [u8; 16])],
+        granted: Option<u32>,
+    ) {
         let hello = next_frame(stream, reader, "HELLO");
         assert_eq!(hello.kind, Kind::Hello as u16);
         let fd = stream.as_raw_fd();
         let count = u32::try_from(listed.len()).unwrap();
-        let payload = Out::default().u16(wire::VERSION).u32(count).0;
+        let mut payload = Out::default().u16(wire::VERSION).u32(count);
+        if let Some(granted) = granted {
+            payload = payload.u32(granted);
+        }
+        let payload = payload.0;
         wire::send_all(fd, &wire::encode(Kind::Welcome, 0, &payload), &[]).unwrap();
         for (chan, id) in listed {
             let entry = Out::default().i32(0).u64(0).u64(0).u8(0).bytes(id).0;
             wire::send_all(fd, &wire::encode(Kind::Listed, *chan, &entry), &[]).unwrap();
         }
+    }
+
+    /// A service on a stand-in holder's socket (no holder is launched).
+    pub(super) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
+        Arc::new(HolderService {
+            socket,
+            token: [0x44; 32],
+            link: Mutex::default(),
+            connecting: Mutex::new(()),
+            trace_control: Mutex::new(()),
+            next_chan: AtomicU32::new(1),
+            live: Mutex::default(),
+            claiming: RwLock::new(()),
+            abandoned: Mutex::default(),
+            listed: Mutex::default(),
+            superseded: AtomicBool::new(false),
+            standalone_failed: AtomicBool::new(false),
+        })
     }
 
     /// Review 2 of pl-holder-11: a reconnect ends only the terminals this
@@ -759,19 +809,7 @@ mod tests {
             (closed, second)
         });
 
-        let service = Arc::new(HolderService {
-            socket,
-            token: [0x44; 32],
-            link: Mutex::default(),
-            connecting: Mutex::new(()),
-            next_chan: AtomicU32::new(1),
-            live: Mutex::default(),
-            claiming: RwLock::new(()),
-            abandoned: Mutex::default(),
-            listed: Mutex::default(),
-            superseded: AtomicBool::new(false),
-            standalone_failed: AtomicBool::new(false),
-        });
+        let service = stand_in_service(socket);
         let request = SpawnRequest { id: a, argv: vec![b"/bin/sh".to_vec()], ..Default::default() };
         assert!(service.spawn(&request, b"").is_err(), "the link broke before the SPAWNED");
         // The holder-restart thread or this call reconnects; either way the

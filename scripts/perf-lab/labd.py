@@ -20,7 +20,9 @@ Handlers are thin calls into store.py, ingest.py, alerts.py and the scheduler's 
 `Worker` thread runs Driver.tick every POLL_SECONDS and right after a job-finished callback, with --submit-command
 as its submit callback; the Driver reads the tip with `git ls-remote` and fetches only that branch into
 refs/perf-lab/BRANCH, which ingest also orders commits by. Without --submit-command the scheduler does not run and
-/status answers 503 saying so. SQLite (WAL) lives in
+/status answers 503 saying so. A canary run in progress (canary.py) is a side lane: its DATA_DIR/canary/<run>/
+lane.json gives the Driver the lane's T0 rounds, and /ingest stores a body of the lane's commits in the lane's own
+store, ordered on the lane's ref, never in the lab's. SQLite (WAL) lives in
 ~/Library/Application Support/cmux-perf-lab; each request opens its own connection, as store.Store requires. Every
 night a gzipped online copy goes to R2 under its sha256 through scripts/ci/upload-r2-object.py --write-once.
 
@@ -271,8 +273,9 @@ class PlanLoop:
     The Driver is not thread-safe, so only the worker's thread touches it: a callback only queues its job id."""
 
     def __init__(self, driver, *, hosts: Callable[[], Sequence], builds: Callable[[], object],
-                 submit: Callable[[object], object]) -> None:
+                 submit: Callable[[object], object], lanes: Callable[[], Sequence] = lambda: ()) -> None:
         self._driver, self._hosts, self._builds, self._submit = driver, hosts, builds, submit
+        self._lanes = lanes  # the side lanes (scheduler.Lane) of the canary runs in progress
         self._finished: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def job_finished(self, job_id: str) -> None:
@@ -285,15 +288,21 @@ class PlanLoop:
             except queue.Empty:
                 break
             self._driver.job_finished(job_id)
-        plan = self._driver.tick(self._hosts(), self._builds(), submit=self._submit)
+        lanes = tuple(lane.lane for lane in self._lanes())
+        plan = self._driver.tick(self._hosts(), self._builds(), submit=self._submit, lanes=lanes)
         return {"tip": self._driver.tip, "mode": plan.mode, "jobs": len(plan.jobs), "builds": len(plan.builds),
                 "gaps": len(plan.gaps), "skipped": len(plan.skipped), "problems": list(plan.problems)}
 
 
 def command_submitter(program: Path, rejected: Callable[..., object]) -> Callable[[object], object]:
     """Hands each plan (Plan.to_document() JSON on stdin) to the program that starts its jobs and builds; it prints
-    {"jobs": [ids], "arms": [features]} it could not hand on, or nothing. A failure raises, so the Driver keeps its
-    previous state and the next tick plans the same work again."""
+    {"jobs": [ids], "arms": [features], "builds": [[sha, config]]} it could not hand on, or nothing. A refused build
+    is asked for again on the next tick. A failure raises, so the Driver keeps its previous state and the next tick
+    plans the same work again.
+
+    A job whose `lane` is set measures a side lane (canary.py). The program runs it as any T0 job and its host
+    posts the results to /ingest as usual: labd stores a body whose commits are a lane's in that lane's store, so
+    the program needs nothing more for it."""
     def submit(plan) -> object:
         try:
             done = subprocess.run([str(program)], input=json.dumps(plan.to_document()), capture_output=True,
@@ -304,10 +313,11 @@ def command_submitter(program: Path, rejected: Callable[..., object]) -> Callabl
             raise LabdError(f"{program} exited {done.returncode}: {done.stderr.strip()[-500:]}")
         try:
             answer = json.loads(done.stdout) if done.stdout.strip() else {}
+            builds = frozenset((str(sha), str(config)) for sha, config in answer.get("builds", ()))
             return rejected(jobs=frozenset(map(str, answer.get("jobs", ()))),
-                            arms=frozenset(map(str, answer.get("arms", ()))))
+                            arms=frozenset(map(str, answer.get("arms", ()))), builds=builds)
         except (ValueError, TypeError, AttributeError) as error:
-            raise LabdError(f"{program}: its answer is not {{jobs, arms}} JSON ({error})") from None
+            raise LabdError(f"{program}: its answer is not {{jobs, arms, builds}} JSON ({error})") from None
 
     return submit
 
@@ -440,17 +450,39 @@ class Labd:
     version: str
     scheduler_off: str | None = None  # why the scheduler does not run
     max_rss_bytes: int | None = None
+    # The side lanes of canary runs in progress (canary.LaneDocument: name, commits, mainline, store) and the commit
+    # positions on a lane's mainline ref.
+    lanes: Callable[[], Sequence] = lambda: ()
+    lane_positions: Callable[[str], "ingest.CommitPositions"] | None = None
 
     def __post_init__(self) -> None:
         self.started_at = store._stamp(self.clock())
 
     @contextmanager
-    def open_store(self) -> Iterator["store.Store"]:
-        db = store.Store(self.db_path)
+    def open_store(self, path: Path | None = None) -> Iterator["store.Store"]:
+        db = store.Store(path or self.db_path)
         try:
             yield db
         finally:
             db.close()
+
+    def lane_of(self, path: Path):
+        """The side lane whose commits the result file at `path` measures, or None for the lab's own store. A body
+        that mixes a lane's commits with any other commit is refused: a run is stored whole, in one store."""
+        lanes = self.lanes()
+        if not lanes:
+            return None
+        try:
+            shas = {result.build.sha for result in ingest.perf_result.read_file(path)}
+        except ingest.perf_result.ResultError:
+            return None  # the lab's ingest names what is wrong with the file
+        for lane in lanes:
+            inside = shas & lane.commits
+            if inside and inside != shas:
+                raise _refuse(HTTPStatus.BAD_REQUEST, f"the body mixes commits of lane {lane.name} with others")
+            if inside:
+                return lane
+        return None
 
     def caller(self, address: str) -> tuple[Node, str]:
         """The caller's node and write role at a tailnet peer address, or a 403."""
@@ -517,14 +549,17 @@ class Labd:
             host = caller.name
         elif host is not None and not NODE_NAME.match(host):
             raise _refuse(HTTPStatus.BAD_REQUEST, f"host {host!r} is not a node name")
-        try:
-            positions = self.commit_positions()
-        except ingest.IngestError as error:
-            raise _refuse(HTTPStatus.SERVICE_UNAVAILABLE, str(error)) from None
         with tempfile.TemporaryDirectory(prefix="labd-ingest-") as scratch:
             path = Path(scratch) / "body.ndjson"
             path.write_bytes(body)
-            with self.open_store() as db:
+            lane = self.lane_of(path)
+            try:
+                positions = self.commit_positions() if lane is None else self.lane_positions(lane.mainline)
+            except ingest.IngestError as error:
+                raise _refuse(HTTPStatus.SERVICE_UNAVAILABLE, str(error)) from None
+            with self.open_store(None if lane is None else lane.store) as db:
+                if lane is not None:
+                    db.migrate()  # the canary migrates its lane store too; this one is idempotent
                 try:
                     report = ingest.ingest_paths(db, [path], commit_positions=positions, host_name=host,
                                                  kind=_one(query, "kind") or "waterfall", tier=_one(query, "tier"))
@@ -772,10 +807,12 @@ def serve(args: argparse.Namespace) -> int:
     driver = plan_driver(scheduler, data_dir / "scheduler.json", clock=clock,
                          ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
                          first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
+    canary = _sibling("canary", HERE / "canary.py")
+    lanes = lambda: canary.lane_documents(data_dir / canary.CANARY_DIR)
     plan = None if args.submit_command is None else PlanLoop(
         driver, hosts=lambda: scheduler.hosts_from_document(json.loads(args.pool.read_text(encoding="utf-8"))),
         builds=lambda: ledger_builds(scheduler, builds, data_dir / "builds"),
-        submit=command_submitter(args.submit_command, scheduler.Rejected))
+        submit=command_submitter(args.submit_command, scheduler.Rejected), lanes=lanes)
     r2_env = read_r2_env()
     upload = None if r2_env is None else lambda path, key: r2_upload(path, key, r2_env)
     workers = {"backup": Worker("backup", backup_step(db_path, data_dir / "backups", upload), next_backup_delay,
@@ -784,6 +821,7 @@ def serve(args: argparse.Namespace) -> int:
         workers["scheduler"] = Worker("scheduler", plan.step, lambda now: scheduler.POLL_SECONDS, PLAN_STALE, clock)
     app = Labd(db_path=db_path, allowlist=allowlist, whois=tailscale_whois, self_fqdn=self_fqdn,
                commit_positions=lambda: ingest.GitCommitPositions(repo, mainline=f"refs/perf-lab/{args.branch}"),
+               lanes=lanes, lane_positions=lambda mainline: ingest.GitCommitPositions(repo, mainline=mainline),
                plan=plan, workers=workers, clock=clock, version=args.version,
                scheduler_off=None if plan else "no --submit-command: it would record jobs that nobody starts",
                max_rss_bytes=args.max_rss_mb << 20 if args.max_rss_mb else None)

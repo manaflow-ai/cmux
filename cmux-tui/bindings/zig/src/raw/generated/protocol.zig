@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
+pub const ir_sha256 = "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1977,7 +1977,17 @@ pub const ServerStatsSlowRequest = struct {
     client: u64,
     duration_ms: wire.Nullable(u64),
     method: []const u8,
+    stack: []const ServerStatsSlowRequestFrame,
+    stack_error: wire.Nullable([]const u8),
+    stack_truncated: bool,
     started_ms: u64,
+};
+
+pub const ServerStatsSlowRequestFrame = struct {
+    image: wire.Nullable([]const u8),
+    image_id: wire.Nullable([]const u8),
+    offset: u64,
+    symbol: wire.Nullable([]const u8),
 };
 
 pub const ServerStatsSlowRequests = struct {

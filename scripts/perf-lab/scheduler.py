@@ -31,6 +31,10 @@ tools/perf/core/bot_platforms.py). The rules (p12-perf-process.md 3.1-3.3, 3.5, 
   `lab.py schedule` read expectations.json for each plan (expectations.active_at at the plan's `now`).
 - One job per host: a host that the controller reports busy, or that runs a job of ours, gets nothing. A pinpoint
   work id is started once (task 016 gives each attempt its own id).
+- A side lane (`Lane`: the regression canary, canary.py, p12-perf-process.md 3.7) measures its own commits into its
+  own store. Its T0 rounds run on the waterfall's T0 shard owners, one job per free owner after the waterfall's T0
+  and pinpoint work, and its builds are requested ahead. It touches no waterfall state: no batch, no queue item, no
+  reference cadence. Each lane job id starts once, as a pinpoint work id does.
 
 Driver wraps plan() for labd (task 012): it reads the branch tip with `git ls-remote` (labd calls tick() every
 POLL_SECONDS and on controller callbacks), fetches only that one ref when the tip moved, hands the plan to labd's
@@ -162,6 +166,27 @@ class PinpointWork:
     def __post_init__(self) -> None:
         if self.kind not in PINPOINT_KINDS:
             raise SchedulerError(f"pinpoint work {self.id}: kind {self.kind!r} is not bisect or verify")
+
+
+@dataclass(frozen=True)
+class LaneRound:
+    """One T0 round of a side lane: the lane's stories at `sha`, covering the commits from `first`. `id` names one
+    attempt; a lane that asks again uses a new id."""
+
+    id: str
+    sha: str
+    first: str
+
+
+@dataclass(frozen=True)
+class Lane:
+    """A side lane (the regression canary): `stories` (T0 story ids) at each round's sha on their T0 shard owners.
+    `builds` are the shas the lane needs built, requested ahead so its rounds keep the batch cadence."""
+
+    name: str
+    stories: tuple[str, ...]
+    builds: tuple[str, ...]
+    rounds: tuple[LaneRound, ...]
 
 
 @dataclass(frozen=True)
@@ -339,9 +364,9 @@ def finished(state: State, job_id: str) -> State:
 
 def unstarted(state: State, job: "Job") -> State:
     """A planned job the controller refused or labd could not submit: its work goes back to the front of the queue
-    (pinpoint work becomes dispatchable again) and its host is free for the next plan."""
+    (pinpoint and lane work becomes dispatchable again) and its host is free for the next plan."""
     running = tuple(r for r in state.running if r.job_id != job.id)
-    if job.kind in PINPOINT_KINDS:
+    if job.kind in PINPOINT_KINDS or job.work_id is not None:
         return replace(state, running=running, dispatched=tuple(w for w in state.dispatched if w != job.work_id))
     item = Item(job.kind, job.tier, job.round, job.key, job.sha, job.stories, job.passes, job.first)
     t0_count = dict(state.t0_count)
@@ -370,8 +395,9 @@ class Job:
     stories: tuple[str, ...] = ()
     passes: int = 1
     reference: str | None = None  # T0: also run the stories on this frozen artifact (`reference` runs)
-    work_id: str | None = None
+    work_id: str | None = None  # pinpoint work, or a lane job (its own id): started once, never queued
     key: str | None = None  # the queue key it came from: "<lab class>/<shard>", or the host for A/A
+    lane: str | None = None  # the side lane whose store its results go to (Lane.name)
 
 
 @dataclass(frozen=True)
@@ -442,15 +468,17 @@ def lab_day_start(now: datetime) -> datetime:
 def plan(state: State, now: datetime, hosts: Sequence[Host], builds: Builds, branch_log: Sequence[str], *,
          stories: Sequence[StorySpec], shard_map: ShardMap, pinpoint: Sequence[PinpointWork] = (),
          skip: Callable[[str, Host], bool] | None = None, arms: Sequence[FeatureArm] = (),
-         reference: str | None = None) -> Plan:
+         reference: str | None = None, lanes: Sequence[Lane] = ()) -> Plan:
     """The jobs to start now, the builds to request and the new state. No I/O; `now` is the only clock."""
     if now.tzinfo is None:
         raise SchedulerError(f"plan: now ({now.isoformat()}) has no UTC offset")
-    return _Planner(state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference).run()
+    return _Planner(state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
+                    lanes).run()
 
 
 class _Planner:
-    def __init__(self, state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference):
+    def __init__(self, state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
+                 lanes=()):
         self.state = state
         self.now = now
         self.hosts = sorted(hosts, key=lambda h: h.name)
@@ -462,6 +490,7 @@ class _Planner:
         self.skip = skip or (lambda story, host: False)
         self.arms = tuple(arms)
         self.reference = reference
+        self.lanes = tuple(lanes)
         self.day = lab_day(now)
         self.jobs: list[Job] = []
         self.requests: list[BuildRequest] = []
@@ -598,6 +627,7 @@ class _Planner:
         self._tier_rounds()
         self._nightly()
         self._gap_unowned()
+        self._lane_builds()
         self._dispatch()
         self._feature_arms()
         return self._result()
@@ -760,9 +790,16 @@ class _Planner:
             self.queue.remove(item)
             self.gaps.extend(Gap(item.tier, item.round, story, item.key, reason) for story in item.stories)
 
+    def _lane_builds(self) -> None:
+        for lane in self.lanes:
+            configs = self._configs(lane.stories)
+            for sha in lane.builds:
+                self._request(sha, configs, f"lane:{lane.name}")
+
     def _dispatch(self) -> None:
         self._dispatch_shard_items("T0")
         self._dispatch_pinpoint()
+        self._dispatch_lanes()
         if self.now - lab_day_start(self.now) >= AA_PROMOTE_AFTER:
             self._dispatch_aa(late=True)
         self._dispatch_shard_items("T1")
@@ -816,6 +853,34 @@ class _Planner:
             self._start(host, Job(work.id, work.kind, host.name, work.seconds, stories=(work.story,), work_id=work.id))
             self.dispatched.append(work.id)
             started.add(work.id)
+
+    def _dispatch_lanes(self) -> None:
+        """Each lane round's T0 shards on their owners, once the owner is free and the build is ready. A job id
+        (round id and shard) starts once. An owner that is down or busy only delays the lane: it is never moved."""
+        started = {r.job_id for r in self.running} | set(self.dispatched)
+        for lane in self.lanes:
+            wanted = set(lane.stories)
+            for lane_round in lane.rounds:
+                if not self._ready(lane_round.sha, self._configs(lane.stories)):
+                    continue
+                for lab_class in sorted(self.shard_map.classes):
+                    if "T0" not in self.shard_map.tiers(lab_class):
+                        continue
+                    for index, shard in enumerate(self.shard_map.shards(lab_class)):
+                        job_id = f"{lane_round.id}:{lab_class}.{index}"
+                        host = self.owners.get(f"{lab_class}/{index}")
+                        ids = tuple(s for s in shard.get("T0", ()) if s in wanted and s in self.stories)
+                        if not ids or job_id in started or host is None or not self._free(host):
+                            continue
+                        ids = tuple(s for s in ids if not self.skip(s, host))
+                        if not ids:
+                            continue
+                        self._start(host, Job(job_id, "waterfall", host.name, self._seconds(ids), tier="T0",
+                                              round=lane_round.id, sha=lane_round.sha, first=lane_round.first,
+                                              stories=ids, work_id=job_id, key=f"{lab_class}/{index}",
+                                              lane=lane.name))
+                        self.dispatched.append(job_id)
+                        started.add(job_id)
 
     def _pinpoint_host(self, work: PinpointWork) -> Host | None:
         own = [h for h in self.hosts if h.role == PINPOINT and h.host_class == work.host_class and self._free(h)]
@@ -920,10 +985,11 @@ def git_first_parent(remote: str, branch: str, *, repo: Path | str = REPO_ROOT,
 @dataclass(frozen=True)
 class Rejected:
     """What labd's submit callback could not hand on: job ids the controller refused, features whose try pair
-    could not be queued."""
+    could not be queued, and (sha, config) builds the builders refused, which the next tick asks for again."""
 
     jobs: frozenset[str] = frozenset()
     arms: frozenset[str] = frozenset()
+    builds: frozenset[tuple[str, str]] = frozenset()
 
 
 def write_state(path: Path, state: State) -> None:
@@ -995,6 +1061,8 @@ class Driver:
                 state = unstarted(state, job)
         for feature in sorted(rejected.arms):
             state = arm_unsent(state, feature)
+        if rejected.builds:
+            state = replace(state, requested=tuple(pair for pair in state.requested if pair not in rejected.builds))
         self._save(state)
         return result
 
