@@ -160,8 +160,20 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
-    /// Maps the in-process shim and framework (``loadLibrary(_:signatureChecker:)``; a test's counter).
-    var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { CEFRuntime.loadLibrary($0) }
+    /// The preload's load behind the startup fence (``preload(layout:)`` with ``prefetchWork``) in place of
+    /// ``loadTask``: the framework read, then the map. A start promotes the read and awaits it.
+    private(set) var fencedLoad: Task<Result<CEFLoadedLibrary, BootError>, any Error>?
+    /// The framework's file-cache read (``CEFFrameworkPrefetch``): every in-process load reads through it, so a
+    /// file one reader read is not read again.
+    nonisolated let prefetch = CEFFrameworkPrefetch()
+    /// The lanes a predicted start's framework read waits on (feature `cefPrefetchBehindFence`): ``preload(layout:)``
+    /// queues the read as an idle item behind the startup fence and maps after it; ``start(layout:environment:trigger:)``
+    /// promotes it. Nil: the preload reads and maps at once, at utility.
+    var prefetchWork: BackgroundWork?
+    /// Maps the in-process shim and framework (``loadLibrary(_:signatureChecker:prefetch:)``; a test's counter).
+    lazy var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { [prefetch = self.prefetch] layout in
+        CEFRuntime.loadLibrary(layout, prefetch: prefetch)
+    }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
     var hostStart: CEFHostStart?
     private(set) var preloaded = false
@@ -232,7 +244,8 @@ final class CEFRuntime {
     var report: CEFStartReport {
         let name = switch state {
         case .idle: "idle"
-        case .loading: libraryLoaded ? "loaded" : "loading"
+        // A fenced preload's map records its time (CEFFrameworkPrefetch.noteMapped).
+        case .loading: libraryLoaded || (prefetch.last?.map ?? .zero) > .zero ? "loaded" : "loading"
         case .ready: "ready"
         case .failed: "failed"
         case .shutDown: "shutDown"
@@ -268,6 +281,11 @@ final class CEFRuntime {
         let loaded: Result<CEFRuntimeBoot, BootError>
         if let hostStart {
             loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
+        } else if let fencedLoad {
+            // Someone waits for this start: the preload's framework read, held by the startup fence, is read now at
+            // user-blocking; the map follows it.
+            if let prefetchWork { await prefetch.promote(on: prefetchWork) }
+            loaded = await Self.result(of: fencedLoad).map(CEFRuntimeBoot.inProcess)
         } else {
             let task = loadTask ?? Task.detached(priority: .userInitiated) { [loadInProcess] in loadInProcess(candidate) }
             loadTask = task
@@ -288,16 +306,42 @@ final class CEFRuntime {
     /// Starts mapping the shim and the framework in the background without
     /// initializing CEF, so a later first tab skips the load. For a moment
     /// that predicts a Chromium tab (the "+" menu or palette entry opening).
+    /// With ``prefetchWork`` the framework read is an idle item behind the startup fence and the map follows it, so
+    /// a prediction during launch reads no Chromium file before startup completes; a start promotes the read.
     func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
         guard state == .idle, loadTask == nil, hostStart == nil else { return }
         state = .loading
         preloaded = true
+        if let prefetchWork, let candidate { return preloadBehindFence(candidate, on: prefetchWork) }
         let task = Task.detached(priority: .utility) { [loadInProcess] in loadInProcess(candidate) }
         loadTask = task
         Task { [weak self] in
             _ = await task.value
             self?.libraryLoaded = true
         }
+    }
+
+    /// ``preload(layout:)`` with ``prefetchWork``: the framework read as idle items behind the startup fence
+    /// (``CEFFrameworkPrefetch/post(_:on:)``), then the map as a files-lane item, in one task of `work` that quit
+    /// cancels. A read dropped at quit maps nothing.
+    private func preloadBehindFence(_ layout: CEFRuntimeLayout, on work: BackgroundWork) {
+        prefetch.post(layout, on: work)
+        fencedLoad = work.task(.bestEffort) { @Sendable [prefetch, loadInProcess] () async throws -> Result<CEFLoadedLibrary, BootError> in
+            guard await prefetch.finished() else { return .failure(.quit) }
+            // Submitted after the read: a start that awaits this task raised it, so the map runs at its priority.
+            return try await work.run(.bestEffort, mayBlock: .files) { loadInProcess(layout) }
+        }
+    }
+
+    /// The fenced preload's result; a cancelled one (the app quits) is ``BootError/quit``.
+    static func result(of load: Task<Result<CEFLoadedLibrary, BootError>, any Error>) async -> Result<CEFLoadedLibrary, BootError> {
+        (try? await load.value) ?? .failure(.quit)
+    }
+
+    /// Returns once the preload's load (fenced or not) ended.
+    func libraryLoadEnded() async {
+        if let fencedLoad { _ = await Self.result(of: fencedLoad) }
+        _ = await loadTask?.value
     }
 
     /// Synchronous start for the debug window (loads on the main thread).
@@ -344,7 +388,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - CEFStartReport.launchUptime
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
@@ -365,10 +409,12 @@ final class CEFRuntime {
     }
 
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
-    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
+    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet. The framework's files are read through
+    /// `prefetch`, which skips those a fenced or promoted read already read.
     nonisolated static func loadLibrary(
         _ candidate: CEFRuntimeLayout?,
-        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil,
+        prefetch: CEFFrameworkPrefetch = CEFFrameworkPrefetch()
     ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
         if case .downloaded(let teamID) = layout.trust {
@@ -386,15 +432,15 @@ final class CEFRuntime {
         // Read the binary before mapping it: `dlopen` holds dyld's loader
         // lock for the whole map, and every main-thread dlopen/dladdr waits
         // on that lock (CEFFrameworkPrefetch).
-        CEFFrameworkPrefetch.readBinary(layout)
+        prefetch.readBinary(layout)
         var message = [CChar](repeating: 0, count: 512)
         let mapStarted = clock.now
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
-        CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
-        CEFFrameworkPrefetch.warm(layout)
+        prefetch.noteMapped(clock.now - mapStarted)
+        prefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
