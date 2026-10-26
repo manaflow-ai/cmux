@@ -700,18 +700,16 @@ fn grant_access(args: &[String]) -> anyhow::Result<()> {
     }
     let lock = config::lock()?;
     let mut config = config::load()?;
-    config.grants.retain(|g| !config::same_login(&g.login, &login));
-    config.grants.push(grant::Grant {
-        login: login.clone(),
-        scopes,
-        consented_at: Some(grant::now_rfc3339()),
-        consented_via: Some("cli-tty".to_owned()),
-        revoked_at: None,
-    });
+    let closes = grant::replace(&mut config, &login, scopes);
     config.teammate_access = true;
     config::save(&config, &lock)?;
     audit::append(&json!({"decision": "grant", "login": login, "outcome": "approved"}));
     let mut notes = vec![format!("approved teammate access for {login}")];
+    // A connection keeps the grant it was admitted with, so a changed grant closes them all.
+    if closes && config.enabled && service::running_pid().is_some() {
+        notes.push(service::restart(&self_exe()?, service::installed())?);
+        notes.push("open connections were closed".to_owned());
+    }
     if !config.enabled {
         notes.push("remote hosting is off: run `cmux host enable` to start listening".to_owned());
     }

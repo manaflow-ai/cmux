@@ -67,6 +67,26 @@ pub(crate) struct Grant {
     pub revoked_at: Option<String>,
 }
 
+/// Records `login`'s approved grant of `scopes`, replacing any earlier one, and says whether the
+/// login's open connections must close. A connection keeps what it was admitted with (a raw
+/// daemon splice for `shell`, the filtered proxy for `agents`), so any change to a live grant
+/// restarts the listener, as `revoke` does; a first grant or the same scopes again does not.
+pub(crate) fn replace(config: &mut Config, login: &str, scopes: Vec<Scope>) -> bool {
+    let closes = config
+        .grants
+        .iter()
+        .any(|g| same_login(&g.login, login) && g.revoked_at.is_none() && g.scopes != scopes);
+    config.grants.retain(|g| !same_login(&g.login, login));
+    config.grants.push(Grant {
+        login: login.to_owned(),
+        scopes,
+        consented_at: Some(now_rfc3339()),
+        consented_via: Some("cli-tty".to_owned()),
+        revoked_at: None,
+    });
+    closes
+}
+
 pub(crate) fn on_allowlist(login: &str) -> bool {
     TEAMMATE_ALLOWLIST.iter().any(|allowed| same_login(allowed, login))
 }

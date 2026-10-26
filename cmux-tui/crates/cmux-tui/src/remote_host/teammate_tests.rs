@@ -504,3 +504,36 @@ fn a_share_is_pinned_to_the_consented_chat() {
     let none = Chat { generation: "boot-1".into(), session: String::new() };
     assert!(applied("share", shared, 42, LAWRENCE, Role::Member, &none, &none).is_err());
 }
+
+#[test]
+fn a_changed_grant_closes_the_open_connections_and_admits_with_the_new_scopes() {
+    // A connection keeps what it was admitted with (a raw splice for shell, the filtered proxy for
+    // agents), so narrowing or changing a live grant must restart the listener.
+    for (before, after) in [
+        (&[Scope::Shell][..], &[Scope::Agents][..]),
+        (&[Scope::Shell][..], &[Scope::Status][..]),
+        (&[Scope::Agents][..], &[Scope::Status][..]),
+        (&[Scope::Agents][..], &[Scope::Agents, Scope::Shell][..]),
+    ] {
+        let mut config = leo_host(consented(LAWRENCE, before));
+        assert!(
+            grant::replace(&mut config, "Lawrence@Manaflow.ai", after.to_vec()),
+            "{before:?} -> {after:?}"
+        );
+        assert_eq!(config.grants.len(), 1, "the old grant is replaced, never kept beside it");
+        match decide_for(&config, PEER, person(LAWRENCE)) {
+            Decision::Guest(_, scopes) => assert_eq!(scopes, after.to_vec()),
+            other => panic!("expected guest, got {other:?}"),
+        }
+    }
+    // The same scopes again, a first grant, or a grant after a revoke (which already closed them)
+    // leave connections alone.
+    let mut same = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    assert!(!grant::replace(&mut same, LAWRENCE, vec![Scope::Agents]));
+    let mut first = Config { enabled: true, owner: Some(LEO.to_owned()), ..Config::default() };
+    assert!(!grant::replace(&mut first, LAWRENCE, vec![Scope::Shell]));
+    let mut revoked = consented(LAWRENCE, &[Scope::Shell]);
+    revoked.revoked_at = Some("2026-10-20T10:00:00Z".to_owned());
+    let mut after_revoke = leo_host(revoked);
+    assert!(!grant::replace(&mut after_revoke, LAWRENCE, vec![Scope::Status]));
+}
