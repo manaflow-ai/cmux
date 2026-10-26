@@ -57,6 +57,12 @@ final class OtherCard: NSView {
 }'
 # Every host on a line counts: a glassed panel does not cover a popover after it.
 expect_fail two-hosts-one-line popup-host 'final class DemoMenuPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }; let pop = NSPopover()'
+# Each NativePopupHost(panel:) call is checked against the panel it constructs.
+expect_fail two-native-hosts-one-line popup-host 'final class GoodPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
+final class BarePanel: NSPanel {}
+final class DemoPicker { let a = NativePopupHost(panel: GoodPanel()); let b = NativePopupHost(panel: BarePanel()) }'
+expect_pass top-level-native-host 'final class GoodPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
+let popup = NativePopupHost(panel: GoodPanel())'
 expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
     func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
@@ -93,6 +99,10 @@ expect_pass menu-glass-host '        let card = Glass.makeMenuPanel(content: bod
 expect_pass host-comment '/// Shows it in a NativePopupHost(panel:) like the others.'
 expect_pass host-inline-comment '        let card = makeCard() /* NativePopupHost(panel: x) or NSPopover() */'
 # A brace in a comment or string does not end the host's body.
+expect_pass brace-in-raw-string 'final class DemoMenuPanel: NSPanel {
+    let pattern = #"{"}"\#"}"#
+    let card = Glass.makeOverlayPanel(content: rows)
+}'
 expect_pass brace-in-comment 'final class DemoMenuPanel: NSPanel { /* } */
     let label = "}"
     let card = Glass.makeOverlayPanel(content: rows)

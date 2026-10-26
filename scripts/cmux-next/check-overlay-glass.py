@@ -220,23 +220,25 @@ TYPE_DECL = re.compile(
 )
 BLOCK_TOKEN = re.compile(TYPE_DECL.pattern + r"|(?P<open>\{)|(?P<close>\})")
 POPUP_CLASS = re.compile(r"\bclass\s+(?P<name>\w*(?:Menu|Picker|Popover|Popup|Palette)\w*)\s*:\s*\w*(?:Panel|Window)\b")
+RAW_OPEN = re.compile(r'(#+)"')
 HOSTED_PANEL = re.compile(r"\bNativePopupHost\(panel:\s*(?P<name>[A-Za-z_]\w*)\(")
 
 
 def code_lines(path: str) -> list[str]:
     """The file's lines, one per source line, without comments (`//`, and `/* */` anywhere, nested
-    as Swift nests them) or the text of string literals (each becomes `""`)."""
+    as Swift nests them) or the text of string literals, raw (`#"…"#`) ones too (each becomes `""`)."""
     with open(path, encoding="utf-8", errors="replace") as handle:
         text = handle.read()
     out: list[str] = []
     depth = 0  # how many /* */ comments are open
-    quote = ""  # the open string literal's delimiter, `"` or `"""`
+    quote = ""  # the open string literal's closing delimiter: `"` or `"""`, then a raw one's `#`s
+    escape = "\\"  # what starts an escape in it: a backslash, then a raw one's `#`s
     index, end = 0, len(text)
     while index < end:
         char = text[index]
         if char == "\n":
             out.append(char)
-            if quote == '"':
+            if not quote.startswith('"""'):
                 quote = ""
             index += 1
         elif depth:
@@ -249,8 +251,8 @@ def code_lines(path: str) -> list[str]:
             else:
                 index += 1
         elif quote:
-            if char == "\\" and index + 1 < end and text[index + 1] != "\n":
-                index += 2
+            if text.startswith(escape, index) and index + len(escape) < end and text[index + len(escape)] != "\n":
+                index += len(escape) + 1
             elif text.startswith(quote, index):
                 out.append('""')
                 index += len(quote)
@@ -263,9 +265,12 @@ def code_lines(path: str) -> list[str]:
         elif text.startswith("/*", index):
             depth = 1
             index += 2
-        elif char == '"':
-            quote = '"""' if text.startswith('"""', index) else '"'
-            index += len(quote)
+        elif (raw := RAW_OPEN.match(text, index)) or char == '"':
+            hashes = raw.group(1) if raw else ""
+            index += len(hashes)
+            quote = ('"""' if text.startswith('"""', index) else '"') + hashes
+            escape = "\\" + hashes
+            index += len(quote) - len(hashes)
         else:
             out.append(char)
             index += 1
@@ -360,14 +365,14 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
     declared = POPUP_CLASS.match(line, column)
     if declared:
         return glass_in(lines, blocks, blocks.bodies(declared.group("name")))
+    hosted = HOSTED_PANEL.match(line, column)
+    panel = blocks.bodies(hosted.group("name")) if hosted else set()
+    if panel and glass_in(lines, blocks, panel):
+        return True
     owner = blocks.owner(index, column)
     if owner is None:
         return glass_in(lines, blocks, None)
-    owners = blocks.bodies(str(blocks.names[owner]))
-    hosted = HOSTED_PANEL.search(line)
-    if hosted:
-        owners |= blocks.bodies(hosted.group("name"))
-    return glass_in(lines, blocks, owners)
+    return glass_in(lines, blocks, blocks.bodies(str(blocks.names[owner])))
 
 
 def scan_popup_hosts(root: str) -> list[str]:
