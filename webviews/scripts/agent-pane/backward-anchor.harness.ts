@@ -178,6 +178,8 @@ try {
         topReversals: 0,
         frameTimes: [] as number[],
         lastFrame: undefined as number | undefined,
+        thumb: [] as { position: number; size: number }[],
+        thumbReversals: 0,
       };
       const observer = new MutationObserver((records) => {
         for (const record of records)
@@ -193,6 +195,14 @@ try {
         const previousTop = receipt.top.at(-1);
         receipt.top.push(scrollTop);
         if (previousTop !== undefined && scrollTop < previousTop - 1) receipt.topReversals++;
+        const scrollRange = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const thumb = {
+          position: scrollRange > 0 ? scrollTop / scrollRange : 0,
+          size: scroller.scrollHeight > 0 ? scroller.clientHeight / scroller.scrollHeight : 1,
+        };
+        const previousThumb = receipt.thumb.at(-1);
+        receipt.thumb.push(thumb);
+        if (previousThumb && thumb.position < previousThumb.position - 0.001) receipt.thumbReversals++;
         if (existing.some((row) => !row.isConnected)) receipt.identityMissing++;
         const current = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
           (row) => row.dataset.rowId === anchorId,
@@ -232,6 +242,8 @@ try {
               top: number[];
               topReversals: number;
               frameTimes: number[];
+              thumb: { position: number; size: number }[];
+              thumbReversals: number;
             };
             stop(): void;
           };
@@ -301,7 +313,8 @@ try {
     assert.equal(receipt.missing, 0, "painted frames missing the logical anchor row");
     assert.equal(receipt.identityMissing, 0, "painted frames missing the original anchor node");
     assert.equal(receipt.remounts, 0, "existing row mount identity changed during prepend");
-    assert.equal(receipt.topReversals, 0, "scrollbar thumb reversed while prepending history");
+    assert.equal(receipt.topReversals, 0, "scroll offset reversed while prepending history");
+    assert.equal(receipt.thumbReversals, 0, "normalized scrollbar thumb reversed while prepending history");
   }
   assert.ok(Math.abs(bottom.gap) <= 1, `final bottom gap ${bottom.gap}`);
   assert.equal(bottom.badFrames, 0, "a late measurement must not produce short or bouncing bottom frames");
