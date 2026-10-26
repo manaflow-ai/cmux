@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The attention ring is a steady blue ring by default, as in cmux classic (Austin, 2026-10-20:
 /// "we should see a blue ring just appear when the agent is done"); the blink plays when the

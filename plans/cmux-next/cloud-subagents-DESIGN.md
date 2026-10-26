@@ -421,3 +421,95 @@ checkout in `~/src/cmux` was unused bytes. Base snapshot
 `chief-sub-a9465`: up in 8.7 s, `worktree add` in 8 s with no blob download
 (32,137 files), 7.48 GB used in total (was 8.49 GB), 1.06 GB its own; then
 deleted. The old base snapshot is deleted.
+
+### Base image v2 measured (2026-10-22)
+
+hq [#2993](https://github.com/manaflow-ai/cmuxterm-hq/pull/2993): base snapshot
+`sh-274a385d8c944d9895a8d3adc179119c`, 9.09 GB used (was 6.42 GB): cmux
+feat-cmux-next and cmuxterm-hq main (depth 1, no checkout), Node 22 + pnpm,
+Go 1.27.3, Rust 1.95.0, `cmux-ci`, cargo and Go module caches, Claude Code
+2.1.308. A small fork (`chief-sub-a9489`): up in 9.8 s; cmux worktree 10 s,
+hq worktree 4 s; `cargo fetch --offline` for cmux-tui 1 s; `cmux-ci status`
+answers from the VM over the tailnet; 1.56 GB own bytes; then deleted.
+
+### rift for per-agent workspaces (user idea, 2026-10-22)
+
+[rift](https://github.com/anomalyco/rift) v0.0.13 makes copy-on-write copies of
+a folder (APFS `clonefile` on the Mac, btrfs or `FICLONE` reflinks on Linux).
+Timed on a scratch clone of cmux (32,141 files, 958 MB) on this Mac (APFS), 3
+runs each:
+
+| How | Time | Notes |
+|---|---|---|
+| `git worktree add` | 9.5-12.3 s | shares the object store; `git status` in it 1.35 s |
+| `rift create` (filtered) | 8.1-9.4 s | walks the tree to drop `target`, `node_modules`, `dist`... |
+| `rift create --copy-all` | 0.64-0.82 s | one `clonefile` of the whole folder, `.git` too; `git status` 0.34 s |
+
+- In the VMs: no use. The VM disk is ext4 without reflink (`base.sh` logs
+  `fs=ext2/ext3 reflink=no`), so rift cannot copy on write there, and a
+  Freestyle fork already copies on write at the block level: one subagent per
+  VM needs one worktree, made in 10 s from the base clone. Pairing rift with
+  Freestyle fork adds nothing until a VM holds several agents.
+- On the Mac: `--copy-all` is about 13 times faster than `git worktree add`
+  and its `git status` is 4 times faster (its own index, no linked worktree).
+  Limits: it refuses a linked worktree as the source; it copies the source's
+  working state, so the source must be a clean seed clone, never the shared
+  main checkout (the user's edits would leak in); each copy is its own repo,
+  so its commits reach the branch only by push. Not adopted in this change:
+  local subagents are now only the Mac-only tasks. Next step when local
+  workspace time matters: one clean seed clone per repo, updated on each
+  spawn, `rift create --copy-all` from it.
+
+## Pool box chief-subagents-2 and VM pushes (2026-10-23)
+
+Ask (Lawrence, Oct 23): a 64 GB RAM Freestyle box with the most CPU and a 200 GB
+disk, as the acpmux cloud peer for Chief subagents.
+
+- `deploy.sh resume chief-subagents-2 --size xl` (cmuxterm-hq
+  `tools/cloud-subagents`): 32 vCPU / 64 GiB / 200 GB, made from the base
+  snapshot. 32 vCPU is the most Freestyle gives at 64 GiB
+  (`freestyle/ubuntu-2xl`, the largest size any plan can create). 2.08 USD per
+  running hour (0.05 per vCPU-hour + 0.0075 per GiB-hour), about 1,520 USD a
+  month if it never pauses. A pool VM has no 7-day auto-delete. The Chief host
+  pauses it 60 s after its last live cloud subagent, never mid-turn.
+- acpmux on the box is built there from the NIGHTLY's sha (e80d1f65e), the same
+  build as the Mac. Claude Code goes through sr2, Codex (0.164.0) through the
+  cmux-lawrence subrouter (the tag:agent-cloud ACL now grants 100.89.225.106:31415).
+
+### Why new peers failed with ssh exit 255
+
+1. Host key race: the one `ssh-keyscan` after the tailnet join could time out,
+   so nothing reached known_hosts, and acpmux's BatchMode ssh failed with
+   "Host key verification failed" (255). The scan now repeats for up to a minute
+   and fails loudly.
+2. Stale tailscaled in forks: a fork resumes the base VM's memory, and its
+   days-old tailscaled lost the WireGuard data path minutes after the join
+   (disco ping answered, TCP and TSMP did not). The peer dropped with 255, which
+   is how a600's run on chief-sub-a600 failed after 2 minutes. `fork.sh` now
+   restarts tailscaled, `provision` uploads the checkout's `fork.sh` (the copy
+   in the snapshot was old), and `base.sh` leaves no tailscaled state in the image.
+
+### Pushes from a VM
+
+The VM's GitHub App token (contents and pull requests write) pushes to a branch
+that exists, such as feat-cmux-next. It cannot create a branch: GitHub's workflow
+check times out on a new ref and asks for the `workflows` permission. So a
+subagent lands on feat-cmux-next itself (rebase, plain push). For a new branch,
+it sets `git config cmux.land BRANCH`, and the Mac creates the branch with its
+own credential when it lands.
+
+### Proof
+
+A Claude Code session on chief-subagents-2, started from the Mac through acpmux,
+made a worktree of cmux, wrote this section, and pushed this commit to
+feat-cmux-next itself with the VM's App token. Nothing was pushed through the Mac.
+
+### Open: a tailnet VM does not stay paused (2026-10-23)
+
+`deploy.sh pause chief-subagents-2` returns `paused`, but Freestyle shows the VM
+`running` again 2-60 s later. It woke with tailscaled stopped and also with the
+Mac's acpmux peer removed (that held it about 5 s longer). A fresh VM off the
+tailnet stayed paused for 20 s. So inbound tailnet traffic probably wakes it.
+Until this is fixed, auto-pause saves nothing on tailnet VMs, and the ledger
+(which marks a pause as a stop) undercounts the daily budget. chief-subagents-2
+bills 2.08 USD/h while idle, about 50 USD/day.

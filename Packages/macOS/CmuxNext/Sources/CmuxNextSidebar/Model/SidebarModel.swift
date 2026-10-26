@@ -20,6 +20,8 @@ public final class SidebarModel {
             return storedSections
         }
         set {
+            // A group's indent comes only from the groups this list holds (`resolvingGroupDepths`).
+            let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
             withMutation(keyPath: \.sections) {
@@ -31,7 +33,11 @@ public final class SidebarModel {
             groupPaths = nil
         }
     }
-    @ObservationIgnored private var storedSections: [SidebarSection]
+    @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
+    /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
+    /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
+    /// instead of every row.
+    @ObservationIgnored public private(set) var contentRevision: UInt64 = 0
     /// Moves on every structural set of `sections`: readers compare it instead
     /// of the rows themselves (one counter, not a deep compare of 1,000 rows).
     @ObservationIgnored public private(set) var sectionsRevision: UInt64 = 0
@@ -105,6 +111,19 @@ public final class SidebarModel {
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// `workspaceOrder` and the `sectionsRevision` it was built at.
+    @ObservationIgnored private var workspaceOrderCache: (revision: UInt64, order: SidebarWorkspaceOrder)?
+    /// The order this window lists its workspaces in, with each one's position and neighbours in O(1)
+    /// (``SidebarWorkspaceOrder``). Built once per structural change of the rows (a move, a group change, a create
+    /// or close), so every reader after it costs no walk of the rows; a row's content patch keeps it.
+    public var workspaceOrder: SidebarWorkspaceOrder {
+        access(keyPath: \.sections)
+        if let cached = workspaceOrderCache, cached.revision == sectionsRevision { return cached.order }
+        SidebarPerfCounters.add(.orderBuilds)
+        let order = SidebarWorkspaceOrder(storedSections)
+        workspaceOrderCache = (sectionsRevision, order)
+        return order
+    }
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
@@ -114,6 +133,13 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Where a Shift range starts: the row last clicked, Cmd-clicked in or
+    /// moved to without Shift. Shift+Arrow and Shift-click select from it to
+    /// the new row, so going back shrinks the range.
+    @ObservationIgnored var selectionAnchor: WorkspaceID?
+    /// The moving end of a Shift range (the row last Shift-clicked or
+    /// Shift-arrowed to): the next Shift+Arrow steps from it, as in Finder.
+    @ObservationIgnored var selectionExtent: WorkspaceID?
     /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
     /// soft fill under the selection's. The App sets it; empty draws nothing extra.
     public var onScreen: Set<WorkspaceID> = []
@@ -210,6 +236,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    public var showsColors = true
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner
@@ -254,7 +282,7 @@ public final class SidebarModel {
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
-        storedSections = sections
+        storedSections = sections.map { $0.resolvingGroupDepths() }
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -346,7 +374,7 @@ public final class SidebarModel {
         switch intent {
         case let .select(id):
             activeWorkspaceID = id
-            if !selection.contains(id) { selection = [id] }
+            selection = [id]
         case .selectTab, .moveTab:
             break
         case let .closeGroup(id):
@@ -390,6 +418,7 @@ public final class SidebarModel {
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
+        SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
@@ -412,6 +441,7 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
+            row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             for path in paths {
@@ -512,6 +542,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        showsColors = preferences.showColors
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -542,6 +573,7 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
+        o.showsColors = showsColors
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
@@ -550,8 +582,7 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
-        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
-        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
+        let listed = sections.compactMap(\.machine)
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
@@ -575,6 +606,12 @@ public final class SidebarModel {
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
+        // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
+        // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).
+        if style == .rail, presentation == .shown {
+            isRailOpen.toggle()
+            return
+        }
         presentation = presentation == .hidden ? .shown : .hidden
     }
 }

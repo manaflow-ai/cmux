@@ -62,6 +62,44 @@ public enum NotificationPermission: Sendable, Equatable {
 }
 
 /// App appearance override.
+/// Settings → Notifications: which Mac events reach this phone (PROTOCOL.md
+/// "Push notifications", `kinds`).
+public enum NotificationLevel: String, CaseIterable, Identifiable, Sendable, Codable {
+    /// Questions and permissions.
+    case needed
+    /// Those, finished turns and Chief (the default).
+    case neededAndFinished
+    /// Those, errors and terminal notifications.
+    case everything
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .needed: String(localized: "Only when I'm needed")
+        case .neededAndFinished: String(localized: "Needed and finished")
+        case .everything: String(localized: "Everything")
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .needed: String(localized: "Questions and permission requests.")
+        case .neededAndFinished: String(localized: "Also finished tasks and Chief's replies.")
+        case .everything: String(localized: "Also errors and notifications from programs in your terminals.")
+        }
+    }
+
+    /// The event kinds the phone registers for.
+    public var kinds: [String] {
+        switch self {
+        case .needed: ["question", "permission"]
+        case .neededAndFinished: ["question", "permission", "completed", "chief"]
+        case .everything: ["question", "permission", "completed", "chief", "failed", "terminal"]
+        }
+    }
+}
+
 public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable, Codable {
     case light, dark, system
 
@@ -111,9 +149,11 @@ public final class SettingsStore {
     public var wrapCode: Bool { didSet { save(wrapCode, "wrapCode") } }
     /// Read by the terminal key bar.
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
-    public var notifyQuestions: Bool { didSet { save(notifyQuestions, "notifyQuestions") } }
-    public var notifyFinished: Bool { didSet { save(notifyFinished, "notifyFinished") } }
-    public var notifyErrors: Bool { didSet { save(notifyErrors, "notifyErrors") } }
+    public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
+    /// Macs whose notifications are off (their device ids).
+    public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
+    /// Show previews: off, the lock screen shows only the kind and the Mac.
+    public var notifyPreviews: Bool { didSet { save(notifyPreviews, "notifyPreviews") } }
     public var requireFaceID: Bool { didSet { save(requireFaceID, "requireFaceID") } }
 
     public init(defaults: UserDefaults = .standard) {
@@ -130,16 +170,33 @@ public final class SettingsStore {
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
-        notifyQuestions = bool("notifyQuestions", true)
-        notifyFinished = bool("notifyFinished", true)
-        notifyErrors = bool("notifyErrors", true)
+        // The earlier three switches: Finished off reads as "Only when I'm needed".
+        let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
+            ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)
+        notifyLevel = level
+        // Saved now: the earlier switches are retired below.
+        defaults.set(level.rawValue, forKey: "cmuxMobile.settings.notifyLevel")
+        notifyMutedMacs = defaults.stringArray(forKey: "cmuxMobile.settings.notifyMutedMacs") ?? []
+        notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }
     }
 
-    static let retiredKeys = ["showConnectionDetails", "terminalTheme"]
+    static let retiredKeys = ["showConnectionDetails", "terminalTheme", "notifyQuestions", "notifyFinished", "notifyErrors"]
+
+    /// Whether this Mac's notifications are on.
+    public func notifies(macID: String) -> Bool { !notifyMutedMacs.contains(macID) }
+
+    /// Turns one Mac's notifications on or off.
+    public func setNotifications(macID: String, on: Bool) {
+        if on {
+            notifyMutedMacs.removeAll { $0 == macID }
+        } else if !notifyMutedMacs.contains(macID) {
+            notifyMutedMacs.append(macID)
+        }
+    }
 
     /// The terminal's built-in size (`CmuxMobilePreferences.defaultTerminalFontSize`).
     public static let defaultTerminalFontSize = 12

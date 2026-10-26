@@ -164,7 +164,8 @@ impl PtyTerminalRuntime {
 /// projectable into any number of panes without cloning its PTY or VT state.
 ///
 /// Lock order (outer first): `Mux::state` -> `kitty_limits_request` ->
-/// `geometry` -> `term` -> `runtime` -> `kitty_graphics_limits` -> `taps` ->
+/// `geometry` -> local output parser (direct PTYs only) -> `term` ->
+/// `runtime` -> `kitty_graphics_limits` -> `taps` ->
 /// leaf locks (`render`, `title`, `mouse_encoders`, `last_attach_colors`,
 /// `Mux::default_colors`, ...). These locks carry the ranks
 /// `LockRank::{MuxState, KittyLimitsRequest, Geometry, Terminal, Runtime,
@@ -188,6 +189,11 @@ pub struct PtyTerminalRuntime {
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
+    /// Shared read/parser state for a direct PTY. A geometry transaction drains
+    /// its queued bytes before TIOCSWINSZ, using the reader's normalizer and
+    /// observer path. Holder streams and byte backends are not direct PTYs.
+    #[cfg(unix)]
+    pub(super) local_output: Option<Arc<Mutex<local_output::LocalOutput>>>,
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     pub(super) journal_capture_epoch: AtomicU64,
@@ -296,7 +302,7 @@ pub struct PtyTerminalRuntime {
     /// every protocol-v7 render attachment.
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
-    pub(super) frame_requests: SyncSender<u64>,
+    pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
@@ -312,6 +318,10 @@ pub(super) enum PtyRuntime {
         writer: Box<dyn Write + Send>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
+        /// The holder runs this terminal's shell (`holder_runtime`): a
+        /// daemon shutdown detaches instead of killing it.
+        #[cfg(unix)]
+        holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
     },
     #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
