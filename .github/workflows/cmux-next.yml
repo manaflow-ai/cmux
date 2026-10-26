@@ -4701,6 +4701,9 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The App key is a repository secret; this is the credential-free environment
+    # macos-placement mints the same App's token under (test_supplychain_security.py).
+    environment: ci-routing-agent
     # The GITHUB_TOKEN fallback may wait up to an hour for the budget's reset.
     timeout-minutes: 70
     permissions:
