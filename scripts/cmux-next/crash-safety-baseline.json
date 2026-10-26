@@ -18,7 +18,7 @@
    "cmux-remote": 44,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
-   "cmux-tui-core": 189,
+   "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
