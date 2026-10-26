@@ -427,7 +427,8 @@
               "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim"
+              "appearance.inactiveWindowDim",
+              "appearance.wallpaperTint"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -4098,7 +4099,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -4106,7 +4107,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: a found update waits, and one click downloads and installs it."
+        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4131,7 +4132,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
+        "text" : "Download and Install Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4501,7 +4502,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 900,
+      "default" : 600,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -12060,6 +12061,58 @@
       "title" : {
         "key" : "settings.appearance.inactiveWindowDim",
         "text" : "Dim Inactive Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.wallpaperTint.help",
+        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.wallpaperTint",
+      "keywords" : [
+        "wallpaper",
+        "desktop",
+        "tint",
+        "tinting",
+        "glass",
+        "color",
+        "colour",
+        "space",
+        "background"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "wallpaperTint"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.wallpaperTint",
+        "text" : "Tint with Desktop Wallpaper"
       },
       "validation" : "portable"
     },

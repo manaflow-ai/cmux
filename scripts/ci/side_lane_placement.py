@@ -374,6 +374,16 @@ def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return taken
 
 
+def without_cascade(env: Mapping[str, str], job: str) -> dict[str, str]:
+    """`env` with `job` dropped from CASCADE_RUNS and FIRST_JOBS."""
+    trimmed = dict(env)
+    for key in ("CASCADE_RUNS", "FIRST_JOBS"):
+        kept = [name for name in (env.get(key) or "").split() if name != job]
+        if key in env:
+            trimmed[key] = (f" {' '.join(kept)} " if kept else "") if key == "CASCADE_RUNS" else " ".join(kept)
+    return trimmed
+
+
 def with_gateway_cascade(env: Mapping[str, str]) -> dict[str, str]:
     """`env` with GATEWAY_CASCADE's jobs added to CASCADE_RUNS: their build-fleet compile has no gateway."""
     extra = [job for job in (env.get("GATEWAY_CASCADE") or "").split()
@@ -430,6 +440,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             why += (f"; no idle `{gateway_label}` runner (or a wider class's), so the build-fleet compiles "
                     "do not run and their Mac fallbacks take the cascade")
             env = with_gateway_cascade(env)
+    if gateway and "release-compile-fast" in (env.get("GATEWAY_JOBS") or "").split():
+        # The push's fleet fast check runs: its Mac fallback runs only without a verdict, and then on its own
+        # route (cmux-next.yml), so it takes no cascade slot from the run's other jobs.
+        env = without_cascade(env, GATEWAY_FALLBACKS["release-compile-fast"])
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
     dedicated_ready = nightly_runner_ready(env, runners)

@@ -38,12 +38,20 @@ pub use agent_session_start::{
 pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
+/// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
+/// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
+/// capability in `set-client-info`: an older app ends its attachment on an event it does not know.
+pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
 pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
+/// The most bytes of a question's `answers` (as JSON) one permission answer
+/// carries; acpmux bounds each item itself.
+const MAX_ANSWERS_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
 /// Record kinds or categories one page may ask for: the agent pane asks for all
@@ -170,6 +178,13 @@ struct Attachment {
 }
 
 impl Attachment {
+    /// The connection echoed `agent-session-presence-v1` in `set-client-info`.
+    fn wants_presence(&self) -> bool {
+        self.mux.upgrade().is_some_and(|mux| {
+            mux.control_clients.supports_capability(self.client, AGENT_SESSION_PRESENCE_CAPABILITY)
+        })
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -248,6 +263,8 @@ enum AgentSessionCommand {
     Detach(SurfaceParams),
     Children(SurfaceParams),
     Media(MediaParams),
+    Typing(TypingParams),
+    View(ViewParams),
 }
 
 impl AgentSessionCommand {
@@ -265,6 +282,8 @@ impl AgentSessionCommand {
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
+            "agent-session-typing" => Self::Typing(from_value(params).ok()?),
+            "agent-session-view" => Self::View(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -274,6 +293,22 @@ impl AgentSessionCommand {
 #[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
+}
+
+/// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TypingParams {
+    surface: SurfaceId,
+    on: bool,
+}
+
+/// `agent-session-view`: whether the person's window shows the attached chat now.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViewParams {
+    surface: SurfaceId,
+    visible: bool,
 }
 
 #[derive(Deserialize)]
@@ -297,6 +332,15 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// A question's answers (a JSON object, acpmux `hub/questions.rs`):
+    /// passed to acpmux unchanged; the decision proof covers them.
+    #[serde(default)]
+    answers: Option<Value>,
+    /// A question's annotations beside its answers (Claude Code's chosen
+    /// preview and notes, acpmux `questions::check_annotations`): passed to
+    /// acpmux unchanged; the decision proof covers them too.
+    #[serde(default)]
+    annotations: Option<Value>,
     /// The person's decision proof for this answer (acpmux `hub/person.rs`,
     /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
     #[serde(default)]
@@ -556,6 +600,8 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
+        AgentSessionCommand::Typing(params) => params.surface,
+        AgentSessionCommand::View(params) => params.surface,
     }
 }
 
@@ -732,6 +778,7 @@ fn run_on_worker(
             AgentSessionCommand::Prompt(_)
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
+                | AgentSessionCommand::Typing(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
@@ -791,12 +838,24 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
+            answers,
+            annotations,
             decision_nonce,
             person_decision,
             answered_by,
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            let answers = answers.filter(|a| !a.is_null());
+            let annotations = annotations.filter(|a| !a.is_null());
+            let bad = |v: &Option<Value>| {
+                v.as_ref()
+                    .is_some_and(|a| !a.is_object() || a.to_string().len() > MAX_ANSWERS_BYTES)
+            };
+            // Annotations go only beside answers.
+            if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
                 return Err(Refusal::BadRequest);
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
@@ -812,6 +871,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            if let Some(answers) = answers {
+                params["answers"] = answers;
+            }
+            if let Some(annotations) = annotations {
+                params["annotations"] = annotations;
+            }
             let mut meta = serde_json::Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
@@ -837,6 +902,25 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         }
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
+        // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
+        // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
+        // so again with its next keystroke.
+        AgentSessionCommand::Typing(TypingParams { on, .. }) => attachment
+            .link
+            .call("_acpmux/typing", json!({"sessionId": session, "on": on}), CALL_TIMEOUT)
+            .map_err(|error| match &error {
+                LinkError::Rpc(_, data)
+                    if data.get("reason").and_then(Value::as_str)
+                        == Some("typing.rate_limited") =>
+                {
+                    Refusal::Limit
+                }
+                _ => Refusal::of(error),
+            }),
+        AgentSessionCommand::View(ViewParams { visible, .. }) => attachment
+            .link
+            .call("_acpmux/view", json!({"sessionId": session, "visible": visible}), CALL_TIMEOUT)
+            .map_err(Refusal::of),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }

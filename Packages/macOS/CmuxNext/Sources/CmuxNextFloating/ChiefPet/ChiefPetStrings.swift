@@ -53,6 +53,18 @@ enum ChiefPetStrings {
 
     // MARK: Upload (ChiefAvatarUploads)
 
+    static var uploadChoose: String {
+        String(localized: "chiefPet.upload.choose", defaultValue: "Upload Your Own…", table: "ChiefPet", bundle: .module)
+    }
+
+    static var uploadYours: String {
+        String(localized: "chiefPet.upload.yours", defaultValue: "Your Upload", table: "ChiefPet", bundle: .module)
+    }
+
+    static var uploadRemove: String {
+        String(localized: "chiefPet.upload.remove", defaultValue: "Remove Upload", table: "ChiefPet", bundle: .module)
+    }
+
     static var uploadLimits: String {
         String(localized: "chiefPet.upload.limits",
                defaultValue: "Use a PNG, JPEG, WebP, HEIC or GIF up to 20 MB. A moving GIF can be at most 512 KB and 256 × 256 pixels.",
@@ -62,4 +74,11 @@ enum ChiefPetStrings {
     static var uploadUnsaved: String {
         String(localized: "chiefPet.upload.unsaved", defaultValue: "cmux couldn’t save that picture on this Mac.", table: "ChiefPet", bundle: .module)
     }
+}
+
+/// The upload's text for the Chief Settings popover, which lives in another module.
+extension ChiefAvatarUploads {
+    public static var chooseTitle: String { ChiefPetStrings.uploadChoose }
+    public static var yoursTitle: String { ChiefPetStrings.uploadYours }
+    public static var removeTitle: String { ChiefPetStrings.uploadRemove }
 }

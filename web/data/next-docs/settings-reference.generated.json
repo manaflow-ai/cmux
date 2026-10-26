@@ -2515,6 +2515,14 @@
           "group": "App Theme"
         },
         {
+          "key": "appearance.wallpaperTint",
+          "title": "Tint with Desktop Wallpaper",
+          "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window Background"
+        },
+        {
           "key": "diff.colors",
           "title": "Diff Colors",
           "help": "",

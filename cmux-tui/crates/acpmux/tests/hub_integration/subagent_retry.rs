@@ -394,3 +394,122 @@ async fn a_forgotten_agent_that_completes_after_its_resume_ends_completed() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
 }
+
+const RETRY: &str = "_acpmux/retry";
+
+/// Waits (up to 10 s) until the subagent's last entry is `state`.
+async fn entry_until(hub: &Hub, id: &str, subagent: &str, state: &str) {
+    for _ in 0..200 {
+        if entries_of(hub, id, subagent).last().is_some_and(|e| e["state"] == state) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A person's retry (the Retry button, `acpmux retry --subagent`) of a subagent whose automatic
+/// retries Stop ended: sent now, in the same chat, as the resume prompt the automatic retry sends,
+/// marked manual. The subagent runs again; then there is nothing to retry.
+#[tokio::test]
+async fn a_person_retries_a_stopped_subagent_now() {
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    until(&hub, &id, |o| o.len() >= 2).await;
+    let subagent = retried(&hub, &id);
+    let v = c.request(RETRY, json!({"sessionId": id, "subagentId": subagent})).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    let prompt_id = v["promptId"].as_str().unwrap().to_owned();
+    assert!(prompt_id.starts_with("subagent-retry-"), "{v}");
+    assert!(v["turnId"].is_string(), "{v}");
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "skipped:stopped", "fired"]);
+    messages_until(&hub, &id, 2).await;
+    let messages = user_messages(&hub, &id);
+    assert_eq!(messages[1]["promptId"], prompt_id.as_str());
+    let provenance = &messages[1]["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "subagent_retry", "{provenance}");
+    assert_eq!(provenance["manual"], true, "{provenance}");
+    assert_eq!(provenance["subagentId"], subagent.as_str(), "{provenance}");
+    assert_eq!(provenance["agentId"], "a503a503a503a503", "{provenance}");
+    assert_eq!(provenance["attempt"], 1, "{provenance}");
+    let text = messages[1]["text"].as_str().unwrap();
+    assert!(text.contains("SendMessage to \"a503a503a503a503\""), "{text}");
+    // The same subagent runs again, and a second retry has nothing to retry.
+    entry_until(&hub, &id, &subagent, "running").await;
+    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": subagent})).await.unwrap_err();
+    assert!(e.starts_with("retry.nothing_failed"), "{e}");
+    assert!(e.contains("resumed"), "{e}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "skipped:stopped", "fired"]);
+    assert_eq!(user_messages(&hub, &id).len(), 2);
+}
+
+/// A person's retry while the automatic one waits fires that one now: its prompt id and attempt,
+/// once. The subagent may be named by its agent id, as `acpmux retry --subagent` takes it.
+#[tokio::test]
+async fn a_person_retry_fires_the_waiting_retry_now() {
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    let scheduled = records(&hub, &id).into_iter().find(|e| e.kind == "subagent_retry").unwrap();
+    let v =
+        c.request(RETRY, json!({"sessionId": id, "subagentId": "a503a503a503a503"})).await.unwrap();
+    assert_eq!(v["promptId"], scheduled.msg["promptId"], "{v}");
+    assert_eq!(v["kind"], "subagent", "{v}");
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
+    let fired = records(&hub, &id).into_iter().filter(|e| e.kind == "subagent_retry").nth(1);
+    assert_eq!(fired.unwrap().msg["manual"], true);
+    messages_until(&hub, &id, 2).await;
+    let provenance = &user_messages(&hub, &id)[1]["_meta"]["provenance"];
+    assert_eq!((&provenance["attempt"], &provenance["manual"]), (&json!(1), &json!(true)));
+    entry_until(&hub, &id, &retried(&hub, &id), "running").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"], "the waiting retry fired once");
+    assert_eq!(user_messages(&hub, &id).len(), 2);
+}
+
+/// What a person's subagent retry refuses: an id the chat has no subagent of, a turn that runs
+/// (the waiting retry stays as it was), and a subagent whose failure would only fail again.
+#[tokio::test]
+async fn a_person_subagent_retry_is_refused_by_name() {
+    let gate = std::env::temp_dir().join(format!("acpmux-a503-busy-{}", uuid::Uuid::now_v7()));
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": "nope"})).await.unwrap_err();
+    assert!(e.starts_with("retry.unknown_subagent"), "{e}");
+    let hold = c
+        .send(
+            method::SESSION_PROMPT,
+            prompt(&id, &format!("hold: {}", gate.display()), Some("p-hold")),
+        )
+        .await;
+    for _ in 0..200 {
+        if hub.resolve(&id).unwrap().turn().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let subagent = retried(&hub, &id);
+    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": subagent})).await.unwrap_err();
+    assert!(e.starts_with("retry.busy"), "{e}");
+    assert_eq!(outcomes(&hub, &id), ["scheduled"]);
+    std::fs::write(&gate, "").unwrap();
+    c.response(hold).await.0.unwrap();
+    let _ = std::fs::remove_file(&gate);
+
+    let (hub, mut c, id) = chat("agent-400", vec![20]).await;
+    let mut failed = None;
+    for _ in 0..200 {
+        failed = records(&hub, &id).into_iter().find_map(|e| {
+            let entry = e.msg.pointer("/params/_meta/acpmux/subagents/0")?.clone();
+            (entry["state"] == "failed").then(|| entry["id"].as_str().unwrap().to_owned())
+        });
+        if failed.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let subagent = failed.expect("the bad request's failed subagent");
+    let e = c.request(RETRY, json!({"sessionId": id, "subagentId": subagent})).await.unwrap_err();
+    assert!(e.starts_with("retry.nothing_failed"), "{e}");
+    assert!(e.contains("not_retryable"), "{e}");
+}
