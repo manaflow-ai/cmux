@@ -49,7 +49,7 @@ final class ScreenDragSession {
         input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in
+        resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in // raw-observer-allow: this is the AppEvents fan-out (one app observer), not a raw one
             self?.finish(at: nil)
         }
     }

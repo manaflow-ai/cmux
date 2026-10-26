@@ -186,28 +186,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
     }
 
-    /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
-    /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
-    /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in
-    /// the same `sendEvent`, so they hear the same events: a release a nested tracking loop dequeues
-    /// itself reaches neither (DragTapTrackingLoopTests drives this function).
-    ///
-    /// - Returns: What the intercepts did with the event.
-    @discardableResult
-    static func dispatchThroughTap(_ event: NSEvent, tap: InputEventTap?, superSend: (NSEvent) -> Void) -> InputEventTap.InterceptResult {
-        let result = tap?.deliverIntercepts(event) ?? .pass
-        if result != .consume {
-            if event.type == .leftMouseDown || event.type == .leftMouseUp {
-                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { superSend(event) }
-            } else {
-                superSend(event)
-            }
-        }
-        let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
-        if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { tap?.deliverAfterDispatch(event) } } else { tap?.deliverAfterDispatch(event) }
-        return result
-    }
-
     override func target(forAction action: Selector, to target: Any?, from sender: Any?) -> Any? {
         let found = super.target(forAction: action, to: target, from: sender)
         guard target == nil, let actionTargetOverride else { return found }
@@ -307,6 +285,30 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+    }
+}
+
+extension CmuxApplication {
+    /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
+    /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
+    /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in
+    /// the same `sendEvent`, so they hear the same events: a release a nested tracking loop dequeues
+    /// itself reaches neither (DragTapTrackingLoopTests drives this function).
+    ///
+    /// - Returns: What the intercepts did with the event.
+    @discardableResult
+    static func dispatchThroughTap(_ event: NSEvent, tap: InputEventTap?, superSend: (NSEvent) -> Void) -> InputEventTap.InterceptResult {
+        let result = tap?.deliverIntercepts(event) ?? .pass
+        if result != .consume {
+            if event.type == .leftMouseDown || event.type == .leftMouseUp {
+                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { superSend(event) }
+            } else {
+                superSend(event)
+            }
+        }
+        let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
+        if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { tap?.deliverAfterDispatch(event) } } else { tap?.deliverAfterDispatch(event) }
+        return result
     }
 }
 
