@@ -471,41 +471,44 @@ export function ComposerQueue({
     ),
     onSelect,
   });
-  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => theirs(entry) ? [] : [
-    ...(canSendNow(entry)
-      ? [
-          {
-            id: "steer",
-            ariaLabel: t("composer.queueSteer"),
-            label: t("composer.queueSteer"),
-            onSelect: () => sendNow?.(entry),
-          },
-        ]
-      : []),
-    ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
-    ...(move
-      ? [
-          {
-            ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-            disabled: queueIndex(entry) <= 0,
-            separatorBefore: true,
-          },
-          {
-            ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: queueIndex(entry) === queue.length - 1,
-          },
-        ]
-      : []),
-    ...(remove
-      ? [
-          {
-            ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
-            destructive: true,
-            separatorBefore: true,
-          },
-        ]
-      : []),
-  ];
+  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
+    theirs(entry)
+      ? []
+      : [
+          ...(canSendNow(entry)
+            ? [
+                {
+                  id: "steer",
+                  ariaLabel: t("composer.queueSteer"),
+                  label: t("composer.queueSteer"),
+                  onSelect: () => sendNow?.(entry),
+                },
+              ]
+            : []),
+          ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
+          ...(move
+            ? [
+                {
+                  ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
+                  disabled: queueIndex(entry) <= 0,
+                  separatorBefore: true,
+                },
+                {
+                  ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
+                  disabled: queueIndex(entry) === queue.length - 1,
+                },
+              ]
+            : []),
+          ...(remove
+            ? [
+                {
+                  ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
+                  destructive: true,
+                  separatorBefore: true,
+                },
+              ]
+            : []),
+        ];
   // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
   // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {

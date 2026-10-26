@@ -2715,7 +2715,15 @@ export class AcpmuxDirectClient {
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
-        ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message, entry.author)
+        ? queuedEntry(
+            entry.id,
+            entry.prompt,
+            entry.next === true,
+            entry.sending === true,
+            entry.images,
+            message,
+            entry.author,
+          )
         : entry;
     });
   }
@@ -2821,7 +2829,15 @@ export class AcpmuxDirectClient {
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg), undefined, promptAuthor(msg))
+          ? queuedEntry(
+              id,
+              String(msg.text ?? ""),
+              entry.next === true,
+              false,
+              recordImages(msg),
+              undefined,
+              promptAuthor(msg),
+            )
           : entry,
       );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {

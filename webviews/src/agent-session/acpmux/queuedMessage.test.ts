@@ -100,11 +100,15 @@ test("a queue row the list says is the person's drops the agent's name its recor
 // the author its `queued` record named.
 test("a teammate's queued prompt keeps its author through acpmux's list", () => {
   const ana = { id: "tailnet:ana@example.com", name: "Ana" };
-  const person = { text: "Rebase first", promptId: "p1",
-    _meta: { provenance: { kind: "person_message", from: ana.id, fromName: ana.name } } };
+  const person = {
+    text: "Rebase first",
+    promptId: "p1",
+    _meta: { provenance: { kind: "person_message", from: ana.id, fromName: ana.name } },
+  };
   expect(queuedMessage(person)).toBeUndefined();
-  const listed = mergeQueue([{ id: "p1", prompt: "Rebase first", author: ana }], [
-    { promptId: "p1", prompt: "Rebase first", fromAgent: null },
-  ]);
+  const listed = mergeQueue(
+    [{ id: "p1", prompt: "Rebase first", author: ana }],
+    [{ promptId: "p1", prompt: "Rebase first", fromAgent: null }],
+  );
   expect(listed[0]?.author).toEqual(ana);
 });
