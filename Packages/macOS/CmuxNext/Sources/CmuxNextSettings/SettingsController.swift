@@ -186,6 +186,18 @@ public final class SettingsController {
         try await set(value, at: ["shortcuts", "bindings", id.rawValue])
     }
 
+    /// Writes `keys` (each one key or a two-key chord) as `id`'s binding:
+    /// one key, a chord, or `{"any": [...]}` for several (a repeated key
+    /// counts once); none unbinds it.
+    public func setShortcuts(_ keys: [[Shortcut]], for id: ActionID) async throws {
+        let bindings = keys.map { key in
+            key.count == 2 ? ShortcutBinding.chord(SettingsApplier.stroke(for: key[0]), SettingsApplier.stroke(for: key[1]))
+                : .stroke(SettingsApplier.stroke(for: key[0]))
+        }.reduce(into: [ShortcutBinding]()) { if !$0.contains($1) { $0.append($1) } }
+        let binding = bindings.count > 1 ? ShortcutBinding.alternates(bindings) : bindings.first ?? .unbound
+        try await set(ShortcutBindingFormat.configValue(binding), at: ["shortcuts", "bindings", id.rawValue])
+    }
+
     /// Removes the override for `id`, restoring its default shortcut.
     public func resetShortcut(for id: ActionID) async throws {
         try await file.remove(["shortcuts", "bindings", id.rawValue])

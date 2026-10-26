@@ -99,6 +99,11 @@ public struct RegistryKeyBindings {
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }
+            // `{"any": [...]}`: the keys after the override are cmux.json entries too.
+            for keys in registry.alternateShortcuts[id] ?? [] {
+                guard let last = keys.last else { continue }
+                for (key, argument) in expandFamily(id, last) { add(Array(keys.dropLast()) + [key], argument: argument, source: .user) }
+            }
             let userChord = registry.chordOverrides[id] != nil
             if let chord = registry.effectiveChord(for: id) {
                 for (second, argument) in expandFamily(id, chord.second) {

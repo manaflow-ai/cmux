@@ -607,6 +607,23 @@ The first-run Number Keys screen (also under Help > Continue Setup) offers the o
 
 A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
 
+## Several shortcuts for one action
+
+A binding in `shortcuts.bindings` is one key (`"cmd+]"`) or a two-key chord (`["ctrl+b", "n"]`). To give an action more than one, list them under `any`; each item is a key or a chord, and every one runs the action:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "nextSurface": { "any": ["ctrl+tab", "cmd+]"] },
+      "prevSurface": { "any": ["ctrl+shift+tab", "cmd+["] }
+    }
+  }
+}
+```
+
+The first item is the one menus and the command palette show. Settings > Keyboard Shortcuts lists each key as its own row: changing or removing a row changes only that key in the list. An empty list (`{ "any": [] }`) unbinds the action. Keys listed this way replace the action's default keys, as a single binding does.
+
 ## Start Agent and `app.startAgentGlobalHotKey`
 
 Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
