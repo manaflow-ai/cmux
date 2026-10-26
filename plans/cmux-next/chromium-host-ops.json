@@ -379,7 +379,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The host dispatches input on its own user-input queue (task 041/042); in the client this is a no-op that returns 1."
+      "reason": "Function-pointer arg. The host posts input to its own user-input queue (tasks 041 and 042), so no cmux task runs on Chromium's UI thread: the client (ChromiumHost/client/remote_shim_local.mm) returns 0, as when the fork lacks the call, and never runs fn, so the caller keeps ownership of context. Nothing crosses the wire."
     },
     {
       "name": "cmux_shim_browser_send_wheel",
@@ -455,7 +455,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn per browser and calls it on main in the event batch from the host's TEXT_INPUT_STATE push (task 044); only the watch on/off crosses the wire."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context per browser and calls them on main in the event batch from the host's TEXT_INPUT_STATE push (task 044); only the watch on/off crosses the wire, once per change (replacing fn sends nothing). A start before attach or one the transport refuses returns 0; a stop returns 1; the host's exit ends every watch."
     },
     {
       "name": "cmux_shim_browser_accessibility_token",
@@ -522,7 +522,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main from the host's DRAG_START push (task 051)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context and calls them on main from the host's DRAG_START push (task 051); only installed/removed crosses the wire, when it differs from what the host last took, so a handler set before attach (or before a restarted host attaches) is sent at attach and a send the transport refused is sent at the next set or attach."
     },
     {
       "name": "cmux_shim_browser_drag_source_ended",
@@ -1120,7 +1120,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer args (schedule, event, key). The remote shim stores event_fn and ctx, never calls schedule_fn (no pump, task 034), ignores key_fn (keys route cmux-first, task 030) and sends one INITIALIZE op after the queued preinit ops; it returns 1 when INITIALIZE is sent and 0 when the host is not attached. CefInitialize runs in the host: success is CONTEXT_INITIALIZED, and a failure is the host's exit before it (host_mode_rewrites)."
+      "reason": "Function-pointer args (schedule, event, key). The client (ChromiumHost/client/remote_shim_local.mm) stores event_fn and ctx and calls them on main for each EVENT of a batch, never calls schedule_fn (no pump, task 034), ignores key_fn (keys route cmux-first, task 030) and sends one INITIALIZE op after the queued preinit ops; it returns 1 when INITIALIZE is sent and 0 when the host is not attached or one was already sent to this host. CefInitialize runs in the host: success is CONTEXT_INITIALIZED, and a failure is the host's exit before it (host_mode_rewrites)."
     },
     {
       "name": "cmux_shim_do_work",
@@ -3554,7 +3554,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "Function-pointer arg (done). The client sends the request with a token; the host answers on a wire REPLY frame whose bytes go in a sealed shm fd (task 020) zeroed after done returns. The password is never CMUX_SHIM_REPLY text and is never logged."
+      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends the request with it; the host answers on a wire REPLY frame whose bytes go in a sealed shm fd (task 020) zeroed after done returns; done runs exactly once, on main, and the host's exit ends a pending reveal with done(ctx, NULL, 0). The password is never CMUX_SHIM_REPLY text and is never logged."
     },
     {
       "name": "cmux_shim_password_export",
