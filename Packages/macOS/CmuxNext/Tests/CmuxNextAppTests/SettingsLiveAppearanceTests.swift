@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
+import CmuxNextDaemon
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 import CmuxNextPages
@@ -24,6 +26,7 @@ import Testing
             design.statusIndicator = indicator
             design.uiScale = uiScale
             for key in MetricKey.allCases { design.setOverride(key, overrides[key]) }
+            StatusIndicatorAppearance.shared.refresh()
             try? FileManager.default.removeItem(at: directory)
         }
         let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
@@ -43,9 +46,10 @@ import Testing
 
     @Test func previewRestylesAnExistingLoadingTabBeforeReplying() async throws {
         try await withPage { page, _ in
-            var item = TabItem(id: TabID("loading"), title: "Loading")
+            var item = TabItem(id: CmuxNextTabs.TabID("loading"), title: "Loading")
             item.indicator = .busy(progress: nil)
             let cell = TabCell(item: item)
+            cell.frame = CGRect(x: 0, y: 0, width: 180, height: 28)
             #expect(cell.spinnerLayer?.plan.glyph == .arc)
             try await call(page, "preview", "appearance.statusIndicator.style", .string("dot"))
             #expect(cell.spinnerLayer?.plan.glyph == .dot)
@@ -53,6 +57,7 @@ import Testing
             #expect(cell.spinnerLayer?.glyphLayer?.lineWidth == 3)
             try await call(page, "preview", "appearance.statusIndicator.size", .number(1.5))
             let spinner = try #require(cell.spinnerLayer)
+            #expect(spinner.frame.width > 0 && spinner.frame.height > 0)
             #expect(spinner.glyphRect.width == min(spinner.frame.width, spinner.frame.height) * 1.5)
             try await call(page, "preview", "appearance.statusIndicator.animation", .string("static"))
             #expect(cell.spinnerLayer?.plan.animation == nil)
@@ -77,6 +82,45 @@ import Testing
         }
     }
 
+    @Test(.timeLimit(.minutes(1))) func interfaceSizeUpdatesAnExistingFindFieldAndResetsIt() async throws {
+        try await withPage { page, _ in
+            let image = NSImage(size: NSSize(width: 16, height: 16))
+            let pill = FindPillView(
+                labels: FindPillLabels(placeholder: "Find", previous: "Previous", next: "Next", close: "Close"),
+                icons: FindPillIcons(search: image, previous: image, next: image, close: image),
+                accessibilityPrefix: "test.find")
+            let original = pill.field.font?.pointSize
+            let changes = AsyncStream<CGFloat>.makeStream()
+            let observation = pill.field.observe(\.font, options: .new) { _, change in
+                if let font = change.newValue ?? nil { changes.continuation.yield(font.pointSize) }
+            }
+            defer { observation.invalidate(); changes.continuation.finish() }
+            var sizes = changes.stream.makeAsyncIterator()
+            try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
+            while let size = await sizes.next() { if size == TypeScale.body { break } }
+            #expect(pill.field.font?.pointSize == TypeScale.body)
+            #expect(pill.field.font?.pointSize != original)
+            try await call(page, "reset", "appearance.metrics.chromeFontSize")
+            while let size = await sizes.next() { if size == original { break } }
+            #expect(pill.field.font?.pointSize == original)
+        }
+    }
+
+    @Test func workingIndicatorToggleAlsoControlsTerminalTitleActivity() async throws {
+        try await withPage { page, _ in
+            let store = DaemonStore()
+            let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "⠐ Working")])
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "test", screens: [screen])]))
+            let tab = try #require(store.tab(surface: 1))
+            #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").indicator == .working(progress: nil))
+            try await call(page, "set", "appearance.statusIndicator.showAgentWorkingOnTabs", .bool(false))
+            #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").indicator == .idle)
+            try await call(page, "reset", "appearance.statusIndicator.showAgentWorkingOnTabs")
+            #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").indicator == .working(progress: nil))
+        }
+    }
+
     @Test func committedControlsApplyWithoutAFileWatcherAndSurviveReload() async throws {
         try await withPage { page, settings in
             let values: [(String, JSONValue)] = [
@@ -95,6 +139,7 @@ import Testing
                 #expect(settings.snapshot.root.value(at: key.split(separator: ".").map(String.init)) == value)
             }
             let live = DesignSettings.shared.statusIndicator
+            #expect(StatusIndicatorAppearance.shared.config.settings == live)
             #expect(live.style == .braille && live.animation == .static)
             #expect(live.scale == 1.5 && live.thickness == 3)
             #expect(!live.showsAgentWorkingOnTabs && !live.showsPageLoading && live.honoredStyleSources.isEmpty)

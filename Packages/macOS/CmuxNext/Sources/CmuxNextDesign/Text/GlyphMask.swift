@@ -114,7 +114,7 @@ nonisolated enum GlyphMask {
         ctx.setShouldSmoothFonts(true)
         ctx.setFillColor(CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1))
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "Hlm", attributes: [
-            .font: NSFont.systemFont(ofSize: TypeScale.body),
+            .font: NSFont.systemFont(ofSize: TypeScale.Base.body),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]))
         ctx.textPosition = CGPoint(x: 2, y: 5)
