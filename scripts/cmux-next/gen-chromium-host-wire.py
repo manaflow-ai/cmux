@@ -204,7 +204,7 @@ MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id a
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
 # Functions that run before CefInitialize returns; --check-pre-attach follows the CEFShimLibrary they pass on.
-STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "loadLibrary"),
+STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFLibraryLoader.swift", "CEFLibraryLoader", "load"),
                  ("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "initialize"))
 CHANNELS = ("control", "input")
 MAX_RECORDS = 1 << 16

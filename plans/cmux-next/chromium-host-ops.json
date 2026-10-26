@@ -4591,7 +4591,7 @@
   ],
   "host_mode_rewrites": [
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.loadLibrary(_:signatureChecker:)",
+      "site": "CmuxNextBrowser/CEF/CEFLibraryLoader.swift: CEFLibraryLoader.load(_:)",
       "exports": [
         "cmux_shim_load"
       ],

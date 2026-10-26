@@ -559,9 +559,14 @@ expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" -
 # shim to) needs a host_mode_rewrites entry with needs after_attach.
 attach="$work/pre-attach"
 fixture "$attach"
+cat >"$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFLibraryLoader.swift" <<'EOF'
+nonisolated struct CEFLibraryLoader {
+    func load(_ shim: Int) -> Int { shim }
+}
+EOF
 cat >"$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntime.swift" <<'EOF'
 final class CEFRuntime {
-    nonisolated static func loadLibrary() -> Int { 0 }
+    // The in-process load is CEFLibraryLoader.load, the other startup root.
 
     private func initialize(
         _ library: CEFLoadedLibrary,
