@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
@@ -129,22 +130,33 @@ extension SettingsWindowService {
     /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
     /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
     /// API can exec on, and only one cmux made for its owner (or one already on). Personal and
-    /// SSH machines never get the switch.
+    /// SSH machines never get the switch. `busy` (the switch disabled) while a set runs or the
+    /// machine is not reachable now.
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
-        guard case .object(var members) = row, let session = services.machines.session(id),
-              session.appLink == nil, session.machine.allows(.exec) else { return row }
-        let readable = if case .connected = session.daemon.store.connectionState { true } else { false }
+        guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let store = services.cloudVmHost
         let state: CloudVmHost.State?, error: String?
-        switch store.state(id, readable: readable) {
+        switch store.state(id, readable: reach) {
         case .known(let known): (state, error) = (known, nil)
         case .failed(let why, _, let last): (state, error) = (last, why)
         case nil: return row
         }
         guard let state, state.cmuxVM || state.on else { return row }
-        members["vm_host"] = ["on": .bool(state.on), "busy": .bool(store.setting.contains(id)),
+        members["vm_host"] = ["on": .bool(state.on), "busy": .bool(!reach || store.setting.contains(id)),
                               "error": error.map(JSONValue.string) ?? .null]
         return .object(members)
+    }
+
+    /// Whether `id`'s vmHost can be read or set over the Cloud exec now (true), only shown from
+    /// what it last said (false: not connected, or Cloud turned off), or never (nil: not a
+    /// Cloud machine on the legacy link with exec). The row and every set ask this, so a switch
+    /// drawn while connected never execs (or wakes the machine) once it is not.
+    func vmHostReach(_ id: String) -> Bool? {
+        guard let session = services.machines.session(id), session.appLink == nil,
+              session.machine.allows(.exec) else { return nil }
+        guard !services.machines.isFeatureDisabled(.cloud) else { return false }
+        if case .connected = session.daemon.store.connectionState { return true }
+        return false
     }
 
     static func hex(_ color: NSColor) -> String {

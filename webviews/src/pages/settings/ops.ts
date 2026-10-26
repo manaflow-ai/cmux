@@ -79,7 +79,8 @@ export type HostListRow = {
   color_key?: string;
   /**
    * A Cloud machine cmux made: its "Dedicated agent machine" switch (acpmux vmHost), once the machine
-   * answered. Absent on every other machine (personal and SSH machines never have it).
+   * answered. Absent on every other machine (personal and SSH machines never have it). `busy`: a set is
+   * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
 };

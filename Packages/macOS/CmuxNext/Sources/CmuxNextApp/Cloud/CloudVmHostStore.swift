@@ -6,7 +6,8 @@ import Observation
 /// what each machine last said, read once when its row first shows while it is connected, and
 /// again only after a failed read is a minute old (no timer: the next time the row is drawn). A
 /// set answers with the new state. Only machines the legacy Cloud API can exec on: an app-server
-/// machine has no exec route, so its row shows no switch.
+/// machine has no exec route, so its row shows no switch. A machine that leaves the registry is
+/// forgotten (``forget(_:)``), with any read or set still under way for it.
 @MainActor
 @Observable
 final class CloudVmHostStore {
@@ -19,11 +20,13 @@ final class CloudVmHostStore {
     private(set) var entries: [String: Entry] = [:]
     /// The machines a set is running on (the switch is disabled meanwhile).
     private(set) var setting: Set<String> = []
-    /// Reads under way. Not observed: a read starts while the page's host lists are being built
-    /// (inside their observation), so it changes nothing observed until it answers.
-    @ObservationIgnored private var reading: Set<String> = []
-    /// Sets started per machine: a read that a set overtook drops its answer.
-    @ObservationIgnored private var sets: [String: Int] = [:]
+    /// Reads under way, with the generation each started at. Not observed: a read starts while
+    /// the page's host lists are being built (inside their observation), so it changes nothing
+    /// observed until it answers.
+    @ObservationIgnored private var reading: [String: Int] = [:]
+    /// Bumped per machine when a set starts or the machine is forgotten: a read or set that
+    /// either overtook drops its answer.
+    @ObservationIgnored private var generation: [String: Int] = [:]
     @ObservationIgnored private let exec: @Sendable (_ machineID: String, _ command: String) async throws -> CloudExecResult
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
     static let retryAfter: Duration = .seconds(60)
@@ -47,14 +50,14 @@ final class CloudVmHostStore {
         case .failed(_, let at, _): now() - at >= Self.retryAfter
         default: false
         }
-        if stale, readable, !setting.contains(machineID), !reading.contains(machineID) { read(machineID) }
+        if stale, readable, !setting.contains(machineID), reading[machineID] == nil { read(machineID) }
         return entry
     }
 
     private func read(_ machineID: String) {
         let last = Self.known(entries[machineID])
-        reading.insert(machineID)
-        let started = sets[machineID, default: 0]
+        let started = generation[machineID, default: 0]
+        reading[machineID] = started
         let exec = exec, now = now
         Task { @MainActor [weak self] in
             let entry: Entry
@@ -65,37 +68,49 @@ final class CloudVmHostStore {
                 entry = .failed(String(describing: error), at: now(), last: last)
             }
             guard let self else { return }
-            reading.remove(machineID)
-            if sets[machineID, default: 0] == started { entries[machineID] = entry }
+            // A read for the machine after it was forgotten and came back is not this one's.
+            if reading[machineID] == started { reading[machineID] = nil }
+            if generation[machineID, default: 0] == started { entries[machineID] = entry }
         }
     }
 
-    /// Turns the setting on or off on `machineID`: the error to show, or nil.
-    func set(_ machineID: String, on: Bool) async -> String? {
-        guard !setting.contains(machineID) else { return nil }
+    /// Turns the setting on or off on `machineID`: the error to show, or nil. Nothing runs unless
+    /// the machine is `reachable` now (connected, with exec): a switch drawn while it was never
+    /// wakes it after (the switch is disabled then).
+    func set(_ machineID: String, on: Bool, reachable: Bool) async -> String? {
+        guard reachable, !setting.contains(machineID) else { return nil }
         setting.insert(machineID)
-        sets[machineID, default: 0] += 1
+        generation[machineID, default: 0] += 1
+        let started = generation[machineID, default: 0]
         defer { setting.remove(machineID) }
         let last = Self.known(entries[machineID])
+        let answer: Result<CloudVmHost.State, Failure>
         do {
             let ran = try await exec(machineID, CloudVmHost.command(on: on))
-            if let state = CloudVmHost.parse(ran) {
-                entries[machineID] = .known(state)
-                return nil
-            }
-            let why = CloudVmHost.failure(ran)
-            entries[machineID] = .failed(why, at: now(), last: last)
-            return why
+            answer = CloudVmHost.parse(ran).map { .success($0) } ?? .failure(Failure(why: CloudVmHost.failure(ran)))
         } catch {
-            let why = String(describing: error)
-            entries[machineID] = .failed(why, at: now(), last: last)
-            return why
+            answer = .failure(Failure(why: String(describing: error)))
         }
+        // Forgotten meanwhile: the machine left (it is read again if it comes back).
+        if generation[machineID, default: 0] == started {
+            entries[machineID] = switch answer {
+            case .success(let state): .known(state)
+            case .failure(let failure): .failed(failure.why, at: now(), last: last)
+            }
+        }
+        if case .failure(let failure) = answer { return failure.why }
+        return nil
     }
 
-    /// Forgets a machine that left the registry.
-    func forget(keeping machineIDs: Set<String>) {
-        entries = entries.filter { machineIDs.contains($0.key) }
+    /// Forgets a machine that left the registry, and drops any read or set still under way for it.
+    func forget(_ machineID: String) {
+        generation[machineID, default: 0] += 1
+        reading[machineID] = nil
+        entries[machineID] = nil
+    }
+
+    private struct Failure: Error {
+        let why: String
     }
 
     private static func known(_ entry: Entry?) -> CloudVmHost.State? {
