@@ -2589,6 +2589,9 @@ INPUT_STAGES = (("arrived_main", "arrived_us"), ("dispatch_start", "dispatch_sta
                 ("content_submitted", "content_us"), ("daemon_received", "daemon_us"), ("pty_written", "pty_us"),
                 ("echo_read", "echo_read_us"), ("echo_sent", "echo_sent_us"), ("presented", "presented_us"))
 INPUT_STAGE_ORDER = ("generated",) + tuple(stage for stage, _ in INPUT_STAGES)
+# Every message field in the order Signposter.event(_:_:) writes them (the self-test reads them from the Swift).
+INPUT_MESSAGE_FIELDS = ("kind", "target", "entry", "source", "vrr", "coalesced", "frame", "gen_ns", "last_gen_us") \
+    + tuple(field for _, field in INPUT_STAGES)
 INPUT_TRACK = "input latency"
 # TypingLatencyProbe takes a key's `app.key.dispatch` age just before it writes the hop, so the hop's time minus
 # its age is the key's OS timestamp plus that write (microseconds); keys are milliseconds apart.
@@ -2643,9 +2646,16 @@ def input_latency_slots(signposts):
 
 
 def input_flow_links(slots, flows):
-    """{index of a key slot: flow id} for each key.flow chain whose `app.key.dispatch` hop is that key: the same
-    process and, within INPUT_FLOW_MATCH_US, the same OS timestamp (the hop's time minus its age). The nearest pair
-    links first and each slot and chain links once."""
+    """{index of a key slot: (flow id, its `app.key.dispatch` hop's time in us)} for each key.flow chain whose
+    dispatch hop is that key: the same process and, within INPUT_FLOW_MATCH_US, the same OS timestamp (the hop's
+    time minus its age). Each chain bisects into its process's key slots sorted by generated time, so a recording
+    costs O((slots + chains) log slots). The nearest pair links first and each slot and chain links once."""
+    keys = collections.defaultdict(lambda: ([], []))  # pid -> (generated us, slot index), in generated order
+    for index, slot in enumerate(slots):
+        if slot["kind"] == "keyPress":
+            at, indices = keys[slot["pid"]]
+            at.append(slot["generated_ns"] / 1000.0)
+            indices.append(index)
     pairs = []
     for flow in flows:
         dispatch = next((h for h in flow["hops"] if h["hop"] == "app.key.dispatch"), None)
@@ -2653,14 +2663,16 @@ def input_flow_links(slots, flows):
             event_us = dispatch["at_us"] - float(dispatch.get("age_us"))
         except (TypeError, ValueError):
             continue
-        for index, slot in enumerate(slots):
-            gap = abs(event_us - slot["generated_ns"] / 1000.0)
-            if slot["kind"] == "keyPress" and slot["pid"] == dispatch["pid"] and gap <= INPUT_FLOW_MATCH_US:
-                pairs.append((gap, index, flow["flow"]))
+        if dispatch["pid"] not in keys:
+            continue
+        at, indices = keys[dispatch["pid"]]
+        lo = bisect.bisect_left(at, event_us - INPUT_FLOW_MATCH_US)
+        hi = bisect.bisect_right(at, event_us + INPUT_FLOW_MATCH_US)
+        pairs += [(abs(event_us - at[i]), indices[i], flow["flow"], dispatch["at_us"]) for i in range(lo, hi)]
     links, taken = {}, set()
-    for _, index, flow in sorted(pairs):
+    for _, index, flow, hop_us in sorted(pairs):
         if index not in links and flow not in taken:
-            links[index] = flow
+            links[index] = (flow, hop_us)
             taken.add(flow)
     return links
 
@@ -2686,7 +2698,8 @@ def input_latency_events(slots, app_pid, tracks, lane_names, links):
     stage children nested inside. Overlapping slots (a key typed before the previous one presented) go to the
     next lane: a slot never nests in another (Lanes would nest one held inside another's span, and their stage
     children would then cross). Times are whole us written with 3 decimals, so the JSON text is exact and the last
-    child ends where the slice ends. A slot in `links` (input_flow_links) starts its key.flow chain's arrow."""
+    child ends where the slice ends. A slot in `links` (input_flow_links) starts its key.flow chain's arrow from the
+    stage that ends at its dispatch hop."""
     us = lambda ns: round(ns / 1000.0, 3)
     events, lane_ends = [], collections.defaultdict(list)
     for index, slot in enumerate(slots):
@@ -2708,14 +2721,19 @@ def input_latency_events(slots, app_pid, tracks, lane_names, links):
             args["oldest_to_newest_coalesced_ms"] = round((slot["last_generated_ns"] - start_ns) / 1e6, 3)
         parent = {"ph": "X", "pid": pid, "tid": tid, "ts": us(start_ns), "dur": us(end_ns - start_ns),
                   "name": f"EventLatency {slot['kind']} {slot['target']}", "cat": "input.latency", "args": args}
-        flow = links.get(index)
-        if flow is not None:
+        stage_events = [{"ph": "X", "pid": pid, "tid": tid, "ts": us(a), "dur": us(b - a), "name": name,
+                         "cat": "input.latency.stage", "args": {"ms": round((b - a) / 1e6, 3)}} for name, a, b in children]
+        if index in links:
+            flow, hop_us = links[index]
             args["flow"] = f"0x{flow:x}"
-            parent.update({"bind_id": f"0x{flow:x}", "flow_out": True})
+            # Perfetto draws an arrow from its source's end to its target's start: it leaves the last stage that
+            # ended by the dispatch hop (ArrivedMainToDispatchStart when the slot has it), never the whole slice,
+            # whose end is the frame presented well after the hop.
+            source = next((e for e in reversed(stage_events or [parent]) if e["ts"] + e["dur"] <= hop_us),
+                          (stage_events or [parent])[0])
+            source.update({"bind_id": f"0x{flow:x}", "flow_out": True})
         events.append(parent)
-        for name, a, b in children:
-            events.append({"ph": "X", "pid": pid, "tid": tid, "ts": us(a), "dur": us(b - a),
-                           "name": name, "cat": "input.latency.stage", "args": {"ms": round((b - a) / 1e6, 3)}})
+        events += stage_events
     return events
 
 
@@ -3298,7 +3316,7 @@ def build(out):
     input_slots, input_unplaced = input_latency_slots(signposts)
     input_links = input_flow_links(input_slots, key_flows)
     events += input_latency_events(input_slots, app_pid, tracks, lane_names, input_links)
-    events += flow_events(key_flows, tracks, lane_names, frozenset(input_links.values()))
+    events += flow_events(key_flows, tracks, lane_names, frozenset(flow for flow, _ in input_links.values()))
     for pid in {r["pid"] for r in flow_records if r.get("pid")}:
         roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
     # Metadata: names and order.
@@ -3727,7 +3745,7 @@ def summary_text(s):
 # The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
 IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow", "input latency")
 IMPORT_QUERY_FLOWS = """
-select count(*) as flows from flow f join slice s on s.id = f.slice_out where s.category in ('key.flow', 'input.latency')
+select count(*) as flows from flow f join slice s on s.id = f.slice_out where s.category in ('key.flow', 'input.latency.stage')
 """
 IMPORT_QUERY_TRACKS = """
 select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
@@ -3791,12 +3809,13 @@ def check_import(out, trace_processor):
         except (TypeError, ValueError, KeyError):
             continue
     stats = run_query(trace_processor, trace, IMPORT_QUERY_STATS)
-    # Each key-press chain of n hop slices is n - 1 arrows (flow_out on all but the last, flow_in on all but the first).
+    # Each key-press chain of n hop slices is n - 1 arrows (flow_out on all but the last, flow_in on all but the first);
+    # a chain linked from an EventLatency slot is n, its first arrow leaving the slot's dispatch stage.
     want_flows = sum(1 for e in events if e.get("flow_out"))
     got_flows = int((run_query(trace_processor, trace, IMPORT_QUERY_FLOWS) or [{"flows": 0}])[0].get("flows") or 0)
     problems, tracks = [], []
     if got_flows != want_flows:
-        problems.append(f"{want_flows} key-flow arrows in the JSON, {got_flows} imported")
+        problems.append(f"{want_flows} key-flow and input-latency arrows in the JSON, {got_flows} imported")
     for key, name in sorted(names.items(), key=lambda kv: str(kv)):
         if not (name or "").startswith(IMPORT_TRACKS):
             continue
@@ -4494,12 +4513,25 @@ def check_import_with_a_fake_trace_processor():
                   {"ph": "i", "s": "t", "pid": 1, "tid": 8, "ts": 1, "name": "c"},
                   {"ph": "i", "s": "g", "pid": 1, "tid": 8, "ts": 1, "name": "global"},
                   {"ph": "X", "pid": 2, "tid": 9, "ts": 1, "dur": 2, "name": "d"},
-                  {"ph": "X", "pid": 1, "tid": 5, "ts": 1, "dur": 2, "name": "e"}]
+                  {"ph": "X", "pid": 1, "tid": 5, "ts": 1, "dur": 2, "name": "e"},
+                  # One EventLatency slot whose dispatch stage opens the arrow into a two-hop key.flow chain: 2 arrows.
+                  {"ph": "M", "pid": 1, "tid": 10, "name": "thread_name", "args": {"name": "input latency"}},
+                  {"ph": "M", "pid": 1, "tid": 11, "name": "thread_name", "args": {"name": "key flow"}},
+                  {"ph": "X", "pid": 1, "tid": 10, "ts": 10, "dur": 8, "name": "EventLatency keyPress terminal",
+                   "cat": "input.latency"},
+                  {"ph": "X", "pid": 1, "tid": 10, "ts": 10, "dur": 1, "name": "GeneratedToDispatchStart",
+                   "cat": "input.latency.stage", "bind_id": "0x1", "flow_out": True},
+                  {"ph": "X", "pid": 1, "tid": 10, "ts": 11, "dur": 7, "name": "DispatchStartToPresented",
+                   "cat": "input.latency.stage"},
+                  {"ph": "X", "pid": 1, "tid": 11, "ts": 11, "dur": 2, "name": "app.key.dispatch", "cat": "key.flow",
+                   "bind_id": "0x1", "flow_in": True, "flow_out": True},
+                  {"ph": "X", "pid": 1, "tid": 11, "ts": 13, "dur": 1, "name": "app.key.terminal", "cat": "key.flow",
+                   "bind_id": "0x1", "flow_in": True}]
         with gzip.open(os.path.join(out, "trace.json.gz"), "wt") as f:
             json.dump({"traceEvents": events}, f)
         fake = os.path.join(out, "trace_processor_shell")
 
-        def write_fake(track_rows, stat_rows, flow_rows='"flows"\n0\n'):
+        def write_fake(track_rows, stat_rows, flow_rows='"flows"\n2\n'):
             with open(fake, "w") as f:
                 f.write("#!/bin/sh\n"
                         "if grep -q 'from stats' \"$2\"; then cat <<'EOF'\n" + stat_rows + "EOF\n"
@@ -4508,12 +4540,20 @@ def check_import_with_a_fake_trace_processor():
             os.chmod(fake, 0o755)
 
         header = 'Loading trace: 0.01 MB\n"pid","tid","name","slices"\n'
-        good = header + '1,7,"signposts action",2\n1,8,"watchdog stalls",1\n2,9,"daemon spans",1\n1,5,"Main Thread",1\n'
+        good = header + ('1,7,"signposts action",2\n1,8,"watchdog stalls",1\n2,9,"daemon spans",1\n1,5,"Main Thread",1\n'
+                         '1,10,"input latency",3\n1,11,"key flow",2\n')
         no_stats = '"name","idx","severity","source","value"\n'
         write_fake(good, no_stats)
         ok, report = check_import(out, fake)
-        assert ok and report["tracks_by_kind"] == {"signposts": 1, "watchdog stalls": 1, "daemon spans": 1, "key flow": 0,
-                                                   "input latency": 0}, report
+        assert ok and report["tracks_by_kind"] == {"signposts": 1, "watchdog stalls": 1, "daemon spans": 1, "key flow": 1,
+                                                   "input latency": 1}, report
+        assert report["flows"] == {"json": 2, "imported": 2}, report["flows"]
+        write_fake(good, no_stats, '"flows"\n1\n')
+        ok, report = check_import(out, fake)
+        assert not ok and report["problems"] == ["2 key-flow and input-latency arrows in the JSON, 1 imported"], report
+        write_fake(good.replace('"input latency",3', '"input latency",2'), no_stats)
+        ok, report = check_import(out, fake)
+        assert not ok and "input latency: 3 slices in the JSON, 2 imported" in report["problems"][0], report["problems"]
         write_fake(good.replace('"signposts action",2', '"signposts action",1'), no_stats)
         ok, report = check_import(out, fake)
         assert not ok and "2 slices in the JSON, 1 imported" in report["problems"][0], report["problems"]
@@ -4780,14 +4820,19 @@ def check_input_latency_slices():
     assert scripted["args"]["entrypoint"] == "automation", scripted
     assert not no_echo["args"]["presented"] and ms(no_echo) == 0.9, no_echo
     assert unknown["name"] == "EventLatency unknown#200 other", unknown
-    # The terminal key's slice opens the arrow its key.flow chain takes in; the stray chain stays unlinked.
+    # The terminal key's dispatch stage opens the arrow its key.flow chain takes in, forward in time: Perfetto draws
+    # it from the source's end, so the source ends by the first hop (the whole slice ends at presented, 12 ms on).
+    # The stray chain stays unlinked.
     linked = f"0x{fixtures.INPUT_FLOW:x}"
-    assert full.get("bind_id") == linked and full.get("flow_out") and full["args"]["flow"] == linked, full
+    sources = [e for e in trace if e.get("flow_out") and e.get("bind_id") == linked and e.get("cat") != "key.flow"]
+    assert [e["name"] for e in sources] == ["ArrivedMainToDispatchStart"] and full["args"]["flow"] == linked, sources
+    assert not full.get("flow_out") and not full.get("bind_id"), full
     hops = sorted((e for e in trace if e.get("cat") == "key.flow" and e.get("bind_id") == linked), key=lambda e: e["ts"])
     assert hops and hops[0].get("flow_in"), hops
+    assert sources[0]["ts"] + sources[0]["dur"] <= hops[0]["ts"], ("the arrow runs backward in time", sources, hops[0])
     stray = [e for e in trace if e.get("cat") == "key.flow" and e.get("bind_id") == f"0x{fixtures.INPUT_STRAY_FLOW:x}"]
     assert stray and not stray[0].get("flow_in"), stray
-    assert not any(s.get("flow_out") for s in slices if s is not full), "an unlinked slot opened an arrow"
+    assert sum(1 for e in slices + stages if e.get("flow_out")) == 1, "an unlinked slot opened an arrow"
     latency = summary["input_latency"]
     assert (latency["slots"], latency["unplaced"], latency["automation"], latency["unpresented"], latency["no_update"],
             latency["linked_to_key_flow"]) == (len(placed), 1, 1, 1, 1, 1), latency
@@ -4800,6 +4845,47 @@ def check_input_latency_slices():
     assert rows["mousePress chromiumPage pageEstimated"]["total_ms"]["n"] == 2, rows
     text = summary_text(summary)
     assert "Input latency, generated -> presented" in text and "keyPress textView metalPresented" in text, text
+
+
+INPUT_SWIFT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "Packages", "macOS", "CmuxNext", "Sources")
+
+
+def swift_enum_cases(path, enum):
+    """The cases of `enum` in the Swift file at `path`, in declaration (raw value) order."""
+    text = open(path).read()
+    match = re.search(rf"^(?:public )?enum {enum}\b.*?\n(.*?)^}}", text, re.S | re.M)
+    assert match, f"no enum {enum} in {path}"
+    return tuple(case.strip() for line in re.findall(r"^    case ([\w, ]+)$", match.group(1), re.M)
+                 for case in line.split(","))
+
+
+def swift_input_latency_fields(path):
+    """The `name=` keys of the input.latency message, in the order Signposter.event(_:_:) formats them; None when the
+    file has no such emitter yet (a tree before p04-input-004)."""
+    text = open(path).read()
+    match = re.search(r"func event\(_ name: SignpostName, _ message: InputLatencySignpostMessage\)(.*?)\n    }", text, re.S)
+    return tuple(re.findall(r"(\w+)=\\\(message\.", match.group(1))) if match else None
+
+
+def check_input_tables_match_the_swift(swift_root=INPUT_SWIFT):
+    """Case 'input latency tables', against the Swift that writes the signpost: the kind, target, entrypoint and
+    presentation source names are CmuxNextInputCore's case lists in raw value order, and the message fields are
+    Signposter.event(_:_:)'s keys in its order, for trace.py and for trace_fixtures' recording alike. A case
+    inserted or reordered, or a field renamed, in the Swift fails here, not as wrong names or a silent -1 stage.
+    Returns a note when the tree has no input.latency emitter yet: the parser then has no Swift to drift from."""
+    core = os.path.join(swift_root, "CmuxNextInputCore")
+    kinds = os.path.join(core, "InputEventKind.swift")
+    for enum, names in (("InputEventKind", INPUT_KINDS), ("InputTarget", INPUT_TARGETS),
+                        ("InputEntrypoint", INPUT_ENTRYPOINTS)):
+        assert swift_enum_cases(kinds, enum) == names, (enum, swift_enum_cases(kinds, enum), names)
+    fields = swift_input_latency_fields(os.path.join(swift_root, "CmuxNextSignposts", "Signposter.swift"))
+    if fields is None:
+        return "no input.latency emitter in this tree (p04-input-004): fields and sources not compared"
+    sources = swift_enum_cases(os.path.join(core, "InputPresentationSource.swift"), "InputPresentationSource")
+    assert sources == INPUT_SOURCES, (sources, INPUT_SOURCES)
+    fixtures = load("trace_fixtures", "trace_fixtures.py")
+    assert fields == INPUT_MESSAGE_FIELDS == fixtures.INPUT_FIELDS, (fields, INPUT_MESSAGE_FIELDS, fixtures.INPUT_FIELDS)
+    return None
 
 
 FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
@@ -4869,7 +4955,8 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn, check_focus_quiet_terminal, check_launch_trace, check_input_latency_slices]
+              check_flow_gaps_warn, check_focus_quiet_terminal, check_launch_trace, check_input_latency_slices,
+              check_input_tables_match_the_swift]
 
 
 def self_test():
@@ -4880,8 +4967,8 @@ def self_test():
         captured = io.StringIO()
         try:
             with contextlib.redirect_stdout(captured):
-                check()
-            print(f"ok   {check.__name__}")
+                note = check()
+            print(f"ok   {check.__name__}" + (f" ({note})" if isinstance(note, str) else ""))
         except (Exception, StageTimeout) as error:  # reported per check; the self-test exits 1
             failed.append(check.__name__)
             print(f"FAIL {check.__name__}: {type(error).__name__}: {str(error)[:600]}")

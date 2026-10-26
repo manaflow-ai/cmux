@@ -16,7 +16,6 @@ user name are replaced; the file must then hold none of them, or the run fails. 
 MAX_BYTES (a fixture that grows means the recording caught more than the emitter).
 
   python3 scripts/cmux-next/trace_fixtures.py OUT
-
   python3 scripts/cmux-next/trace_fixtures.py --launch OUT
 
 `--launch` (and ``write_launch_fixture``, which tests/test_trace_launch.py and trace.py's self-test call) writes
@@ -63,9 +62,9 @@ TABLES = {"profile": ["time-profile", "os-signpost"], "system": ["syscall"]}
 INPUT_PID = 42
 MS = 1_000_000
 # InputLatencySignpostMessage's fields in the order Signposter.event(_:_:) writes them, each stage microseconds after
-# gen_ns (-1: skipped). Raw values: kind keyPress 0, mousePress 3, scrollUpdate 9; target terminal 0, textView 1,
-# chromiumPage 2, layout 5, other 8; entry person 0, automation 1; source estimatedVsync 0, metalPresented 1,
-# pageEstimated 3, nominalRefresh 5.
+# gen_ns (-1: skipped); trace.py's self-test 'input latency tables' compares them with the Swift. Raw values:
+# kind keyPress 0, mousePress 3, scrollUpdate 9; target terminal 0, textView 1, chromiumPage 2, layout 5, other 8;
+# entry person 0, automation 1; source estimatedVsync 0, metalPresented 1, pageEstimated 3, nominalRefresh 5.
 INPUT_FIELDS = ("kind", "target", "entry", "source", "vrr", "coalesced", "frame", "gen_ns", "last_gen_us", "arrived_us",
                 "dispatch_start_us", "ti_start_us", "ti_end_us", "dispatch_end_us", "commit_us", "content_us",
                 "daemon_us", "pty_us", "echo_read_us", "echo_sent_us", "presented_us")
@@ -139,6 +138,8 @@ def input_latency_ndjson():
     for index, (flow, hop, at_ns, age_us) in enumerate(INPUT_FLOW_HOPS):
         event(200 + index, "key.flow", "keyFlow", at_ns, f"hop={hop} flow={flow} age_us={age_us}")
     return "\n".join(lines) + "\n"
+
+
 # The launch fixture (``write_launch_fixture``): pid 42 starts at CLOCK_UPTIME_RAW 10 s; marks in ms since then.
 LAUNCH_PID, LAUNCH_MAIN_TID, LAUNCH_START_US = 42, 26, 10_000_000.0
 LAUNCH_MARKS = [("main_start", 30.0), ("main.run", 45.0), ("did_finish_launching_start", 50.0),
