@@ -59,7 +59,8 @@
       "args": {
         "method": "tab.update",
         "params": {
-          "zoom": 1.0
+          "zoom": 1.5,
+          "marked_unread": true
         },
         "idempotencyKey": "tab-update-ok.call"
       },
@@ -71,7 +72,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "zoom and the unread mark of a terminal tab change in one commit"
     }
   ],
   "invariants": [
