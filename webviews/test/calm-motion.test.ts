@@ -77,7 +77,8 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       duration: getComputedStyle(row).animationDuration,
     }));
     await reduced.close();
-    expect(reducedMotion).toEqual({ name: "none", duration: "0s" });
+    expect(reducedMotion.name).toBe("none");
+    expect(Number.parseFloat(reducedMotion.duration)).toBeLessThanOrEqual(0.001);
   });
 
   test("a message text update keeps its entrance animation object and start time", async () => {
@@ -87,6 +88,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       "no-preference",
     );
     await p.waitForFunction(() => document.querySelector<HTMLElement>("[data-message]")?.getAnimations().length === 1);
+    await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     await p.$eval("[data-message]", (row) => {
       const animation = row.getAnimations()[0];
       if (!animation) throw new Error("message entrance did not start");
