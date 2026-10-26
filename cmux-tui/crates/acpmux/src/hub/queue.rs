@@ -107,6 +107,8 @@ pub(super) struct Slot<'a> {
     pub(super) full_access_device: Option<&'a str>,
     /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
+    /// `PromptOptions::no_queue`.
+    pub(super) no_queue: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -131,6 +133,13 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
         "stopReason": "cancelled",
         "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "withdrawn": true}},
     })
+}
+
+/// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
+/// queue's lock.
+fn queue_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    queue.iter().any(|q| !q.held)
 }
 
 impl Hub {
@@ -180,6 +189,11 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
+                // It never queues: busy when the queue's own test says it would wait. The turn
+                // lock is tried below, and the queue read again under it.
+                if p.no_queue && waiting {
+                    return Err(Err(super::auto_resume::retry_turn::busy()));
+                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let waits = self.enqueue(session, &p, position, &turn_id);
@@ -196,7 +210,22 @@ impl Hub {
         let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
             Some(withdraw) => (withdraw, None),
             None => {
-                let guard = session.turn_lock.lock().await;
+                let guard = if p.no_queue {
+                    // A prompt about to start holds the lock with no turn shown yet. Held, a
+                    // turn or a prompt waiting in the queue (read under its lock: the count may
+                    // not show one yet) still makes it busy; a prompt that comes later waits
+                    // behind it.
+                    let guard = session.turn_lock.try_lock().ok();
+                    match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
+                        Some(guard) => guard,
+                        None => {
+                            session.queued.fetch_sub(1, Ordering::SeqCst);
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
+                    }
+                } else {
+                    session.turn_lock.lock().await
+                };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
@@ -219,6 +248,9 @@ impl Hub {
                     // The parent's run slots are all taken: it waits in the queue for one.
                     Err(parent) => {
                         drop(guard);
+                        if p.no_queue {
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
                         let mark = self.mark_waiting_for_slot(&parent, session);
                         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                         let waits = self.enqueue(session, &p, position, &turn_id);
