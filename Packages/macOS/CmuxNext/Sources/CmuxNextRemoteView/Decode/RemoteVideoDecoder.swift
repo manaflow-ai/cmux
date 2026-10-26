@@ -130,9 +130,11 @@ nonisolated final class RemoteVideoDecoder {
             var usingHardware: CFTypeRef?
             // SAFETY: this property is a CFBoolean: VideoToolbox stores one +1 CFTypeRef
             // in the local `usingHardware`, live for the call, and Swift takes ownership.
-            let query = unsafe VTSessionCopyProperty(
-                created, key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
-                allocator: kCFAllocatorDefault, valueOut: &usingHardware)
+            let query = unsafe withUnsafeMutablePointer(to: &usingHardware) {
+                unsafe VTSessionCopyProperty(
+                    created, key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+                    allocator: kCFAllocatorDefault, valueOut: $0)
+            }
             return (created, query == noErr && (usingHardware as? Bool ?? false))
         }
         throw .sessionCreate(lastStatus)
