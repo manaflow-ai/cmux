@@ -61,7 +61,13 @@ public struct EnergyReport: Sendable {
 
     /// The report: `.null` once the services are gone.
     public func report() async -> JSONValue {
-        guard let state = await state() else { return .null }
+        await report(from: await state())
+    }
+
+    /// The report over `state`, copied in an earlier main-actor turn; the ledger and the processes are
+    /// sampled now, off the main actor.
+    func report(from state: State?) async -> JSONValue {
+        guard let state else { return .null }
         let sampled = await Self.sample(ledger: ledger, processes: processes)
         return Self.render(state: state, ledger: sampled.ledger, processes: sampled.processes)
     }
@@ -313,17 +319,25 @@ extension EnergyReport {
 
     /// `debug.energy.simulate {on_battery?, percent?, thermal?, low_power?, suspended?}` (p14-energy-123, Debug
     /// and bench builds only): `apply` lays these inputs over the Mac's in the energy monitor, so the policy
-    /// resolves as on a Mac in that state; inputs not given follow the Mac. Each call replaces the previous
-    /// simulation; `{clear: true}` hands `apply` nil, which restores the Mac's inputs. Answers ``report()``
-    /// after the change. Fleet Macs have no battery: the energy test phase checks the `auto` saver's `battery`
-    /// reason with `{on_battery: true, percent: 15}` (scripts/cmux-next/energy-test-phase.py, D7 auto).
+    /// resolves as on a Mac in that state; inputs not given follow the Mac. `low_power` and `thermal` go
+    /// through the Mac's own seams (the Low Power Mode and thermal overrides), so every reader sees them.
+    /// Each call replaces the previous simulation; `{clear: true}` hands `apply` nil, which restores the
+    /// Mac's inputs and the overrides held before. A simulated power source never ends "Turn Off Energy
+    /// Saver for Now". Answers ``report()`` for the state right after the change. Fleet Macs have no
+    /// battery: the energy test phase checks the `auto` saver's `battery` reason with
+    /// `{on_battery: true, percent: 15}` (scripts/cmux-next/energy-test-phase.py, D7 auto).
     ///
-    /// - Parameter apply: Sets or clears the energy monitor's simulation, in one main-actor turn.
+    /// A mutation, so it runs on the `mainActor` lane in the `automation` work class, behind the person's
+    /// input: one main-actor turn applies the simulation and copies ``State``, and the follow-up samples
+    /// the rest off the main actor. The answer is the state that turn made, whatever runs after it.
+    ///
+    /// - Parameter apply: Sets or clears the energy monitor's simulation, synchronously.
     public func simulateMethod(applying apply: @escaping @MainActor @Sendable (EnergySimulation?) -> Void) -> ControlMethod {
-        .async(Self.simulateMethodName) { [self] call in
+        .mainActor(Self.simulateMethodName) { [self] call in
             let simulation = try Self.simulation(call.params)
-            await apply(simulation)
-            return await report()
+            apply(simulation)
+            let applied = state()
+            return .followUp { [self] in await report(from: applied) }
         }
     }
 

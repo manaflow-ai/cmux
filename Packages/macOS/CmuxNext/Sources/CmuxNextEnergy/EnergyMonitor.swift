@@ -11,6 +11,9 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     public var lowPowerMode: Bool
     /// The battery provides power.
     public var onBattery: Bool
+    /// The Mac's own power source is the battery, whatever `debug.energy.simulate` lays over
+    /// ``onBattery``: the resolver's plug-in edge, which ends "Turn Off for Now", follows only this.
+    public var macOnBattery: Bool
     /// This Mac has an internal battery.
     public var hasBattery: Bool
     /// The battery's charge in percent; reported only while on battery, else nil.
@@ -21,11 +24,12 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     /// sets it until the sleep watch (p14-energy-120) reports the Mac's.
     public var suspended: Bool
 
-    /// Inputs with every field given.
-    public init(lowPowerMode: Bool = false, onBattery: Bool = false, hasBattery: Bool = false,
+    /// Inputs with every field given; `macOnBattery` nil is `onBattery` (nothing simulated).
+    public init(lowPowerMode: Bool = false, onBattery: Bool = false, macOnBattery: Bool? = nil, hasBattery: Bool = false,
                 batteryPercent: Int? = nil, thermal: ProcessInfo.ThermalState = .nominal, suspended: Bool = false) {
         self.lowPowerMode = lowPowerMode
         self.onBattery = onBattery
+        self.macOnBattery = macOnBattery ?? onBattery
         self.hasBattery = hasBattery
         self.batteryPercent = batteryPercent
         self.thermal = thermal
@@ -35,8 +39,10 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension EnergyInputs {
-    /// These inputs with `simulation`'s over them. Simulating battery power or a charge gives the Mac a
-    /// battery; the monitor drops the charge when the result is not on battery, as it does the Mac's.
+    /// These inputs with `simulation`'s power source, charge and sleep over them; ``macOnBattery`` stays
+    /// the Mac's. Simulating battery power or a charge gives the Mac a battery; the monitor drops the charge
+    /// when the result is not on battery, as it does the Mac's. Low Power Mode and the thermal state reach
+    /// the inputs through their seams' overrides (``EnergyMonitor/simulate(_:)``), not here.
     nonisolated func simulated(by simulation: EnergySimulation) -> EnergyInputs {
         var inputs = self
         if let onBattery = simulation.onBattery {
@@ -47,8 +53,6 @@ extension EnergyInputs {
             inputs.batteryPercent = batteryPercent
             inputs.hasBattery = true
         }
-        if let thermal = simulation.thermal { inputs.thermal = thermal }
-        if let lowPowerMode = simulation.lowPowerMode { inputs.lowPowerMode = lowPowerMode }
         if let suspended = simulation.suspended { inputs.suspended = suspended }
         return inputs
     }
@@ -81,6 +85,12 @@ public final class EnergyMonitor {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What `debug.energy.simulate` lays over the Mac's inputs; nil follows the Mac.
     @ObservationIgnored public private(set) var simulation: EnergySimulation?
+    /// The Low Power Mode override held before the simulation took that seam; nil while it does not hold it.
+    @ObservationIgnored private var lowPowerModeBeforeSimulation: Bool??
+    /// The thermal override held before the simulation took that seam; nil while it does not hold it.
+    @ObservationIgnored private var thermalBeforeSimulation: ProcessInfo.ThermalState??
+    /// ``simulate(_:)`` is setting the seams' overrides: their change notes wait for its one refresh.
+    @ObservationIgnored private var isApplyingSimulation = false
     #endif
 
     /// The system's inputs: macOS Low Power Mode, IOKit's power source, the thermal state.
@@ -140,10 +150,31 @@ public final class EnergyMonitor {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Lays `simulation` over the Mac's inputs from now on, replacing an earlier one; nil restores the
-    /// Mac's. Observers hear the change as any other, so the policy follows in the same turn.
+    /// Mac's. Low Power Mode and the thermal state go through ``lowPowerMode`` and ``thermal``'s
+    /// overrides, so their other readers (hibernation, the glass watch) see the same Mac. A seam the new
+    /// simulation leaves out, or nil, gets back the override it held before a simulation took it
+    /// (`debug.low_power_mode`'s, say); a seam no simulation took is left alone. Observers hear one
+    /// change, so the policy follows in the same turn.
     public func simulate(_ simulation: EnergySimulation?) {
         self.simulation = simulation
+        isApplyingSimulation = true
+        lowPowerMode.override = Self.override(simulation?.lowPowerMode, now: lowPowerMode.override,
+                                              before: &lowPowerModeBeforeSimulation)
+        thermal.override = Self.override(simulation?.thermal, now: thermal.override, before: &thermalBeforeSimulation)
+        isApplyingSimulation = false
         refresh()
+    }
+
+    /// A seam's next override: `simulated`, keeping the one it holds `now` in `before`; with no
+    /// `simulated`, the kept one if the simulation held the seam, else `now`.
+    private static func override<Value>(_ simulated: Value?, now: Value?, before: inout Value??) -> Value? {
+        if let simulated {
+            if before == nil { before = .some(now) }
+            return simulated
+        }
+        guard let held = before else { return now }
+        before = nil
+        return held
     }
     #endif
 
@@ -157,6 +188,9 @@ public final class EnergyMonitor {
     }
 
     private func refresh() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard !isApplyingSimulation else { return }
+        #endif
         var next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: reading.onBattery, hasBattery: reading.hasBattery,
                                 batteryPercent: reading.batteryPercent, thermal: thermal.state)
         #if DEBUG || CMUX_BENCH_HOOKS

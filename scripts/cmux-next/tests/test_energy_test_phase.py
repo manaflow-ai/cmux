@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """energy-test-phase.py (p14-energy-123): D7 auto simulates 15% on battery, wants reason `battery`, always clears,
-and wants the Mac's own policy and inputs back; --dry-run prints the exact commands; no workflow references it.
+and wants the Mac's own policy and inputs back, "Turn Off for Now" included; a hung app or a failed clear is a
+problem, never a crash; --dry-run prints the exact commands; no workflow references it.
 
   python3 -m pytest scripts/cmux-next/tests/test_energy_test_phase.py
 """
@@ -10,6 +11,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -29,23 +31,25 @@ def load():
 phase = load()
 
 
-def report(saver=False, reason=None, simulated=False, on_battery=False, percent=None, feature=True, setting="auto"):
+def report(saver=False, reason=None, simulated=False, on_battery=False, percent=None, feature=True, setting="auto",
+           session_override=False):
     """A debug.energy report with the fields D7 auto reads."""
     return {
         "policy": {"isSaver": saver, "reason": reason},
         "inputs": {"featureEnabled": feature, "setting": setting, "simulated": simulated, "onBattery": on_battery,
                    "hasBattery": on_battery, "batteryPercent": percent, "thermal": "nominal", "lowPowerMode": False,
-                   "suspended": False, "reason": reason},
+                   "suspended": False, "sessionOverride": session_override, "reason": reason},
     }
 
 
 class FakeApp:
     """The app's two methods: debug.energy and debug.energy.simulate (which answers debug.energy)."""
 
-    def __init__(self, simulate_reason="battery", forget_clear=False, fail_simulate=False):
+    def __init__(self, simulate_reason="battery", forget_clear=False, fail_simulate=False, fail_clear=False):
         self.simulate_reason = simulate_reason
         self.forget_clear = forget_clear
         self.fail_simulate = fail_simulate
+        self.fail_clear = fail_clear
         self.calls = []
         self.simulating = False
 
@@ -53,6 +57,8 @@ class FakeApp:
         self.calls.append((method, params))
         if method == phase.SIMULATE:
             if params == phase.CLEAR:
+                if self.fail_clear:
+                    raise phase.RpcError("debug.energy.simulate: no answer in 60 s")
                 self.simulating = self.simulating and self.forget_clear
             else:
                 if self.fail_simulate:
@@ -88,6 +94,30 @@ class D7AutoTests(unittest.TestCase):
         results = phase.run(["D7-auto"], app.rpc)
         self.assertFalse(results["D7-auto"]["pass"])
         self.assertEqual(app.calls[-1], (phase.SIMULATE, {"clear": True}))
+        self.assertEqual(results["D7-auto"]["problems"], ["debug.energy.simulate: method not found"])
+
+    def test_a_failed_clear_adds_a_problem_and_keeps_the_first(self):
+        results = phase.run(["D7-auto"], FakeApp(fail_simulate=True, fail_clear=True).rpc)
+        problems = results["D7-auto"]["problems"]
+        self.assertEqual(problems[0], "debug.energy.simulate: method not found")
+        self.assertIn("simulation may still be active", problems[1])
+        self.assertEqual(len(problems), 2)
+
+    def test_a_failed_clear_after_a_good_simulation_fails(self):
+        results = phase.run(["D7-auto"], FakeApp(fail_clear=True).rpc)
+        self.assertFalse(results["D7-auto"]["pass"])
+        self.assertIn("simulation may still be active", results["D7-auto"]["problems"][0])
+
+    def test_a_clear_that_ends_turn_off_for_now_fails(self):
+        problems = phase.judge_d7_auto(report(session_override=True), report(simulated=True, on_battery=True, percent=15,
+                                                                             session_override=True), report())
+        self.assertIn("after clear: inputs sessionOverride differ from the Mac's", problems)
+
+    def test_turn_off_for_now_held_is_named_instead_of_a_missing_reason(self):
+        held = report(session_override=True)
+        problems = phase.judge_d7_auto(held, report(simulated=True, on_battery=True, percent=15, session_override=True), held)
+        self.assertTrue(any("Turn Off Energy Saver for Now" in problem for problem in problems), problems)
+        self.assertFalse(any("reason 'battery'" in problem for problem in problems), problems)
 
     def test_the_feature_off_says_how_to_fix_it(self):
         problems = phase.judge_d7_auto(report(feature=False), report(), report(feature=False))
@@ -108,6 +138,27 @@ class ReplyTests(unittest.TestCase):
             phase.parse_reply("m", json.dumps({"id": 1, "ok": False, "error": {"code": "invalid_params"}}))
         with self.assertRaises(phase.RpcError):
             phase.parse_reply("m", "")
+
+    def test_a_hung_app_or_a_cli_that_does_not_run_is_an_rpc_error(self):
+        def hung(command, **kwargs):
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+        def missing(command, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+
+        with self.assertRaisesRegex(phase.RpcError, "no answer in 60 s"):
+            phase.cli_rpc("energy-sim", runner=hung)(phase.ENERGY, {})
+        with self.assertRaisesRegex(phase.RpcError, "did not run"):
+            phase.cli_rpc("energy-sim", runner=missing)(phase.ENERGY, {})
+
+    def test_a_hung_app_still_gets_a_report(self):
+        def hung(command, **kwargs):
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+        results = phase.run(["D7-auto"], phase.cli_rpc("energy-sim", runner=hung))
+        self.assertFalse(results["D7-auto"]["pass"])
+        self.assertIn("simulation may still be active", results["D7-auto"]["problems"][-1])
+        self.assertIn("D7-auto", phase.markdown(results))
 
 
 class CommandLineTests(unittest.TestCase):

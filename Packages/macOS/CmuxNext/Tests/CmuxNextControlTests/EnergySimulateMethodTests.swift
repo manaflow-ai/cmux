@@ -16,22 +16,39 @@ struct EnergySimulateMethodTests {
         var applied: [EnergySimulation?] = []
     }
 
-    private static let state = EnergyReport.State(
-        policy: EnergyPolicy(saverReason: .battery, onBattery: true),
-        inputs: EnergyReport.Inputs(featureEnabled: true, lowPowerMode: false, onBattery: true, hasBattery: true, batteryPercent: 15,
-                                    thermal: .nominal, setting: .auto, sessionOverride: false, simulated: true),
-        wakeQueue: .init(entries: 0, coalescedFires: 0),
-        cef: .init(saver: .unsupported, earlyPasses: nil)
-    )
+    /// The services' state while the monitor holds a simulation (`simulated`) or not.
+    private static func state(simulated: Bool) -> EnergyReport.State {
+        EnergyReport.State(
+            policy: simulated ? EnergyPolicy(saverReason: .battery, onBattery: true) : .normal,
+            inputs: EnergyReport.Inputs(featureEnabled: true, lowPowerMode: false, onBattery: simulated, hasBattery: simulated,
+                                        batteryPercent: simulated ? 15 : nil, thermal: .nominal, setting: .auto,
+                                        sessionOverride: false, simulated: simulated),
+            wakeQueue: .init(entries: 0, coalescedFires: 0),
+            cef: .init(saver: .unsupported, earlyPasses: nil)
+        )
+    }
+
+    @MainActor
+    private static func report(_ monitor: Monitor) -> EnergyReport {
+        EnergyReport(state: { state(simulated: (monitor.applied.last ?? nil) != nil) }, ledger: WakeupLedger(), processes: { [] })
+    }
 
     @MainActor
     private static func router(_ monitor: Monitor) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
-        let report = EnergyReport(state: { state }, ledger: WakeupLedger(), processes: { [] })
-        router.register([report.simulateMethod { monitor.applied.append($0) }])
+        router.register([report(monitor).simulateMethod { monitor.applied.append($0) }])
         return router
     }
 
+    /// A mutation: the main-actor lane, through the work queue, in the automation class behind the person's input.
+    @MainActor
+    @Test func itIsAnAutomationMutation() {
+        let method = Self.report(Monitor()).simulateMethod { _ in }
+        #expect(method.lane == .mainActor)
+        #expect(method.workClass == .automation)
+    }
+
+    /// The answer is the state the applying turn made: simulated after a simulation, not after a clear.
     @MainActor
     @Test func theBenchsBatteryParamsReachTheMonitorAndAnswerTheReport() async throws {
         let monitor = Monitor()
@@ -41,8 +58,10 @@ struct EnergySimulateMethodTests {
         #expect(monitor.applied == [EnergySimulation(onBattery: true, batteryPercent: 15)])
         #expect(reply["policy"]?["reason"]?.stringValue == "battery")
         #expect(reply["inputs"]?["simulated"] == JSONValue.bool(true))
-        _ = try await router.handle(ControlRequest(method: EnergyReport.simulateMethodName, params: ["clear": .bool(true)])).get()
+        let cleared = try await router.handle(ControlRequest(method: EnergyReport.simulateMethodName, params: ["clear": .bool(true)])).get()
         #expect(monitor.applied == [EnergySimulation(onBattery: true, batteryPercent: 15), nil])
+        #expect(cleared["inputs"]?["simulated"] == JSONValue.bool(false))
+        #expect(cleared["policy"]?["isSaver"] == JSONValue.bool(false))
     }
 
     @MainActor

@@ -2,7 +2,8 @@
 public import Foundation
 
 /// Power inputs `debug.energy.simulate` lays over the Mac's (Debug and bench builds only,
-/// p14-energy-123): each non-nil field replaces that input of the energy monitor, each nil field
+/// p14-energy-123): each non-nil field replaces that input of the energy monitor (Low Power Mode and the
+/// thermal state through their seams' overrides, so every reader sees them), each nil field
 /// follows the Mac. Fleet Macs have no battery, so this is how a bench sees Energy Saver's battery and
 /// thermal reasons. A core value next to ``EnergyPolicy``: the control method parses it and the
 /// composition root hands it to its energy monitor.

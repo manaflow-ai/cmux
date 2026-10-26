@@ -7,7 +7,8 @@ file starts with the one task 123 owns:
 
   D7-auto  Fleet Macs have no battery, so the `auto` saver's battery reason is checked with
            `debug.energy.simulate {on_battery: true, percent: 15}`: debug.energy must report isSaver with reason
-           `battery` and `inputs.simulated`; `{clear: true}` must restore the Mac's own policy and inputs. The build
+           `battery` and `inputs.simulated`; `{clear: true}` must restore the Mac's own policy and inputs, "Turn Off
+           Energy Saver for Now" (`sessionOverride`) included. The build
            needs the default-off `energySaver` feature on and `energy.saver` at `auto` (the default).
 
   CMUX_TAG=energy-sim scripts/cmux-debug-cli.sh rpc debug.energy.simulate '{"on_battery": true, "percent": 15}'
@@ -46,11 +47,21 @@ def rpc_command(tag, method, params):
            f"{shlex.quote(json.dumps(params, separators=(',', ':')))}"
 
 
-def cli_rpc(tag):
-    """An rpc(method, params) over scripts/cmux-debug-cli.sh for `tag`: the result, or RpcError."""
+RPC_TIMEOUT_SECONDS = 60
+
+
+def cli_rpc(tag, runner=subprocess.run):
+    """An rpc(method, params) over scripts/cmux-debug-cli.sh for `tag`: the result, or RpcError (also for a
+    hung app or a CLI that does not start)."""
     def call(method, params):
-        completed = subprocess.run([str(DEBUG_CLI), "rpc", method, json.dumps(params)], cwd=REPO,
-                                   env={**os.environ, "CMUX_TAG": tag}, capture_output=True, text=True, timeout=60)
+        try:
+            completed = runner([str(DEBUG_CLI), "rpc", method, json.dumps(params)], cwd=REPO,
+                               env={**os.environ, "CMUX_TAG": tag}, capture_output=True, text=True,
+                               timeout=RPC_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise RpcError(f"{method}: no answer in {RPC_TIMEOUT_SECONDS} s") from None
+        except OSError as error:
+            raise RpcError(f"{method}: {DEBUG_CLI.relative_to(REPO)} did not run ({error})") from None
         if completed.returncode != 0:
             raise RpcError(f"{method}: {completed.stderr.strip() or completed.stdout.strip()}")
         return parse_reply(method, completed.stdout)
@@ -77,8 +88,9 @@ def energy_state(report):
     return policy.get("isSaver"), policy.get("reason"), inputs.get("simulated"), inputs
 
 
-# The inputs a simulation may change; clearing must bring each back to the Mac's.
-SIMULATED_INPUTS = ("onBattery", "hasBattery", "batteryPercent", "thermal", "lowPowerMode", "suspended")
+# The inputs a simulation may change, and the session's "Turn Off Energy Saver for Now" (which a simulated
+# power source must never end); clearing must bring each back to what it was.
+RESTORED_INPUTS = ("onBattery", "hasBattery", "batteryPercent", "thermal", "lowPowerMode", "suspended", "sessionOverride")
 
 
 def judge_d7_auto(before, simulated, cleared):
@@ -91,8 +103,12 @@ def judge_d7_auto(before, simulated, cleared):
         problems.append(f"energy.saver is {before_inputs.get('setting')!r}, D7 auto needs 'auto'")
     if before_simulated:
         problems.append("a simulation was already active before the check")
+    held = before_inputs.get("sessionOverride") is True
+    if held:
+        problems.append("\"Turn Off Energy Saver for Now\" holds, so the saver stays off: turn Energy Saver back on "
+                        "(energy.saver.turnOnNow) and rerun")
     saver, reason, is_simulated, inputs = energy_state(simulated)
-    if saver is not True or reason != "battery":
+    if not held and (saver is not True or reason != "battery"):
         problems.append(f"simulated 15% on battery: expected isSaver true with reason 'battery', got {saver!r} {reason!r}")
     if is_simulated is not True:
         problems.append("simulated 15% on battery: inputs.simulated is not true")
@@ -105,20 +121,27 @@ def judge_d7_auto(before, simulated, cleared):
         problems.append("after clear: inputs.simulated is not false")
     if (after_saver, after_reason) != (before_saver, before_reason):
         problems.append(f"after clear: policy {after_saver!r} {after_reason!r} is not the Mac's {before_saver!r} {before_reason!r}")
-    changed = [key for key in SIMULATED_INPUTS if after_inputs.get(key) != before_inputs.get(key)]
+    changed = [key for key in RESTORED_INPUTS if after_inputs.get(key) != before_inputs.get(key)]
     if changed:
         problems.append(f"after clear: inputs {', '.join(changed)} differ from the Mac's")
     return problems
 
 
 def run_d7_auto(rpc):
-    """D7 auto: read, simulate 15% on battery, clear (always, even after a failure), judge."""
-    reports = {}
+    """D7 auto: read, simulate 15% on battery, clear (always, even after a failure), judge. A failed clear is
+    one more problem, after the first failure, never in its place."""
+    reports, problems = {}, []
     try:
         reports["before"] = rpc(ENERGY, {})
         reports["simulated"] = rpc(SIMULATE, D7_AUTO_SIMULATION)
-    finally:
+    except RpcError as error:
+        problems.append(str(error))
+    try:
         reports["cleared"] = rpc(SIMULATE, CLEAR)
+    except RpcError as error:
+        problems.append(f"clear failed, so the simulation may still be active in the app: {error}")
+    if problems:
+        return problems, reports
     return judge_d7_auto(reports["before"], reports["simulated"], reports["cleared"]), reports
 
 
