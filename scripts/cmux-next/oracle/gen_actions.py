@@ -902,6 +902,24 @@ class GenActionsSelfTest(unittest.TestCase):
         self.assertEqual(main["expect"], {"outcome": "error", "error": "control.refused"})
         self.assertNotIn("waitFor", main)
 
+    def test_a_destructive_action_that_is_not_a_close_action_is_never_runnable(self) -> None:
+        """every-action-sweep.py skip_reason runs a destructive action only when it is closeTab/Pane/Workspace/
+        Window: any other one (closeAllInAllWindows, killProcess, closeOthers...) is a `flag` block with no case
+        file, from the export and from a live catalog, whatever the catalog's other fields say."""
+        destructive = ["workspace.closeAllInAllWindows", "taskManager.killProcess", "screen.closeOthers",
+                       "palette.closeOtherWorkspaces", "tabGroup.close"]
+        present = [i for i in destructive if i in self.catalog.by_id and i not in self.gaps.excluded]
+        self.assertTrue(present)
+        catalog = live_catalog({**LIVE_OVERRIDES,
+                                **{i: {"destructive": True, "shortcut_config": None} for i in present}})
+        files = generate(catalog, self.gaps, {})
+        for ident in present:
+            for written in (files, self.export_files):
+                self.assertNotIn(f"{slug(ident)}.json", written, ident)
+            if ident not in self.gaps.gaps:
+                self.assertEqual(files[COVERAGE]["actions"][ident]["blocked_by"], "flag", ident)
+        self.assertIn("close-tab.json", files)
+
     def test_each_case_runs_its_action_through_its_real_entrypoint(self) -> None:
         module = sweep_module()
         for ident, entry in self.coverage["actions"].items():
