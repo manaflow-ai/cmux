@@ -333,6 +333,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         observeStatusLook()
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         applyUIScale()
         observeUIScale()

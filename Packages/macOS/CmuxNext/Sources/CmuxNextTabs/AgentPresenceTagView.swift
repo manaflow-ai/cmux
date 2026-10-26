@@ -12,6 +12,7 @@ public final class AgentPresenceTagView: NSView {
     override public init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = Metrics.space1
         layer?.cornerCurve = .continuous
         label.font = Typography.caption

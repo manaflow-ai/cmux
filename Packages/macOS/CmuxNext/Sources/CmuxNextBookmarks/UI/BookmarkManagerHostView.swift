@@ -13,6 +13,7 @@ public final class BookmarkManagerHostView: NSView {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let hosting = NSHostingView(rootView: BookmarkManagerView(model: model))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
