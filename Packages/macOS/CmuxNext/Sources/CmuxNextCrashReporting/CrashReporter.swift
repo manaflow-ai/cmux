@@ -8,8 +8,10 @@ import CmuxNextCompat
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// performance tracing (its root transaction cannot be scrubbed), 8 s app
-/// hangs, every event, breadcrumb and span through `SentryEventScrubber`.
+/// performance tracing (its root transaction cannot be scrubbed), every
+/// event, breadcrumb and span through `SentryEventScrubber`. App hangs come
+/// from the one main-thread watchdog (``AppHangReporter``), not the SDK's
+/// ANR thread, which woke every 1.6 s and posted to main while the app idled.
 /// No structured logs: cmux-next has no log bridge, so it sends nothing the
 /// main app does not.
 ///
@@ -28,6 +30,10 @@ public final class CrashReporter: Sendable {
     /// Signals the app owns and Sentry's start must not take: SIGPIPE is a
     /// no-op handler (`ChildSignalDefaults`), SIGTERM a requested quit.
     public static let appOwnedSignals: [Int32] = [SIGPIPE, SIGTERM]
+
+    /// A main-thread hang this long is an app hang (``AppHangReporter``),
+    /// as the SDK's `appHangTimeoutInterval` was.
+    public static let appHangThreshold: Duration = .seconds(8)
 
     public let policy: CrashReportingPolicy
     private let sentryHandlers = Mutex<SignalActions?>(nil)
@@ -49,7 +55,9 @@ public final class CrashReporter: Sendable {
         options.debug = false
         options.sendDefaultPii = false
         options.tracesSampleRate = 0.0
-        options.appHangTimeoutInterval = 8.0
+        // One hang watcher per process (Chrome's HangWatcher): the SDK's ANR thread is
+        // off and MainThreadWatchdog episodes are the app hangs (AppHangReporter).
+        options.enableAppHangTracking = false
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
         // Objective-C exceptions that reach NSApplication's reportException:
@@ -220,6 +228,14 @@ public final class CrashReporter: Sendable {
         event.tags = tags
         event.extra = extra
         SentrySDK.capture(event: event)
+    }
+
+    /// Sends one app hang from the main-thread watchdog (``AppHangReporter``).
+    /// Call off the main thread (builds debug-image metadata). Does nothing
+    /// while Sentry is off.
+    public nonisolated func reportAppHang(_ hang: AppHangEvent) {
+        guard isStarted else { return }
+        SentrySDK.capture(event: hang.event())
     }
 
     /// Tags the current scope so a crash this process causes on purpose

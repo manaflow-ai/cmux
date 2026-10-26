@@ -5,9 +5,11 @@ import CmuxNextDaemon
 import CmuxNextHangReports
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
-/// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
-/// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
-/// (``HangReportsController``), whose sink does nothing while they are off.
+/// running after 2 s to crash reporting with its stack and to a file per hang; each hang episode
+/// of 8 s and up to Sentry as one app hang (``AppHangReporter``: the process's one hang watcher,
+/// the SDK's ANR thread is off); each finished lag spike of 250 ms and up to crash reporting
+/// (rate-limited); and both to opt-in hang reports (``HangReportsController``), whose sink does
+/// nothing while they are off.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -22,6 +24,11 @@ enum WatchdogReporting {
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
+        let appHangs = AppHangReporter(reporter: reporter)
+        watchdog.onHangEpisode = { hang in
+            appHangs.noteHang(duration: hang.duration, addresses: hang.addresses,
+                              otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
+        }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         let lagSpikes = LagSpikeReporter(reporter: reporter)
@@ -35,6 +42,7 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
+            appHangs.noteStall(startUptimeNanos: record.startUptimeNanos, duration: record.duration)
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }

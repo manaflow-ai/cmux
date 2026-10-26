@@ -93,6 +93,14 @@ public final class MainThreadWatchdog: Sendable {
         set { hangSink.withLock { $0 = newValue } }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    /// Receives every hang episode on the watchdog thread with the same sample as ``onHang``,
+    /// once per stall and not limited by `hangReportInterval` (the app's Sentry app hangs).
+    /// It must not wait for the main thread.
+    public var onHangEpisode: (@Sendable (Hang) -> Void)? {
+        get { hangEpisodeSink.withLock { $0 } }
+        set { hangEpisodeSink.withLock { $0 = newValue } }
+    }
+    private let hangEpisodeSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
     /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
     /// its raw stack) on the MAIN thread, right after the stall ended: the
     /// app sends lag spikes to crash reporting. It must return at once: no
