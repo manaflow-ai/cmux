@@ -111,9 +111,18 @@ fn changes(file: &Path) -> Option<(notify::RecommendedWatcher, tokio::sync::mpsc
     Some((watcher, rx))
 }
 
-/// Whether folder event `event` may have changed the file named `name`.
+/// Whether folder event `event` may have changed the file named `name`. An open, a read or a
+/// close after reading is no change: Linux inotify reports them (`notify` watches `IN_OPEN`),
+/// and the watch's own read would wake the next one. Chromium's FilePathWatcher watches only
+/// changes (`base/files/file_path_watcher_inotify.cc`: no `IN_OPEN`, `IN_ACCESS`).
 fn changes_file(event: &notify::Event, name: &std::ffi::OsStr) -> bool {
-    event.paths.iter().any(|p| p.file_name() == Some(name))
+    use notify::event::{AccessKind, AccessMode, EventKind};
+    let change = match event.kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) => false,
+        _ => true,
+    };
+    change && event.paths.iter().any(|p| p.file_name() == Some(name))
 }
 
 impl Hub {
