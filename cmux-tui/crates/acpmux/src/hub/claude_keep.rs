@@ -94,6 +94,7 @@ impl Hub {
 /// a Chief one, whose transcripts Chief's own retention must be free to delete.
 fn keeps_transcript(meta: &SessionMeta) -> bool {
     !super::route_switch::is_chief(meta)
+        && !meta.preset.as_deref().is_some_and(|p| p.starts_with("optchat-"))
 }
 
 /// The folder in a chat's session dir that holds its Claude transcript.
@@ -210,25 +211,26 @@ fn keep_companion(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()>
         return Ok(());
     }
     // A chat deleted meanwhile: its folder is not made again.
-    match mirror(&from, &kept.with_file_name(sid)) {
+    match mirror(&from, &kept.with_file_name(sid), true) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         other => other,
     }
 }
 
-/// Gives the folder `to` every file under the folder `from` (a link, or a
-/// copy across volumes taken again when it grew), folders included.
-fn mirror(from: &Path, to: &Path) -> io::Result<()> {
+/// Gives the folder `to` every file under the folder `from` it lacks (a link,
+/// or a copy across volumes), folders included. With `refresh`, a copy that
+/// differs in size is taken again; without it, a file `to` has is left alone.
+fn mirror(from: &Path, to: &Path, refresh: bool) -> io::Result<()> {
     make_dir(to)?;
     for entry in fs::read_dir(from)?.flatten() {
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() {
-            mirror(&src, &dst)?;
+            mirror(&src, &dst, refresh)?;
         } else if kind.is_file() && !same_file(&src, &dst) {
             match share(&src, &dst) {
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    if fs::metadata(&src)?.len() != fs::metadata(&dst)?.len() {
+                    if refresh && fs::metadata(&src)?.len() != fs::metadata(&dst)?.len() {
                         fs::copy(&src, &dst)?;
                     }
                 }
@@ -272,8 +274,8 @@ pub(super) fn restore(session_dir: &Path, store: &Path, sid: &str) -> io::Result
     if !crate::adopt::is_bare_id(sid) {
         return Ok(false);
     }
-    let live = match crate::adopt::find_claude(store, sid) {
-        Some(live) => live,
+    let (live, kept) = match crate::adopt::find_claude(store, sid) {
+        Some(live) => (live, kept_file(session_dir, sid)),
         None => {
             let Some(kept) = kept_file(session_dir, sid).or_else(|| {
                 let sessions = session_dir.parent()?;
@@ -285,14 +287,18 @@ pub(super) fn restore(session_dir: &Path, store: &Path, sid: &str) -> io::Result
             let live = store.join("projects").join(project).join(file_name(sid));
             fs::create_dir_all(live.parent().unwrap_or(store))?;
             share(&kept, &live)?;
-            let companion = kept.with_file_name(sid);
-            if companion.is_dir() {
-                mirror(&companion, &live.with_file_name(sid))?;
-            }
-            live
+            (live, Some(kept))
         }
     };
     OpenOptions::new().write(true).open(&live)?.set_modified(std::time::SystemTime::now())?;
+    // What Claude's cleanup took of the companion folder comes back too, also
+    // when a Claude still running then wrote its transcript again since. Claude's
+    // own files win; a file that fails to come back does not stop the resume.
+    if let Some(companion) = kept.map(|kept| kept.with_file_name(sid)).filter(|c| c.is_dir())
+        && let Err(e) = mirror(&companion, &live.with_file_name(sid), false)
+    {
+        tracing::warn!(agent_session = %sid, "putting Claude's companion folder back: {e}");
+    }
     Ok(true)
 }
 
@@ -516,6 +522,28 @@ mod tests {
         );
     }
 
+    /// A Claude still running when its folder was cleaned up writes its
+    /// transcript again, so the next start finds it: the older tool results
+    /// still come back, and the files Claude wrote since are left as they are.
+    #[test]
+    fn the_companion_folder_comes_back_when_claude_wrote_its_transcript_again() {
+        let dirs = Dirs::new();
+        let companion = dirs.live().with_file_name(SID);
+        fs::create_dir_all(companion.join("tool-results")).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        append(&companion.join("tool-results/old.txt"), "old");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        fs::remove_file(dirs.live()).unwrap();
+        fs::remove_dir_all(&companion).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"b\"}\n");
+        append(&companion.join("tool-results/new.txt"), "new");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+
+        assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
+        assert_eq!(fs::read_to_string(companion.join("tool-results/old.txt")).unwrap(), "old");
+        assert_eq!(fs::read_to_string(companion.join("tool-results/new.txt")).unwrap(), "new");
+    }
+
     /// Chief sets its own short retention and never deletes its sessions: a
     /// Chief session keeping its transcripts would keep them for good.
     #[test]
@@ -531,6 +559,13 @@ mod tests {
         assert!(!keeps_transcript(&meta("optchat-chief-1")));
         assert!(!keeps_transcript(&meta("optchat-sub-1-claude")));
         assert!(keeps_transcript(&meta("Fix the sidebar")));
+        let mut tagged = meta("Compact");
+        let tag = crate::store::Tag { value: "1".into(), expires_at: None };
+        tagged.tags.insert("cmux.chief".into(), tag);
+        assert!(!keeps_transcript(&tagged));
+        let mut preset = meta("By hand");
+        preset.preset = Some("optchat-sub-1".into());
+        assert!(!keeps_transcript(&preset));
     }
 
     /// A chat deleted while its last keep waited: the kept folder is not made again.
