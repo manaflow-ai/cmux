@@ -160,15 +160,19 @@ pub(super) fn daemon(
     }
     let started = hosts::lock_to_install(r)
         .and_then(|lock| hosts::install_daemon(&lock.fence(r), port, true));
-    if let Err(e) = started {
-        return (fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look), port);
-    }
+    let auto_update_off = match started {
+        Ok((_, off)) => off.map(|why| format!("; auto-update off: {why}")).unwrap_or_default(),
+        Err(e) => {
+            return (fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look), port);
+        }
+    };
     // Where it listens now: a port another daemon holds moved it to a free
     // one (`daemon.rs`), which the peer then uses unless it is a known one.
     let (after, port) = judge(r);
     let result = match after {
         Verdict::Done(after) if after.state == StepState::Ok => {
-            StepResult::new(Step::Daemon, StepState::Fixed, format!("{why}; now {}", after.detail))
+            let detail = format!("{why}; now {}{auto_update_off}", after.detail);
+            StepResult::new(Step::Daemon, StepState::Fixed, detail)
         }
         Verdict::Done(after) => {
             let next = after.fix.unwrap_or(look);

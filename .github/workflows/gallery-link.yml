@@ -9,7 +9,7 @@ name: high-signal review link
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions: {}
 
@@ -19,7 +19,10 @@ concurrency:
 
 jobs:
   link:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    # A draft gets its line when it is marked ready. CI_QUOTA_HOLD=1 pauses the
+    # line while the GITHUB_TOKEN budget is reserved for the nightly
+    # (tests/test_ci_quota_hold_gate.py); the next push writes it.
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     permissions:
       contents: read

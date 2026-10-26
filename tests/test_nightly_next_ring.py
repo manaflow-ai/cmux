@@ -244,7 +244,7 @@ class WorkflowTests(unittest.TestCase):
         text = NIGHTLY_YML.read_text()
         job = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
         retag = job.index("nightly_next_ring.py retag")
-        self.assertLess(retag, job.index("publish-release-assets.py"))
+        self.assertLess(retag, job.index('python3 "$publisher"'))
 
     def test_the_old_feed_copies_nightly_first_then_dev(self):
         text = NIGHTLY_YML.read_text()

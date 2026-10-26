@@ -23,12 +23,17 @@ extension CloudHandlers {
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
+            // A CLI or agent run gets the new tab's ids (machine, workspace, surface), so it can
+            // type into it next; a paused machine resumes first and answers `pending` past the deadline.
+            guard origin(of: invocation) == .user else {
+                return result("open Cloud SSH terminal", context, pendingAfter: terminalAnswerWait, pending: terminalPending(session)) {
+                    try await attachedAndConnected(session, invocation)
+                    return try await newTerminalTab(on: session, at: try await terminalAnchor(on: session, context), invocation, context)
+                }
+            }
             runTracked("open Cloud SSH terminal", context) {
                 try await attachedAndConnected(session, invocation)
-                let anchor = try await terminalAnchor(on: session, context)
-                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
-                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
-                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+                _ = try await newTerminalTab(on: session, at: try await terminalAnchor(on: session, context), invocation, context)
             }
         }
         bind("cloudExec", registry, reason: reason) { invocation in
@@ -128,29 +133,20 @@ extension CloudHandlers {
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            let workspace = try machineWorkspaceArgument(invocation, machine: session.machineID)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
-            // A CLI or agent run gets the new workspace's id, and the window keeps what it shows
+            // A CLI or agent run gets the ids of what it made, and the window keeps what it shows
             // unless the run asked for focus.
             guard origin(of: invocation) == .user else {
                 // A paused machine resumes first: answer `pending` if that outlasts the run's deadline.
-                let pending: [String: ActionResultValue] = session.machine.status == .paused
-                    ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
-                    : ["machine_id": .string(session.machineID)]
-                return result("new terminal on machine", context, pendingAfter: .seconds(30), pending: pending) {
+                return result("new terminal on machine", context, pendingAfter: terminalAnswerWait, pending: terminalPending(session)) {
                     try await attachedAndConnected(session, invocation)
-                    guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
-                        throw ActionFailure(message: CloudStrings.notConnected)
-                    }
-                    if invocation.allowsViewChange { show(id, context) }
-                    return ["machine_id": .string(session.machineID), "workspace_id": .string(id)]
+                    return try await newTerminal(on: session, in: workspace, invocation, context)
                 }
             }
             run("new terminal on machine", context) {
                 try await attachedAndConnected(session, invocation)
-                guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
-                    throw ActionFailure(message: CloudStrings.notConnected)
-                }
-                show(id, context)
+                _ = try await newTerminal(on: session, in: workspace, invocation, context)
             }
         }
         bind("cloudRenameMachine", registry, reason: reason) { invocation in
@@ -290,6 +286,86 @@ extension CloudHandlers {
                 return machineFields(fork.id, ["source_machine_id": .string(session.machineID)])
             }
         }
+    }
+
+    // MARK: Terminals
+
+    /// How long a CLI or agent `cloud ssh` or `new-terminal-on-machine` waits (a paused machine
+    /// resumes first) before it answers `pending`: inside `action.run`'s 40 s result deadline.
+    static let terminalAnswerWait: Duration = .seconds(30)
+
+    /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
+        session.machine.status == .paused
+            ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
+            : ["machine_id": .string(session.machineID)]
+    }
+
+    /// `--workspace <id>` of `new-terminal-on-machine` on `machine`: nil without one; a bare or
+    /// blank flag refuses.
+    static func machineWorkspaceArgument(_ invocation: ActionInvocation, machine: String) throws -> String? {
+        guard let value = invocation["workspace"] else { return nil }
+        guard let id = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            throw ActionFailure(message: CloudStrings.machineWorkspaceRequired(machine))
+        }
+        return id
+    }
+
+    /// Workspace `requested` (its id, or its `ws_…` id) on the machine's daemon, where a new tab
+    /// lands: its first pane. Not found names the machine and the command that makes one. A
+    /// workspace whose pane the store has not mirrored yet gets the same bounded wait
+    /// ``terminalAnchor(on:_:)`` gives, then a refusal that names it.
+    @MainActor static func machineWorkspace(_ requested: String, on session: CloudMachineSession) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == requested || $0.resourceID?.rawValue == requested }) else {
+            throw ActionFailure.notFound(CloudStrings.noSuchMachineWorkspace(session.machineID, requested))
+        }
+        if let anchor = anchor(id: workspace.id, on: session) { return anchor }
+        if let anchor = await mirroredAnchor(id: workspace.id, on: session) { return anchor }
+        throw ActionFailure(message: CloudStrings.machineWorkspaceHasNoPane(session.machineID, requested))
+    }
+
+    /// New Terminal Workspace on Machine: a terminal tab in workspace `workspace` of the machine
+    /// when given, else a new workspace with a terminal. Answers the ids of what it made.
+    @MainActor static func newTerminal(on session: CloudMachineSession, in workspace: String?, _ invocation: ActionInvocation,
+                                       _ context: AppActionContext) async throws -> [String: ActionResultValue] {
+        let daemon = session.daemon
+        if let workspace {
+            // The store holds every workspace the daemon has, also right after a resume; a
+            // store that could not catch up is never read as "no such workspace".
+            do { try await daemon.appliedThroughSyncBarrier() } catch {
+                throw ActionFailure(message: CloudStrings.machineWorkspacesNotLoaded(session.machineID, workspace))
+            }
+            return try await newTerminalTab(on: session, at: try await machineWorkspace(workspace, on: session), invocation, context)
+        }
+        guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
+        if invocation.allowsViewChange { show(id, context) }
+        var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "workspace_id": .string(id)]
+        // Its terminal's ids, only once the store holds the create's events (a person's run reads
+        // nothing); a store that did not catch up answers the workspace without them.
+        guard origin(of: invocation) != .user, let connection = daemon.connection,
+              await daemon.appliedThroughReply(on: connection, after: "new terminal on machine") else { return fields }
+        if let tab = daemon.store.workspaces.first(where: { $0.id == id })?.screens.first?.panes.first?.tabs.first {
+            fields.merge(terminalFields(tab.surface, terminal: tab.terminalID)) { _, tab in tab }
+        }
+        return fields
+    }
+
+    /// A new terminal tab in `anchor`'s pane, shown when the run may change the view.
+    @MainActor static func newTerminalTab(on session: CloudMachineSession, at anchor: (id: String, key: WorkspaceKey, pane: PaneModel),
+                                          _ invocation: ActionInvocation, _ context: AppActionContext) async throws -> [String: ActionResultValue] {
+        guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+        let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+        if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+        return ["machine_id": .string(session.machineID), "workspace_id": .string(anchor.id)]
+            .merging(terminalFields(created.surface, terminal: created.terminalID)) { _, tab in tab }
+    }
+
+    /// A terminal tab's ids on the machine's daemon: `surface_id` (its handle there) and, from
+    /// daemons that report one, the durable `terminal_id`.
+    static func terminalFields(_ surface: SurfaceID, terminal: TerminalID?) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = ["surface_id": .string(surface.description)]
+        if let terminal { fields["terminal_id"] = .string(terminal.rawValue) }
+        return fields
     }
 
     private static var operationUnavailable: ActionFailure {

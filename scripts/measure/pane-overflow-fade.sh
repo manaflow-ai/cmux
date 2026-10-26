@@ -19,17 +19,22 @@ die() { echo "NATIVE_FADE_FATAL $*" >&2; exit 2; }
 [ "$(uname -s)" = Darwin ] || die "needs managed macOS GUI worker"
 git diff --quiet && git diff --cached --quiet || die "source checkout is dirty"
 git status --porcelain --untracked-files=no | grep -q . && die "tracked source checkout is dirty" || true
-HEAD_SHA="$(git rev-parse HEAD)" || die "cannot resolve HEAD"
-HEAD_TREE="$(git rev-parse 'HEAD^{tree}')" || die "cannot resolve HEAD tree"
-echo "NATIVE_FADE_PREFLIGHT head=$HEAD_SHA tree=$HEAD_TREE"
-python3 - "$HEAD_SHA" <<'PY_FETCH'
+SCRIPT_SHA="$(git rev-parse HEAD)" || die "cannot resolve script HEAD"
+SCRIPT_TREE="$(git rev-parse 'HEAD^{tree}')" || die "cannot resolve script tree"
+# A tooling follow-up can measure the original landed product commit explicitly.
+HEAD_SHA="${1:-$SCRIPT_SHA}"
+[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || die "measurement ref must be a full commit SHA"
+# Cold measure workers are shallow detached checkouts with no origin. Use the
+# same canonical repository URL as checkoutStep, without changing their remotes.
+SOURCE_REMOTE="$(git remote get-url origin 2>/dev/null || printf '%s' 'https://github.com/manaflow-ai/cmux.git')"
+if ! python3 - "$HEAD_SHA" "$SOURCE_REMOTE" <<'PY_FETCH'
 import subprocess
 import sys
 
 try:
     result = subprocess.run(
-        ["git", "-c", "fetch.parallel=1", "fetch", "--depth=8", "--filter=blob:none",
-         "--no-tags", "--no-recurse-submodules", "origin", sys.argv[1]],
+        ["git", "-c", "fetch.parallel=1", "fetch", "--depth=8",
+         "--no-tags", "--no-recurse-submodules", sys.argv[2], sys.argv[1]],
         check=False,
         timeout=150,
     )
@@ -37,7 +42,11 @@ except subprocess.TimeoutExpired:
     raise SystemExit("bounded source fetch timed out after 150 seconds")
 raise SystemExit(result.returncode)
 PY_FETCH
-[ $? -eq 0 ] || die "bounded source fetch failed"
+then
+  die "bounded source fetch failed"
+fi
+HEAD_TREE="$(git rev-parse "$HEAD_SHA^{tree}")" || die "cannot resolve measured tree"
+echo "NATIVE_FADE_PREFLIGHT script=$SCRIPT_SHA script_tree=$SCRIPT_TREE head=$HEAD_SHA tree=$HEAD_TREE"
 FIXED_BLOB="$(git rev-parse "$HEAD_SHA:$PRODUCT_PATH")" || die "product path missing"
 [ "$FIXED_BLOB" = "$EXPECTED_FIXED_BLOB" ] || die "final product blob mismatch expected=$EXPECTED_FIXED_BLOB actual=$FIXED_BLOB"
 [ "$(git rev-parse "$HEAD_SHA:$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "final regression test blob changed"
@@ -68,7 +77,7 @@ BEFORE_TEST_BLOB="$(git rev-parse "$RED_SHA:$REGRESSION_PATH")" || die "before t
 [ "$(git rev-parse "$RED_SHA:$PRODUCT_PATH")" = "$EXPECTED_OLD_BLOB" ] || die "red product blob changed"
 [ "$(git rev-parse "$BASE_SHA:$PRODUCT_PATH")" = "$EXPECTED_OLD_BLOB" ] || die "base product blob changed"
 git merge-base --is-ancestor "$RED_SHA" "$HEAD_SHA" || die "red is not an ancestor of final"
-IDENTITY_RECEIPT="NATIVE_FADE_IDENTITIES mode=$BEFORE_MODE base=$BASE_SHA base_tree=$BASE_TREE red=$RED_SHA red_tree=$RED_TREE head=$HEAD_SHA head_tree=$HEAD_TREE before_test_blob=$BEFORE_TEST_BLOB test_overlay_blob=${TEST_OVERLAY_BLOB:-none}"
+IDENTITY_RECEIPT="NATIVE_FADE_IDENTITIES mode=$BEFORE_MODE base=$BASE_SHA base_tree=$BASE_TREE red=$RED_SHA red_tree=$RED_TREE head=$HEAD_SHA head_tree=$HEAD_TREE script=$SCRIPT_SHA script_tree=$SCRIPT_TREE before_test_blob=$BEFORE_TEST_BLOB test_overlay_blob=${TEST_OVERLAY_BLOB:-none}"
 echo "$IDENTITY_RECEIPT"
 prepare_before_regression() {
   local checkout="$1"
@@ -81,13 +90,30 @@ assert_measurement_checkout() {
   local checkout="$1" source="$2"
   [ "$(git -C "$checkout" rev-parse HEAD)" = "$source" ] || die "capture checkout HEAD changed"
   git -C "$checkout" diff --cached --quiet || die "capture checkout index changed"
-  git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH" || die "capture changed product or unrelated tracked files"
+  if ! git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH"; then
+    echo "NATIVE_FADE_TRACKED_MUTATION checkout=$checkout source=$source" >&2
+    git -C "$checkout" diff --name-status -- . ":(exclude)$REGRESSION_PATH" >&2
+    die "capture changed product or unrelated tracked files"
+  fi
   [ "$(git -C "$checkout" hash-object "$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "capture regression test blob changed"
 }
 WORK="$(mktemp -d /tmp/nx-ellipsis-fade.XXXXXX)"
 OUT="$WORK/out"
 mkdir -p "$OUT"
 printf '%s\n' "$IDENTITY_RECEIPT" > "$OUT/source-identities.txt"
+# Rejected measurements stay rejected, with their partial frames and source
+# diagnostics retained so a failed source fence can be diagnosed remotely.
+keep_failed_attempt() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    printf 'NATIVE_FADE_FAILED exit=%s\n' "$status" > "$OUT/failure.txt"
+    mkdir -p "$ROOT/artifacts"
+    tar -czf "$ROOT/artifacts/pane-overflow-fade.tar.gz" -C "$OUT" . || true
+  fi
+  exit "$status"
+}
+trap keep_failed_attempt EXIT
 cat > "$WORK/PaneMoreFadeFrameProbe.swift" <<'NX_FADE_PROBE'
 import AppKit
 @testable import CmuxNextApp
@@ -258,6 +284,10 @@ git worktree add --detach "$WORK/before" "$RED_SHA"
 git worktree add --detach "$WORK/after" "$HEAD_SHA"
 prepare_before_regression "$WORK/before"
 assert_measurement_checkout "$WORK/before" "$RED_SHA"
+# The old cache installer deletes tracked GENERATED.md placeholders. Use the
+# tooling checkout's narrow setup wrapper in both historical checkouts; product,
+# test and other tracked-source fences remain unchanged.
+export CMUX_WEB_BUNDLES_BUILD="$ROOT/scripts/measure/pane-overflow-bundle-setup.py"
 # These worktrees belong to this one attempt; keep them and their receipts on failure.
 for label in before after; do
   checkout="$WORK/$label"
@@ -315,7 +345,7 @@ for file in sorted(out.glob("*")):
     print(f"NATIVE_FADE_FILE {file.name} sha256={hashlib.sha256(raw).hexdigest()} bytes={len(raw)}")
 NX_CAPTURE_ORACLE
 cd "$ROOT"
-[ "$(git rev-parse HEAD)" = "$HEAD_SHA" ] && [ "$(git rev-parse 'HEAD^{tree}')" = "$HEAD_TREE" ]
+[ "$(git rev-parse HEAD)" = "$SCRIPT_SHA" ] && [ "$(git rev-parse 'HEAD^{tree}')" = "$SCRIPT_TREE" ]
 git diff --quiet && git diff --cached --quiet
 [ -f "$ROOT/artifacts/pane-overflow-fade.tar.gz" ] || die "measurement archive missing"
 archive_sha="$(shasum -a 256 "$ROOT/artifacts/pane-overflow-fade.tar.gz" | awk '{print $1}')"
@@ -323,6 +353,6 @@ archive_bytes="$(wc -c < "$ROOT/artifacts/pane-overflow-fade.tar.gz" | tr -d ' '
 cd "$ROOT"
 git diff --quiet && git diff --cached --quiet || die "source changed during measurement"
 git status --porcelain --untracked-files=no | grep -q . && die "tracked source changed during measurement" || true
-[ "$(git rev-parse HEAD)" = "$HEAD_SHA" ] || die "HEAD changed during measurement"
-[ "$(git rev-parse 'HEAD^{tree}')" = "$HEAD_TREE" ] || die "tree changed during measurement"
+[ "$(git rev-parse HEAD)" = "$SCRIPT_SHA" ] || die "HEAD changed during measurement"
+[ "$(git rev-parse 'HEAD^{tree}')" = "$SCRIPT_TREE" ] || die "tree changed during measurement"
 printf 'NATIVE_FADE_COMPLETE source=%s tree=%s red=%s red_exit=%s archive=artifacts/pane-overflow-fade.tar.gz archive_sha256=%s archive_bytes=%s\n' "$HEAD_SHA" "$HEAD_TREE" "$RED_SHA" "$RED_EXIT" "$archive_sha" "$archive_bytes"
