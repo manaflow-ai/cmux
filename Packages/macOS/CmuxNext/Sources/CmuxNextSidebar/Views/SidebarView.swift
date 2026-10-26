@@ -2,7 +2,6 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextResources
-public import CmuxNextWakeups
 import CmuxNextCompat
 import CmuxNextIcons
 import Observation
@@ -223,20 +222,6 @@ public final class SidebarView: NSView {
         return button
     }
 
-    /// Shows Energy Saver's leaf while the policy of `deadlines`' scheduler (`MainWorkScheduler.energy`)
-    /// is in the saver (p14-energy-026). `deadlines` is the app's one deadline scheduler: the card's close
-    /// grace runs on it. The App calls it once per sidebar.
-    public func followEnergy(_ deadlines: MainDeadlineScheduler) {
-        energyIndicator.follow(deadlines)
-    }
-
-    /// The Energy Saver card's "Turn Off for Now" was pressed: the App runs `energy.saver.turnOffForNow`.
-    /// Nil leaves the button doing nothing.
-    public var onTurnOffEnergySaver: (() -> Void)? {
-        get { energyIndicator.onTurnOffForNow }
-        set { energyIndicator.onTurnOffForNow = newValue }
-    }
-
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
     /// registry actions. Nil opens nothing.
@@ -300,9 +285,7 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
-        energyIndicator.hoverCards = { [weak self] in self?.list.hoverCards }
-        energyIndicator.onShownChange = { [weak self] in self?.needsLayout = true }
-        addSubview(energyIndicator)
+        installEnergyIndicator()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()

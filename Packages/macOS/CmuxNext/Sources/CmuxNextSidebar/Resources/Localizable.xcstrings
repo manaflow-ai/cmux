@@ -26212,6 +26212,137 @@
         }
       }
     },
+    "sidebar.energySaver.turnOffForNow.help.pluggedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي موفّر الطاقة متوقفًا حتى تغيّر إعداد موفّر الطاقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ušteda energije ostaje isključena dok ne promijenite postavku Ušteda energije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder Energisparer slået fra, indtil du ændrer indstillingen Energisparer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hält den Energiesparmodus aus, bis du die Einstellung „Energiesparmodus“ änderst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps Energy Saver off until you change the Energy Saver setting."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene el ahorro de energía desactivado hasta que cambies el ajuste de ahorro de energía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garde l'économiseur d'énergie désactivé jusqu'à ce que vous modifiiez le réglage Économiseur d'énergie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene il risparmio energetico disattivato finché non cambi l'impostazione Risparmio energetico."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省エネルギーの設定を変更するまで、省エネルギーをオフのままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាកម្មវិធីសន្សំថាមពលឱ្យបិទ រហូតដល់អ្នកប្តូរការកំណត់កម្មវិធីសន្សំថាមពល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에너지 절약 설정을 변경할 때까지 에너지 절약을 끈 상태로 둡니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder Energisparing av til du endrer innstillingen Energisparing."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utrzymuje oszczędzanie energii wyłączone, dopóki nie zmienisz ustawienia Oszczędzanie energii."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém a economia de energia desativada até você alterar o ajuste de economia de energia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экономия энергии останется выключенной, пока вы не измените настройку экономии энергии."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดประหยัดพลังงานไว้จนกว่าคุณจะเปลี่ยนการตั้งค่าประหยัดพลังงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enerji Tasarrufu ayarını değiştirene kadar Enerji Tasarrufu'nu kapalı tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Економія енергії залишається вимкненою, доки ви не зміните налаштування економії енергії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ Tiết kiệm năng lượng ở trạng thái tắt cho đến khi bạn thay đổi cài đặt Tiết kiệm năng lượng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你更改节能模式设置之前，节能模式会保持关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你更改節能模式設定之前，節能模式會保持關閉。"
+          }
+        }
+      }
+    },
     "sidebar.energySaver.reason.lowPowerMode": {
       "extractionState": "manual",
       "localizations": {
@@ -26470,6 +26601,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "電池電量低。"
+          }
+        }
+      }
+    },
+    "sidebar.energySaver.reason.batteryPercent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البطارية عند %lld%%."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baterija je na %lld%%."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batteriet er på %lld%%."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Batterie ist bei %lld %%."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The battery is at %lld%%."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La batería está al %lld %%."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La batterie est à %lld %%."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La batteria è al %lld%%."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリー残量は %lld%% です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្មនៅសល់ %lld%%។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배터리가 %lld%% 남았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batteriet er på %lld %%."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bateria jest naładowana w %lld%%."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A bateria está em %lld%%."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заряд аккумулятора: %lld%%."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบตเตอรี่เหลือ %lld%%"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pil %%%lld düzeyinde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заряд акумулятора: %lld%%."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin còn %lld%%."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电池电量为 %lld%%。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電池電量為 %lld%%。"
           }
         }
       }
