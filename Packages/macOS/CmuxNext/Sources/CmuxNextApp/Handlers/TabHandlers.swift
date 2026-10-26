@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextLayout
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
@@ -114,8 +115,8 @@ enum TabHandlers {
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("navigate.next", invoke: { _ in PreviousNext.step(by: 1, ctx.services) })
         registry.bind("navigate.previous", invoke: { _ in PreviousNext.step(by: -1, ctx.services) })
-        registry.bind("nextSurface", invoke: { ctx.paneController($0)?.selectAdjacent(1) })
-        registry.bind("prevSurface", invoke: { ctx.paneController($0)?.selectAdjacent(-1) })
+        registry.bindEffect("nextSurface", effect: { stepTab(ctx, $0, by: 1) })
+        registry.bindEffect("prevSurface", effect: { stepTab(ctx, $0, by: -1) })
         registry.bind("selectSurfaceByNumber", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
@@ -142,6 +143,21 @@ enum TabHandlers {
             guard let ref = invocation.target, ref.kind == .screen else { return ctx.refuse(RefusalStrings.noScreen("")) }
             revealScreen(screenID: ref.id, ctx: ctx)
         })
+    }
+
+    /// Next/Previous Tab in Pane. From a person's key (`directionalPrewarm`, p04-input-044), the tab one step past
+    /// the awake neighbors that way prewarms in the background: the neighbor rule keeps the nearer ones awake.
+    private static func stepTab(_ ctx: AppActionContext, _ invocation: ActionInvocation, by offset: Int) -> ActionEffect {
+        guard let pane = ctx.paneController(invocation) else { return .done }
+        pane.selectAdjacent(offset)
+        guard PreviousNext.isKeyStep(invocation), let direction = IntentPrewarmDirection(offset: offset),
+              let hibernation = ctx.services.cache.hibernation, let prewarm = hibernation.intentPrewarm?.service else { return .done }
+        prewarm.stepped(direction) { [weak pane, weak hibernation] in
+            guard let pane, let hibernation else { return [] }
+            let reach = offset * (hibernation.neighborRadius + 1)
+            return pane.stripModel.adjacentVisibleTab(from: pane.stripModel.selectedID, offset: reach).map { [$0.rawValue] } ?? []
+        }
+        return .done
     }
 
     /// Shows the tab in the window that lists its workspace (the active

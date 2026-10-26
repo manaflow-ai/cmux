@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Darwin
 public import Foundation
 import Network
@@ -47,28 +48,40 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             hints.ai_protocol = IPPROTO_TCP
             hints.ai_flags = AI_ADDRCONFIG
             var result: UnsafeMutablePointer<addrinfo>?
-            guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { return [] }
-            defer { freeaddrinfo(first) }
+            // SAFETY: getaddrinfo reads the NUL-terminated copy of `host` and `hints` for
+            // this call and stores the head of a list it allocates in `result`. The defer
+            // below frees it once; the walk copies each address out before that.
+            guard unsafe getaddrinfo(host, nil, &hints, &result) == 0, let first = unsafe result else { return [] }
+            // SAFETY: frees the list getaddrinfo returned, exactly once.
+            defer { unsafe freeaddrinfo(first) }
             var addresses: [IrxTunnelIPAddress] = []
-            var cursor: UnsafeMutablePointer<addrinfo>? = first
-            while let info = cursor, addresses.count < 16 {
-                if let sockaddr = info.pointee.ai_addr {
-                    switch Int32(clamping: sockaddr.pointee.sa_family) {
-                    case AF_INET:
-                        sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
-                            var address = pointer.pointee.sin_addr
-                            addresses.append(.v4(withUnsafeBytes(of: &address) { Array($0) }))
-                        }
-                    case AF_INET6:
-                        sockaddr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { pointer in
-                            var address = pointer.pointee.sin6_addr
-                            addresses.append(.v6(withUnsafeBytes(of: &address) { Array($0) }))
-                        }
-                    default:
-                        break
+            // SAFETY: the walk starts at the live list's head.
+            var cursor: UnsafeMutablePointer<addrinfo>? = unsafe first
+            // SAFETY: `cursor` is a node of the live list or nil, which ends the walk.
+            while let info = unsafe cursor, addresses.count < 16 {
+                // SAFETY: ai_next is the next node of the live list or nil.
+                cursor = unsafe info.pointee.ai_next
+                // SAFETY: ai_addr is nil or a sockaddr of ai_addrlen bytes inside the live list.
+                guard let sockaddr = unsafe info.pointee.ai_addr else { continue }
+                // SAFETY: sa_family is the first field of every sockaddr.
+                let family = unsafe Int32(clamping: sockaddr.pointee.sa_family)
+                switch family {
+                case AF_INET:
+                    // SAFETY: getaddrinfo gives AF_INET only to a sockaddr_in; the rebound
+                    // view is read once, inside the closure, while the list is live.
+                    let address = unsafe sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+                        unsafe $0.pointee.sin_addr
                     }
+                    addresses.append(IrxTunnelIPAddress(kernel: address))
+                case AF_INET6:
+                    // SAFETY: as for AF_INET, with a sockaddr_in6.
+                    let address = unsafe sockaddr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) {
+                        unsafe $0.pointee.sin6_addr
+                    }
+                    addresses.append(IrxTunnelIPAddress(kernel: address))
+                default:
+                    break
                 }
-                cursor = info.pointee.ai_next
             }
             return addresses
         }.value
@@ -100,7 +113,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
 }
 
 /// An `NWConnection` behind async calls.
-final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
+final class IrxTunnelNWChannel: IrxTunnelByteChannel {
     private let connection: NWConnection
 
     private init(connection: NWConnection) {
@@ -227,32 +240,35 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
 
 /// Resumes the connect continuation exactly once, from whichever of state
 /// change, timeout, or cancellation comes first.
-private final class IrxTunnelConnectOutcome: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>?
-    private var pending: Result<Void, IrxTunnelOpenError>?
+final class IrxTunnelConnectOutcome: Sendable {
+    private typealias Outcome = Result<Void, IrxTunnelOpenError>
+
+    private struct State: Sendable {
+        var continuation: CheckedContinuation<Outcome, Never>?
+        var pending: Outcome?
+    }
+
+    private let state = Mutex(State())
 
     func install(_ continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
-        lock.lock()
-        if let pending {
-            lock.unlock()
-            continuation.resume(returning: pending)
-            return
+        let pending: Outcome? = state.withLock { state in
+            if let pending = state.pending { return pending }
+            state.continuation = continuation
+            return nil
         }
-        self.continuation = continuation
-        lock.unlock()
+        if let pending {
+            continuation.resume(returning: pending)
+        }
     }
 
     func finish(_ result: Result<Void, IrxTunnelOpenError>) {
-        lock.lock()
-        guard pending == nil else {
-            lock.unlock()
-            return
+        let continuation: CheckedContinuation<Outcome, Never>? = state.withLock { state in
+            guard state.pending == nil else { return nil }
+            state.pending = result
+            let continuation = state.continuation
+            state.continuation = nil
+            return continuation
         }
-        pending = result
-        let continuation = self.continuation
-        self.continuation = nil
-        lock.unlock()
         continuation?.resume(returning: result)
     }
 }

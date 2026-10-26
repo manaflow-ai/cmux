@@ -137,7 +137,7 @@ final class StripScrollbarView: NSView {
             hideTimer.cancel()
             return
         }
-        hideTimer.schedule(after: Self.idleDelay) { @MainActor [weak self] in
+        hideTimer.scheduleOnMain(after: Self.idleDelay) { [weak self] in
             guard let self, self.appliedMode == .auto, !self.isHovered, self.drag == nil else { return }
             self.setShown(false)
         }

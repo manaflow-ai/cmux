@@ -175,7 +175,10 @@ private func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer
     return body(pointers)
 }
 
-// Written once, off the main thread, before any crash path can read it in practice; a signal
-// handler reads it, so a plain global (an Int32 store is atomic on arm64 and x86_64).
-// crash-allow: one aligned Int32 written once at launch, then only read (signal-handler state).
+// Threads: written once at launch on the crash watcher's child-launcher queue (ChildProcessLauncher, one serial
+// queue, which also reads it in its install guard); read by arm() in fatal-signal handlers on whichever thread
+// faulted, and in the uncaught-exception handler. No lock: a signal handler that waits for a lock the interrupted
+// thread holds never returns, and os_unfair_lock is not async-signal-safe; no Atomic: its lazy initializer would run in
+// the handler. So a plain aligned Int32 with a constant initial value (its store is one instruction on arm64 and x86_64).
+// crash-allow: async-signal-safe global, written once on the launcher queue, read by signal handlers (why no lock: above).
 nonisolated(unsafe) private var watcherDescriptor: Int32 = -1

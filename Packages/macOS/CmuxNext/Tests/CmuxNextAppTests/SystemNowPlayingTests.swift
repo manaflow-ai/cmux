@@ -453,7 +453,7 @@ import Testing
 }
 
 /// The trace clock's uptime that a test moves.
-private final class UptimeNanos: Sendable {
+private nonisolated final class UptimeNanos: Sendable {
     private let value: Mutex<UInt64>
 
     init(_ nanos: UInt64) {

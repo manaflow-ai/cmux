@@ -35,6 +35,7 @@ extension BackgroundWork {
                                          fileID: StaticString = #fileID, line: UInt = #line,
                                          _ body: @escaping @Sendable () throws -> T) async throws -> T {
         try Task.checkCancellation()
+        noteAwaited(priority, site: CallSite(fileID: fileID, line: line))
         let start = max(priority, WorkPriority(Task.currentPriority))
         return try await enqueue(nextID(), on: .system, at: start, cap: .hostResolution, shutdown: shutdown,
                                  site: CallSite(fileID: fileID, line: line), body)

@@ -2,11 +2,12 @@ import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
 public nonisolated enum CEFDevToolsRawSend: Hashable, Sendable {
+    /// Handed to the browser. The CEF relay reports a message the browser then refuses as a CDP
+    /// error reply on its stream (``CEFAgentRelay/send(_:)``).
     case sent
     /// The tab has no Chromium browser (never shown, or closed).
     case noBrowser
-    /// The shim refused the message (not a JSON object, an "id" below 2^30,
-    /// or Chromium refused it).
+    /// Refused before it was sent: the message has no one integer top-level raw id (>= 2^30).
     case refused
 }
 
@@ -53,13 +54,41 @@ public final class CEFAgentRelay {
         if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
     }
 
-    /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
+    /// Sends one raw DevTools message in this turn, in order with the tab's other ops; its "id"
+    /// must be a raw id (>= 2^30). The shim's answer (1 sent, 0 the browser is gone, -1 refused)
+    /// is the call's own in process and the host's REPLY in host mode
+    /// (``CEFRuntime/whenSettled(_:label:timeout:then:)``). A message that cannot get Chromium's
+    /// own reply (0, -1, or a host that exited or was never attached) comes back on the relay's
+    /// stream as a CDP error reply with the message's id, as Chromium answers a message it cannot
+    /// dispatch (`DevToolsSession::DispatchProtocolMessage`,
+    /// content/browser/devtools/devtools_session.cc): `DevToolsAgentHost::DispatchProtocolMessage`
+    /// returns nothing, and the client learns of a failure from the protocol. A host that has not
+    /// answered by the deadline gets no made-up error: it may have sent the message, whose real
+    /// reply then still comes, and the relay's close answers whatever stays pending.
+    /// A message without one integer top-level raw id is `.refused` here, before anything is sent.
     public func send(_ message: String) -> CEFDevToolsRawSend {
-        guard let tab, !tab.isClosed, let browser = tab.browserID, let shim = tab.runtime.shim else { return .noBrowser }
-        switch message.withCString({ shim.devToolsSend(browser, $0) }) {
-        case 1: return .sent
-        case 0: return .noBrowser
-        default: return .refused
+        guard let tab, !tab.isClosed, let browser = tab.browserID, tab.runtime.shim != nil else { return .noBrowser }
+        guard let id = CEFDevToolsRawMessage.topLevelID(in: message), CEFDevToolsRawMessage.isRawID(id) else { return .refused }
+        let sent = tab.runtime.sendAsync { shim in message.withCString { shim.devToolsSend(browser, $0) } }
+        tab.runtime.whenSettled(sent, label: "devtools send") { [weak self] settled in
+            guard let text = Self.unansweredText(settled),
+                  let reply = CEFDevToolsRawMessage.errorReply(id: id, sessionID: CEFDevToolsRawMessage.sessionID(in: message), text: text)
+            else { return }
+            self?.sink?(reply)
+        }
+        return .sent
+    }
+
+    /// The error text for a send whose real reply cannot come; nil when Chromium took it, or when a
+    /// late answer is still possible (a passed deadline, a REPLY that did not decode).
+    static func unansweredText(_ settled: Result<Int32, CEFHostReplyError>) -> String? {
+        switch settled {
+        case .success(1): nil
+        case .success(0): "the tab's page has no browser"
+        case .success: "Chromium refused the message"
+        case .failure(.hostGone): "the Chromium Host exited"
+        case .failure(.unsent): "the Chromium Host is not attached"
+        case .failure: nil
         }
     }
 

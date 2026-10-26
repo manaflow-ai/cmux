@@ -59,19 +59,32 @@
       "args": {
         "method": "pane.viewport_width.set",
         "params": {
-          "columns": -1
+          "columns": 40
         },
         "idempotencyKey": "pane-viewport-width-set-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "pane is not in viewport layout"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "columns breaks its catalog type (value must be an unsigned 16-bit integer); the daemon's catalog check refuses it"
+      "note": "a pane outside a viewport layout has no column width: operation.failed"
+    },
+    {
+      "id": "no-viewport",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/kind",
+        "equals": "leaf",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

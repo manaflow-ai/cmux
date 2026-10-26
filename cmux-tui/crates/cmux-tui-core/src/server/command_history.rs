@@ -57,19 +57,30 @@ pub(super) fn handle(mux: &Arc<Mux>, client: u64, command: Command) -> anyhow::R
             });
             mux.list_terminal_commands(after_id, limit)
         }
-        Command::DeleteTerminalCommands(DeleteParams { ids, started_since_ms, all }) => {
-            let deletion = match (ids, started_since_ms, all) {
-                (Some(ids), None, false) => CommandDeletion::Ids(
-                    ids.iter().map(|id| decimal(id)).collect::<anyhow::Result<_>>()?,
-                ),
-                (None, Some(since), false) => CommandDeletion::StartedSince(decimal(&since)?),
-                (None, None, true) => CommandDeletion::All,
-                _ => anyhow::bail!("bad request: give exactly one of ids, started_since_ms or all"),
-            };
-            mux.delete_terminal_commands(deletion)
-        }
+        // Answered from the history worker (super::deferred_commands).
         _ => anyhow::bail!("not a terminal command history command"),
     }
+}
+
+/// The rows a `delete-terminal-commands` request names, after the trust
+/// check every command history request makes.
+pub(super) fn deletion(
+    mux: &Mux,
+    client: u64,
+    DeleteParams { ids, started_since_ms, all }: DeleteParams,
+) -> anyhow::Result<CommandDeletion> {
+    anyhow::ensure!(
+        mux.control_clients.is_unix(client),
+        "terminal command history requires a trusted local connection"
+    );
+    Ok(match (ids, started_since_ms, all) {
+        (Some(ids), None, false) => {
+            CommandDeletion::Ids(ids.iter().map(|id| decimal(id)).collect::<anyhow::Result<_>>()?)
+        }
+        (None, Some(since), false) => CommandDeletion::StartedSince(decimal(&since)?),
+        (None, None, true) => CommandDeletion::All,
+        _ => anyhow::bail!("bad request: give exactly one of ids, started_since_ms or all"),
+    })
 }
 
 /// `cmux_shell` is a reserved journal producer id (development builds

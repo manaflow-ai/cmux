@@ -99,7 +99,7 @@ extension PageWebView {
             }
             self?.finishClaim(generation, path)
         }
-        state.deadline.schedule(after: state.budget) { @MainActor [weak self] in
+        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut)
         }
     }

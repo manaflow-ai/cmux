@@ -9,8 +9,8 @@ import Foundation
 /// is loaded only when the first CEF tab is created, so a session without CEF
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
-/// Immutable C function pointers: safe to hand from the loading thread to the
-/// main thread.
+/// Immutable C function pointers and the immutable resolver they came from
+/// (`dlsym` on a handle never closed): safe to hand from the loading thread to the main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     /// `cmux_shim_schedule_delayed_fn`: ctx, run time (uptime ns, `Int64.max` for none), leeway ns,
@@ -52,6 +52,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
+    /// with no key window (0 when the fork lacks it or the page is not detached).
+    let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
+    /// fork took it). Nil on a shim without the export (task p03-rendering-058).
+    let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -201,9 +207,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
-    /// Answers the browser's next certificate error `code` on `host`:
-    /// continue (0), or let Chromium's own interstitial decide (1); 0 when
-    /// the browser is gone.
+    /// Answers the browser's next certificate error `code` on `host`: continue (0), or let
+    /// Chromium's own interstitial decide (1); 0 when the browser is gone.
     let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -231,6 +236,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    let widgets: CEFShimWidgetOps
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
+    /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView*), below its other subviews; 1 attached, 0
+    /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
+    /// mode, where no view pointer crosses the process.
+    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -300,40 +311,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         return library
     }
 
-    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
-    private struct Resolver {
-        let symbol: (String) -> UnsafeMutableRawPointer?
-        /// Host mode: the optional exports the Chromium Host's shim defines (its hello). Nil takes
-        /// every optional export `symbol` finds.
-        var hostExports: Set<String>?
+    /// Where every function came from (``overriding(_:)`` resolves the others the same way).
+    let resolver: Resolver
 
-        func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
-            return unsafeBitCast(symbol, to: T.self)
-        }
-
-        /// A function only newer shims export: nil when this one has none.
-        func optional<T>(_ name: String) -> T? {
-            guard hostExports?.contains(name) ?? true else { return nil }
-            return symbol(name).map { unsafeBitCast($0, to: T.self) }
-        }
-    }
-
-    /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
-    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
-        try CEFShimLibrary(Resolver(symbol: symbol))
-    }
-
-    /// Host mode's functions (``CEFRemoteShim``): every required export from `symbol`, an optional
-    /// one only when the host's shim defines it (`hostExports`, from the host's hello). The remote
-    /// shim exports all of them, so without this `CEFForkFeatures` would see the remote dylib and
-    /// not the host's fork.
-    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?,
-                          hostExports: Set<String>) throws(LoadError) -> CEFShimLibrary {
-        try CEFShimLibrary(Resolver(symbol: symbol, hostExports: hostExports))
-    }
-
-    private init(_ r: Resolver) throws(LoadError) {
+    /// Every function from `r` (`open`; `resolving` and `overriding` in CEFShimLibrary+Resolver.swift).
+    init(_ r: Resolver) throws(LoadError) {
+        resolver = r
         abiIDFn = try r("cmux_shim_abi_id")
         load = try r("cmux_shim_load")
         forkAPIVersion = try r("cmux_shim_fork_api_version")
@@ -348,6 +331,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
+        browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
@@ -455,6 +440,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
+                                   sendInput: r.optional("cmux_shim_widget_send_input"))
+        browserAttachView = r.hostExports == nil ? r.optional("cmux_shim_browser_attach_view") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")

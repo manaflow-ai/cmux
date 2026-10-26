@@ -7,6 +7,14 @@ import CmuxNextSettings
 /// window shows it (sections, rows, the shown conversation), the user's
 /// Chiefs and team size, for preflights on a never-key test window.
 extension DebugHome {
+    /// Whether AppKit shows `view` in a window: what a test sees, read from AppKit itself, so a check
+    /// can compare a view's visibility node with it.
+    static func isOnScreen(_ view: NSView?) -> Bool {
+        guard let view, view.window != nil else { return false }
+        // visibility-walk-allow: debug.home reports AppKit's own hidden state once per request, the ground truth a test checks the nodes against
+        return !view.isHiddenOrHasHiddenAncestor
+    }
+
     static func frame(_ rect: NSRect) -> CmuxNextSettings.JSONValue {
         .object(["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
                  "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
@@ -92,7 +100,7 @@ extension DebugHome {
                     "key": .string(tab.key),
                     "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
                         .map { .string($0) } ?? .null,
-                    "visible": .bool(tab.view.window != nil && !tab.view.isHiddenOrHasHiddenAncestor),
+                    "visible": .bool(isOnScreen(tab.view)),
                     "shown": tab.view.shown.map { .string($0.rawValue) } ?? .null,
                     "transcript_tail": .array((transcript?.debugMessageTexts() ?? []).map { .string($0) }),
                 ])

@@ -86,7 +86,7 @@ final class SidebarPullRequestCardController {
     }
 
     private func scheduleClose() {
-        closer.schedule(after: Self.grace) { @MainActor [weak self] in self?.closeUnlessPointed() }
+        closer.scheduleOnMain(after: Self.grace) { [weak self] in self?.closeUnlessPointed() }
     }
 
     private func closeUnlessPointed() {
