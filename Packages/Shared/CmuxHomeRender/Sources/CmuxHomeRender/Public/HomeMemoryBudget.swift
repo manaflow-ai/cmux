@@ -4,8 +4,8 @@ public import Foundation
 /// pictures. The host sizes it (the Mac from its memory budget, iOS from the device's memory), so the
 /// render core has no cache size of its own.
 ///
-/// Text measurements are not capped by it: they follow the loaded transcript, and the controller counts
-/// them in ``HomeController/memoryBytes`` and drops them only when asked to go to nothing.
+/// Text measurements are not capped by it: they follow the loaded transcript, every commit reads them, and
+/// the controller reports them (``HomeController/measurementBytes``) without dropping them.
 ///
 /// ```swift
 /// controller.memoryBudget = HomeMemoryBudget(bytes: share)

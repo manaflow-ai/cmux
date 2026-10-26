@@ -2,50 +2,62 @@
 /// them with its memory coordinator (CmuxNextHome's `HomeRenderMemoryConsumer`); iOS sizes them
 /// once with `memoryBudget`.
 ///
-/// Everything dropped here is lossless. A row on screen keeps the bitmap and picture its layers
-/// show; the next miss draws or loads it again off the main actor.
+/// The budget covers the row bitmaps and decoded pictures. The rows on screen always keep theirs
+/// (their layers hold them, so dropping them would free nothing and draw or load them again on the
+/// next commit), and a pooled row holds no image, so ``memoryBytes`` is what the caches hold.
+/// Text measurements are the transcript's working set: every commit reads them, and the model's
+/// rows share their layouts, so they are reported (``measurementBytes``) and never dropped.
 extension HomeController {
-    /// The bytes the caches hold now: row bitmaps and decoded pictures (pixel bytes) and text
-    /// measurements (estimated). Read from counters, never a walk.
+    /// The bytes the row bitmap and picture caches hold now (pixel bytes). Read from counters,
+    /// never a walk.
     public var memoryBytes: Int {
-        scene.bitmaps.bytes + scene.media.bytes + builder.measure.bytes
+        scene.bitmaps.bytes + scene.media.bytes
     }
 
-    /// The entries the caches hold now (bitmaps, pictures and measurements).
+    /// The entries the row bitmap and picture caches hold now.
     public var memoryEntryCount: Int {
-        scene.bitmaps.count + scene.media.count + builder.measure.count
+        scene.bitmaps.count + scene.media.count
     }
 
-    /// Frees now down to `fraction` of ``memoryBytes``, the oldest bitmaps and pictures first.
-    /// Measurements, which every commit reads, go only when the bitmaps and pictures alone cannot
-    /// reach the target, so `0` drops everything. The budget stays as it is.
+    /// The estimated bytes of the text measurements: they follow the loaded transcript and are
+    /// never dropped (the next commit would measure the whole transcript again on the main actor).
+    public var measurementBytes: Int {
+        builder.measure.bytes
+    }
+
+    /// The text measurements kept.
+    public var measurementCount: Int {
+        builder.measure.count
+    }
+
+    /// Frees now down to `fraction` of ``memoryBytes``: the oldest bitmaps and the least recently
+    /// used pictures first, in the same share from each. What the rows on screen show stays, so
+    /// `0` leaves exactly that. The budget stays as it is.
     ///
     /// - Parameter fraction: The share of what the caches hold now to keep, 0...1 (NaN keeps all).
     public func trim(toFraction fraction: Double) {
         guard !fraction.isNaN else { return }
-        let total = memoryBytes
-        let target = CrashGuard.int(Double(total) * min(max(fraction, 0), 1), in: 0...total)
-        let pictures = scene.bitmaps.bytes + scene.media.bytes
-        let room = target - builder.measure.bytes
-        guard room >= 0 else {
-            scene.bitmaps.trim(toBytes: 0)
-            scene.media.trim(toBytes: 0)
-            builder.measure.removeAll()
-            return
-        }
-        guard room < pictures else { return }
-        let share = Double(room) / Double(pictures)
-        scene.bitmaps.trim(toBytes: CrashGuard.int(Double(scene.bitmaps.bytes) * share, in: 0...scene.bitmaps.bytes))
-        scene.media.trim(toBytes: CrashGuard.int(Double(scene.media.bytes) * share, in: 0...scene.media.bytes))
+        let share = min(max(fraction, 0), 1)
+        let bitmaps = scene.bitmaps.bytes
+        let pictures = scene.media.bytes
+        scene.bitmaps.trim(toBytes: CrashGuard.int(Double(bitmaps) * share, in: 0...bitmaps))
+        scene.media.trim(toBytes: CrashGuard.int(Double(pictures) * share, in: 0...pictures))
     }
 
-    /// The host hid the transcript (a parked tab, an unselected conversation): drops every bitmap,
-    /// picture and measurement and every row drawn only ahead of need. Work a row on screen waits
-    /// for still reaches it but is not kept, so ``memoryBytes`` stays 0 until the next commit
-    /// measures again or the next miss draws. The budget stays as it is.
-    public func releaseHidden() {
-        scene.bitmaps.releaseHidden()
-        scene.media.releaseHidden()
-        builder.measure.removeAll()
+    /// The host hid (a parked tab, an unselected conversation) or showed the transcript.
+    ///
+    /// Hiding returns every row to the pool with no image, cancels every draw and load, and empties
+    /// the bitmap and picture caches, so ``memoryBytes`` is 0. While hidden, updates change the
+    /// model and layout only: no row shows, draws or loads. Showing lays out once to the final
+    /// state, and the rows on screen draw again off the main actor. The budget stays as it is.
+    ///
+    /// - Parameter hidden: Whether the transcript is hidden.
+    public func setHidden(_ hidden: Bool) {
+        scene.setHidden(hidden)
+    }
+
+    /// Whether the host hid the transcript (``setHidden(_:)``).
+    public var isHidden: Bool {
+        scene.isHidden
     }
 }

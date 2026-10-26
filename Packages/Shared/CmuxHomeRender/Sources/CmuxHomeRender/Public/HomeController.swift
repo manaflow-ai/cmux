@@ -75,7 +75,7 @@ public final class HomeController {
     }
     /// What the row bitmap and picture caches keep together. Lowering it frees
     /// nothing (the next store drops the oldest); `trim(toFraction:)` and
-    /// `releaseHidden()` free now (HomeController+Memory.swift).
+    /// `setHidden(true)` free now (HomeController+Memory.swift).
     public var memoryBudget: HomeMemoryBudget {
         didSet {
             scene.bitmaps.maxBytes = memoryBudget.rowBitmapBytes

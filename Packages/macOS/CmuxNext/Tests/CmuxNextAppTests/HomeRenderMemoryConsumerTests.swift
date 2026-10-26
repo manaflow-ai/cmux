@@ -8,7 +8,8 @@ import Testing
 
 /// The Home render caches as memory consumers (p07-memory-080): one lossless consumer per live
 /// controller with an equal share of the group's budget, scaled by the limit; a release trims to it,
-/// limit 0 and a hidden transcript keep nothing, and rows draw again afterwards.
+/// limit 0 keeps only what the rows on screen show, the measurements stay, a hidden transcript holds
+/// no image, and rows draw again afterwards.
 @MainActor
 struct HomeRenderMemoryConsumerTests {
     /// A registry that hands each new consumer `limit` at once, as the coordinator does.
@@ -58,6 +59,11 @@ struct HomeRenderMemoryConsumerTests {
         await c.bitmapsSettled()
     }
 
+    /// The memory report of a controller that holds no bitmap or picture: its measurements alone.
+    private static func measurementsOnly(_ c: HomeController) -> MemoryUsage {
+        MemoryUsage(footprintBytes: c.measurementBytes, entries: c.measurementCount)
+    }
+
     @Test func eachControllerRegistersOnceAndSharesTheBudgetEqually() {
         let registry = FakeRegistry()
         let group = HomeRenderMemoryConsumers(budgetBytes: 120 * Self.mebibyte, registry: registry)
@@ -91,29 +97,33 @@ struct HomeRenderMemoryConsumerTests {
         #expect(c.memoryBudget.bytes == 60 * Self.mebibyte)
     }
 
-    @Test func aReleaseTrimsToTheLimitAndLimitZeroKeepsNothingUntilRowsDrawAgain() async {
+    @Test func aReleaseTrimsToTheLimitAndLimitZeroKeepsOnlyWhatTheScreenShows() async {
         let c = Self.controller()
         await Self.show(12, in: c)
+        let onScreen = c.memoryBytes
+        #expect(onScreen > 0)
+        await Self.show(400, in: c)  // the rows drawn for the first 12 scrolled away
         let held = c.memoryBytes
-        #expect(held > 0)
+        #expect(held > onScreen)
         let group = HomeRenderMemoryConsumers(budgetBytes: held, registry: FakeRegistry())
         let consumer = group.register(c)
         #expect(c.memoryBytes == held, "registering lowers caps and frees nothing")
 
-        #expect(consumer.releaseMemory(within: Self.slice(50)) == .done)
-        #expect(c.memoryBytes <= held / 2)
-
         #expect(consumer.releaseMemory(within: Self.slice(0)) == .done)
-        #expect(c.memoryBytes == 0)
-        #expect(consumer.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0))
+        #expect(c.memoryBytes < held)
+        #expect(c.memoryBytes > 0, "the rows on screen keep what their layers show")
+        let measurements = c.measurementBytes
+        #expect(measurements > 0, "measurements are never released")
+        #expect(consumer.memoryUsage?.footprintBytes == c.memoryBytes + measurements)
 
+        let kept = c.memoryBytes
         consumer.updateMemoryLimit(.default)
         #expect(c.memoryBudget.bytes == held)
-        await Self.show(13, in: c)
-        #expect(c.memoryBytes > 0, "the next commit measures and draws again")
+        await Self.show(401, in: c)
+        #expect(c.memoryBytes >= kept, "the next commit draws again")
     }
 
-    @Test func aHiddenTranscriptReportsZeroBytesUntilItShowsAgain() async {
+    @Test func aHiddenTranscriptHoldsNoImageUntilItShowsAgain() async {
         let group = HomeRenderMemoryConsumers(budgetBytes: 120 * Self.mebibyte, registry: FakeRegistry())
         let c = Self.controller()
         let consumer = group.register(c)
@@ -122,8 +132,9 @@ struct HomeRenderMemoryConsumerTests {
         #expect(shown > 0)
 
         consumer.setHidden(true)
+        #expect(c.isHidden)
         #expect(c.memoryBytes == 0)
-        #expect(consumer.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0))
+        #expect(consumer.memoryUsage == Self.measurementsOnly(c), "only the measurements every commit reads stay")
         #expect(c.memoryBudget.bytes == 0)
 
         consumer.setHidden(false)

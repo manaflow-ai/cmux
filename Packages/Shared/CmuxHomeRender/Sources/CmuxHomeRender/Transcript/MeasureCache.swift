@@ -6,10 +6,11 @@ import Foundation
 /// Core Text only for parts whose lines can change (`TextLayout.isValid`);
 /// every other part keeps its layout, so its row spec and bitmap stay equal.
 ///
-/// Every commit reads one entry per shown part, so the cache is the
-/// transcript's working set: it is never capped, only dropped whole on
-/// request (`removeAll`). `bytes` estimates what it holds from counters it
-/// keeps (entries, lines, ranges and text), never from a walk on read.
+/// Every commit reads one entry per shown part, and the model's rows share
+/// its layouts, so the cache is the transcript's working set: it follows the
+/// loaded items (`trim(keeping:)`) and no memory policy drops it. `bytes`
+/// estimates what it holds, for the memory report, from counters it keeps
+/// (entries, lines, ranges and text), never from a walk on read.
 @MainActor
 final class MeasureCache { // memory: consumer via HomeRenderMemoryConsumer (CmuxNextHome)
     struct Key: Hashable {
@@ -60,12 +61,6 @@ final class MeasureCache { // memory: consumer via HomeRenderMemoryConsumer (Cmu
         guard entries.count > 2 * items.count + 200 else { return }
         entries = entries.filter { items.contains($0.key.item) }
         bytes = entries.values.reduce(0) { $0 + Self.bytes(of: $1) }
-    }
-
-    /// Drops every measurement; the next commit measures its parts again.
-    func removeAll() {
-        entries.removeAll()
-        bytes = 0
     }
 
     /// An entry's estimated bytes: the key and entry, its lines, its bold

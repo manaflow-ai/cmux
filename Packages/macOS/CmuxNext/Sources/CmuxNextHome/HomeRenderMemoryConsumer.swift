@@ -8,7 +8,7 @@ public import CmuxNextCompat
 /// Chrome registers each cache as its own consumer where it is built
 /// (base/memory_coordinator/memory_consumer.h); the render core is shared with iOS and knows no
 /// CmuxNext type, so this adapter registers its engine-neutral surface (`memoryBudget`,
-/// `memoryBytes`, `trim(toFraction:)`, `releaseHidden()`).
+/// `memoryBytes`, `measurementBytes`, `trim(toFraction:)`, `setHidden(_:)`).
 ///
 /// ```swift
 /// let consumer = homeRenderMemory.register(controller)  // the host keeps it with the controller
@@ -68,7 +68,9 @@ public final class HomeRenderMemoryConsumers {
 
 /// One `HomeController`'s caches as a lossless memory consumer: the limit scales its share of the
 /// group's budget, a release trims the oldest bitmaps and pictures down to it, and a hidden
-/// transcript keeps nothing.
+/// transcript keeps no bitmap or picture. The rows on screen keep theirs at any limit (their layers
+/// hold them; Chrome's cc keeps the tiles of the visible rect the same way), and the text
+/// measurements are reported but never released: every commit reads them.
 @MainActor
 public final class HomeRenderMemoryConsumer {
     /// Large (a screen of row bitmaps and the screens around it), dropped by unlinking, and drawn
@@ -111,14 +113,15 @@ public final class HomeRenderMemoryConsumer {
     }
 
     /// The host hid (a parked tab, an unselected conversation) or showed the transcript. Hiding drops
-    /// its caches at once; showing gives the budget back, and rows draw again as they are asked for.
+    /// every bitmap and picture at once, the rows' included, and stops drawing until it shows; showing
+    /// gives the budget back and lays out once, and the rows on screen draw again.
     ///
     /// - Parameter hidden: Whether the transcript is hidden.
     public func setHidden(_ hidden: Bool) {
         guard hidden != isHidden else { return }
         isHidden = hidden
         applyBudget()
-        if hidden { controller?.releaseHidden() }
+        controller?.setHidden(hidden)
     }
 
     /// The controller closed: the coordinator stops calling, and the other members share its part.
@@ -148,7 +151,8 @@ extension HomeRenderMemoryConsumer: MemoryConsumer {
     }
 
     /// Trims the oldest bitmaps and pictures down to what the slice's limit allows, in one pass of
-    /// dictionary unlinks (rows on screen keep the images their layers show).
+    /// dictionary unlinks. Only the budgeted caches are compared with the limit: what the rows on
+    /// screen show stays (releasing it frees nothing their layers hold) and measurements stay.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         updateMemoryLimit(slice.limit)
         guard let controller else { return .done }
@@ -158,9 +162,11 @@ extension HomeRenderMemoryConsumer: MemoryConsumer {
         return .done
     }
 
-    /// What the controller's caches hold now; nothing once the controller is gone.
+    /// What the controller holds now: bitmaps, pictures and text measurements; nothing once the
+    /// controller is gone.
     public var memoryUsage: MemoryUsage? {
         guard let controller else { return .empty }
-        return MemoryUsage(footprintBytes: controller.memoryBytes, entries: controller.memoryEntryCount)
+        return MemoryUsage(footprintBytes: controller.memoryBytes + controller.measurementBytes,
+                           entries: controller.memoryEntryCount + controller.measurementCount)
     }
 }

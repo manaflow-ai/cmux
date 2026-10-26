@@ -11,17 +11,26 @@ import CoreGraphics
 /// outgoing fill is its own layer), as the prototype did during a fast
 /// scroll. `prefetch` draws rows near the viewport before they scroll in.
 ///
-/// The host sizes the cache (`maxBytes`, its ``HomeMemoryBudget`` share):
-/// a store past it drops the oldest bitmaps to three quarters of it, and
-/// `trim(toBytes:)` and `releaseHidden()` give bytes back on request.
-/// Dropping is lossless: a row on screen keeps the image its layer shows,
-/// and the next miss draws it again.
+/// The host sizes the cache (`maxBytes`, its ``HomeMemoryBudget`` share) and
+/// the scene says which rows matter, as cc's tile manager gives memory to
+/// tiles by priority bin (cc/tiles/tile_manager.cc, `AssignGpuMemoryToTiles`):
+/// the bitmaps of rows on screen (`show`) are never dropped, since their
+/// layers hold them anyway; rows near the viewport (`prefetch`) are drawn
+/// ahead only while they fit in the budget beside them, and are kept once
+/// drawn. A store past `maxBytes` drops the oldest other bitmaps to three
+/// quarters of it; `trim(toBytes:)` and `releaseHidden()` give bytes back on
+/// request.
 @MainActor
 final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxNextHome)
     private struct Key: Hashable {
         var kind: RowSpec.Kind
         var height: CGFloat
         var palette: Int
+    }
+
+    private struct Job {
+        let id: Int
+        let task: Task<Void, Never>
     }
 
     private var cache: [Key: CGImage] = [:]
@@ -32,9 +41,13 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
     /// The most pixel bytes the cache keeps. Lowering it frees nothing: the
     /// next store drops the oldest bitmaps down to it.
     var maxBytes: Int
-    /// Jobs whose image goes to the rows that asked but is not kept (they
-    /// were in flight when the host hid the transcript).
-    private var installOnly: Set<Key> = []
+    /// The rows on screen: no store or trim drops their bitmaps.
+    private var shown: Set<Key> = []
+    /// What the bitmaps of the rows on screen hold, estimated for those still drawing.
+    private var shownBytes = 0
+    /// The rows drawn ahead near the viewport: a store keeps them, a trim on
+    /// request drops them after every other bitmap.
+    private var near: Set<Key> = []
     /// Render jobs started (tests read it to prove a reflow redraws only changed rows).
     private(set) var renderCount = 0
     /// Bumped when the palette changes; old bitmaps and jobs stop matching.
@@ -44,7 +57,8 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
     private(set) var scale: CGFloat = Canvas.scale
 
     /// In-flight jobs and the installers waiting for each.
-    private var jobs: [Key: Task<Void, Never>] = [:]
+    private var jobs: [Key: Job] = [:]
+    private var lastJob = 0
     private var waiters: [Key: [@MainActor (CGImage) -> Void]] = [:]
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -71,36 +85,74 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
         cache.removeAll()
         order.removeAll()
         bytes = 0
-        for (_, job) in jobs { job.cancel() }
+        shown.removeAll()
+        shownBytes = 0
+        near.removeAll()
+        cancelJobs()
+    }
+
+    private func cancelJobs() {
+        for (_, job) in jobs { job.task.cancel() }
         jobs.removeAll()
         waiters.removeAll()
-        installOnly.removeAll()
         resumeIdleWaitersIfDone()
     }
 
     /// Cached bitmaps.
     var count: Int { cache.count }
 
-    /// Drops the oldest bitmaps until the cache holds at most `target` bytes.
-    func trim(toBytes target: Int) {
-        var n = 0
-        while n < order.count, bytes > target {
-            if let key = order[checked: n], let old = cache.removeValue(forKey: key) { bytes -= Self.bytes(of: old) }
-            n += 1
-        }
-        order.removeFirst(n)
+    /// The bytes of the cached bitmaps of the rows on screen.
+    var shownCachedBytes: Int {
+        shown.reduce(0) { $0 + (cache[$1].map(Self.bytes(of:)) ?? 0) }
     }
 
-    /// The transcript is hidden: drops every bitmap and every job that only
-    /// draws ahead of need; a job a row waits for still installs its image
-    /// but does not keep it.
-    func releaseHidden() {
-        trim(toBytes: 0)
-        for key in jobs.keys.filter({ waiters[$0] == nil }) {
-            jobs.removeValue(forKey: key)?.cancel()
+    /// The rows on screen now, with their bitmap sizes: no store or trim drops
+    /// their bitmaps until they leave the screen.
+    func show(_ rows: [(spec: RowSpec, size: CGSize)]) {
+        shown.removeAll(keepingCapacity: true)
+        shownBytes = 0
+        for row in rows {
+            let key = key(row.spec)
+            guard shown.insert(key).inserted else { continue }
+            shownBytes += cache[key].map(Self.bytes(of:)) ?? estimatedBytes(row.size)
         }
-        installOnly.formUnion(jobs.keys)
-        resumeIdleWaitersIfDone()
+    }
+
+    /// The rows near the viewport, nearest first. Each one is drawn ahead (or
+    /// kept, when cached) while it fits in `maxBytes` beside the rows on
+    /// screen; the rest are drawn when they scroll in. So a small budget draws
+    /// nothing ahead, and nothing drawn ahead is dropped by the next store and
+    /// drawn again.
+    func prefetch(_ rows: [(spec: RowSpec, size: CGSize)]) {
+        near.removeAll(keepingCapacity: true)
+        var room = maxBytes - shownBytes
+        for row in rows {
+            let key = key(row.spec)
+            guard !shown.contains(key), !near.contains(key) else { continue }
+            let cost = cache[key].map(Self.bytes(of:)) ?? estimatedBytes(row.size)
+            guard cost <= room else { return }
+            room -= cost
+            near.insert(key)
+            if cache[key] == nil { start(key, spec: row.spec, size: row.size) }
+        }
+    }
+
+    /// Drops the oldest bitmaps until the cache holds at most `target` bytes:
+    /// first those of rows away from the viewport, then those drawn ahead. The
+    /// rows on screen keep theirs, so the cache can stay above `target`.
+    func trim(toBytes target: Int) {
+        drop(toBytes: target) { !near.contains($0) }
+        drop(toBytes: target) { _ in true }
+    }
+
+    /// The transcript is hidden and its rows show nothing: drops every bitmap
+    /// and every render job. The rows ask again when the transcript shows.
+    func releaseHidden() {
+        shown.removeAll()
+        shownBytes = 0
+        near.removeAll()
+        cancelJobs()
+        trim(toBytes: 0)
     }
 
     /// The cached bitmap, or nil after starting (or joining) its render job;
@@ -111,13 +163,6 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
         waiters[key, default: []].append(install)
         start(key, spec: spec, size: size)
         return nil
-    }
-
-    /// Draws `spec` ahead of need (no installer).
-    func prefetch(_ spec: RowSpec, size: CGSize) {
-        let key = key(spec)
-        guard cache[key] == nil else { return }
-        start(key, spec: spec, size: size)
     }
 
     /// True while a render job runs.
@@ -134,21 +179,25 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
     private func start(_ key: Key, spec: RowSpec, size: CGSize) {
         guard jobs[key] == nil else { return }
         renderCount += 1
+        lastJob += 1
+        let id = lastJob
         let palette = self.palette
         let scale = self.scale
-        // task-owner: kept in `jobs` until it installs; cancelled on a palette change.
-        jobs[key] = Task.detached(priority: .userInitiated) { [weak self] in
+        // task-owner: kept in `jobs` until it installs; cancelled on a palette change or a hide.
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
             let image = RowArt.render(spec, palette: palette, size: size, scale: scale)
-            await self?.finish(key, image)
+            await self?.finish(key, job: id, image)
         }
+        jobs[key] = Job(id: id, task: task)
     }
 
-    private func finish(_ key: Key, _ image: CGImage?) {
-        guard jobs.removeValue(forKey: key) != nil else { return }  // cancelled by a palette change
+    private func finish(_ key: Key, job id: Int, _ image: CGImage?) {
+        // A cancelled job no longer owns its key; a later job for the same key may.
+        guard jobs[key]?.id == id else { return }
+        jobs[key] = nil
         let installers = waiters.removeValue(forKey: key) ?? []
-        let keep = installOnly.remove(key) == nil
         if let image {
-            if keep { store(key, image) }
+            store(key, image)
             for install in installers { install(image) }
         }
         resumeIdleWaitersIfDone()
@@ -167,8 +216,34 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
         order.append(key)
         bytes += Self.bytes(of: image)
         guard bytes > maxBytes else { return }
-        trim(toBytes: maxBytes / 4 * 3)
+        drop(toBytes: maxBytes / 4 * 3) { !near.contains($0) }
+    }
+
+    /// Drops the oldest bitmaps that `droppable` allows, never one on screen,
+    /// until the cache holds at most `target` bytes.
+    private func drop(toBytes target: Int, where droppable: (Key) -> Bool) {
+        guard bytes > target else { return }
+        var kept: [Key] = []
+        var n = 0
+        while n < order.count, bytes > target {
+            if let key = order[checked: n] {
+                if shown.contains(key) || !droppable(key) {
+                    kept.append(key)
+                } else if let old = cache.removeValue(forKey: key) {
+                    bytes -= Self.bytes(of: old)
+                }
+            }
+            n += 1
+        }
+        order.replaceSubrange(0..<n, with: kept)
     }
 
     private static func bytes(of image: CGImage) -> Int { image.bytesPerRow * image.height }
+
+    /// What a bitmap of `size` points holds once drawn: 4 bytes per device pixel.
+    private func estimatedBytes(_ size: CGSize) -> Int {
+        let width = (max(0, size.width) * scale).rounded(.up)
+        let height = (max(0, size.height) * scale).rounded(.up)
+        return CrashGuard.int(Double(width) * Double(height) * 4, in: 0...(Int.max / 2))
+    }
 }
