@@ -37,18 +37,22 @@ struct PersonalGroupPin {
             send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
             return true
         case let .closeGroup(group):
-            guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }
-            // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
-            let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
-            if pinned {
-                send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }
-            } else {
-                send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) }
-            }
+            if let pinned = bridge.model.group(group)?.isPinned { closeEmptied(group, pinned: pinned) }
             return false
         default:
             return false
         }
+    }
+
+    /// The write of a group whose workspaces all closed (Close Group, or a selection's close that emptied it after its rows
+    /// left the sidebar, `WorkspaceSelectionClose`): a pinned group stays, folded; an unpinned one goes (recorded, so
+    /// Reopen Closed and the close's Undo form it again).
+    func closeEmptied(_ group: GroupID, pinned: Bool) {
+        guard isServed else { return }
+        // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
+        let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
+        if pinned { return send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) } }
+        send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) }
     }
 
     /// One home-daemon request; a failure re-syncs the sidebar.

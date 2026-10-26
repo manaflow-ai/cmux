@@ -42,7 +42,8 @@ enum WorkspaceSelectionClose {
             listed: { services.workspace(id: $0) != nil },
             liveClosed: { ids in
                 for group in emptied where group.workspaces.allSatisfy({ ids.contains($0.id.rawValue) }) {
-                    controller?.sidebar.handle(.closeGroup(group.id))
+                    // The rows left the sidebar at the press, and the group with them: write the group itself.
+                    if let bridge = controller?.sidebar { PersonalGroupPin(bridge: bridge).closeEmptied(group.id, pinned: group.isPinned) }
                     if !group.isPinned { undoGroups.append(SidebarDocStore.personalGroupID(item: group.id.rawValue)) }
                 }
             }, machines: { services.machines.daemons },
