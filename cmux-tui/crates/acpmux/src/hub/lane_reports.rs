@@ -345,7 +345,7 @@ impl Hub {
             self.lane_wake_held(lane, now);
             return;
         };
-        self.lane_hand_over(lane, due, now).await;
+        self.lane_hand_over(lane, due).await;
     }
 
     /// A report held at the cap goes when the window frees a place, though the lane may end no
@@ -380,15 +380,16 @@ impl Hub {
         self: &Arc<Self>,
         lane: &str,
         (parent, report, key): (String, Report, String),
-        now: u64,
     ) {
         if let Err(e) = self.lane_deliver(&parent, lane, &report).await {
             tracing::warn!(lane, %parent, "lane report not delivered: {}", e.message);
             return;
         }
+        // Counted from when the parent took it, not when it was taken: its admission may wait.
+        let took = now_ms();
         self.lane_links(|links| {
             let Some(l) = links.get_mut(lane).filter(|l| l.parent == parent) else { return };
-            delivered(l, &report, key, now);
+            delivered(l, &report, key, took);
         });
     }
 
@@ -840,7 +841,7 @@ mod tests {
         let taken = now_ms() - 60_000;
         let due = hub.lane_take_due(&lane.id, taken).unwrap();
         let before = now_ms();
-        hub.lane_hand_over(&lane.id, due, taken).await;
+        hub.lane_hand_over(&lane.id, due).await;
         let sent = hub.lane_links(|l| l.get(&lane.id).map(|l| l.sent.clone())).unwrap();
         assert_eq!(sent.len(), 1);
         assert!(sent[0] >= before, "counted from when it was taken, not accepted: {sent:?}");
@@ -863,7 +864,7 @@ mod tests {
         // retired its links yet: the link check passes, the parent must still refuse it.
         parent.closing.store(true, Ordering::SeqCst);
         hub.set_status(&parent, SessionStatus::Closed);
-        hub.lane_hand_over(&lane.id, due, now).await;
+        hub.lane_hand_over(&lane.id, due).await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");
         assert_eq!(parent.status(), SessionStatus::Closed, "the report reopened the parent");
@@ -895,7 +896,7 @@ mod tests {
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
         let now = now_ms();
         let due = hub.lane_take_due(&lane.id, now).unwrap();
-        hub.lane_hand_over(&lane.id, due, now).await;
+        hub.lane_hand_over(&lane.id, due).await;
         for _ in 0..100 {
             if parent.queued() > 0 {
                 break;
@@ -974,7 +975,7 @@ mod tests {
         let now = now_ms();
         let due = hub.lane_take_due(&lane.id, now).unwrap();
         hub.kill(&lane, true).await.unwrap();
-        hub.lane_hand_over(&lane.id, due, now).await;
+        hub.lane_hand_over(&lane.id, due).await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert_eq!(parent.meta().turn_count, 0, "the closed lane's report went in");
         hub.kill(&parent, true).await.unwrap();
