@@ -315,6 +315,10 @@ describe("sandbox run lifecycle", () => {
     // Progress output that rewrites its line, then a secret: the carriage return is a boundary.
     expect(tail(["loading\rsk-abcdefghijklmnopqrstuvwxyz\n"])).not.toContain("abcdefghijklmnop");
     expect(tail(["db:\n  password: |-\n", "    hunter2\n", "  host: x\n"])).not.toContain("hunter2");
+    // Cookie headers, a bare signature and a YAML block whose header carries a comment.
+    expect(tail(["Set-Cookie: session=abc123def; Path=/\n", "after\n"])).not.toContain("abc123def");
+    expect(tail(["signature: c2lnbmF0dXJlMTIz\n"])).not.toContain("c2lnbmF0dXJlMTIz");
+    expect(tail(["password: |- # rotated\n", "  hunter2\n", "host: x\n"])).not.toContain("hunter2");
     // A long line that ends in a whole value stands in for nothing: the next line is kept.
     expect(tail(["x".repeat(70_000), " password=done\n", "after\n"])).toBe("[long line omitted]\nafter\n");
   });
