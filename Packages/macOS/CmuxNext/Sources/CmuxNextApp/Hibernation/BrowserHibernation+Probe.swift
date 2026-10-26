@@ -54,7 +54,20 @@ extension BrowserHibernation {
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
+        // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
+        candidate.isAudible = tab.state.media?.isAudible == true
+        candidate.secondsSinceAudible = audible.secondsSinceAudible(key)
         return candidate
+    }
+
+    /// Follows page `key`'s sound in engine page `tab` (its tab's speaker, `BrowserTabState.media`).
+    func watchAudio(_ key: String, _ tab: any BrowserTab) {
+        audible.watch(key, tab) { [weak tab] in tab?.state.media?.isAudible == true }
+    }
+
+    /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
+    func soundDidEnd(_ key: String) {
+        if cache?.lifecycle.phase(key) == .mountedHidden { replan() }
     }
 
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs

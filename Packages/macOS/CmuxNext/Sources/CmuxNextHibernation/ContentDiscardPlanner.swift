@@ -59,6 +59,9 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
 
         /// Sound, media its mute silences, or Picture in Picture.
         package var isAudible = false
+        /// Seconds since the content last played sound (its sound ended, or a probe heard it); nil
+        /// when it never did. ``DiscardRule/recentlyAudible`` keeps it for a minute after.
+        package var secondsSinceAudible: Double?
         /// The person's edits in its form fields.
         package var hasFormInput = false
         /// The person moved into a child frame whose fields cannot be read.
@@ -160,10 +163,14 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     package func eligibility(of candidate: Candidate, setting: BrowserHibernationSetting, for reason: DiscardReason) -> DiscardEligibility {
         let context = DiscardRule.Context(browser: setting, reason: reason)
         var eligibility = DiscardEligibility()
+        var ends: Double? = 0
         for rule in rules where rule.matches(candidate, context) {
             eligibility.result = max(eligibility.result, rule.result)
             eligibility.reasons.append(rule.reason)
+            // Kept until the last time-bound rule runs out; a rule only an event ends keeps no deadline.
+            ends = ends.flatMap { latest in rule.expires(candidate).map { max(latest, $0) } }
         }
+        eligibility.endsIn = eligibility.reasons.isEmpty ? nil : ends
         return eligibility
     }
 
@@ -193,7 +200,9 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
     /// A candidate is due once its idleness reaches `threshold`. For an urgent discard, when none
     /// is due, the least valuable candidate hidden at least `Pace.minimumHidden` goes anyway, to
     /// relieve the pressure. Each pass takes at most `Pace.perPass` and looks again after
-    /// `Pace.interval` while more are waiting.
+    /// `Pace.interval` while more are waiting. A candidate kept only by rules that run out with time
+    /// (``DiscardEligibility/endsIn``, Chrome's audio protection) is looked at again once they do and
+    /// it would be due, in the same one deadline.
     ///
     /// - Parameters:
     ///   - setting: `browser.hibernation`, read by the rules of browser pages.
@@ -207,9 +216,14 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         var plan = Plan()
         let urgent = reason == .urgent
         var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
+        var expiring: [(idleness: Double, hiddenFor: Double, endsIn: Double)] = []
         for candidate in candidates {
-            if let kept = eligibility(of: candidate, setting: setting, for: reason).reason {
+            let eligibility = eligibility(of: candidate, setting: setting, for: reason)
+            if let kept = eligibility.reason {
                 plan.exemptions[candidate.key] = kept
+                if let endsIn = eligibility.endsIn {
+                    expiring.append((Self.idleness(candidate, for: reason, timeout: threshold), candidate.hiddenFor, endsIn))
+                }
                 continue
             }
             ranked.append((candidate.key, Self.idleness(candidate, for: reason, timeout: threshold), candidate.hiddenFor,
@@ -233,12 +247,22 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         }
         let dueKeys = Set(due.map(\.key))
         for page in ranked where !dueKeys.contains(page.key) {
-            let young = pace.minimumHidden - page.hiddenFor
-            var wait = max(threshold - page.idleness, young)
-            // Under pressure anything old enough is relief: look again once this one is.
-            if urgent { wait = min(wait, max(young, pace.interval)) }
-            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
+            let dueIn = Self.secondsUntilDue(page.idleness, hiddenFor: page.hiddenFor, threshold: threshold, pace: pace, urgent: urgent)
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(dueIn, 0.001))
+        }
+        for page in expiring {
+            let dueIn = Self.secondsUntilDue(page.idleness, hiddenFor: page.hiddenFor, threshold: threshold, pace: pace, urgent: urgent)
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(dueIn, page.endsIn, 0.001))
         }
         return plan
+    }
+
+    /// Seconds until a candidate that is not due now would be: its idleness reaches `threshold` and
+    /// it is hidden `Pace.minimumHidden`. Under pressure anything old enough is relief, so it is
+    /// looked at again once it is old enough, no sooner than `Pace.interval`.
+    private static func secondsUntilDue(_ idleness: Double, hiddenFor: Double, threshold: Double, pace: Pace, urgent: Bool) -> Double {
+        let young = pace.minimumHidden - hiddenFor
+        let dueIn = max(threshold - idleness, young)
+        return urgent ? min(dueIn, max(young, pace.interval)) : dueIn
     }
 }

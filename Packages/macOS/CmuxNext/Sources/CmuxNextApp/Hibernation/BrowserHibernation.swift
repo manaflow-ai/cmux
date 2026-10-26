@@ -35,7 +35,7 @@ import os
 /// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
-/// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
+/// A page never hibernates while it shows, plays (an element or Web Audio; a minute after), captures, has DevTools
 /// open, an agent holds its lease or called it lately, a download it started runs, it holds the
 /// person's form input (also in a child frame it cannot read), its `beforeunload` would ask, or it
 /// has a connected WebRTC peer or an open device; the
@@ -147,11 +147,14 @@ final class BrowserHibernation {
     /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
+    /// When each page last played sound (`DiscardRule.recentlyAudible`); the end of a hidden page's sound replans.
+    let audible = AudibleHistory()
 
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = .system) {
         self.cache = cache
         self.lowPower = lowPower
         self.memory = memory
+        audible.onEnded = { [weak self] key in self?.soundDidEnd(key) }
     }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0
@@ -282,6 +285,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         noteFocus(key, at: .now)
+        if let tab = cache?.browsers[key]?.tab { watchAudio(key, tab) }
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -331,6 +335,7 @@ final class BrowserHibernation {
         memoryBytes[key] = nil
         savedBytes[key] = nil
         probeKeptAt[key] = nil
+        audible.forget(key)
         snapshots.remove(key)
         wakeLog.forget(key)
     }
@@ -420,6 +425,7 @@ final class BrowserHibernation {
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
+            watchAudio(key, entry.tab)
             var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
             // Beside a shown tab or just hovered: stays awake for an instant switch (`DiscardRule.neighbor`).
             let hover = awakeNeighbors.contains(key) ? nil : hoverLeft(key, now: now)
@@ -497,6 +503,7 @@ final class BrowserHibernation {
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
+            if probe.playingMedia { self.audible.heard(key) }
             if probe.stopsWhenFrozen || doubted {
                 self.freezeKeptAt[key] = .now
                 self.replan()
@@ -572,6 +579,7 @@ final class BrowserHibernation {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
             } else {
                 let probe = await Self.probe(tab)
+                if probe.playingMedia { self?.audible.heard(key) }
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
@@ -638,6 +646,7 @@ final class BrowserHibernation {
         if let snapshot = saved.snapshot { keep(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
+        audible.unwatch(key)  // the placeholder plays nothing; the restored page is watched again
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
         hiddenAt[key] = nil
         // A probe that kept the page before no longer applies (`debug.surfaces`).
