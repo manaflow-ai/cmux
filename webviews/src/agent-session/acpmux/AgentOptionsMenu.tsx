@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { OnNewTab } from "./newTabComposer";
 
 /// The composer's Options chip: every config option the harness advertises that has no chip of
 /// its own (`extraConfigOptions`), each a group of its choices. One option names itself on the
@@ -17,6 +18,8 @@ export function AgentOptionsMenu({
   onPick(configId: string, value: string): void;
 }) {
   const t = useT();
+  // On New Tab the menu opens down (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   const label = t("picker.options");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -41,7 +44,7 @@ export function AgentOptionsMenu({
           <span className="acpmux-options-text">{face}</span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-access-menu acpmux-options-menu">
+        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-access-menu acpmux-options-menu">
           {options.map((option) => (
             <MenuGroup key={option.id} label={option.name ?? option.id}>
               <MenuRadioGroup

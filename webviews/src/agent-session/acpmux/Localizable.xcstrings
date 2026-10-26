@@ -237752,6 +237752,276 @@
       "comment": "Public-domain quote of the day, bundled for the optional New Tab widget.",
       "extractionState": "manual",
       "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"bs":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"da":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"de":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"en":{"stringUnit":{"state":"translated","value":"Great things are done by a series of small things brought together."}},"es":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"fr":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"it":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ja":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"km":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ko":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"nb":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"pl":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ru":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"th":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"tr":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"uk":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"vi":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}}}
+    },
+    "multiplayer.viewing": {"comment":"Agent pane: accessibility label of the faces in a shared chat's header; {names} lists the other people who have the chat open","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"موجود أيضًا: {names}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Također ovdje: {names}"}},"da":{"stringUnit":{"state":"needs_review","value":"Også her: {names}"}},"de":{"stringUnit":{"state":"needs_review","value":"Auch hier: {names}"}},"en":{"stringUnit":{"state":"translated","value":"Also here: {names}"}},"es":{"stringUnit":{"state":"needs_review","value":"También aquí: {names}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aussi ici : {names}"}},"it":{"stringUnit":{"state":"needs_review","value":"Anche qui: {names}"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほかに参加中: {names}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅទីនេះផងដែរ: {names}"}},"ko":{"stringUnit":{"state":"needs_review","value":"함께 보는 중: {names}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Også her: {names}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Również tutaj: {names}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também aqui: {names}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также здесь: {names}"}},"th":{"stringUnit":{"state":"needs_review","value":"อยู่ที่นี่ด้วย: {names}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada ayrıca: {names}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також тут: {names}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang xem: {names}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里：{names}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡：{names}"}}}},
+    "multiplayer.more": {"comment":"Agent pane: after the faces in a shared chat's header, how many more people have it open; {count} is a number","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"bs":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"da":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"de":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"en":{"stringUnit":{"state":"translated","value":"+{count}"}},"es":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"fr":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"it":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ja":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"km":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ko":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"nb":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"pl":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ru":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"th":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"uk":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"+{count}"}}}},
+    "multiplayer.typing.one": {"comment":"Agent pane: over the composer while another person in a shared chat types; {name} is that person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{name} يكتب…"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} piše…"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} skriver…"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} schreibt…"}},"en":{"stringUnit":{"state":"translated","value":"{name} is typing…"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} está escribiendo…"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} écrit…"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} sta scrivendo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} が入力中…"}},"km":{"stringUnit":{"state":"needs_review","value":"{name} កំពុងវាយ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 님이 입력 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} skriver…"}},"pl":{"stringUnit":{"state":"needs_review","value":"{name} pisze…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} está digitando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} печатает…"}},"th":{"stringUnit":{"state":"needs_review","value":"{name} กำลังพิมพ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} yazıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} друкує…"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} đang nhập…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{name} 正在输入…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{name} 正在輸入…"}}}},
+    "multiplayer.typing.two": {"comment":"Agent pane: over the composer while two other people in a shared chat type; {first} and {second} are their names","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{first} و{second} يكتبان…"}},"bs":{"stringUnit":{"state":"needs_review","value":"{first} i {second} pišu…"}},"da":{"stringUnit":{"state":"needs_review","value":"{first} og {second} skriver…"}},"de":{"stringUnit":{"state":"needs_review","value":"{first} und {second} schreiben…"}},"en":{"stringUnit":{"state":"translated","value":"{first} and {second} are typing…"}},"es":{"stringUnit":{"state":"needs_review","value":"{first} y {second} están escribiendo…"}},"fr":{"stringUnit":{"state":"needs_review","value":"{first} et {second} écrivent…"}},"it":{"stringUnit":{"state":"needs_review","value":"{first} e {second} stanno scrivendo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"{first} と {second} が入力中…"}},"km":{"stringUnit":{"state":"needs_review","value":"{first} និង {second} កំពុងវាយ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"{first} 님과 {second} 님이 입력 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"{first} og {second} skriver…"}},"pl":{"stringUnit":{"state":"needs_review","value":"{first} i {second} piszą…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{first} e {second} estão digitando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"{first} и {second} печатают…"}},"th":{"stringUnit":{"state":"needs_review","value":"{first} และ {second} กำลังพิมพ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"{first} ve {second} yazıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"{first} і {second} друкують…"}},"vi":{"stringUnit":{"state":"needs_review","value":"{first} và {second} đang nhập…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{first} 和 {second} 正在输入…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{first} 和 {second} 正在輸入…"}}}},
+    "multiplayer.typing.many": {"comment":"Agent pane: over the composer while three or more other people in a shared chat type","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عدة أشخاص يكتبون…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nekoliko osoba piše…"}},"da":{"stringUnit":{"state":"needs_review","value":"Flere skriver…"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehrere Personen schreiben…"}},"en":{"stringUnit":{"state":"translated","value":"Several people are typing…"}},"es":{"stringUnit":{"state":"needs_review","value":"Varias personas están escribiendo…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Plusieurs personnes écrivent…"}},"it":{"stringUnit":{"state":"needs_review","value":"Più persone stanno scrivendo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"複数の人が入力中…"}},"km":{"stringUnit":{"state":"needs_review","value":"មនុស្សច្រើននាក់កំពុងវាយ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"여러 명이 입력 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flere skriver…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kilka osób pisze…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Várias pessoas estão digitando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Несколько человек печатают…"}},"th":{"stringUnit":{"state":"needs_review","value":"หลายคนกำลังพิมพ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Birkaç kişi yazıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Кілька людей друкують…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhiều người đang nhập…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"多人正在输入…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"多人正在輸入…"}}}},
+    "multiplayer.answeredBy": {"comment":"Agent pane: after a permission receipt in a shared chat, who answered the ask; {name} is that person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أجاب {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovorio/la {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Besvaret af {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Beantwortet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Answered by {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Respondido por {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondu par {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Risposto da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} が回答"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយដោយ {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 님이 응답함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Besvart av {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedź: {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Respondido por {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответ: {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบโดย {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} yanıtladı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповідь: {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} đã trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"由 {name} 回答"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"由 {name} 回答"}}}},
+    "permission.error.refused": {
+      "comment": "Agent pane: acpmux refused an answer given on the chat's permission card",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تصل هذه الإجابة. ربما أُجيب عن الطلب أو سُحب في مكان آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj odgovor nije prošao. Zahtjev je možda odgovoren ili povučen negdje drugdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret gik ikke igennem. Anmodningen er måske besvaret eller trukket tilbage et andet sted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Antwort kam nicht an. Die Anfrage wurde vielleicht an anderer Stelle beantwortet oder zurückgezogen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That answer didn't go through. The ask may have been answered or withdrawn elsewhere."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa respuesta no se envió. Es posible que la solicitud se haya respondido o retirado en otro lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette réponse n'est pas passée. La demande a peut-être été traitée ou retirée ailleurs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La risposta non è andata a buon fine. La richiesta potrebbe essere stata gestita o ritirata altrove."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この回答は届きませんでした。リクエストは別の場所で回答済みか、取り下げられた可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លើយនោះមិនបានទៅដល់ទេ។ សំណើប្រហែលជាត្រូវបានឆ្លើយ ឬដកចេញនៅកន្លែងផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 답변은 전달되지 않았습니다. 요청이 다른 곳에서 이미 응답되었거나 철회되었을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret gikk ikke gjennom. Forespørselen kan ha blitt besvart eller trukket tilbake et annet sted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta odpowiedź nie dotarła. Prośba mogła zostać obsłużona lub wycofana gdzie indziej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa resposta não foi enviada. O pedido pode ter sido respondido ou retirado em outro lugar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот ответ не прошёл. Возможно, на запрос уже ответили или его отозвали в другом месте."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำตอบนั้นส่งไม่สำเร็จ คำขออาจได้รับคำตอบหรือถูกถอนไปแล้วที่อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu yanıt iletilmedi. İstek başka bir yerde yanıtlanmış veya geri çekilmiş olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю відповідь не надіслано. Можливо, на запит уже відповіли або його відкликали деінде."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Câu trả lời đó không được gửi đi. Yêu cầu có thể đã được trả lời hoặc rút lại ở nơi khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该回答未送达。此请求可能已在别处被回答或撤回。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這個回答未送達。此請求可能已在別處被回答或撤回。"
+          }
+        }
+      }
+    },
+    "chatMinimap.label": {
+      "comment": "Agent pane: the VS Code-style minimap of the whole chat at the transcript's right edge (a scrollbar control)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خريطة الدردشة المصغرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini mapa razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-minikort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Minimap"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat minimap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini-carte du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimappa della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのミニマップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផែនទីតូចនៃការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 미니맵"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minikart for chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мини-карта чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มินิแมปของแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet mini haritası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінікарта чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản đồ thu nhỏ của cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天縮圖"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

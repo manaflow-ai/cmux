@@ -132,7 +132,7 @@ const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id ==
  * thread), then the text, with mentions shown as @name and attachments as one line each. Empty
  * when the message carries nothing a model can read.
  */
-export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean } = {}): string => {
+export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean; readonly owner?: string } = {}): string => {
   const lines: Array<string> = []
   for (const part of m.parts) {
     if (part.type === "text") {
@@ -149,7 +149,10 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
   const kind = head.kind ?? "group"
   const where = head.title?.trim() ? head.title.trim() : kind
   const thread = m.thread_root ? " · in a thread" : ""
-  return `[${where} · ${kind} · ${nameOf(head, m.author)}${thread}] ${lines.join("\n")}`
+  // In a shared conversation the Chief must tell its owner from everyone else (CHIEF-DONE B3: the owner's
+  // requests run, anyone else's keep the approval rule); the owner's own Chief line has only the owner.
+  const owner = kind !== "chief" && opts.owner !== undefined && m.author === opts.owner ? " (your owner)" : ""
+  return `[${where} · ${kind} · ${nameOf(head, m.author)}${owner}${thread}] ${lines.join("\n")}`
 }
 
 /**
@@ -173,4 +176,26 @@ export const clipReply = (text: string) => {
   let out = [...text]
   while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
   return `${out.join("")}\n[... cut]`
+}
+
+/** cmux public ids the last reply pass links: prefix -> deeplink kind (DeepLink `.workspace`, `.tab`, `.pane`). */
+const ID_KINDS: Readonly<Record<string, string>> = { ws: "workspace", tab: "tab", pane: "pane" }
+/** Code fences, code spans and Markdown links: left as written. */
+const KEEP = /```[\s\S]*?(?:```|$)|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)/g
+const BARE_ID = /(^|[\s(*_"'|>])((ws|tab|pane)_[0-9a-f]{32})(?![A-Za-z0-9_/-])/g
+
+/**
+ * The last pass over a Cloud Chief reply (optchat-chief reply_links.rs, Lawrence 2026-10-26: "reply with links to
+ * stuff properly"): a bare cmux id (`ws_…`, `tab_…`, `pane_…`) becomes its `cmux://` link. Code, existing links and
+ * URLs stay. Paths are not linked: the Chief's files are on its VM, not the person's Mac.
+ */
+export const linkIds = (text: string): string => {
+  const link = (part: string) => part.replace(BARE_ID, (_m, pre: string, id: string, kind: string) => `${pre}[${ID_KINDS[kind]}](cmux://${ID_KINDS[kind]}/${id})`)
+  let out = ""
+  let at = 0
+  for (const m of text.matchAll(KEEP)) {
+    out += link(text.slice(at, m.index)) + m[0]
+    at = m.index + m[0].length
+  }
+  return out + link(text.slice(at))
 }
