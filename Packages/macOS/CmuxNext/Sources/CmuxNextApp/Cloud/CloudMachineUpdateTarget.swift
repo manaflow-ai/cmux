@@ -35,6 +35,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     let machineID: String
     let displayName: String
     let source: Source
+    /// Both toggles of the automatic Cloud update (``CloudTunables/updatesCloudMachines``), read
+    /// before every step; tests replace it instead of the shared store.
+    var enabled: @Sendable () -> Bool = { CloudTunables.updatesCloudMachines }
 
     var id: String { Self.id(machineID) }
     var sshHost: String? { nil }
@@ -45,10 +48,18 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The Rust target of every Cloud machine (images/cmux-vm: x86_64).
     static let cloudTarget = "x86_64-unknown-linux-gnu"
 
-    /// Nil while the toggles are off (``CloudTunables``): the policy then leaves the machine
-    /// alone, also one it queued before the toggle went off.
+    /// The machine's build while it lacks something this app uses (``DaemonCompatibility/Level/limited``);
+    /// nil for one that serves all of it, and while the toggles are off (``CloudTunables``). The
+    /// policy then leaves the machine alone, also one it queued before.
+    ///
+    /// Never a move back: a Cloud daemon's build carries no date, so the policy cannot tell an older
+    /// build from a newer one (another app, a newer nightly, moved the machine forward). A machine
+    /// that serves every capability this app uses is never moved by it automatically, whatever its
+    /// build; one that lacks one is behind this app in what matters to it. Update Machine still
+    /// moves any machine on a click.
     func currentBuild() async -> String? {
-        guard CloudTunables.updatesCloudMachines, let build = await source.daemon()?.build, !build.isEmpty else { return nil }
+        guard enabled(), let daemon = await source.daemon(), daemon.level == .limited,
+              let build = daemon.build, !build.isEmpty else { return nil }
         return build
     }
 
@@ -56,19 +67,27 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// the app read it) but surely not the app's, and nothing on it is in use through the app.
     var urgent: Bool {
         get async {
-            guard CloudTunables.updatesCloudMachines else { return false }
+            guard enabled() else { return false }
             return await source.daemon()?.level == .incompatible
         }
     }
 
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
-        // Gone or not connected now: try again later.
-        guard await source.daemon() != nil else { return .busy }
-        let outcome: DaemonUpdateOutcome
+        // Gone or not connected now: try again later. A toggle turned off since the policy read the
+        // machine: no update starts; asked again, the machine reports no build and is dropped.
+        guard enabled(), await source.daemon() != nil else { return .busy }
+        var outcome: DaemonUpdateOutcome
         do {
             outcome = Self.outcome(try await source.update(), machine: displayName)
+        } catch DaemonError.timedOut {
+            // The CLI ran past its deadline: how the update ended is unknown, so ask again later
+            // (the machine then reports its build) rather than record a failure for this build.
+            outcome = .busy
         } catch {
             outcome = .failed(reason: String(describing: error))
+        }
+        if case .updated(let reported?) = outcome, !build.sameCommit(reported) {
+            outcome = .failed(reason: "the machine reports build \(reported) after the update, not \(build.hash)")
         }
         await source.reconnect()
         return outcome
@@ -81,6 +100,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         switch answer.errorCode {
         // Another update of the machine runs, or its daemon did not answer: not now, nothing changed.
         case "machine_update_busy", "machine_unreachable":
+            return .busy
+        // The CLI lost the machine before it read how the update ended: not recorded, so the
+        // policy asks again (the CLI says to run it again), and the machine then reports its build.
+        case "machine_update_unresolved":
             return .busy
         // This app carries no pinned machine build (a dev build), or its download failed: nothing
         // changed; not recorded, so a later connect or launch tries again.

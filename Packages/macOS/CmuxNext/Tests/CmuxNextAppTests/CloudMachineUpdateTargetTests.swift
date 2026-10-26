@@ -102,24 +102,27 @@ struct CloudMachineUpdateTargetTests {
     }
 
     /// `cloud.updateMachines` off: the machine reports no build and is not urgent, so the policy runs
-    /// nothing, also for a machine it queued before.
+    /// nothing, also for a machine it queued before. The shared store is set back before any await,
+    /// so another suite's target never reads it off.
     @Test func theToggleOffMeansNoAutomaticUpdate() async throws {
-        let store = TunableStore.shared
-        store.activate(file: nil)
-        store.register(CloudTunables.all)
-        let key = CloudTunables.updateCloudMachinesAutomatically.key
-        let previous = store.override(key)
-        defer { store.set(key, previous) }
-        store.set(key, nil)
-        #expect(CloudTunables.updateCloudMachinesAutomatically.value, "on by default")
-        store.set(key, .bool(false))
-        #expect(!CloudTunables.updatesCloudMachines)
+        do {
+            let store = TunableStore.shared
+            store.activate(file: nil)
+            store.register(CloudTunables.all)
+            let key = CloudTunables.updateCloudMachinesAutomatically.key
+            let previous = store.override(key)
+            defer { store.set(key, previous) }
+            store.set(key, nil)
+            #expect(CloudTunables.updateCloudMachinesAutomatically.value, "on by default")
+            store.set(key, .bool(false))
+            #expect(!CloudTunables.updatesCloudMachines)
+        }
 
         let machine = FakeCloudMachine(build: Self.older, level: .incompatible,
                                        answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
-        await fixture.run(machine)
+        await fixture.run(machine, enabled: { false })
         #expect(machine.updates == 0)
         #expect(fixture.states.isEmpty)
     }
@@ -138,13 +141,81 @@ struct CloudMachineUpdateTargetTests {
         #expect(outcome("machine_update_unsupported") == .failed(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
         #expect(outcome("machine_update_rolled_back") == .rolledBack(reason: "why"))
         #expect(outcome("machine_update_pending") == .failed(reason: "why"))
+        #expect(outcome("machine_update_unresolved") == .busy, "the CLI lost the machine before the outcome: asked again")
         #expect(outcome(CloudMoveCLI.badAnswer, error: nil) == .failed(reason: CloudMoveCLI.badAnswer))
         // Not final: nothing recorded, so a later connect or launch asks again.
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unavailable")) == nil)
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unsupported")) == "failed")
     }
 
-    /// The CLI did not run to its answer (a timeout, a kill): a failure, recorded once.
+    /// A machine that serves every capability this app uses is never moved automatically, whatever
+    /// its build: a Cloud build has no date, and it may be newer than this app's.
+    @Test func aMachineThatServesEverythingIsLeftAlone() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .current,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(machine.updates == 0)
+        #expect(fixture.states.isEmpty)
+    }
+
+    /// A toggle turned off after the policy read the machine: the CLI does not run.
+    @Test func aToggleTurnedOffBeforeTheCLIRunsStopsTheUpdate() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let bundled = try #require(DaemonBuildCommit(Self.bundled))
+        var target = fixture.target(machine)
+        #expect(await target.currentBuild() == Self.older, "on when the policy reads the machine")
+        target.enabled = { false }
+        #expect(await target.update(to: bundled, whileBusy: false) == .busy)
+        #expect(machine.updates == 0)
+    }
+
+    /// The CLI ran past its deadline: unknown, not a failure; asked again, then updated.
+    @Test func aCLITimeoutIsAskedAgain() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, timeouts: 1,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(machine.updates == 2)
+        #expect(fixture.notices.isEmpty)
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// An update that reports another build than the one it was to: a failure, not an update.
+    @Test func anUpdateToAnotherBuildIsAFailure() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: "0123456789ab")])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(fixture.notices.count == 1)
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "failed"])
+    }
+
+    /// A `link machine update` success line must carry its outcome and exit 0; `{"ok":true}` alone,
+    /// or a success with a failing exit, is no answer, never "the machine needed nothing".
+    @Test func aSuccessLineWithoutItsOutcomeIsNoAnswer() {
+        func answer(_ object: [String: Any], status: Int32 = 0) -> CloudMoveCLI.Answer {
+            let ok = object["ok"] as? Bool ?? false
+            let parsed = CloudMoveCLI.Answer(ok: ok, errorCode: object["error_code"] as? String, updated: object["updated"] as? Bool ?? false,
+                                             build: object["build"] as? String)
+            return CloudMoveCLI.machineUpdateAnswer(parsed, object: object, status: status)
+        }
+        #expect(answer(["ok": true]).errorCode == CloudMoveCLI.badAnswer)
+        #expect(answer(["ok": true, "updated": "yes"]).errorCode == CloudMoveCLI.badAnswer)
+        #expect(answer(["ok": true, "updated": true]).errorCode == CloudMoveCLI.badAnswer, "updated with no build")
+        #expect(answer(["ok": true, "updated": true, "build": Self.bundled], status: 1).errorCode == CloudMoveCLI.badAnswer)
+        #expect(answer(["ok": true, "updated": true, "build": Self.bundled]) == CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled))
+        #expect(answer(["ok": true, "updated": false, "build": Self.older]).ok)
+        #expect(answer(["ok": false, "error_code": "machine_update_busy"], status: 1).errorCode == "machine_update_busy")
+    }
+
+    /// The CLI did not run to its answer (a kill, a crash): a failure, recorded once.
     @Test func aCLIErrorIsAFailure() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: [])
         let fixture = try CloudUpdateFixture()
@@ -162,10 +233,13 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var daemon: CloudMachineUpdateTarget.Daemon?
     /// Each update takes the next; none left throws, as a CLI that did not answer.
     private var answers: [CloudMoveCLI.Answer]
+    /// The first this many updates run past the CLI's deadline.
+    private var timeouts: Int
     private var counts = (updates: 0, reconnects: 0)
 
-    init(build: String?, level: DaemonCompatibility.Level, answers: [CloudMoveCLI.Answer] = []) {
+    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = []) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
+        self.timeouts = timeouts
         self.answers = answers
     }
 
@@ -182,6 +256,10 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
             update: {
                 try self.lock.withLock {
                     self.counts.updates += 1
+                    if self.timeouts > 0 {
+                        self.timeouts -= 1
+                        throw DaemonError.timedOut("cmux link machine update")
+                    }
                     guard !self.answers.isEmpty else { throw NoAnswer() }
                     let answer = self.answers.removeFirst()
                     if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
@@ -205,20 +283,22 @@ final class CloudUpdateFixture {
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        board.showNotice = { [weak self] in self?.notices.append($0) }
+        board.showNotice = { [weak self] in self?.notices.append($0.message) }
     }
 
     var directory: URL { root }
     var states: [DaemonUpdateEvent.State] { events.map(\.state) }
     var ledger: DaemonUpdateLedger { DaemonUpdateLedger.read(directory, build: DaemonBuildCommit(CloudMachineUpdateTargetTests.bundled)?.hash ?? "") }
 
-    func target(_ machine: FakeCloudMachine) -> CloudMachineUpdateTarget {
-        CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: machine.source)
+    /// The target of `machine`, its toggles on unless `enabled` says otherwise (never the shared store).
+    func target(_ machine: FakeCloudMachine, enabled: @escaping @Sendable () -> Bool = { true }) -> CloudMachineUpdateTarget {
+        CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: machine.source, enabled: enabled)
     }
 
     /// The production policy's defaults, over `machine` only.
-    func run(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled) async {
-        let target = target(machine)
+    func run(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled,
+             enabled: @escaping @Sendable () -> Bool = { true }) async {
+        let target = target(machine, enabled: enabled)
         let dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled }, targets: { [target] }, enabled: { true },
             report: { [weak self] event in await self?.record(event) }, directory: directory, clock: clock)
