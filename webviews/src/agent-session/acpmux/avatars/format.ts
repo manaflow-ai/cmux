@@ -35,6 +35,8 @@ export type AvatarTrack = { row: number; frames: number; fps: number; loop: bool
 
 const MAX_FRAMES = 16;
 const MAX_ROWS = 16;
+/** The largest sheet the manifest may need, in px on each side. */
+const MAX_SHEET = 2048;
 /** Where a state with no row of its own borrows one. */
 const FALLBACK: Record<AvatarState, AvatarState | null> = {
   idle: null,
@@ -96,6 +98,7 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
   if (fps === null) return { error: "fps must be 1 to 30" };
   if (raw.faces !== undefined && raw.faces !== "left" && raw.faces !== "right")
     return { error: 'faces must be "left" or "right"' };
+  if (raw.pixelArt !== undefined && typeof raw.pixelArt !== "boolean") return { error: "pixelArt must be true or false" };
   const rawStates = raw.states as Record<string, unknown> | undefined;
   if (!rawStates || typeof rawStates !== "object") return { error: "states must be an object" };
   const states: Partial<Record<AvatarState, AvatarStateSpec>> = {};
@@ -106,22 +109,25 @@ export function parseAvatarManifest(value: unknown): { manifest: AvatarManifest 
     states[name] = spec;
   }
   if (!states.idle) return { error: "states.idle is required" };
-  return {
-    manifest: {
-      format: AVATAR_FORMAT,
-      id: raw.id,
-      name: raw.name.trim(),
-      sheet: raw.sheet,
-      frame: { width, height },
-      fps,
-      pixelArt: raw.pixelArt === true,
-      faces: raw.faces === "left" ? "left" : "right",
-      states: { ...states, idle: states.idle },
-    },
+  const manifest: AvatarManifest = {
+    format: AVATAR_FORMAT,
+    id: raw.id,
+    name: raw.name.trim(),
+    sheet: raw.sheet,
+    frame: { width, height },
+    fps,
+    pixelArt: raw.pixelArt === true,
+    faces: raw.faces === "left" ? "left" : "right",
+    states: { ...states, idle: states.idle },
   };
+  const need = sheetSize(manifest);
+  if (need.width > MAX_SHEET || need.height > MAX_SHEET)
+    return { error: `the sheet these frames need (${need.width} x ${need.height} px) is over ${MAX_SHEET} px` };
+  return { manifest };
 }
 
-/** The sheet's size in px that the manifest needs: the longest row's frames by the highest row used. */
+/** The sheet's size in px that the manifest needs: the longest row's frames by the highest row used.
+ * A sheet may be larger (padded); a renderer that cuts cells by background must use its real size. */
 export function sheetSize(manifest: AvatarManifest): { width: number; height: number } {
   const specs = Object.values(manifest.states);
   const rows = specs.flatMap((spec) => [spec.row, spec.rowLeft ?? 0, spec.rowRight ?? 0]);
@@ -132,13 +138,14 @@ export function sheetSize(manifest: AvatarManifest): { width: number; height: nu
 }
 
 /** How `state` draws facing `facing`: a missing state borrows its fallback's row, and the facing the
- * frames are not drawn in uses its own row when the manifest gives one, else the same row mirrored. */
+ * frames are not drawn in uses its own row (`rowLeft`/`rowRight`) when the manifest gives one, else
+ * the same row mirrored. The facing the frames are drawn in always uses `row`. */
 export function avatarTrack(manifest: AvatarManifest, state: AvatarState, facing: AvatarFacing): AvatarTrack {
   let name: AvatarState = state;
   while (!manifest.states[name]) name = FALLBACK[name] ?? "idle";
   const spec = manifest.states[name] ?? manifest.states.idle;
-  const own = facing === "left" ? spec.rowLeft : spec.rowRight;
   const turned = facing !== manifest.faces;
+  const own = !turned ? undefined : facing === "left" ? spec.rowLeft : spec.rowRight;
   return {
     row: own ?? spec.row,
     frames: spec.frames,

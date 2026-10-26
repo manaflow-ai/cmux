@@ -28,8 +28,8 @@ test("every built-in set has all six states, fits its sheet and stays a few KB",
     const sheet = readFileSync(new URL(parsed.sheet, dir));
     const need = sheetSize(parsed);
     const size = pngSize(sheet);
-    expect(size.width).toBeGreaterThanOrEqual(need.width);
-    expect(size.height).toBeGreaterThanOrEqual(need.height);
+    // Exactly the size the manifest needs: the renderer cuts cells from it (sets.ts).
+    expect(size).toEqual(need);
     expect(sheet.length).toBeLessThan(4096);
     // done and error play once and hold their last frame; the rest loop.
     expect(parsed.states.done?.loop).toBe(false);
@@ -62,6 +62,10 @@ test("the other facing mirrors the row unless the manifest draws it", () => {
   expect(avatarTrack(parsed, "idle", "left")).toMatchObject({ row: 0, mirrored: true });
   expect(avatarTrack(parsed, "idle", "right")).toMatchObject({ row: 0, mirrored: false });
   expect(avatarTrack(parsed, "working", "left")).toMatchObject({ row: 6, mirrored: false });
+  // A row for the facing the frames are already drawn in is not used: that facing is `row`.
+  const both = manifest({ ...minimal, states: { idle: { row: 0, frames: 4, rowRight: 5, rowLeft: 6 } } });
+  expect(avatarTrack(both, "idle", "right")).toMatchObject({ row: 0, mirrored: false });
+  expect(avatarTrack(both, "idle", "left")).toMatchObject({ row: 6, mirrored: false });
   const left = manifest({ ...minimal, faces: "left", states: { idle: { row: 0, frames: 4 } } });
   expect(avatarTrack(left, "idle", "right").mirrored).toBe(true);
   expect(sheetSize(parsed)).toEqual({ width: 6 * 32, height: 7 * 32 });
@@ -80,6 +84,11 @@ test("an upload outside the format is refused with its reason", () => {
     "frame",
   );
   expect(refused({ ...minimal, states: { idle: { row: 0, frames: 1, loop: "no" } } })).toContain("loop");
+  expect(refused({ ...minimal, pixelArt: "yes", states: { idle: { row: 0, frames: 1 } } })).toContain("pixelArt");
+  const big = { ...minimal, frame: { width: 256, height: 256 } };
+  expect(refused({ ...big, states: { idle: { row: 0, frames: 16 } } })).toContain("2048");
+  expect(refused({ ...big, states: { idle: { row: 15, frames: 1 } } })).toContain("2048");
+  expect(refused({ ...big, states: { idle: { row: 7, frames: 8 } } })).toBeNull();
   // Unknown fields and states are ignored, not refused.
   expect(
     refused({ ...minimal, extra: 1, states: { idle: { row: 0, frames: 1 }, dancing: { row: 9, frames: 3 } } }),

@@ -4,7 +4,7 @@
 // the element (display: none, unmounted). Reduce Motion, `still` or a `frame` draws one frame.
 import type { CSSProperties } from "react";
 import "./avatars.css";
-import { avatarTrack, sheetSize, type AvatarFacing, type AvatarState } from "./format";
+import { avatarTrack, type AvatarFacing, type AvatarState } from "./format";
 import type { AvatarSet } from "./sets";
 
 export type AnimatedAvatarProps = {
@@ -29,7 +29,7 @@ export function AnimatedAvatar({
   still = false,
   label,
 }: AnimatedAvatarProps) {
-  const { manifest, sheet } = set;
+  const { manifest, sheet, size: full } = set;
   const track = avatarTrack(manifest, state, facing);
   const width = size ?? manifest.frame.width;
   // Whole-pixel steps keep pixel art crisp: 32 px frames at 88 px draw at 64.
@@ -39,7 +39,6 @@ export function AnimatedAvatar({
       : width / manifest.frame.width;
   const w = manifest.frame.width * scale;
   const h = manifest.frame.height * scale;
-  const full = sheetSize(manifest);
   const moving = frame === undefined && !still && track.frames > 1;
   const style = {
     width: w,
