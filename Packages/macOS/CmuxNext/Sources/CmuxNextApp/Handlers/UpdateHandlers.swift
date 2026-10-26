@@ -27,10 +27,12 @@ enum UpdateHandlers {
         })
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
+                // Taken before the request: only a phase the request reached answers a CLI run.
+                let baseline = updater.settledFlowMoves()
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)); return }
                 // A CLI run answers once the update installs, or with why nothing installs (``installResult``).
                 guard let registry, registry.isCapturingWork else { return }
-                registry.track(result: installResult(updater))
+                registry.track(result: installResult(updater, after: baseline))
             })
         }
         // The pulled-build banner's Roll Back: the same stores, and the same question as updates.rollback.

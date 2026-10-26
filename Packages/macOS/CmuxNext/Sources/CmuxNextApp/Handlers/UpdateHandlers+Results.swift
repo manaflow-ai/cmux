@@ -13,7 +13,12 @@ extension UpdateHandlers {
     static let installAnswerLimit: Duration = .seconds(20)
 
     /// The feed's answer for this Mac: the running and newest builds, or the check's failure.
+    /// A managed policy that forbids updates refuses without touching the feed, as the check does.
     static func checkResult(_ updater: UpdaterService) -> ActionResultWork {
+        if case .managedPolicy? = updater.disabledReason {
+            let reason = UpdaterUnavailable(reason: .managedPolicy).description
+            return Task { .failure(ActionWorkFailure(refusal: .unavailable, reason: reason)) }
+        }
         let probe = updater.probe()
         // task-owner: the action run; the capturing caller awaits it, and it ends with the probe.
         return Task { @MainActor in
@@ -40,42 +45,39 @@ extension UpdateHandlers {
     }
 
     /// Follows the install the action started until it installs (the relaunch follows), ends
-    /// with nothing to install or a failure (the run's error), or ``installAnswerLimit`` passes
-    /// (the state it reached, `pending: true`).
-    static func installResult(_ updater: UpdaterService, limit: Duration = installAnswerLimit) -> ActionResultWork {
-        let started = updater.indicatorPhase
-        // task-owner: the action run; ends when the install settles or at `limit`, cancelling its children.
-        return Task { @MainActor in
-            await withTaskGroup(of: Result<[String: ActionResultValue], ActionWorkFailure>?.self) { group in
-                group.addTask { @MainActor in
-                    var moved = false
-                    for await phase in ObservationStream({ updater.indicatorPhase }) {
-                        if phase != started { moved = true }
-                        if let settled = installSettled(phase, moved: moved, updater: updater) { return settled }
-                    }
-                    return nil
-                }
-                group.addTask {
-                    try? await Task.sleep(for: limit)
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                return first ?? .success(state(updater.indicatorPhase, pending: true))
+    /// with nothing to install or a failure (the run's error), or `limit` passes (the state it
+    /// reached, `pending: true`). `baseline` is ``UpdaterService/flowMoves`` before the request:
+    /// a phase counts only once the gate moved after it, so an earlier check's note is not the
+    /// answer, and a failure Sparkle reported inside the request is.
+    static func installResult(_ updater: UpdaterService, after baseline: Int, limit: Duration = installAnswerLimit) -> ActionResultWork {
+        // task-owner: the action run; ends when the install settles, or when `timer` cancels it at `limit`.
+        let follow = Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure>? in
+            for await seen in ObservationStream({ (updater.indicatorPhase, updater.flowMoves) }) {
+                if let settled = installSettled(seen.0, moved: seen.1 != baseline, updater: updater) { return settled }
             }
+            return nil
+        }
+        // task-owner: ends at `limit`, or at once when `follow` settles first (its cancel below).
+        let timer = Task {
+            try? await Task.sleep(for: limit)
+            follow.cancel()
+        }
+        return Task { @MainActor in
+            let settled = await follow.value
+            timer.cancel()
+            return settled ?? .success(state(updater.indicatorPhase, pending: true))
         }
     }
 
-    /// The run's answer once `phase` settles it, else nil. `moved` says the flow left the phase
-    /// the action returned in: an earlier check's note, or the idle phase a fresh check starts
-    /// from, settles nothing until then.
+    /// The run's answer once `phase` settles it, else nil. `moved` says the gate moved after the
+    /// request: before that, a note or the idle phase is what was already shown.
     static func installSettled(_ phase: UpdateIndicatorPhase, moved: Bool, updater: UpdaterService) -> Result<[String: ActionResultValue], ActionWorkFailure>? {
         switch phase {
         case .installing:
             return .success(state(phase, pending: false))
         case .note(let note) where moved:
             var reason = note.text
-            if note == .checkFailed, let error = updater.lastProbeError { reason += ": \(error)" }
+            if note == .checkFailed, let failure = updater.failureReason { reason += ": \(failure)" }
             if note == .upToDate { reason += " (build \(updater.identity.build))" }
             return .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
         case .hidden where moved:
