@@ -140,9 +140,9 @@ fn refuses_tagged_and_shared_nodes_even_with_a_grant() {
 }
 
 #[test]
-fn only_the_shell_scope_opens_a_full_daemon_connection() {
+fn agents_and_shell_scopes_allow_connect() {
     assert!(!grant::may_connect(&[Scope::Status]));
-    assert!(!grant::may_connect(&[Scope::Status, Scope::Agents]));
+    assert!(grant::may_connect(&[Scope::Status, Scope::Agents]));
     assert!(grant::may_connect(&[Scope::Status, Scope::Shell]));
 }
 
@@ -178,4 +178,149 @@ fn audit_log_appends_owner_only_lines() {
         use std::os::unix::fs::PermissionsExt as _;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
+}
+
+fn shared_chat(role: super::shares::Role) -> Config {
+    let mut config = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    config.shares.push(super::shares::Share {
+        surface: 42,
+        login: LAWRENCE.into(),
+        role,
+        shared_at: grant::now_rfc3339(),
+        generation: "boot-1".into(),
+    });
+    config
+}
+
+fn author() -> serde_json::Value {
+    serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "name": LAWRENCE,
+        "login": LAWRENCE, "node": "lawrence-mbp"})
+}
+
+#[test]
+fn agent_proxy_refuses_every_non_chat_entrypoint() {
+    use serde_json::json;
+    let config = shared_chat(super::shares::Role::Member);
+    for cmd in [
+        "send",
+        "list-workspaces",
+        "subscribe",
+        "agent-session-start",
+        "agent-session-trust",
+        "agent-session-children",
+        "agent-session-media",
+        "agent-session-proxy-bind",
+        "composer_set",
+    ] {
+        assert_eq!(
+            super::agent_proxy::filter(
+                &config,
+                &author(),
+                "boot-1",
+                json!({"cmd": cmd, "surface": 42})
+            ),
+            Err("scope_not_granted")
+        );
+    }
+    assert_eq!(
+        super::agent_proxy::filter(
+            &config,
+            &author(),
+            "boot-1",
+            json!({"protocol": "cmux.protocol/2", "cmd": "agent-session-attach", "surface": 42})
+        ),
+        Err("scope_not_granted")
+    );
+}
+
+#[test]
+fn agent_proxy_requires_this_login_and_surface_and_a_live_grant() {
+    use serde_json::json;
+    let mut config = shared_chat(super::shares::Role::Member);
+    for surface in [json!(43), json!("42"), serde_json::Value::Null] {
+        assert_eq!(
+            super::agent_proxy::filter(
+                &config,
+                &author(),
+                "boot-1",
+                json!({"cmd": "agent-session-attach", "surface": surface})
+            ),
+            Err("agent_session.not_shared")
+        );
+    }
+    config.shares[0].login = LEO.into();
+    let frame = json!({"cmd": "agent-session-attach", "surface": 42});
+    assert_eq!(
+        super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()),
+        Err("agent_session.not_shared")
+    );
+    config.shares[0].login = LAWRENCE.into();
+    assert!(super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()).is_ok());
+    config.grants[0].revoked_at = Some(grant::now_rfc3339());
+    assert_eq!(
+        super::agent_proxy::filter(&config, &author(), "boot-1", frame),
+        Err("scope_not_granted")
+    );
+}
+
+#[test]
+fn agent_proxy_guests_only_observe_events_and_detach() {
+    use serde_json::json;
+    let config = shared_chat(super::shares::Role::Guest);
+    for cmd in ["agent-session-observe", "agent-session-events", "agent-session-detach"] {
+        assert!(
+            super::agent_proxy::filter(
+                &config,
+                &author(),
+                "boot-1",
+                json!({"cmd": cmd, "surface": 42})
+            )
+            .is_ok()
+        );
+    }
+    for cmd in [
+        "agent-session-attach",
+        "agent-session-prompt",
+        "agent-session-cancel",
+        "agent-session-permission",
+    ] {
+        assert_eq!(
+            super::agent_proxy::filter(
+                &config,
+                &author(),
+                "boot-1",
+                json!({"cmd": cmd, "surface": 42})
+            ),
+            Err("scope_not_granted")
+        );
+    }
+}
+
+#[test]
+fn agent_proxy_strips_client_authorship_and_stamps_whois() {
+    use serde_json::json;
+    let frame = json!({"id": 9, "cmd": "agent-session-prompt", "surface": 42,
+        "prompt_id": "p1", "text": "hello", "author": {"login": LEO},
+        "_meta": {"acpmux": {"author": {"login": LEO}}}, "_host_author": {"login": LEO}});
+    let forwarded = super::agent_proxy::filter(
+        &shared_chat(super::shares::Role::Member),
+        &author(),
+        "boot-1",
+        frame,
+    )
+    .unwrap();
+    assert_eq!(forwarded["_host_author"], author());
+    assert!(forwarded.get("author").is_none() && forwarded.get("_meta").is_none());
+    assert_eq!(forwarded["id"], 9);
+    assert_eq!(forwarded["text"], "hello");
+}
+
+#[test]
+fn agent_proxy_shares_expire_on_daemon_change() {
+    let config = shared_chat(super::shares::Role::Member);
+    let frame = serde_json::json!({"cmd":"agent-session-attach", "surface":42});
+    assert_eq!(
+        super::agent_proxy::filter(&config, &author(), "boot-2", frame),
+        Err("agent_session.not_shared")
+    );
 }

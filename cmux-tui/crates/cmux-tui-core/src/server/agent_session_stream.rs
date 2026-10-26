@@ -76,6 +76,7 @@ pub(super) fn connect_and_attach(
     // the descendants it names are followed from now on.
     let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
     let attachment = Arc::new(Attachment {
+        author: proxy::author(&mux, client),
         client,
         surface,
         session: resolved,
@@ -91,7 +92,9 @@ pub(super) fn connect_and_attach(
         prompts: Mutex::default(),
         children: Mutex::default(),
     });
-    if let Ok(watched) = &watched {
+    if attachment.author.is_none()
+        && let Ok(watched) = &watched
+    {
         attachment
             .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
     }
@@ -196,7 +199,10 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
         // while the tab still shows the session.
-        "_acpmux/session_changed" if same_session || attachment.follows_change(&params) => {
+        "_acpmux/session_changed"
+            if same_session
+                || (attachment.author.is_none() && attachment.follows_change(&params)) =>
+        {
             if !same_session && !attachment.tab_current() {
                 return attachment.end(Some("detached"));
             }

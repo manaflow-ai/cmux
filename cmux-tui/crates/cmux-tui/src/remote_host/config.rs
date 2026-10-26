@@ -37,6 +37,8 @@ pub(crate) struct Config {
     /// Scoped, consented grants for allowlisted logins (`cmux host grant`).
     #[serde(default)]
     pub grants: Vec<super::grant::Grant>,
+    #[serde(default)]
+    pub shares: Vec<super::shares::Share>,
 }
 
 fn default_port() -> u16 {
@@ -59,6 +61,7 @@ impl Default for Config {
             spawn: true,
             teammate_access: false,
             grants: Vec::new(),
+            shares: Vec::new(),
         }
     }
 }

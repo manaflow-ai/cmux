@@ -9,6 +9,7 @@
 //! `--remote` there for remote hosting.
 
 mod admit;
+mod agent_proxy;
 pub(crate) mod audit;
 mod client;
 pub(crate) mod config;
@@ -16,6 +17,7 @@ mod grant;
 mod preface;
 mod serve;
 mod service;
+mod shares;
 #[cfg(test)]
 mod teammate_tests;
 
@@ -35,6 +37,9 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host grant LOGIN [--scope status|agents|shell]... [--json]
        cmux host revoke LOGIN [--json]
        cmux host grants [--json]
+       cmux host share SURFACE LOGIN [--role member|guest] [--json]
+       cmux host unshare SURFACE LOGIN [--json]
+       cmux host shares [--json]
        cmux host list [--json] [--all] [--port N]
        cmux host dial HOST [--port N]
        cmux host serve [--dir DIR]
@@ -54,6 +59,9 @@ const VERBS: &[&str] = &[
     "grant",
     "revoke",
     "grants",
+    "share",
+    "unshare",
+    "shares",
 ];
 
 /// Pairing verbs, forwarded to acpmux (`cmux acp host …`), which runs in
@@ -113,6 +121,7 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "grant" => grant_access(args),
         "revoke" => revoke_access(args),
         "grants" => list_grants(args),
+        "share" | "unshare" | "shares" => shares::run(verb, args),
         _ => Err(anyhow!("unknown verb")),
     });
     match result {
