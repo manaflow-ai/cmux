@@ -106,6 +106,7 @@ extension DaemonStore {
         // Intents first, so waiters see the visible state without them.
         settleDueIntents()
         runAppliedWaiters(nil)
+        resumeAppliedWaits()
     }
 
     private func applyState(_ event: DaemonEvent, envelope: DaemonEventEnvelope?) -> Followup {

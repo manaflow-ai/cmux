@@ -7,6 +7,8 @@ enum DaemonConnectionChange {
 
     func apply(to store: DaemonStore) -> DaemonStore.Followup {
         store.connectionEpoch += 1
+        // A wait for the old connection's sequence ends now: the next one numbers its events from its own serial.
+        store.resumeAppliedWaits()
         switch self {
         case .connected(let identity, let envelope):
             store.sideEvents.noteControl(envelope)

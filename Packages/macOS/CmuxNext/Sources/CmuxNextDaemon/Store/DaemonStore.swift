@@ -78,6 +78,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
     /// A disconnect was applied: every waiter runs at the next flush.
     @ObservationIgnored var drainAppliedWaiters = false
+    /// ``waitApplied(atLeast:since:)`` and ``waitIntentsIdle()`` continuations (DaemonStore+Waits.swift).
+    @ObservationIgnored var storeWaiters = StoreWaiters()
     struct AppliedWaiter {
         var transaction: ClientTransactionID
         var sequence: UInt64?
