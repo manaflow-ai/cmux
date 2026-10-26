@@ -473,9 +473,27 @@ jobs:
             # could be newer than this run.
             [[ -n "$published" ]] || { echo "the $RELEASE_TAG release names no source commit; not overwriting it" >&2; exit 1; }
           }
+          # Whether the repository still has the commit: false only on GitHub's
+          # "no such commit" (404 or 422); any other error fails the run.
+          exists() {
+            gh api "repos/$GH_REPO/commits/$1" --jq '.sha' >/dev/null 2>"$RUNNER_TEMP/commit.err" && return 0
+            grep -qE 'HTTP (404|422)' "$RUNNER_TEMP/commit.err" && return 1
+            cat "$RUNNER_TEMP/commit.err" >&2; exit 1
+          }
           not_newer() {
             published_commit
             [[ -n "$published" ]] || return 1
+            # A recorded commit the repository no longer has (a force push and
+            # garbage collection after a failed write) cannot be compared, and
+            # would block every later run. A commit still on the source branch
+            # replaces it, with an annotation naming the lost commit.
+            if ! exists "$published"; then
+              if on_branch "$SOURCE_SHA"; then
+                echo "::warning title=cmux NEXT DEV record reset::the recorded commit $published no longer exists; $SOURCE_SHA, on the source branch, replaces it"
+                return 1
+              fi
+              echo "the recorded commit $published no longer exists and $SOURCE_SHA is not on the source branch" >&2; exit 1
+            fi
             local status
             status="$(compare "$SOURCE_SHA" "$published")" || exit 1
             case "$status" in

@@ -193,6 +193,10 @@ case "$1 $2" in
     pair="${2#repos/o/r/compare/}"; key="${pair//./_}"; var="CMP_${key}"
     [[ -n "${!var:-}" ]] || { echo "gh: compare failed (HTTP 502)" >&2; exit 1; }
     echo "${!var}"; exit 0 ;;
+  api\ repos/o/r/commits/*)
+    sha="${2#repos/o/r/commits/}"
+    [[ " $GONE " == *" $sha "* ]] && { echo "gh: No commit found for SHA: $sha (HTTP 422)" >&2; exit 1; }
+    echo "$sha"; exit 0 ;;
   "release view") exit 0 ;;
   "release upload"|"release edit"|"release create") echo WRITE >> "$STUB_LOG"; exit 0 ;;
 esac
@@ -211,7 +215,7 @@ fi
 exec /usr/bin/env python3 "$@"
 """
 A, B, C = "a" * 40, "b" * 40, "c" * 40
-def run_publish(source, *, notes="", record="", holds="yes", cmp=None):
+def run_publish(source, *, notes="", record="", holds="yes", cmp=None, gone=""):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "bin").mkdir()
@@ -224,7 +228,7 @@ def run_publish(source, *, notes="", record="", holds="yes", cmp=None):
             "PATH": f"{tmp / 'bin'}:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "STUB_LOG": str(tmp / "log"),
             "RUNNER_TEMP": str(tmp), "APP_ARCHIVE_NAME": "zip", "RELEASE_TAG": "cmux-next-dev", "GH_REPO": "o/r",
             "SOURCE_SHA": source, "GITHUB_SHA": "f" * 40, "LEASE_KEY": "lease", "RECORD_KEY": "record",
-            "LEASE_OWNER": "run-1", "NOTES_SHA": notes, "RECORD_SHA": record, "HOLDS": holds,
+            "LEASE_OWNER": "run-1", "NOTES_SHA": notes, "RECORD_SHA": record, "HOLDS": holds, "GONE": gone,
         }
         for pair, status in (cmp or {}).items():
             env["CMP_" + pair.replace(".", "_")] = status
@@ -255,6 +259,10 @@ rc, log = run_publish(B, notes="empty")
 check(rc != 0 and not wrote(log), "a release with empty notes is never overwritten")
 rc, log = run_publish(B)
 check(rc == 0 and wrote(log), "with no release and no record, the first run publishes")
+rc, log = run_publish(B, record=C, gone=C, cmp={f"{B}...feat-cmux-next": "ahead"})
+check(rc == 0 and wrote(log) and recorded(log), "a recorded commit the repository lost is replaced by a commit on the branch")
+rc, log = run_publish(B, record=C, gone=C, cmp={f"{B}...feat-cmux-next": "diverged"})
+check(rc != 0 and not wrote(log), "a lost record is never replaced by a commit off the branch")
 rc, log = run_publish(B, record=A, holds="no", cmp={f"{B}...{A}": "behind"})
 check(rc != 0 and not wrote(log), "a run that lost the lease never writes")
 
