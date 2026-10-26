@@ -213,6 +213,8 @@ impl Hub {
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
         if let Some(child) = &child {
             self.save_meta(child);
+            // A running chat linked as a sub-session works below its new parent.
+            self.refresh_parent_work_below(child);
             decision["childSessionId"] = Value::String(child.id.clone());
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());

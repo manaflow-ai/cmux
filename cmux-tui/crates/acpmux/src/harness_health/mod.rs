@@ -424,8 +424,8 @@ impl HealthService {
 
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
-    let tmp = path.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path)) {
+    // Owner-only whatever the umask, through a new temporary file each time.
+    if let Err(e) = crate::config::write_atomic(path, &body) {
         tracing::info!(error = %e, "harness health not saved");
     }
 }

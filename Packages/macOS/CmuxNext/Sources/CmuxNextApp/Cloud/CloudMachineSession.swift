@@ -36,6 +36,8 @@ final class CloudMachineSession {
     @ObservationIgnored private var appTicket: UInt64?
     /// An app-link connect hop is queued or running.
     @ObservationIgnored private var appConnecting = false
+    /// A daemon update restarted the daemon while a connect hop ran: connect afresh once it ends.
+    @ObservationIgnored private var reconnectAfterHop = false
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
@@ -119,7 +121,7 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
+                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
             })
@@ -146,7 +148,7 @@ final class CloudMachineSession {
                 try await resumer(machineID)
             } catch {
                 guard !disconnected else { return }
-                resumeFailure = RefusalStrings.describe(error)
+                resumeFailure = CloudStrings.errorText(error)
                 return
             }
             // The resume's refresh connects a record that turned live; a
@@ -161,7 +163,14 @@ final class CloudMachineSession {
     /// ticket ties the connection's endpoint calls and link changes to this
     /// connect, so an older connection can never end a newer one.
     private func connectApp(_ appLink: CloudLinkSession, origin: CloudLinkOrigin) async {
-        defer { appConnecting = false }
+        defer {
+            appConnecting = false
+            if reconnectAfterHop {
+                reconnectAfterHop = false
+                appTicket = nil
+                connect()
+            }
+        }
         appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
@@ -215,6 +224,7 @@ final class CloudMachineSession {
 
     /// "Disconnected, click to connect": no connection until the next connect.
     private func showEnded(_ error: any Error) {
+        CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
@@ -312,6 +322,41 @@ final class CloudMachineSession {
         } else {
             connect(origin: .user)
         }
+    }
+
+    /// After `cmux link machine update` ran here (``CloudMachineUpdates``): connect to the daemon
+    /// it left. A legacy link's waiting connect is woken. An app link: ``afterUpdate(restarted:linkEnded:connected:connecting:)``.
+    func reconnectAfterUpdate(restarted: Bool) {
+        guard appLink != nil else { return daemon.retryWake.fire() }
+        switch Self.afterUpdate(restarted: restarted, linkEnded: linkEnded != nil, connected: daemon.connection != nil,
+                                connecting: appConnecting) {
+        case .connect(let dropTicket):
+            if dropTicket { appTicket = nil }
+            connect()
+        case .connectAfterHop:
+            appTicket = nil
+            reconnectAfterHop = true
+        }
+    }
+
+    /// What an app link does after an update.
+    nonisolated enum AfterUpdate: Equatable, Sendable {
+        /// Connect; `dropTicket` first lets it run over the current connect's ticket.
+        case connect(dropTicket: Bool)
+        /// A connect hop runs (maybe to the old daemon): connect afresh once it ends.
+        case connectAfterHop
+    }
+
+    /// The daemon may have restarted (`restarted`): a connection the app still holds is to the old
+    /// daemon, and its drop may reach the app after the CLI answered (each has its own carrier
+    /// connection). Its ticket goes now, so that late drop is an old ticket's and changes nothing,
+    /// and a fresh connect runs (after a hop in flight). Nothing restarted: a healthy connection
+    /// stays (a connect with a live ticket does nothing); an ended link connects again, and so does
+    /// a refused daemon's (no connection): that connect waits for an event, and its next ask of the
+    /// socket would only end the link.
+    nonisolated static func afterUpdate(restarted: Bool, linkEnded: Bool, connected: Bool, connecting: Bool) -> AfterUpdate {
+        if restarted { return connecting ? .connectAfterHop : .connect(dropTicket: true) }
+        return .connect(dropTicket: !linkEnded && !connected && !connecting)
     }
 
     /// A `cloud.link.changed` for this machine (app link only).
