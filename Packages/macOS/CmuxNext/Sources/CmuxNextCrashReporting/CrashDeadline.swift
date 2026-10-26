@@ -121,7 +121,9 @@ enum CrashDeadline {
     }
 }
 
-// Written once on the main thread before any handler can arm it, read-only
-// after (a signal handler reads it, so a plain global with a constant initial value).
-// crash-allow: written once at launch before any reader, read-only after (signal-handler state).
+// Threads: written once by install() on the main thread at launch, before the handlers that arm it are installed; read
+// by arm() in fatal-signal handlers on whichever thread faulted, and in the uncaught-exception handler. No lock: a signal
+// handler that waits for a lock the interrupted thread holds never returns, and os_unfair_lock is not async-signal-safe.
+// No Atomic: its lazy initializer would run in the handler. So a plain aligned 32-bit word with a constant initial value.
+// crash-allow: async-signal-safe global, written once on the main thread, read by signal handlers (why no lock: above).
 nonisolated(unsafe) private var deadlineSemaphore: semaphore_t = 0

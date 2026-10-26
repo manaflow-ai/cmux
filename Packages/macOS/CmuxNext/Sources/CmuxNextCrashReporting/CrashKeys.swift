@@ -165,5 +165,8 @@ private struct CrashKeysRecordBlock {
 // fatal-signal handlers that read it; never changed after. A constant initial value, so no lazy initialization
 // runs in a signal handler; one aligned word, so a load sees 0 or the whole address. The store follows a releasing
 // fence and every load is followed by an acquiring one (CrashKeysRecordBlock.prepare() and .current).
-// crash-allow: stored once at launch, fenced, before any crash handler that reads it is installed; never after.
+// Threads: stored on the main thread at launch; read by fatal-signal handlers on whichever thread faulted and by the
+// uncaught-exception handler. No lock: a signal handler that waits for a lock the interrupted thread holds never
+// returns, and os_unfair_lock is not async-signal-safe.
+// crash-allow: async-signal-safe global, stored once on the main thread, read by signal handlers (why no lock: above).
 nonisolated(unsafe) private var crashKeysRecordBlock: UInt = 0
