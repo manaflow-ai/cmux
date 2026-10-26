@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 import WebRTC
 
@@ -400,14 +401,16 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 /// The host's screen as a WebRTC video source. Frames are pushed by
 /// `ScreenStreamHost`; libwebrtc encodes (hardware H.264), paces and adapts.
 // Threads: `push` runs on the capture source's thread (ScreenCaptureKit's sample-handler queue or the VNC frames task)
-// and on the host's idle-refresh task, sometimes at once. No lock here: both fields are `let`, and libwebrtc serializes
-// the frames itself (its VideoAdapter and VideoBroadcaster each hold their own mutex,
-// webrtc/media/base/adapted_video_track_source.cc, media/base/video_broadcaster.cc). Unchecked only because the SDK does
-// not declare RTCVideoSource Sendable.
-// crash-allow: two immutable `let`s to libwebrtc objects that synchronize internally: nothing to lock here.
+// and on the host's idle-refresh task, sometimes at once. `deliver` serializes them: libwebrtc's ObjC source
+// (sdk/objc/native/src/objc_video_track_source.mm, OnCapturedFrame) runs its TimestampAligner before the adapter's and
+// the broadcaster's own mutexes, and rtc_base/timestamp_aligner.h requires external synchronization. Unchecked only
+// because the SDK does not declare RTCVideoSource or RTCVideoCapturer Sendable, so a Mutex cannot hold them.
+// crash-allow: two immutable `let`s, and every call into them goes through `deliver`, which serializes it.
 public final class ScreenVideoSource: @unchecked Sendable {
     let source: RTCVideoSource
     private let capturer: RTCVideoCapturer
+    // concurrency-allow: held only for one OnCapturedFrame call (timestamp translation, adapt, hand-off to the encoder queue), never across a wait, so a capture thread and the idle-refresh task never deliver at once (lock carve-out).
+    private let deliver = Mutex(())
 
     init() {
         source = VNCPeerLink.makeScreenSource()
@@ -421,7 +424,7 @@ public final class ScreenVideoSource: @unchecked Sendable {
         let buffer = RTCCVPixelBuffer(pixelBuffer: pixelBuffer, adaptedWidth: width, adaptedHeight: height,
                                       cropWidth: width, cropHeight: height, cropX: x, cropY: y)
         let frame = RTCVideoFrame(buffer: buffer, rotation: ._0, timeStampNs: timestampNs)
-        source.capturer(capturer, didCapture: frame)
+        deliver.withLock { _ in source.capturer(capturer, didCapture: frame) }
     }
 }
 
