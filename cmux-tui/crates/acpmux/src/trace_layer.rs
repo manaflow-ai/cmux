@@ -1,14 +1,15 @@
 //! acpmux in the Release trace ring (plans/cmux-next/chrome-parity/p09-observability.md, task 017).
 //!
 //! - [`TraceLayer`]: a `tracing_subscriber` layer that writes each `tracing` event as a ring
-//!   instant while the `task` category records, under one name per callsite (`<target>:<line>`),
+//!   instant while the `task` category records, under one name per callsite
+//!   (`task.<target>:<line>`),
 //!   with the level in arg0. Fields are dropped: the ring holds catalog names and numbers only.
 //!   acpmux has no spans, so the layer maps none. Chrome writes its log messages into the trace the
 //!   same way, as instants of their own category (`base/logging.cc`, `TRACE_EVENT_INSTANT`).
 //!   Events of the `log` crate (acpmux's dependencies, through tracing-log's `LogTracer`) share one
 //!   fake callsite per level; the layer names them by the record's own target and line.
-//! - [`RequestSlice`]: one async slice per JSON-RPC request, from its dispatch to its reply, keyed
-//!   by the connection and the request id, like Chrome's nestable async request events
+//! - [`RequestSlice`]: one async slice per JSON-RPC request (the catalog's `daemon.request`), from
+//!   its dispatch to its reply, keyed by the connection and the request id, like Chrome's nestable async request events
 //!   (`TRACE_EVENT_NESTABLE_ASYNC_BEGIN0`, base/trace_event/common/trace_event_common.h).
 //!   [`RequestSlice::wrap`] ties the end to the request's future.
 //!
@@ -18,7 +19,7 @@
 use std::future::Future;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 
-use cmux_trace::{FLAG_ID, InternedName, Phase, category};
+use cmux_trace::{InternedName, Phase, category, trace_async_begin, trace_async_end};
 use serde_json::Value;
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_log::NormalizeEvent;
@@ -34,10 +35,6 @@ const REQUEST_CATEGORY: u64 = category::DAEMON;
 const fn bit(category: u64) -> u8 {
     category.trailing_zeros() as u8
 }
-
-/// The async slice of one request: AB at dispatch, AE at the reply. arg0 is
-/// [`method_hash`] of the method, arg1 the slice id ([`request_slice_id`]).
-static REQUEST: InternedName = InternedName::new("acpmux.request", bit(REQUEST_CATEGORY));
 
 /// log2 of the `tracing` callsites the layer names; past them, events of new callsites are not
 /// recorded.
@@ -135,11 +132,12 @@ impl NameTable {
     }
 }
 
-/// `<target>:<line>`: the module path and line of a site (a ring name keeps 55 bytes).
+/// `task.<target>:<line>`: the module path and line of a site, under its category's name like
+/// every trace name (a ring name keeps 55 bytes).
 fn site_text(target: &str, line: Option<u32>) -> String {
     match line {
-        Some(line) => format!("{target}:{line}"),
-        None => target.to_owned(),
+        Some(line) => format!("task.{target}:{line}"),
+        None => format!("task.{target}"),
     }
 }
 
@@ -186,20 +184,14 @@ pub struct RequestSlice {
 }
 
 impl RequestSlice {
-    /// Begins the slice of request `request` (its JSON-RPC id) for `method` on connection `conn`.
+    /// Begins the slice of request `request` (its JSON-RPC id) for `method` on connection `conn`:
+    /// AB with the slice id ([`request_slice_id`]) in arg1 and [`method_hash`] in arg0.
     pub fn begin(conn: &str, request: &Value, method: &str) -> Self {
         if !cmux_trace::enabled(REQUEST_CATEGORY) {
             return Self { id: 0 };
         }
         let id = request_slice_id(conn, request);
-        cmux_trace::write_interned(
-            REQUEST_CATEGORY,
-            &REQUEST,
-            Phase::AsyncBegin,
-            FLAG_ID,
-            method_hash(method),
-            id,
-        );
+        trace_async_begin!(daemon, "daemon.request", id, method_hash(method));
         Self { id }
     }
 
@@ -213,14 +205,7 @@ impl RequestSlice {
 impl Drop for RequestSlice {
     fn drop(&mut self) {
         if self.id != 0 {
-            cmux_trace::write_interned(
-                REQUEST_CATEGORY,
-                &REQUEST,
-                Phase::AsyncEnd,
-                FLAG_ID,
-                0,
-                self.id,
-            );
+            trace_async_end!(daemon, "daemon.request", self.id);
         }
     }
 }

@@ -96,7 +96,7 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("acpmux-trace-layer-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let open = cmux_trace::init_blackbox(&dir, Role::Acpmux, &[]).expect("the first init");
+    let open = cmux_trace::init_blackbox(&dir, Role::Acpmux).expect("the first init");
     open.wait().expect("the black box has its file");
     // The daemon's `.init()` installs the same forwarder of `log` crate records.
     tracing_log::LogTracer::init().expect("the log forwarder installs");
@@ -117,7 +117,7 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     cmux_trace::stop().expect("the frame recording stops");
     let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
         .expect("the frame recording decodes");
-    let prefix = format!("{}:", module_path!());
+    let prefix = format!("task.{}:", module_path!());
     assert!(
         !decoded.names.iter().any(|n| n.text.starts_with(&prefix)),
         "an event recorded under a frame-only recording: {:?}",
@@ -135,7 +135,7 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
 
     let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
         .expect("the recording decodes");
-    // This file's one event callsite, named `<module>:<line>`, in the `task` category.
+    // This file's one event callsite, named `task.<module>:<line>`, in the `task` category.
     let task_bit = category::TASK.trailing_zeros() as u8;
     let names: Vec<_> = decoded.names.iter().filter(|n| n.text.starts_with(&prefix)).collect();
     assert_eq!(names.len(), 1, "one name per callsite: {names:?}");
@@ -148,20 +148,23 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     );
 
     // A `log` crate record keeps its own target and line, not tracing-log's shared callsite.
-    let log_prefix = format!("{LOG_TARGET}:");
+    let log_prefix = format!("task.{LOG_TARGET}:");
     let log_names: Vec<_> =
         decoded.names.iter().filter(|n| n.text.starts_with(&log_prefix)).collect();
     assert_eq!(log_names.len(), 1, "one name for the log record's site: {:?}", decoded.names);
     assert!(log_names[0].text[log_prefix.len()..].parse::<u32>().is_ok(), "{log_names:?}");
     assert_eq!(log_names[0].category, task_bit);
-    assert!(!decoded.names.iter().any(|n| n.text == "log"), "a log record named `log`");
+    assert!(
+        !decoded.names.iter().any(|n| n.text == "log" || n.text == "task.log"),
+        "a log record named `log`"
+    );
     let log_instants: Vec<_> =
         decoded.records.iter().filter(|r| r.name == log_names[0].id).collect();
     assert_eq!(log_instants.len(), 1);
     assert_eq!(log_instants[0].arg0, 2, "a warn instant");
 
     let slices: Vec<_> =
-        decoded.records.iter().filter(|r| decoded.name(r.name) == Some("acpmux.request")).collect();
+        decoded.records.iter().filter(|r| decoded.name(r.name) == Some("daemon.request")).collect();
     let begins: Vec<_> = slices.iter().filter(|r| r.phase == Phase::AsyncBegin as u8).collect();
     let ends: Vec<_> = slices.iter().filter(|r| r.phase == Phase::AsyncEnd as u8).collect();
     assert_eq!(begins.len(), requests.len(), "one begin per request: {slices:?}");
