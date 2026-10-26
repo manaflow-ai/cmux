@@ -22,6 +22,6 @@ public struct ConversationLiveBubbleText: Sendable, Hashable {
         mentions = message.mentions
         self.meID = meID
         runs = message.textRuns
-        links = []
+        links = ConversationTextLink.bubbleLinks(message.links, bodyLength: message.text.utf16.count)
     }
 }
