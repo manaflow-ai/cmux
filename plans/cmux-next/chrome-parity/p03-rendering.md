@@ -1093,7 +1093,8 @@ every task that changes behavior or performance and is not repeated per row.
   visible, WasShown fires when the parent window is visible; no NSTextInputClient added in CmuxNext.
 - Test phase: cmux-ci build cef; cef-layer-verify.py --checks hosted; check-ime-input.py; AX Inspector dump.
 - Size L. Depends: 041, 058. Start hour 0 in parallel with 042.
-- Landed in the fork at API 33: manaflow-ai/cef `cp/p03-rendering-044` (`a1123260`, on `cp/p03-rendering-042`).
+- Landed in the fork at API 36 (33 is p14-energy-029's, 34 is 058's, 35 is 056's): manaflow-ai/cef
+  `cp/p03-rendering-044` (`b5cea1ec`, on `cp/p03-rendering-042`; `a1123260` was the first pass at 33).
   `cmux_browser_attach_view(id, parent_view)` moves the tab's whole WebContentsViewCocoa (not only its
   RenderWidgetHostViewCocoa) into `parent_view`, filling it, as Chrome's NativeViewHostMac adds it to a view of
   the browser window and content_shell shows it: the drag destination (WebDragDest) and Chrome's own visibility
@@ -1104,12 +1105,17 @@ every task that changes behavior or performance and is not repeated per row.
   (`RenderWidgetHostNSViewBridge::EnableDisplay`, patch `cmux_embedder_attach_view`; the WebContentsViewMac part is
   in `cmux_remote_popup_menu.patch`, one patch per Chromium file). Views still attaches and detaches the tab
   (Chromium's active tab decides visibility); its bounds are ignored while attached. The page window stays the
-  tab's views::Widget, headless as a detached page's; layer hosting, detached hosting and the resize fence refuse an
-  attached page, and the page is active while the parent's window is key. NULL gives the tab back.
+  tab's views::Widget, headless as a detached page's while any of its tabs is attached; layer hosting, detached
+  hosting and the resize fence refuse it then. Its frame, visibility and active state follow the view that shows
+  its attached tabs (the active tab's when attached), which may be in another window than the view it was created
+  over. A TabStripModelObserver keeps that state equal to what the tabs give: a page window turns headless when an
+  attached tab moves in, and shows again when its last attached tab closes, moves out or is given back (NULL).
   App shim: `cmux_shim_browser_attach_view` (`shim_browser.mm`); the remote shim's is a local stub that returns 0
   (an NSView* means nothing in the host; F2's form is remote_cocoa's Application mojom). Embedder case
   `helper-attach-view` (not run here: no Chromium tree). Pin rule: as for 042, the pin moves only with a CEF build of
-  this ref; task 045 binds the export with `r.optional` and checks `forkAPIVersion >= 33`.
+  this ref. Task 045 binds the export with `r.optional` and gates on `forkAPIVersion >= 36`
+  (`CEFLayerHosting.attachViewForkAPI`): the app shim exports the call in every build, and a fork without
+  `cmux_browser_attach_view` (another line, at any number) makes it answer 0, a refusal the app already handles.
 - Open for 046: Views bubbles anchored in the page window (autofill, extension popups, the side panel) belong to
   the headless page window, so they need the hosted-widget path (API 31) or a per-widget fallback.
 
