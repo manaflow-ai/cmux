@@ -2954,7 +2954,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "click",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",

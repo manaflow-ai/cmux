@@ -5230,7 +5230,7 @@
           "title": "Clear Notification When",
           "help": "",
           "kind": "choice",
-          "default": "click",
+          "default": "focus",
           "group": "Dismissal",
           "values": [
             "keystroke",

@@ -7148,7 +7148,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>click</string>
+			<string>focus</string>
 			<key>pfm_name</key>
 			<string>notifications.dismissal</string>
 			<key>pfm_range_list</key>
