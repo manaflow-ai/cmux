@@ -125,32 +125,75 @@ struct PredictiveEchoTests {
         #expect(!engine.isShowing)
     }
 
-    @Test func escapeReturnAndControlBytesRollBack() {
+    /// mosh `become_tentative`: "ls" then Enter inside one RTT must not blank "ls" until its echo.
+    @Test func escapeReturnAndControlBytesKeepShownPredictionsUntilTheirEcho() {
         for byte: UInt8 in [0x1B, 0x0D, 0x03, 0x09, 0xC3] {
             var screen = Screen()
             var engine = confirmedEngine(&screen)
             engine.typed(Array("b".utf8), on: screen, at: at(10))
             let epoch = engine.epoch
             engine.typed([byte], on: screen, at: at(11))
-            expectRolledBack(engine, from: epoch)
+            #expect(cells(engine) == [PredictiveEcho.Cell(row: 0, column: 1, glyph: UInt8(ascii: "b"))])
+            // The refused byte may move the cursor, so the real one shows.
+            #expect(engine.predictedCursor == nil)
+            #expect(engine.epoch.id == epoch.id + 1)
+            #expect(!engine.epoch.isConfirmed)
+
+            // Nothing more is predicted until "b" settles.
+            engine.typed(Array("c".utf8), on: screen, at: at(12))
+            #expect(engine.pending.map(\.glyph) == [UInt8(ascii: "b")])
+
+            screen.echo("b")
+            engine.hostOutput(on: screen, at: at(15))
+            #expect(engine.pending.isEmpty)
+            #expect(engine.epoch.hasConfirmed(epoch.id))
+
+            // The new epoch's first keystroke stays hidden until its own echo.
+            engine.typed(Array("d".utf8), on: screen, at: at(20))
+            #expect(engine.pending.count == 1)
+            #expect(!engine.isShowing)
         }
     }
 
-    @Test func aRefusedByteInTheMiddleOfAChunkDropsTheWholeChunk() {
+    @Test func anEchoThatLeavesTheRowAfterReturnRetiresThePredictions() {
+        var screen = Screen()
+        var engine = confirmedEngine(&screen)
+        engine.typed(Array("ls".utf8), on: screen, at: at(10))
+        engine.typed([0x0D], on: screen, at: at(11))
+        let epoch = engine.epoch
+        #expect(cells(engine).count == 2)
+
+        // "ls", CR LF and the command's first line arrive in one read.
+        screen.echo("ls")
+        screen.cursorRow = 1
+        screen.cursorColumn = 0
+        engine.hostOutput(on: screen, at: at(15))
+        #expect(engine.pending.isEmpty)
+        #expect(cells(engine).isEmpty)
+        #expect(engine.epoch == epoch)
+    }
+
+    @Test func aRefusedByteInTheMiddleOfAChunkEndsTheChunk() {
         var screen = Screen()
         var engine = confirmedEngine(&screen)
         let epoch = engine.epoch
         engine.typed([UInt8(ascii: "b"), 0x1B, UInt8(ascii: "c")], on: screen, at: at(10))
-        expectRolledBack(engine, from: epoch)
+        #expect(engine.pending.map(\.glyph) == [UInt8(ascii: "b")])
+        #expect(engine.isShowing)
+        #expect(engine.epoch.id == epoch.id + 1)
     }
 
-    @Test func aCursorJumpRollsBack() {
+    @Test func aCursorMoveOnTheRowWaitsForTheEchoAndARowChangeRollsBack() {
         var screen = Screen()
         var engine = confirmedEngine(&screen)
         engine.typed(Array("b".utf8), on: screen, at: at(10))
         let epoch = engine.epoch
         screen.cursorColumn = 7
         engine.hostOutput(on: screen, at: at(15))
+        #expect(engine.pending.count == 1)
+        #expect(engine.epoch == epoch)
+        // The echo never comes: the expiry rolls back.
+        engine.expire(on: screen, at: at(10).advanced(by: engine.expiry))
         expectRolledBack(engine, from: epoch)
 
         var other = Screen()
@@ -161,6 +204,54 @@ struct PredictiveEchoTests {
         other.cursorColumn = 0
         moved.hostOutput(on: other, at: at(15))
         expectRolledBack(moved, from: movedEpoch)
+    }
+
+    /// A shell redraw split across reads (zsh-syntax-highlighting, fish: CR, then the line again)
+    /// is not a mismatch; mosh keeps such a prediction pending until the host acknowledged it.
+    @Test func aRedrawSplitAcrossReadsKeepsThePredictionsAndSettlesWithCredit() {
+        var screen = Screen()
+        var engine = confirmedEngine(&screen)
+        engine.typed(Array("bc".utf8), on: screen, at: at(10))
+        let epoch = engine.epoch
+
+        screen.cursorColumn = 0
+        engine.hostOutput(on: screen, at: at(15))
+        #expect(engine.pending.count == 2)
+        #expect(engine.isShowing)
+        #expect(engine.epoch == epoch)
+
+        screen.echo("abc")
+        engine.hostOutput(on: screen, at: at(20))
+        #expect(engine.pending.isEmpty)
+        #expect(engine.epoch.isConfirmed)
+        #expect(engine.smoothedRTT != .milliseconds(5))
+    }
+
+    /// zsh-autosuggestions: the echo of "b" also draws gray text right of the cursor, over the
+    /// still-pending "c". An insert and an overwrite now look the same, so nothing is predicted.
+    @Test func textDrawnRightOfPendingPredictionsRollsBack() {
+        var screen = Screen()
+        var engine = confirmedEngine(&screen)
+        engine.typed(Array("bc".utf8), on: screen, at: at(10))
+        let epoch = engine.epoch
+        screen.echo("b")
+        for (offset, byte) in "rep".utf8.enumerated() { screen.rows[0][2 + offset] = byte }
+        engine.hostOutput(on: screen, at: at(15))
+        expectRolledBack(engine, from: epoch)
+
+        // The next keystroke sees the text too and is not predicted.
+        engine.typed(Array("d".utf8), on: screen, at: at(20))
+        #expect(engine.pending.isEmpty)
+
+        // The keystroke check holds on its own, before the overlay passes the echo on.
+        var unparsed = Screen()
+        var typing = confirmedEngine(&unparsed)
+        typing.typed(Array("bc".utf8), on: unparsed, at: at(10))
+        let typingEpoch = typing.epoch
+        unparsed.echo("b")
+        for (offset, byte) in "rep".utf8.enumerated() { unparsed.rows[0][2 + offset] = byte }
+        typing.typed(Array("d".utf8), on: unparsed, at: at(16))
+        expectRolledBack(typing, from: typingEpoch)
     }
 
     @Test func theAlternateScreenIsNeverPredictedAndSwitchingToItRollsBack() {
@@ -242,7 +333,8 @@ struct PredictiveEchoTests {
         #expect(engine.pending.count == 2)
         let epoch = engine.epoch
         engine.typed(Array("d".utf8), on: screen, at: at(11))
-        expectRolledBack(engine, from: epoch)
+        #expect(engine.pending.map(\.glyph) == [UInt8(ascii: "b"), UInt8(ascii: "c")])
+        #expect(engine.epoch.id == epoch.id + 1)
     }
 
     @Test func textRightOfTheCursorIsNotPredicted() {
@@ -298,9 +390,9 @@ struct PredictiveEchoTests {
             screen.echo("b")
             engine.hostOutput(on: screen, at: at(now + 1))
             let smoothed = engine.smoothedRTT ?? .zero
-            if smoothed >= PredictiveEcho.rttHideThreshold { #expect(engine.isRTTTriggered) }
+            if smoothed > PredictiveEcho.rttHideThreshold { #expect(engine.isRTTTriggered) }
             if !engine.isRTTTriggered {
-                #expect(smoothed < PredictiveEcho.rttHideThreshold)
+                #expect(smoothed <= PredictiveEcho.rttHideThreshold)
                 hidden = true
                 break
             }
@@ -309,14 +401,67 @@ struct PredictiveEchoTests {
         #expect(hidden)
     }
 
+    /// mosh's glitch trigger: a stalled echo on a fast link shows predictions, and 10 quick echoes
+    /// (at most one per 150 ms) hide them again.
+    @Test func aStalledEchoShowsPredictionsUntilTenQuickEchoes() {
+        var screen = Screen(columns: 80)
+        var engine = PredictiveEcho(mode: .remote)
+        engine.typed(Array("a".utf8), on: screen, at: at(0))
+        screen.echo("a")
+        engine.hostOutput(on: screen, at: at(5))
+        engine.typed(Array("b".utf8), on: screen, at: at(10))
+        #expect(!engine.isShowing)
+
+        // The overlay's timer fires 250 ms after the keystroke, during the stall.
+        #expect(engine.deadline == at(260))
+        engine.expire(on: screen, at: at(260))
+        #expect(engine.glitchRepairsLeft == PredictiveEcho.glitchRepairCount)
+        #expect(engine.isShowing)
+        #expect(engine.deadline == at(10).advanced(by: engine.expiry))
+
+        screen.echo("b")
+        engine.hostOutput(on: screen, at: at(310))
+        #expect(engine.glitchRepairsLeft == PredictiveEcho.glitchRepairCount)
+
+        var now = 400
+        for _ in 0..<PredictiveEcho.glitchRepairCount {
+            engine.typed(Array("c".utf8), on: screen, at: at(now))
+            #expect(engine.isShowing)
+            screen.echo("c")
+            engine.hostOutput(on: screen, at: at(now + 5))
+            now += 200
+        }
+        #expect(engine.glitchRepairsLeft == 0)
+        #expect(!engine.isRTTTriggered)
+        engine.typed(Array("d".utf8), on: screen, at: at(now))
+        #expect(!engine.isShowing)
+    }
+
+    @Test func aStallSeenOnlyAtTheEchoStillTriggers() {
+        var screen = Screen()
+        var engine = PredictiveEcho(mode: .remote)
+        engine.typed(Array("a".utf8), on: screen, at: at(0))
+        screen.echo("a")
+        engine.hostOutput(on: screen, at: at(5))
+        engine.typed(Array("b".utf8), on: screen, at: at(10))
+        screen.echo("b")
+        engine.hostOutput(on: screen, at: at(400))
+        #expect(engine.glitchRepairsLeft == PredictiveEcho.glitchRepairCount)
+        engine.typed(Array("c".utf8), on: screen, at: at(410))
+        #expect(engine.isShowing)
+    }
+
     @Test func anEchoThatNeverComesExpiresAndRollsBack() {
         var screen = Screen()
         var engine = confirmedEngine(&screen)
         engine.typed(Array("p".utf8), on: screen, at: at(10))
-        #expect(engine.deadline == at(10).advanced(by: engine.expiry))
+        #expect(engine.deadline == at(10).advanced(by: PredictiveEcho.glitchThreshold))
         let epoch = engine.epoch
         engine.expire(on: screen, at: at(20))
         #expect(engine.pending.count == 1)
+        engine.expire(on: screen, at: at(10).advanced(by: PredictiveEcho.glitchThreshold))
+        #expect(engine.pending.count == 1)
+        #expect(engine.deadline == at(10).advanced(by: engine.expiry))
         engine.expire(on: screen, at: at(10).advanced(by: engine.expiry))
         expectRolledBack(engine, from: epoch)
         #expect(engine.deadline == nil)
@@ -335,12 +480,14 @@ struct PredictiveEchoTests {
         #expect(engine.epoch == epoch)
     }
 
-    @Test func aPasteBeyondThePendingLimitRollsBack() {
+    @Test func aPasteBeyondThePendingLimitStopsPredicting() {
         var screen = Screen(columns: 200)
         var engine = confirmedEngine(&screen)
         let epoch = engine.epoch
         engine.typed(Array(repeating: UInt8(ascii: "x"), count: PredictiveEcho.maxPending + 1),
                      on: screen, at: at(10))
-        expectRolledBack(engine, from: epoch)
+        #expect(engine.pending.count == PredictiveEcho.maxPending)
+        #expect(engine.epoch.id == epoch.id + 1)
+        #expect(engine.predictedCursor == nil)
     }
 }

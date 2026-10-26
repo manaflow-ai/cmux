@@ -1,20 +1,29 @@
-/// A run of echo predictions that shows only after the host echoed one of them: mosh's
+/// Runs of echo predictions that show only after the host echoed one of them: mosh's
 /// `prediction_epoch` / `confirmed_epoch` (src/frontend/terminaloverlay.cc). Anything the engine
-/// cannot predict starts a new epoch, so the first keystroke after it stays hidden until its own
-/// echo matches. A password prompt that turns echo off therefore never shows a predicted glyph.
+/// cannot predict starts a new epoch (mosh `become_tentative`), so the first keystroke after it
+/// stays hidden until its own echo matches, while predictions of an already confirmed epoch keep
+/// showing. A password prompt that turns echo off therefore never shows a predicted glyph.
 nonisolated struct PredictionEpoch: Equatable, Sendable {
-    /// Grows by one per epoch; the overlay compares it to know its drawn cells are stale.
+    /// The epoch new predictions join; grows by one per epoch.
     private(set) var id: UInt64 = 1
-    /// True once a prediction of this epoch matched a real echo that changed a cell.
-    private(set) var isConfirmed = false
+    /// The newest epoch one of whose predictions matched a real echo that changed a cell.
+    private(set) var confirmedID: UInt64 = 0
 
-    /// Starts a new, unconfirmed epoch.
-    mutating func advance() {
-        id &+= 1
-        isConfirmed = false
+    /// True once the epoch new predictions join is confirmed.
+    var isConfirmed: Bool { confirmedID >= id }
+
+    /// Whether predictions of `epoch` show.
+    func hasConfirmed(_ epoch: UInt64) -> Bool {
+        epoch <= confirmedID
     }
 
-    mutating func confirm() {
-        isConfirmed = true
+    /// Starts a new, unconfirmed epoch for later predictions.
+    mutating func advance() {
+        id &+= 1
+    }
+
+    /// A prediction of `epoch` matched its echo.
+    mutating func confirm(_ epoch: UInt64) {
+        confirmedID = max(confirmedID, epoch)
     }
 }
