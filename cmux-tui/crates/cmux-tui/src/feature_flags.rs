@@ -11,7 +11,11 @@
 //! ```
 //!
 //! Each object holds policy keys in the shape of `managed/policy.rs`; a
-//! cohort's keys replace the default's. The owner fetches the document at
+//! cohort's keys replace the default's. The `Features*` keys are the remote
+//! feature overrides of `schemas/features/flags-document.md`, read per layer
+//! by [`remote_features`] ([`features`] gives the daemon's entries), and a
+//! document whose serial (its highest `FeaturesSerial`) is lower than the
+//! cached one's is refused. The owner fetches the document at
 //! start (`owner_start/background_checks.rs`) and caches it at the state root
 //! only when the signature verifies; every reader verifies the cache again,
 //! so an edited file on disk counts for nothing. A tester's cohort comes from
@@ -21,7 +25,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// The `content-signing` public key (raw, base64), as `ContentSignature.publicKey` in the app.
 const PUBLIC_KEY: &str = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=";
@@ -46,17 +50,27 @@ pub(crate) fn verify(data: &[u8], signature: &[u8], public_key: &str) -> bool {
         .is_ok()
 }
 
-/// The policy keys `document` sets for `cohort`: the default's, replaced by the cohort's.
+/// The default's object and `cohort`'s, in that order, that `document` has.
 /// None when the document is not version 1.
-pub(crate) fn resolve(document: &Value, cohort: &str) -> Option<BTreeMap<String, Value>> {
+fn layers<'a>(document: &'a Value, cohort: &str) -> Option<Vec<(Layer, &'a Map<String, Value>)>> {
     if document.get("version").and_then(Value::as_u64) != Some(1) {
         return None;
     }
+    let default = document.get(DEFAULT_COHORT).and_then(Value::as_object);
+    let cohort = document.get("cohorts").and_then(|cohorts| cohorts.get(cohort));
+    let layers = [(Layer::Default, default), (Layer::Cohort, cohort.and_then(Value::as_object))];
+    Some(layers.into_iter().filter_map(|(layer, object)| Some((layer, object?))).collect())
+}
+
+/// The policy keys `document` sets for `cohort`: the default's, replaced by
+/// the cohort's. The `Features*` keys are left out: [`remote_features`] reads
+/// them per layer, so one layer's gate never applies to another's `Features`.
+/// None when the document is not version 1.
+pub(crate) fn resolve(document: &Value, cohort: &str) -> Option<BTreeMap<String, Value>> {
     let mut keys = BTreeMap::new();
-    let objects =
-        [document.get("default"), document.get("cohorts").and_then(|cohorts| cohorts.get(cohort))];
-    for object in objects.into_iter().flatten().filter_map(Value::as_object) {
-        keys.extend(object.iter().map(|(key, value)| (key.clone(), value.clone())));
+    for (_, object) in layers(document, cohort)? {
+        let policy = object.iter().filter(|(key, _)| !FEATURES_KEYS.contains(&key.as_str()));
+        keys.extend(policy.map(|(key, value)| (key.clone(), value.clone())));
     }
     Some(keys)
 }
@@ -67,6 +81,218 @@ pub(crate) fn disabled_features(keys: &BTreeMap<String, Value>) -> Vec<String> {
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(|item| item.as_str().map(String::from)).collect())
         .unwrap_or_default()
+}
+
+/// What the `Features*` keys are checked against: this build and the time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FeaturesContext {
+    /// The build number (`CFBundleVersion`, the nightly's `NIGHTLY_BUILD`); None when unknown.
+    pub build: Option<u64>,
+    /// Unix seconds now.
+    pub now: u64,
+}
+
+/// One object of the document whose `Features*` keys are checked on their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Layer {
+    /// `default`: every install.
+    Default,
+    /// The tester's entry under `cohorts`.
+    Cohort,
+}
+
+impl Layer {
+    /// The layer as `schemas/features/flags-vectors.json` names it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the vectors name layers"))]
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Cohort => "cohort",
+        }
+    }
+}
+
+/// The remote feature overrides one cohort resolved to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RemoteFeatures {
+    /// The document's serial ([`document_serial`]), when any layer sets one.
+    pub serial: Option<u64>,
+    /// Each named feature and whether the document turns it on: the default
+    /// layer's, then the cohort layer's (its state wins for a name), each only
+    /// when its own gates pass.
+    pub states: BTreeMap<String, bool>,
+    /// The layers whose `Features` do not apply, and why.
+    pub rejected: Vec<(Layer, FeaturesRejected)>,
+}
+
+/// Why one layer's `Features` do not apply. The document's other keys, and
+/// the other layer's `Features`, still do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FeaturesRejected {
+    /// A `Features*` key has the wrong type, or a state is not `"on"` or `"off"`.
+    Malformed(&'static str),
+    /// `FeaturesExpiresAt` is not after now.
+    Expired {
+        expires_at: u64,
+    },
+    /// A build range is set and this build's number is unknown.
+    BuildUnknown,
+    BuildBelowMin {
+        build: u64,
+        min: u64,
+    },
+    BuildAboveMax {
+        build: u64,
+        max: u64,
+    },
+}
+
+impl FeaturesRejected {
+    /// The reason as `schemas/features/flags-vectors.json` names it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the vectors name reasons; logs use Display"))]
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Malformed(_) => "malformed",
+            Self::Expired { .. } => "expired",
+            Self::BuildUnknown => "buildUnknown",
+            Self::BuildBelowMin { .. } => "buildBelowMin",
+            Self::BuildAboveMax { .. } => "buildAboveMax",
+        }
+    }
+}
+
+impl std::fmt::Display for FeaturesRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Malformed(key) => write!(f, "{key} is malformed"),
+            Self::Expired { expires_at } => write!(f, "Features expired at {expires_at}"),
+            Self::BuildUnknown => f.write_str("this build's number is unknown"),
+            Self::BuildBelowMin { build, min } => {
+                write!(f, "build {build} < FeaturesMinBuild {min}")
+            }
+            Self::BuildAboveMax { build, max } => {
+                write!(f, "build {build} > FeaturesMaxBuild {max}")
+            }
+        }
+    }
+}
+
+const FEATURES: &str = "Features";
+const FEATURES_SERIAL: &str = "FeaturesSerial";
+const FEATURES_EXPIRES_AT: &str = "FeaturesExpiresAt";
+const FEATURES_MIN_BUILD: &str = "FeaturesMinBuild";
+const FEATURES_MAX_BUILD: &str = "FeaturesMaxBuild";
+const FEATURES_KEYS: [&str; 5] =
+    [FEATURES, FEATURES_SERIAL, FEATURES_EXPIRES_AT, FEATURES_MIN_BUILD, FEATURES_MAX_BUILD];
+
+/// The `Features` of `document` for `cohort`, checked against `context`. The
+/// default layer and the cohort layer are each checked against their own
+/// `Features*` keys, as Chromium filters each study on its own
+/// (`components/variations/study_filtering.cc`): a layer that fails adds
+/// nothing, and the other still applies. Every name is kept, the app's too;
+/// [`features`] keeps the daemon's. None when the document is not version 1.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's first remote-overridable feature reads this")
+)]
+pub(crate) fn remote_features(
+    document: &Value,
+    cohort: &str,
+    context: FeaturesContext,
+) -> Option<RemoteFeatures> {
+    let mut remote = RemoteFeatures { serial: document_serial(document), ..Default::default() };
+    for (layer, object) in layers(document, cohort)? {
+        match layer_features(object, context) {
+            Ok(states) => remote.states.extend(states),
+            Err(why) => remote.rejected.push((layer, why)),
+        }
+    }
+    Some(remote)
+}
+
+/// One layer's `Features`, checked against its own `Features*` keys. A
+/// malformed key rejects all of the layer's `Features`, as Chromium drops a
+/// seed that does not parse instead of applying part of it
+/// (`components/variations/variations_seed_store.cc`).
+fn layer_features(
+    keys: &Map<String, Value>,
+    context: FeaturesContext,
+) -> Result<BTreeMap<String, bool>, FeaturesRejected> {
+    let number = |key: &'static str| match keys.get(key) {
+        None => Ok(None),
+        Some(value) => value.as_u64().map(Some).ok_or(FeaturesRejected::Malformed(key)),
+    };
+    number(FEATURES_SERIAL)?;
+    let expires_at = number(FEATURES_EXPIRES_AT)?;
+    let min = number(FEATURES_MIN_BUILD)?;
+    let max = number(FEATURES_MAX_BUILD)?;
+    let mut states = BTreeMap::new();
+    if let Some(features) = keys.get(FEATURES) {
+        let features = features.as_object().ok_or(FeaturesRejected::Malformed(FEATURES))?;
+        for (name, state) in features {
+            let on = match state.as_str() {
+                Some("on") => true,
+                Some("off") => false,
+                _ => return Err(FeaturesRejected::Malformed(FEATURES)),
+            };
+            states.insert(name.clone(), on);
+        }
+    }
+    if let Some(expires_at) = expires_at.filter(|&expires_at| context.now >= expires_at) {
+        return Err(FeaturesRejected::Expired { expires_at });
+    }
+    if min.is_some() || max.is_some() {
+        let build = context.build.ok_or(FeaturesRejected::BuildUnknown)?;
+        if let Some(min) = min.filter(|&min| build < min) {
+            return Err(FeaturesRejected::BuildBelowMin { build, min });
+        }
+        if let Some(max) = max.filter(|&max| build > max) {
+            return Err(FeaturesRejected::BuildAboveMax { build, max });
+        }
+    }
+    Ok(states)
+}
+
+/// The document's serial: the highest integer `FeaturesSerial` of its
+/// default and of every cohort. One number covers the whole document, as a
+/// Chromium seed has one `serial_number`
+/// (`components/variations/proto/variations_seed.proto`).
+pub(crate) fn document_serial(document: &Value) -> Option<u64> {
+    let cohorts = document.get("cohorts").and_then(Value::as_object);
+    let layers = cohorts.into_iter().flat_map(|cohorts| cohorts.values());
+    std::iter::once(document.get(DEFAULT_COHORT))
+        .flatten()
+        .chain(layers)
+        .filter_map(|layer| layer.get(FEATURES_SERIAL).and_then(Value::as_u64))
+        .max()
+}
+
+/// The remote overrides of the daemon's features (registry `process` `daemon`
+/// or `both`, the `cmux-features` table), in table order. Names of app-only
+/// features are left out, not refused: one document serves both processes.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's first remote-overridable feature reads this")
+)]
+pub(crate) fn features(remote: &RemoteFeatures) -> Vec<(&'static str, bool)> {
+    let table = cmux_features::Snapshot::defaults(cmux_features::Channel::Release);
+    table
+        .iter()
+        .filter_map(|(def, _, _)| remote.states.get(def.name).map(|&on| (def.name, on)))
+        .collect()
+}
+
+/// Err when `next`'s serial ([`document_serial`]) is lower than `previous`'s.
+/// A replayed older document verifies, so this is what keeps it from undoing
+/// a kill switch, for every cohort at once: the serial covers the whole
+/// document, the cohorts `next` drops too. No `FeaturesSerial` is serial 0.
+fn refuse_older_serial(previous: &Value, next: &Value) -> Result<(), String> {
+    let old = document_serial(previous).unwrap_or(0);
+    let new = document_serial(next).unwrap_or(0);
+    if new < old {
+        return Err(format!("older FeaturesSerial: {new} < {old}"));
+    }
+    Ok(())
 }
 
 /// The public key this build trusts.
@@ -97,6 +323,9 @@ pub(crate) fn store(root: &Path, data: &[u8], signature: &[u8], key: &str) -> Re
         serde_json::from_slice(data).map_err(|error| format!("not JSON: {error}"))?;
     if resolve(&document, DEFAULT_COHORT).is_none() {
         return Err("not a version 1 document".into());
+    }
+    if let Some(previous) = cached(root, key) {
+        refuse_older_serial(&previous, &document)?;
     }
     let (data_path, signature_path) = cache_paths(root);
     // The signature first: a crash between the two leaves a pair that fails
@@ -291,5 +520,162 @@ mod tests {
         assert_eq!(channel(Some(BuildKind::Staging)), Channel::Dev);
         // Tests build unoptimized: an unbundled test binary is a dev build.
         assert_eq!(channel(None), Channel::Dev);
+    }
+
+    /// The vectors the app's `ContentSignature` and remote overrides replay too.
+    fn vectors() -> Value {
+        serde_json::from_str(include_str!("../../../../schemas/features/flags-vectors.json"))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_shared_signature_vectors_verify_as_in_the_app() {
+        let vectors = vectors();
+        let key = vectors["public_key"].as_str().unwrap();
+        let cases = vectors["signature"].as_array().unwrap();
+        assert!(cases.iter().any(|case| case["valid"] == true));
+        assert!(cases.iter().any(|case| case["valid"] == false));
+        for case in cases {
+            let data = case["data"].as_str().unwrap().as_bytes();
+            let signature = case["signature"].as_str().unwrap().as_bytes();
+            let valid = case["valid"].as_bool().unwrap();
+            assert_eq!(verify(data, signature, key), valid, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_shared_resolve_vectors_give_each_cohort_its_features() {
+        for case in vectors()["resolve"].as_array().unwrap() {
+            let name = &case["name"];
+            let context = FeaturesContext {
+                build: case["build"].as_u64(),
+                now: case["now"].as_u64().unwrap(),
+            };
+            let cohort = case["cohort"].as_str().unwrap();
+            let remote = remote_features(&case["document"], cohort, context).unwrap();
+            let expected: BTreeMap<String, bool> =
+                serde_json::from_value(case["features"].clone()).unwrap();
+            assert_eq!(remote.states, expected, "{name}");
+            assert_eq!(remote.serial, case.get("serial").and_then(Value::as_u64), "{name}");
+            let rejected: Vec<Value> = remote
+                .rejected
+                .iter()
+                .map(
+                    |(layer, why)| serde_json::json!({"layer": layer.code(), "reason": why.code()}),
+                )
+                .collect();
+            assert_eq!(Value::Array(rejected), case["rejected"], "{name}");
+        }
+    }
+
+    #[test]
+    fn the_shared_serial_vectors_refuse_every_older_document() {
+        let cases = vectors()["serial"].as_array().unwrap().clone();
+        assert!(cases.iter().any(|case| case["refused"] == true));
+        for case in cases {
+            let refused = refuse_older_serial(&case["cached"], &case["next"]).is_err();
+            assert_eq!(refused, case["refused"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_published_document_passes_the_nightly_check_and_resolves() {
+        let document: Value =
+            serde_json::from_str(include_str!("../../../../release-notes/next/flags.json"))
+                .unwrap();
+        assert_eq!(document["version"], 1, "nightly.yml asserts version == 1");
+        assert!(document.get("default").is_none_or(Value::is_object));
+        assert!(document.get("cohorts").is_none_or(Value::is_object));
+        assert!(resolve(&document, DEFAULT_COHORT).is_some());
+        let context = FeaturesContext { build: None, now: 0 };
+        let remote = remote_features(&document, DEFAULT_COHORT, context).unwrap();
+        assert!(remote.serial.is_some(), "every publish sets FeaturesSerial");
+        assert_eq!(remote.rejected, [], "the published Features apply");
+    }
+
+    #[test]
+    fn the_daemon_takes_only_its_own_features() {
+        let document = serde_json::json!({
+            "version": 1,
+            "default": {"Features": {"noSuchDaemonFeature": "off", "cefLayerHosting": "on"}},
+        });
+        let context = FeaturesContext { build: Some(1), now: 0 };
+        let remote = remote_features(&document, DEFAULT_COHORT, context).unwrap();
+        assert_eq!(remote.states.len(), 2);
+        let daemon: Vec<&str> = cmux_features::Snapshot::defaults(cmux_features::Channel::Release)
+            .iter()
+            .map(|(def, _, _)| def.name)
+            .collect();
+        let taken = features(&remote);
+        assert!(taken.iter().all(|(name, _)| daemon.contains(name)), "{taken:?}");
+        assert!(!taken.iter().any(|(name, _)| *name == "noSuchDaemonFeature"));
+    }
+
+    #[test]
+    fn an_older_serial_never_replaces_the_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let pair = key_pair();
+        let key = encode(pair.public_key().as_ref());
+        let put = |document: Value| {
+            let data = serde_json::to_vec(&document).unwrap();
+            store(root.path(), &data, encode(pair.sign(&data).as_ref()).as_bytes(), &key)
+        };
+        let wave = |serial: u64| {
+            serde_json::json!({
+                "version": 1,
+                "default": {"FeaturesSerial": 5},
+                "cohorts": {"wave": {"FeaturesSerial": serial, "Features": {"x": "off"}}},
+            })
+        };
+        // A document from before FeaturesSerial counts as serial 0.
+        put(serde_json::json!({"version": 1, "default": {"DisabledFeatures": ["a"]}})).unwrap();
+        put(wave(9)).unwrap();
+        put(wave(9)).unwrap();
+        let older = put(wave(8)).unwrap_err();
+        assert!(older.contains("older FeaturesSerial: 8 < 9"), "{older}");
+        // A replay that drops the cohort holding the kill switch is older too.
+        let dropped = serde_json::json!({"version": 1, "default": {"FeaturesSerial": 5}});
+        let replayed = put(dropped).unwrap_err();
+        assert!(replayed.contains("older FeaturesSerial: 5 < 9"), "{replayed}");
+        let cached_wave = &cached(root.path(), &key).unwrap()["cohorts"]["wave"];
+        assert_eq!(cached_wave["Features"]["x"], "off", "the kill switch stays cached");
+        // A newer document may drop the cohort.
+        put(serde_json::json!({"version": 1, "default": {"FeaturesSerial": 10}})).unwrap();
+        assert_eq!(cached(root.path(), &key).unwrap()["default"]["FeaturesSerial"], 10);
+    }
+
+    #[test]
+    fn each_layer_is_gated_on_its_own_and_the_cohort_wins_per_name() {
+        let context = FeaturesContext { build: Some(4199), now: 0 };
+        let document = serde_json::json!({
+            "version": 1,
+            "default": {"Features": {"a": "off", "b": "off"}, "FeaturesSerial": 2},
+            "cohorts": {"wave": {"Features": {"b": "on"}, "FeaturesSerial": 3, "MinimumVersion": "2"}},
+        });
+        let remote = remote_features(&document, "wave", context).unwrap();
+        assert_eq!(remote.states, BTreeMap::from([("a".into(), false), ("b".into(), true)]));
+        assert_eq!(remote.serial, Some(3));
+        // resolve gives the policy keys only, so no Features* key crosses layers.
+        let keys = resolve(&document, "wave").unwrap();
+        assert_eq!(keys, BTreeMap::from([("MinimumVersion".into(), Value::from("2"))]));
+        // A cohort out of range keeps the default's kill switches.
+        let gated = serde_json::json!({
+            "version": 1,
+            "default": {"Features": {"a": "off"}},
+            "cohorts": {"wave": {"Features": {"a": "on"}, "FeaturesMinBuild": 4200}},
+        });
+        let remote = remote_features(&gated, "wave", context).unwrap();
+        assert_eq!(remote.states, BTreeMap::from([("a".into(), false)]));
+        let below = FeaturesRejected::BuildBelowMin { build: 4199, min: 4200 };
+        assert_eq!(remote.rejected, [(Layer::Cohort, below)]);
+        // A cohort's Features that is not an object is malformed; the default's still apply.
+        let broken = serde_json::json!({
+            "version": 1,
+            "default": {"Features": {"a": "off"}},
+            "cohorts": {"wave": {"Features": ["a"]}},
+        });
+        let remote = remote_features(&broken, "wave", context).unwrap();
+        assert_eq!(remote.states, BTreeMap::from([("a".into(), false)]));
+        assert_eq!(remote.rejected, [(Layer::Cohort, FeaturesRejected::Malformed(FEATURES))]);
     }
 }
