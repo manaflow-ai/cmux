@@ -301,6 +301,40 @@ test("a daemon that predates start_mode clears what the previous daemon said", a
   expect(disabled("Bypass permissions")).toBe(false);
 });
 
+test("a refusal other than method-not-found keeps the managed mark", async () => {
+  // Managed off, then the same daemon refuses one ask (invalid params, or any refusal other than
+  // a missing method): it still manages full access, so the rows stay managed.
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const { AcpmuxRpcError } = await import("../src/agent-session/acpmux/handoff/protocol");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  (client as unknown as { request: () => Promise<unknown> }).request = () =>
+    Promise.reject(new AcpmuxRpcError({ code: -32602, message: "Invalid params" }));
+  await act(async () => void (await client.startMode("claude", "/Users/dev/project")));
+  await render(reported("s1", "default"), () => undefined);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
+test("a full-access pick the agent refused says managed once full access is managed off", async () => {
+  const startMode = await import("../src/agent-session/acpmux/startMode");
+  await act(async () => startMode.setStartModeSource(async () => undefined));
+  const summary = reported("s1", "default")!;
+  const modes = summary.modes as { availableModes: { id: string; name: string }[] };
+  modes.availableModes.push({ id: "acceptEdits", name: "Accept edits" });
+  await render(summary, () => Promise.reject(new Error("bypassPermissions is disabled by managed settings")));
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  await act(async () => item("Bypass permissions")!.click());
+  await flush();
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
 test("a new connection forgets the managed mark, and a late answer from the old one changes nothing", async () => {
   const startMode = await import("../src/agent-session/acpmux/startMode");
   const direct = await import("../src/agent-session/acpmux/direct");
