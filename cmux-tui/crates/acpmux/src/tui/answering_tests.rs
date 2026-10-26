@@ -45,8 +45,9 @@ fn press(app: &mut App, keys: &str) {
 /// The answers the flow sent, or None when it sent nothing.
 async fn sent(requests: &mut mpsc::UnboundedReceiver<Value>) -> Option<Value> {
     loop {
-        let msg =
-            tokio::time::timeout(std::time::Duration::from_secs(2), requests.recv()).await.ok()??;
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(2), requests.recv())
+            .await
+            .ok()??;
         if msg["method"] == method::MUX_PERMISSION_RESPOND {
             return Some(msg["params"]["answers"].clone());
         }
