@@ -12,7 +12,16 @@ use super::{MessageWriter, Mux, PageParams, Refusal, attach, refuse};
 
 pub const AGENT_SESSION_OBSERVE_CAPABILITY: &str = "agent-session-observe-v1";
 
-/// Handles the observer command before the writable attach command parser.
+/// The `cmd` this module answers (server/routes.rs): its exact name wins
+/// over the `agent-session-` prefix of the attach route.
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Exact("agent-session-observe")],
+        stage: crate::server::FrameStage::AgentSession,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
+/// Handles the observer command.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -22,7 +31,7 @@ pub(super) fn try_handle(
     if !message.contains("\"agent-session-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let Some(Value::String(cmd)) = object.remove("cmd") else {

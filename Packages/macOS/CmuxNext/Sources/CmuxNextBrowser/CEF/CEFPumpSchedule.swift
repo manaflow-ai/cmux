@@ -38,7 +38,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
     /// until a pass at or after it: a later CEF request does not replace it, since that request may
     /// be a stale one posted before the keep.
-    private var keptDeadline: TimeInterval?
+    private(set) var keptDeadline: TimeInterval?
     /// A timer fire arrived while a pass was running (a nested run loop).
     private var reentered = false
 

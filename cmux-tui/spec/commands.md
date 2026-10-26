@@ -732,6 +732,14 @@ instants `daemon.request.parsed`, `daemon.request.dispatched`,
 its own reply, has no `handled`. A worker's reply is the async slice
 `daemon.request.async` (arg0 the method id), with the instants
 `daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+After each local line, the instant `daemon.frame.json_parses` has as arg0
+how many times the line was parsed as JSON before its reply, counted at
+each parse: its head once, then the one decode of the handler its head
+names, so 2 for every request a handler accepts. An error reply costs more:
+3 for a line no handler decodes (the bad-request reply decodes the line
+again for its `id`), 4 for a refused v2 envelope (its `protocol` probe and
+the refusal's `id`), 5 when that envelope names a page-routed operation. An
+older client's revision upgrade is not counted.
 
 `stack` is the stack of the thread that ran the request, captured when the
 watchdog first saw it running past the threshold (macOS suspends the thread,
