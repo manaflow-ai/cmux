@@ -626,12 +626,14 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
-    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
-        *self.detach_waker.lock().recover_poison() = Some(Box::new(waker));
+    /// Adds a waker every detach calls (the idle-close reaper, the
+    /// cold-scrollback worker).
+    pub(crate) fn add_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        self.detach_wakers.lock().recover_poison().push(Box::new(waker));
     }
 
     pub(super) fn notify_detach(&self) {
-        if let Some(waker) = self.detach_waker.lock().recover_poison().as_ref() {
+        for waker in self.detach_wakers.lock().recover_poison().iter() {
             waker();
         }
     }

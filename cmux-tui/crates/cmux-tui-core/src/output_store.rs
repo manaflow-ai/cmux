@@ -580,6 +580,18 @@ impl OutputStore {
         *self.policy.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Full mode: segment files hold every byte (the cold store there).
+    pub(crate) fn full_mode(&self) -> bool {
+        self.full.enabled()
+    }
+
+    /// When the terminal last printed; `None` before its first output.
+    pub(crate) fn last_output(&self, terminal_id: &TerminalPublicId) -> Option<Instant> {
+        let log =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
+        Some(log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output)
+    }
+
     /// True when `terminal.persistence.mode` is `memory`: no terminal screen
     /// may reach the disk (exit replays and close archives keep no screen).
     pub(crate) fn memory_only(&self) -> bool {

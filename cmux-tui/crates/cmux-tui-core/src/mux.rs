@@ -189,6 +189,7 @@ use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
 };
+mod cold_scrollback;
 mod column_move;
 mod dock_columns;
 #[cfg(test)]
@@ -287,10 +288,9 @@ pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
 mod time;
-pub(crate) use time::now_ms;
-
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) use time::now_ms;
 pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
@@ -325,12 +325,11 @@ mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
-use workspace_rename::workspace_resource_upsert;
-
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
+use workspace_rename::workspace_resource_upsert;
 
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
@@ -763,6 +762,7 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    cold_scrollback_wake: OnceLock<std::sync::mpsc::Sender<()>>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
