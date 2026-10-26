@@ -172,7 +172,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
@@ -370,7 +370,7 @@ final class AppServices {
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
-        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+        overlay: SleepyOverlayWindows(events: appEvents, workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
@@ -663,10 +663,10 @@ final class AppServices {
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           turnObserver: oracleTurns, causes: mainWork.causes)
+                                           turnObserver: oracleTurns, mainWork: mainWork)
         #else
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           causes: mainWork.causes)
+                                           mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
@@ -801,7 +801,7 @@ final class AppServices {
         let updateSheet = self.updateSheet  // built here, as before
         updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.bind(registry: registry)
-        input.startNoActivateGuard(tap: inputTap, work: work, mainWork: mainWork)  // an NSApp input hook: before the app activates
+        input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {

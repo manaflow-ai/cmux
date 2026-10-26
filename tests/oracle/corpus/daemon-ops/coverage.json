@@ -18,7 +18,6 @@
     "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
     "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
     "conversation.draft": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and the case connection acts as the person. p15-oracle-240 gives driver_daemon.py a `connection: agent` step bound to the mock conversation's agent",
     "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "git.checkpoint.create": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
@@ -40,6 +39,7 @@
     "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
     "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
     "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
+    "tab.create_browser": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
     "terminal.viewport.scroll": "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
   },
@@ -721,13 +721,19 @@
         "success": "daemon-ops/closed-delete-ok",
         "error": "daemon-ops/closed-delete-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "closed.reopen": {
       "family": "tab",
@@ -735,14 +741,19 @@
         "success": "daemon-ops/closed-reopen-ok",
         "error": "daemon-ops/closed-reopen-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "gap": "a fresh daemon has no closed group to reopen; the family task closes one first"
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "column.update": {
       "family": "layout",
@@ -1904,11 +1915,12 @@
         "fx-saved-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "saved_tab_group.reopen": {
       "family": "tab",
@@ -1918,15 +1930,19 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group",
-        "fx-saved-tab-group"
+        "fx-saved-tab-group",
+        "close-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "saved_tab_group.save": {
       "family": "tab",
@@ -1939,11 +1955,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "screen.close": {
       "family": "layout",
@@ -2847,14 +2864,17 @@
         "error": "daemon-ops/tab-close-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.create_browser": {
       "family": "tab",
@@ -2870,7 +2890,21 @@
         "field": "url",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "chromium"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "tab.create_terminal": {
       "family": "tab",
@@ -2882,11 +2916,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.focus": {
       "family": "tab",
@@ -2895,14 +2931,18 @@
         "error": "daemon-ops/tab-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "focus-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.move": {
       "family": "tab",
@@ -2915,11 +2955,12 @@
         "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "destination_workspace",
-        "rule": "selector must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab.pin": {
       "family": "tab",
@@ -2931,11 +2972,12 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab.rename": {
       "family": "tab",
@@ -2947,11 +2989,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.unpin": {
       "family": "tab",
@@ -2960,14 +3004,17 @@
         "error": "daemon-ops/tab-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.update": {
       "family": "tab",
@@ -2979,11 +3026,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "zoom",
-        "rule": "value must be a finite number"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.add_tabs": {
       "family": "tab",
@@ -2993,14 +3042,17 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.close": {
       "family": "tab",
@@ -3013,11 +3065,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.create": {
       "family": "tab",
@@ -3029,11 +3082,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.move": {
       "family": "tab",
@@ -3043,14 +3098,17 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.remove_tabs": {
       "family": "tab",
@@ -3063,11 +3121,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.ungroup": {
       "family": "tab",
@@ -3080,11 +3139,12 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.update": {
       "family": "tab",
@@ -3097,11 +3157,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "terminal.close": {
       "family": "terminal",

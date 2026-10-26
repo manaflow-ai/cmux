@@ -54,7 +54,9 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, deadlines: MainDeadlineScheduler, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+    /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
+    init(auth: CloudAuth, deadlines: MainDeadlineScheduler, energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false,
+         acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
         self.showcase = showcase
@@ -66,7 +68,7 @@ final class FeedService {
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner)
+        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }

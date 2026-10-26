@@ -26,11 +26,11 @@ import Observation
 ///    posted on the scheduler (``MainWorkScheduler/post(_:owner:file:line:_:)``), Chrome's posted
 ///    task with a `TaskPriority` (`base/task/task_traits.h`): ``MainFrameBudget`` holds it while
 ///    input is pending or its class's budget is spent, so a burst of automation never takes the
-///    person's frame. Its class is the caller's class for an automation or program cause, and
-///    `visible` for a frontend or person cause. A person-caused flush is also queued for the
-///    input-response pass, which applies it before the commit
+///    person's frame. Its class is the caller's class for an automation or program cause,
+///    `visible` for a frontend cause and `userBlocking` for a person cause. A person-caused flush
+///    is also queued for the input-response pass, which applies it before the commit
 ///    (``ObservationCauses/flushPersonCaused()``); one the pass did not reach runs in its
-///    `visible` task. The person's own change never waits behind their next key.
+///    `userBlocking` task. The person's own change never waits behind their next key.
 /// 4. A value whose type is `Equatable` is applied only when it differs from the last value
 ///    applied (as `ObservationStream` emits). Wrap it in `ObservationTrigger` to apply every
 ///    evaluation.
@@ -77,7 +77,7 @@ public final class ServiceObservation<Value> {
     ///   - workClass: The class of a flush whose changes no person and no frontend caused:
     ///     `visible` for a model change that shows on screen through some view, `automation` for
     ///     work an agent, the CLI or another process caused, `background` for work nobody waits on.
-    ///     A person's or the frontend's change flushes as `visible` or sooner, whatever this is.
+    ///     A frontend's change flushes as `visible` and a person's as `userBlocking`, whatever this is.
     ///   - owner: The observation's name (interned once on the scheduler's board here).
     ///   - work: The app's one main-thread scheduler; its ``MainWorkScheduler/causes`` names each
     ///     change's cause.
@@ -162,9 +162,10 @@ public final class ServiceObservation<Value> {
         if dirtyCause != .person { _ = track() }
     }
 
-    /// The class a flush of `cause` runs in.
+    /// The class a flush of `cause` runs in: a person's in userBlocking, a frontend's in visible,
+    /// the rest in the observer's own class.
     private func flushClass(_ cause: ObservationCause) -> BudgetedWorkClass {
-        cause >= .frontend ? .visible : workClass
+        cause >= .frontend ? cause.budgetedClass : workClass
     }
 
     /// Queues the flush for `cause`, which replaced `previous`: a posted task when the class
@@ -180,7 +181,7 @@ public final class ServiceObservation<Value> {
     /// A posted flush: flushes when the pending flush's class is still `taskClass` (a raised cause
     /// has its own task in the higher class).
     private func flushQueued(_ taskClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = dirtyCause, flushClass(cause) == taskClass else { return }
+        guard !cancelled, let cause = dirtyCause, flushClass(cause) == taskClass else { return work.budget.noteRanNothing() }
         flushNow()
     }
 
@@ -212,7 +213,7 @@ extension ServiceObservation: CausedObservation {
 
     func flushPersonCaused(ticket: UInt64) -> Bool {
         guard isPersonPending(ticket: ticket) else { return false }
-        // Its visible task finds nothing pending and returns.
+        // Its userBlocking task finds nothing pending and returns.
         work.budget.run(.frame, owner: taskOwner) { flushNow() }
         return true
     }

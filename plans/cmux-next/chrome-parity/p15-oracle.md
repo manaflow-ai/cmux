@@ -573,7 +573,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 061-070 | Daemon-op families | M | 18-48 | 060 | MQ-daemon-ops |
 | 237 | Driver user connection (install-key hello) | M | 20-36 | 023, 200, 070 | MQ-daemon-ops |
 | 238 | Driver loopback pairing step | S | 20-36 | 023, 200, 070 | MQ-daemon-ops |
-| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061 | MQ-daemon-ops |
+| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061, 067 | MQ-daemon-ops |
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
@@ -903,11 +903,13 @@ The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairi
 (`server/websocket_listener.rs` begin_pairing) and waits until the facet lists the pairing request; the
 pairing_request.resolve success case rejects it by a `$step:` reference. Test: VM, the case green twice, no pairing left.
 
-**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`. driver_app.py runs a
+**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`, `tab/_tuning.json`.
+Depends on 067 (the tab tuning). driver_app.py runs a
 `requires: chromium` case's resource.call steps on the app's own daemon, whose browser host is the cmux-browser provider,
-in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 9 engine success
-cases (browser.activate/back/forward/reload/navigate, browser.input.key/text/mouse/wheel) lose their gaps; mouse and wheel
-also need a presented frame token from a stream step (204). Test: fleet, the 9 cases green twice.
+in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 10 chromium
+success cases lose their gaps: the 9 engine ops (browser.activate/back/forward/reload/navigate,
+browser.input.key/text/mouse/wheel) and tab.create_browser (a daemon-rendered browser tab in the fixture pane); mouse and
+wheel also need a presented frame token from a stream step (204). Test: fleet, the 10 cases green twice.
 
 **240 Driver: errorDetails, mock agent, chief connections.** Files: `driver_daemon.py`, `mock_chief.py`,
 `chief/_tuning.json`. (1) A resource.call step's `expect.errorDetails` is checked with

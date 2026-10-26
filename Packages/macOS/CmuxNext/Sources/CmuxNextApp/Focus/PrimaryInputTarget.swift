@@ -50,7 +50,7 @@ protocol PrimaryInputTarget: AnyObject {
 
 extension PrimaryInputTarget {
     var acceptsRedirectedTyping: Bool {
-        guard let input = primaryInputView, let window = input.window, !input.isHiddenOrHasHiddenAncestor else { return false }
+        guard let input = primaryInputView, let window = input.window, input.isShownForInput else { return false }
         return !(window.firstResponder?.ownsTypedText ?? false)
     }
 
@@ -70,7 +70,7 @@ extension PrimaryInputTarget {
     /// focuses its own target).
     @discardableResult
     func landKeyboard(in window: NSWindow) -> Bool {
-        guard let input = primaryInputView, input.window === window, !input.isHiddenOrHasHiddenAncestor else { return false }
+        guard let input = primaryInputView, input.window === window, input.isShownForInput else { return false }
         if window.firstResponder !== input, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
             window.makeFirstResponder(input)
         }

@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
@@ -108,15 +109,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
-    /// - Parameter revealClock: Times the collapsed band's close delay.
+    /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
-         revealClock: any Clock<Duration> = ContinuousClock(),
+         revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          signals: AppearanceSignals = DesignSettings.shared.signals) {
         self.sidebar = sidebar
-        collapsedBand = CollapsedBandReveal(clock: revealClock)
+        collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
