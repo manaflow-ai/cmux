@@ -56,7 +56,7 @@ test("a refused attachment view restores the host's choice", async () => {
     await act(async () => settings.setAttachmentView("strip"));
     expect(shown()).toBe("strip");
     await act(async () => write.reject(new Error("managed setting")));
-    expect(shown()).toBe("inline");
+    expect(shown()).toBe("strip");
   });
 });
 
@@ -118,6 +118,6 @@ test("a synchronous host failure also restores its choice", async () => {
       throw new Error("bridge unavailable");
     });
     await act(async () => settings.setAttachmentView("strip"));
-    expect(shown()).toBe("inline");
+    expect(shown()).toBe("strip");
   });
 });

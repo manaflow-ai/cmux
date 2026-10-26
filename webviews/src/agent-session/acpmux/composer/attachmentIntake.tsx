@@ -81,6 +81,9 @@ export type AttachmentIntakeOptions = {
   /// A chat on this Mac, whose attached videos the host may read (composer/videoAttachments.ts);
   /// `localPaths` says so too. Quick Chat has no `localPaths` but is on this Mac.
   localChat?: boolean;
+  /// Called after a file becomes a staged attachment. The chat composer uses this to place it at
+  /// the editor's caret when inline attachment mode is enabled; New Tab callers leave it unset.
+  onReady?(attachment: ComposerAttachment): void;
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
@@ -264,6 +267,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
+      now.onReady?.(attachment);
     };
     const failed = (index: number, error: IntakeError) => {
       const id = shown[index]!.id;
@@ -625,7 +629,7 @@ function PendingChip({
   );
 }
 
-function AttachmentChip({
+export function AttachmentChip({
   attachment,
   codex = false,
   onRemove,

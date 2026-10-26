@@ -6,7 +6,13 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  inlineTokenIds,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -34,6 +40,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
+import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
@@ -71,7 +78,7 @@ import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
+import { setAttachmentView, setScrollToBottomOnSend, useComposerSettings, type AttachmentView } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -167,6 +174,9 @@ export const COMPOSER_LABELS = {
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
   scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
+  attachmentView: "composer.attachmentView",
+  attachmentInline: "composer.attachmentInline",
+  attachmentStrip: "composer.attachmentStrip",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -445,10 +455,21 @@ export function Composer({
   const tRef = useRef(t);
   tRef.current = t;
   const field = useRef<MarkdownFieldHandle>(null);
+  const inlinePending = useRef(new Set<string>());
+  const attachmentViewRef = useRef<AttachmentView>("strip");
+  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const inlineIdsRef = useRef(new Set<string>());
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
       field.current = handle;
       if (prompt) prompt.current = handle;
+      if (!handle) {
+        inlineIdsRef.current.clear();
+        return;
+      }
+      const known = (id: string) => attachmentsRef.current.some((attachment) => attachment.id === id);
+      const inline = handle as MarkdownFieldHandle & { inlineIds?(): string[] };
+      inlineIdsRef.current = new Set(inline.inlineIds?.() ?? inlineTokenIds(handle.value(), known));
     },
     [prompt],
   );
@@ -508,7 +529,8 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, attachmentView } = useComposerSettings();
+  attachmentViewRef.current = attachmentView;
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -563,6 +585,9 @@ export function Composer({
     scope: sessionId,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
     localChat: opensProcessTerminal(snapshot.summary),
+    onReady: (attachment) => {
+      if (attachmentViewRef.current === "inline") inlinePending.current.add(attachment.id);
+    },
     elsewhere: (chat, chips) => {
       if (!keptAttachments) return;
       void keptAttachments
@@ -573,8 +598,29 @@ export function Composer({
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
-  const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const insertPendingInline = useCallback(() => {
+    const live = new Set(attachments.map((attachment) => attachment.id));
+    for (const id of inlinePending.current) if (!live.has(id)) inlinePending.current.delete(id);
+    if (attachmentView !== "inline") {
+      inlinePending.current.clear();
+      return;
+    }
+    if (!field.current || inlinePending.current.size === 0) return;
+    const ids = attachments
+      .filter((attachment) => inlinePending.current.has(attachment.id))
+      .map((attachment) => attachment.id);
+    if (!ids.length) return;
+    const insert = (field.current as MarkdownFieldHandle & { insertInline?(ids: readonly string[]): boolean })
+      .insertInline;
+    if (!insert?.call(field.current, ids)) return;
+    for (const id of ids) inlinePending.current.delete(id);
+  }, [attachments, attachmentView]);
+  useEffect(() => {
+    insertPendingInline();
+    window.addEventListener(COMPOSER_READY_EVENT, insertPendingInline);
+    return () => window.removeEventListener(COMPOSER_READY_EVENT, insertPendingInline);
+  }, [insertPendingInline]);
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -634,6 +680,7 @@ export function Composer({
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
+        if (attachmentViewRef.current === "inline") inlinePending.current.add(attachment.id);
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
@@ -1363,14 +1410,30 @@ export function Composer({
   // IME composition. A value applied from outside (a draft coming back on open or a switch, a
   // failed prompt restored, the field normalizing either) comes with none.
   promptChange.current = (value, at) => {
+    const userEdit = performance.now() - typedAt.current < TYPED_WINDOW_MS;
+    const known = (id: string) => attachmentsRef.current.some((attachment) => attachment.id === id);
+    const nextInlineIds = new Set(inlineTokenIds(value, known));
+    const previousInlineIds =
+      inlineIdsRef.current.size > 0 ? inlineIdsRef.current : new Set(inlineTokenIds(textRef.current, known));
+    if (attachmentViewRef.current === "inline" && userEdit && previousInlineIds.size) {
+      const removed = [...previousInlineIds].filter((id) => !nextInlineIds.has(id));
+      if (removed.length) {
+        const removedIds = new Set(removed);
+        setAttachments((current) => current.filter((attachment) => !removedIds.has(attachment.id)));
+      }
+    }
+    inlineIdsRef.current = nextInlineIds;
     edit(value, at);
-    if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    if (!userEdit) return;
     if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
   };
-  promptCaret.current = setCaret;
+  promptCaret.current = (at) => {
+    setCaret(at);
+    insertPendingInline();
+  };
   promptKeyDown.current = (event) => {
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     const edits = event.metaKey
@@ -1926,6 +1989,17 @@ export function Composer({
                               : id === "files"
                                 ? setFindingFiles(true)
                                 : openCommands(),
+                  },
+                  {
+                    title: t(COMPOSER_LABELS.attachmentView),
+                    choices: [
+                      { id: "strip", name: t(COMPOSER_LABELS.attachmentStrip) },
+                      { id: "inline", name: t(COMPOSER_LABELS.attachmentInline) },
+                    ],
+                    current: attachmentView,
+                    onPick: (id) => {
+                      if (id === "strip" || id === "inline") setAttachmentView(id);
+                    },
                   },
                 ]}
               />

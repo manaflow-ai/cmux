@@ -8,13 +8,13 @@ test("composer spell checking is opt-in and off by default", () => {
   expect(readComposerSettings({ spellChecking: "true" }).spellChecking).toBe(false);
 });
 
-test("attachments show inline by default; strip is the other view", () => {
-  expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
-  expect(readComposerSettings({}).attachmentView).toBe("inline");
+test("attachments show strip by default; inline is opt-in", () => {
+  expect(DEFAULT_COMPOSER.attachmentView).toBe("strip");
+  expect(readComposerSettings({}).attachmentView).toBe("strip");
   expect(readComposerSettings({ attachmentView: "strip" }).attachmentView).toBe("strip");
   expect(readComposerSettings({ attachmentView: "inline" }).attachmentView).toBe("inline");
   for (const bad of ["Strip", "row", 1, true, null]) {
-    expect(readComposerSettings({ attachmentView: bad }).attachmentView).toBe("inline");
+    expect(readComposerSettings({ attachmentView: bad }).attachmentView).toBe("strip");
   }
 });
 

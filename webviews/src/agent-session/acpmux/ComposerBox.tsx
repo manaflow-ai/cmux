@@ -1,6 +1,8 @@
-import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
-import type { ComposerAttachment } from "./attachments";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { inlineToken, type ComposerAttachment } from "./attachments";
 import {
+  AttachmentChip,
   AttachmentStrip,
   backspacedAttachment,
   type MadeFile,
@@ -15,6 +17,22 @@ import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
+import "./composerInlineAttachments.css";
+
+/// B's inline node plugin adds these props and handle methods. Keeping the narrow adapter here lets
+/// the chip-row composer stay source-compatible while the plugin is integrated in its own lane.
+type InlineMarkdownFieldHandle = MarkdownFieldHandle & {
+  insertInline?(ids: readonly string[]): boolean;
+  removeInline?(id: string): void;
+};
+type InlineMarkdownFieldProps = MarkdownFieldProps & {
+  inlineAttachments?: boolean;
+  isInlineAttachment?: (id: string) => boolean;
+  onInlineViews?: (views: ReadonlyMap<string, HTMLElement>) => void;
+};
+const InlineMarkdownField = MarkdownField as React.ForwardRefExoticComponent<
+  InlineMarkdownFieldProps & React.RefAttributes<InlineMarkdownFieldHandle>
+>;
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -30,7 +48,7 @@ export type ComposerBoxHandle = {
 export type ComposerBoxProps = {
   /// The prompt field: its value and the host's own behavior (what Return does, its menus). The box
   /// runs a huge paste (a Pasted text chip, pastedChips.ts) and ⌘⇧V before the host hears them.
-  field: Omit<MarkdownFieldProps, "plugins">;
+  field: Omit<InlineMarkdownFieldProps, "plugins">;
   /// Receives the prompt field's handle.
   fieldRef?: (handle: MarkdownFieldHandle | null) => void;
   handle?: React.Ref<ComposerBoxHandle>;
@@ -123,12 +141,28 @@ export function ComposerBox({
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
   // under the box; Codex's keeps them in the box's own row.
-  const { plainFooter } = useComposerSettings();
+  const { plainFooter, attachmentView } = useComposerSettings();
+  const inlineAttachments = attachmentView === "inline";
   const quietRow = useQuietRow();
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar, quietRow);
-  const prompt = useRef<MarkdownFieldHandle>(null);
+  const prompt = useRef<InlineMarkdownFieldHandle>(null);
+  const [inlineViews, setInlineViews] = useState<ReadonlyMap<string, HTMLElement>>(new Map());
+  const attachmentsById = useMemo(
+    () => new Map(attachments.map((attachment) => [attachment.id, attachment])),
+    [attachments],
+  );
+  const isInlineAttachment = useCallback((id: string) => attachmentsById.has(id), [attachmentsById]);
+  const updateInlineViews = useCallback((views: ReadonlyMap<string, HTMLElement>) => {
+    setInlineViews((previous) => {
+      if (previous.size === views.size && [...views].every(([id, node]) => previous.get(id) === node)) return previous;
+      return views;
+    });
+  }, []);
+  useEffect(() => {
+    if (!inlineAttachments) setInlineViews(new Map());
+  }, [inlineAttachments]);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {
       prompt.current = next;
@@ -143,6 +177,18 @@ export function ComposerBox({
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
+  const removeAttachment = useCallback(
+    (id: string) => {
+      if (inlineAttachments) prompt.current?.removeInline?.(id);
+      else {
+        const value = prompt.current?.value();
+        const token = inlineToken(id);
+        if (value?.includes(token)) prompt.current?.type(value.replace(token, ""));
+      }
+      onRemoveAttachment(id);
+    },
+    [inlineAttachments, onRemoveAttachment],
+  );
   const { onBeforeInput, onKeyDown } = field;
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -172,11 +218,13 @@ export function ComposerBox({
       <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
         {top}
         <AttachmentStrip
-          attachments={attachments}
+          attachments={
+            inlineAttachments ? attachments.filter((attachment) => !inlineViews.has(attachment.id)) : attachments
+          }
           {...(pending ? { pending } : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
-          onRemove={onRemoveAttachment}
+          onRemove={removeAttachment}
           {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           onReorder={onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))}
@@ -185,9 +233,11 @@ export function ComposerBox({
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-          <MarkdownField
+          <InlineMarkdownField
             ref={setPrompt}
             {...field}
+            inlineAttachments={inlineAttachments}
+            {...(inlineAttachments ? { isInlineAttachment, onInlineViews: updateInlineViews } : {})}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).
@@ -201,9 +251,10 @@ export function ComposerBox({
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
               // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-              const backspaced = composing
-                ? undefined
-                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              const backspaced =
+                composing || inlineAttachments
+                  ? undefined
+                  : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
               if (backspaced) {
                 event.preventDefault();
                 setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
@@ -212,6 +263,25 @@ export function ComposerBox({
               onKeyDown?.(event);
             }}
           />
+          {inlineAttachments &&
+            [...inlineViews].map(([id, node]) => {
+              const attachment = attachmentsById.get(id);
+              if (!attachment) return null;
+              const variant = attachment.video
+                ? "video"
+                : attachment.kind === "image"
+                  ? "image"
+                  : attachment.kind === "document"
+                    ? "document"
+                    : "file";
+              return createPortal(
+                <span className="acpmux-inline-attachment" data-inline-variant={variant}>
+                  <AttachmentChip attachment={attachment} codex={codex} onRemove={removeAttachment} />
+                </span>,
+                node,
+                id,
+              );
+            })}
           {fieldOverlay}
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}

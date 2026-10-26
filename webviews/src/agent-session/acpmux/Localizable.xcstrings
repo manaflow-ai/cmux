@@ -239511,7 +239511,403 @@
       "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"bs":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"da":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"de":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"en":{"stringUnit":{"state":"translated","value":"Great things are done by a series of small things brought together."}},"es":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"fr":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"it":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ja":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"km":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ko":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"nb":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"pl":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"ru":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"th":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"tr":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"uk":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"vi":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Great things are done by a series of small things brought together."}}}
     },
     "composer.menu.scrollToBottomOnSend":{"comment":"Composer context menu: whether sending a prompt scrolls the transcript to the latest row.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التمرير إلى الأسفل عند الإرسال"}},"de":{"stringUnit":{"state":"needs_review","value":"Beim Senden nach unten scrollen"}},"en":{"stringUnit":{"state":"needs_review","value":"Scroll to bottom when I send"}},"es":{"stringUnit":{"state":"needs_review","value":"Desplazarse al final al enviar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Faire défiler jusqu’en bas lors de l’envoi"}},"ja":{"stringUnit":{"state":"needs_review","value":"送信時に最下部へスクロール"}},"ko":{"stringUnit":{"state":"needs_review","value":"보낼 때 맨 아래로 스크롤"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pomjeri na dno pri slanju"}},"da":{"stringUnit":{"state":"needs_review","value":"Rul til bunden ved afsendelse"}},"it":{"stringUnit":{"state":"needs_review","value":"Scorri in fondo quando invio"}},"km":{"stringUnit":{"state":"needs_review","value":"រំកិលទៅបាតពេលខ្ញុំផ្ញើ"}},"nb":{"stringUnit":{"state":"needs_review","value":"Rull til bunnen når jeg sender"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przewiń na dół podczas wysyłania"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Rolar para o fim ao enviar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Прокручивать вниз при отправке"}},"th":{"stringUnit":{"state":"needs_review","value":"เลื่อนไปด้านล่างเมื่อส่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderdiğimde alta kaydır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прокручувати донизу під час надсилання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộn xuống cuối khi tôi gửi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"发送时滚动到底部"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"傳送時捲動到底部"}}}},
-    "status.copyAll":{"comment":"Agent pane: Session status card action that copies all rows as plain label-value lines.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy all"}},"ar":{"stringUnit":{"state":"needs_review","value":"نسخ الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér alt"}},"de":{"stringUnit":{"state":"needs_review","value":"Alles kopieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout copier"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier alt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj wszystko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копировать всё"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювати все"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制全部"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"複製全部"}}}}
+    "status.copyAll":{"comment":"Agent pane: Session status card action that copies all rows as plain label-value lines.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy all"}},"ar":{"stringUnit":{"state":"needs_review","value":"نسخ الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér alt"}},"de":{"stringUnit":{"state":"needs_review","value":"Alles kopieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout copier"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier alt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj wszystko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копировать всё"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювати все"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制全部"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"複製全部"}}}},
+    "composer.attachmentInline": {
+      "comment": "Agent pane: the composer attachment view menu choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضمن النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U tekstu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Text"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans le texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インライン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인라인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tekście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В тексте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır İçi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У тексті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nội dòng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内嵌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內嵌"
+          }
+        }
+      }
+    },
+    "composer.attachmentStrip": {
+      "comment": "Agent pane: the composer attachment view menu choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bånd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tira"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bandeau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Striscia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្នូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트립"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stripe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стрічка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫條"
+          }
+        }
+      }
+    },
+    "composer.attachmentView": {
+      "comment": "Agent pane: the composer attachment view menu section.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المرفقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz priloga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning af vedhæftninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhangsansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista de adjuntos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage des pièces jointes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista allegati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルの表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាពឯកសារភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첨부 파일 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning av vedlegg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widok załączników"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualização de anexos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид вложений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมองไฟล์แนบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ek Görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд вкладень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ xem tệp đính kèm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件檢視"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

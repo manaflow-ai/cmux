@@ -1,0 +1,74 @@
+/* Inline attachment tiles live inside MarkdownField atom views. Every selector is scoped to the
+   portal wrapper so the existing strip chips retain their current geometry. */
+.acpmux-inline-attachment {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0 var(--acpmux-attach-gap);
+  vertical-align: middle;
+  line-height: 0;
+}
+.acpmux-inline-attachment .acpmux-attachment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.acpmux-inline-attachment .acpmux-attachment-remove {
+  top: calc(var(--acpmux-attach-gap) * .333);
+  right: calc(var(--acpmux-attach-gap) * .333);
+}
+.acpmux-inline-attachment[data-inline-variant="image"] .acpmux-attachment {
+  width: calc(var(--acpmux-attach-height) * .75);
+  height: calc(var(--acpmux-attach-height) * .75);
+  border-radius: var(--acpmux-attach-radius);
+}
+.acpmux-inline-attachment[data-inline-variant="image"] .acpmux-attachment img {
+  width: calc(var(--acpmux-attach-height) * .75);
+  min-width: calc(var(--acpmux-attach-height) * .75);
+  height: calc(var(--acpmux-attach-height) * .75);
+  border-radius: var(--acpmux-attach-radius);
+}
+.acpmux-inline-attachment[data-inline-variant="video"] .acpmux-attachment {
+  width: var(--acpmux-attach-height);
+  height: var(--acpmux-attach-height);
+  border-radius: var(--acpmux-attach-radius);
+}
+.acpmux-inline-attachment[data-inline-variant="video"] .acpmux-attachment img {
+  width: var(--acpmux-attach-height);
+  min-width: var(--acpmux-attach-height);
+  height: var(--acpmux-attach-height);
+  border-radius: var(--acpmux-attach-radius);
+}
+.acpmux-inline-attachment[data-inline-variant="video"] .acpmux-attachment-video-play {
+  width: calc(var(--acpmux-attach-height) * .3125);
+  height: calc(var(--acpmux-attach-height) * .3125);
+}
+.acpmux-inline-attachment[data-inline-variant="document"] .acpmux-attachment,
+.acpmux-inline-attachment[data-inline-variant="file"] .acpmux-attachment {
+  width: calc(var(--acpmux-attach-height) * 1.25);
+  min-width: calc(var(--acpmux-attach-height) * 1.25);
+  height: calc(var(--acpmux-attach-height) * .4375);
+  padding: 0 8px;
+  border-radius: max(4px, calc(var(--acpmux-attach-radius) * .875));
+  font-size: var(--text-detail);
+  line-height: 1.2;
+}
+.acpmux-inline-attachment[data-inline-variant="document"] .acpmux-attachment {
+  width: calc(var(--acpmux-attach-height) * 1.125);
+  min-width: calc(var(--acpmux-attach-height) * 1.125);
+  height: calc(var(--acpmux-attach-height) * .625);
+}
+.acpmux-inline-attachment .acpmux-attachment-document-meta,
+.acpmux-inline-attachment .acpmux-attachment-link-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-inline-attachment .acpmux-attachment-document-open {
+  display: none;
+}
+.acpmux-inline-attachment .acpmux-attachment-document .acpmux-attachment-remove {
+  top: calc(var(--acpmux-attach-gap) * .333);
+}
