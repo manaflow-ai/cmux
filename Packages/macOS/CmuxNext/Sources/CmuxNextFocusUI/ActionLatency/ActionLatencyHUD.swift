@@ -12,8 +12,8 @@ package import CmuxNextInputCore
 /// cc/metrics/event_metrics.h): kind, target, OS event to presented frame, and the stage interval
 /// that took the longest; the ones over one 120 Hz frame in the danger color.
 ///
-/// It reads ``ActionBudgetMonitor/samples(everyRun:)`` and the feed's
-/// `InputLatencyFeed.closedSlots(replaying:)` only while shown; hidden (or closed with the title
+/// It reads ``ActionBudgetMonitor/samples(everyRun:)`` and is a reader of the input feed
+/// (`InputLatencyFeed.addReader(replaying:_:)`) only while shown; hidden (or closed with the title
 /// bar button), it holds no reader, so the always-on paths stay ring writes. The panel never takes
 /// the keys or activates the app.
 @MainActor
@@ -42,7 +42,7 @@ package final class ActionLatencyHUD {
     private var label: NSTextField?
     private var closeObserver: PanelCloseObserver?
     private var watch: Task<Void, Never>?
-    private var inputWatch: Task<Void, Never>?
+    private var inputReader: InputLatencyReader?
     /// The runs shown, newest first (at most ``rowCount``).
     package private(set) var rows: [ActionTimingSample] = []
     /// The input events shown, newest first (at most ``rowCount``).
@@ -69,7 +69,7 @@ package final class ActionLatencyHUD {
     package func show(over window: NSWindow?) {
         rows = monitor.recent(Self.rowCount)
         // The rows a hidden HUD kept are stale: the new feed reader's replay fills them.
-        if inputWatch == nil { inputRows = [] }
+        if inputReader == nil { inputRows = [] }
         let panel = self.panel ?? makePanel()
         self.panel = panel
         render()
@@ -84,12 +84,9 @@ package final class ActionLatencyHUD {
                 for await run in runs { self?.add(run) }
             }
         }
-        if inputWatch == nil, let inputFeed {
-            let slots = inputFeed.closedSlots(replaying: Self.rowCount)
-            // task-owner: this HUD (cancelled in hide); event-driven (the feed's stream).
-            inputWatch = Task { [weak self] in
-                for await slot in slots { self?.addInput(slot) }
-            }
+        if inputReader == nil, let inputFeed {
+            // The feed calls the reader in the turn each input closes; hide removes it.
+            inputReader = inputFeed.addReader(replaying: Self.rowCount) { [weak self] slot in self?.addInput(slot) }
         }
     }
 
@@ -97,8 +94,8 @@ package final class ActionLatencyHUD {
     package func hide() {
         watch?.cancel()
         watch = nil
-        inputWatch?.cancel()
-        inputWatch = nil
+        if let inputReader { inputFeed?.removeReader(inputReader) }
+        inputReader = nil
         panel?.orderOut(nil)
     }
 
@@ -109,7 +106,7 @@ package final class ActionLatencyHUD {
     package var isReadingRuns: Bool { watch != nil }
 
     /// Whether the HUD holds a reader on the input feed (tests: none while hidden).
-    package var isReadingInputs: Bool { inputWatch != nil }
+    package var isReadingInputs: Bool { inputReader != nil }
 
     /// Puts `run` first (the stream, or a test).
     package func add(_ run: ActionTimingSample) {
@@ -118,7 +115,7 @@ package final class ActionLatencyHUD {
         render()
     }
 
-    /// Puts `slot` first (the feed's stream, or a test).
+    /// Puts `slot` first (the feed's reader, or a test).
     package func addInput(_ slot: InputLatencySlot) {
         inputRows.insert(InputRow(slot), at: 0)
         if inputRows.count > Self.rowCount { inputRows.removeLast(inputRows.count - Self.rowCount) }

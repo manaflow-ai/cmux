@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
 import CmuxNextFocusUI
 import CmuxNextInputCore
 import Testing
@@ -14,26 +13,24 @@ import Testing
 @Suite struct ActionLatencyHUDInputTests {
     private static let ms: UInt64 = 1_000_000
 
-    /// A feed that counts its readers and reports each reader's end.
+    /// A feed that counts its readers and the ones removed.
     private final class CountingFeed: InputLatencyFeed {
-        let subscriptions = Atomic<Int>(0)
-        let lastReplayCount = Atomic<Int>(-1)
-        let ended: AsyncStream<Void>
-        private let endedContinuation: AsyncStream<Void>.Continuation
+        private(set) var subscriptions = 0
+        private(set) var removed = 0
+        private(set) var lastReplayCount = -1
+        private(set) var readers: [InputLatencyReader] = []
 
-        init() {
-            let (stream, continuation) = AsyncStream<Void>.makeStream()
-            ended = stream
-            endedContinuation = continuation
+        func addReader(replaying count: Int, _ read: @escaping @MainActor (InputLatencySlot) -> Void) -> InputLatencyReader {
+            subscriptions += 1
+            lastReplayCount = count
+            let reader = InputLatencyReader(id: UInt64(subscriptions))
+            readers.append(reader)
+            return reader
         }
 
-        func closedSlots(replaying count: Int) -> AsyncStream<InputLatencySlot> {
-            subscriptions.add(1, ordering: .relaxed)
-            lastReplayCount.store(count, ordering: .relaxed)
-            let (stream, continuation) = AsyncStream<InputLatencySlot>.makeStream()
-            let ended = endedContinuation
-            continuation.onTermination = { _ in ended.yield() }
-            return stream
+        func removeReader(_ reader: InputLatencyReader) {
+            removed += 1
+            readers.removeAll { $0 == reader }
         }
     }
 
@@ -51,30 +48,28 @@ import Testing
         return text.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
     }
 
-    @Test func theHUDReadsTheFeedOnlyWhileShown() async {
+    @Test func theHUDReadsTheFeedOnlyWhileShown() {
         let feed = CountingFeed()
         let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
-        #expect(feed.subscriptions.load(ordering: .relaxed) == 0, "a hidden HUD subscribed")
+        #expect(feed.subscriptions == 0, "a hidden HUD subscribed")
         #expect(!hud.isReadingInputs)
 
         hud.show(over: nil)
-        #expect(feed.subscriptions.load(ordering: .relaxed) == 1)
-        #expect(feed.lastReplayCount.load(ordering: .relaxed) == ActionLatencyHUD.rowCount)
+        #expect(feed.subscriptions == 1)
+        #expect(feed.lastReplayCount == ActionLatencyHUD.rowCount)
         #expect(hud.isReadingInputs && hud.isReadingRuns)
         hud.show(over: nil)
-        #expect(feed.subscriptions.load(ordering: .relaxed) == 1, "a second show added a reader")
+        #expect(feed.subscriptions == 1, "a second show added a reader")
 
         hud.hide()
         #expect(!hud.isReadingInputs && !hud.isReadingRuns)
-        var ends = feed.ended.makeAsyncIterator()
-        // The feed's stream ends when hide cancels its reader (event-driven: onTermination).
-        #expect(await ends.next() != nil)
+        #expect(feed.removed == 1 && feed.readers.isEmpty, "hide left the feed's reader in place")
 
         hud.toggle(over: nil)
-        #expect(feed.subscriptions.load(ordering: .relaxed) == 2)
+        #expect(feed.subscriptions == 2)
         hud.toggle(over: nil)
         #expect(!hud.isReadingInputs)
-        #expect(await ends.next() != nil)
+        #expect(feed.removed == 2 && feed.readers.isEmpty)
     }
 
     @Test func theHUDShowsTheNewestInputsFirstWithTheirLongestStage() {
@@ -125,27 +120,31 @@ import Testing
         #expect(hud.text.string.contains("No input yet"))
     }
 
-    @Test func closingThePanelWithItsButtonStopsBothReaders() async {
+    @Test func closingThePanelWithItsButtonStopsBothReaders() {
         let feed = CountingFeed()
         let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
         hud.show(over: nil)
         #expect(hud.isReadingInputs && hud.isReadingRuns)
-        var ends = feed.ended.makeAsyncIterator()
 
         hud.window?.performClose(nil)
         #expect(!hud.isShown)
         #expect(!hud.isReadingInputs && !hud.isReadingRuns, "the title bar button left a reader running")
-        #expect(await ends.next() != nil)
+        #expect(feed.readers.isEmpty)
     }
 
     @Test func theHUDIsOneReaderOfTheAppFeed() {
         let feed = InputLatencySlotFeed()
+        feed.publish(Self.key(generated: 100 * Self.ms, dispatchEnd: 101 * Self.ms, presented: 103 * Self.ms))
         let hud = ActionLatencyHUD(monitor: ActionBudgetMonitor(), inputs: feed)
         #expect(feed.readerCount == 0)
         hud.show(over: nil)
         hud.show(over: nil)
-        defer { hud.hide() }
         #expect(feed.readerCount == 1)
+        #expect(hud.inputRows.count == 1, "show did not replay the feed's newest input")
+        feed.publish(Self.key(generated: 200 * Self.ms, dispatchEnd: 201 * Self.ms, presented: 203 * Self.ms))
+        #expect(hud.inputRows.first?.slot.generated == 200 * Self.ms, "a published input did not reach the rows in its turn")
+        hud.hide()
+        #expect(feed.readerCount == 0)
     }
 
     @Test func theCaptureSceneInputsShowOneFastOneSlowAndOneUnpresented() {

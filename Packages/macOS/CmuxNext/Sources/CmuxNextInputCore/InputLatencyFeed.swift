@@ -2,19 +2,32 @@
 /// (CmuxNextFocusUI) reads it only while it is shown, so a closed HUD costs the producer no reader.
 ///
 /// ``InputLatencySlotFeed`` is the producer: the input latency tracker, which closes slots on the
-/// main thread, hands it each one. Chrome's `EventLatency` tracing works the same way: the
-/// per-event breakdown is only emitted while a trace category is enabled
-/// (cc/metrics/compositor_frame_reporter.cc).
+/// main thread, hands it each one, and the feed calls each reader in that turn, with no hop.
+/// Chrome's `EventLatency` tracing works the same way: the per-event breakdown is only emitted
+/// while a trace category is enabled (cc/metrics/compositor_frame_reporter.cc).
 @MainActor
 public protocol InputLatencyFeed: AnyObject {
-    /// The closed slots: first the newest `count` already closed (oldest of them first), then each
-    /// new one as it closes. The stream ends, and the producer forgets the reader, when the
-    /// iterating task is cancelled. A slot that does not fit the reader's buffer is dropped; the
-    /// producer never waits for a reader.
+    /// Adds a reader. It hears the newest `count` slots already closed (oldest of them first)
+    /// before this returns, then each new slot in the turn it closes, until ``removeReader(_:)``.
     ///
-    /// - Parameter count: How many already closed slots to replay.
-    /// - Returns: The stream.
-    func closedSlots(replaying count: Int) -> AsyncStream<InputLatencySlot>
+    /// - Parameters:
+    ///   - count: How many already closed slots to replay.
+    ///   - read: Called on the main thread with each slot.
+    /// - Returns: The reader, for ``removeReader(_:)``.
+    func addReader(replaying count: Int, _ read: @escaping @MainActor (InputLatencySlot) -> Void) -> InputLatencyReader
+
+    /// Stops calling `reader`; a reader already removed is ignored.
+    func removeReader(_ reader: InputLatencyReader)
+}
+
+/// One reader of an ``InputLatencyFeed``.
+public struct InputLatencyReader: Hashable, Sendable {
+    /// The feed's number for the reader.
+    public let id: UInt64
+
+    public init(id: UInt64) {
+        self.id = id
+    }
 }
 
 /// The interval of one input that took the longest: from the stage it reached just before `to`,
