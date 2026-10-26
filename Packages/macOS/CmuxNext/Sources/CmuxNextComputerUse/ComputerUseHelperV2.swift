@@ -176,8 +176,8 @@ public final class ComputerUseHelperV2 {
         let executable = app.appending(path: "Contents/MacOS/\(Self.helperExecutableName)")
         let spawned: ComputerUseHelperV2Child
         do {
-            spawned = try spawner.spawn(executable: executable, environment: Self.environment(),
-                                        logPath: directory + "/helper.log")
+            spawned = try await spawner.spawn(executable: executable, environment: Self.environment(),
+                                              logPath: directory + "/helper.log")
         } catch {
             return unavailable("the helper did not start: \(error)")
         }

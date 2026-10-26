@@ -44,9 +44,9 @@ nonisolated struct ChromiumHostProcessHandle: Sendable {
 
 /// Starts Chromium host processes; a seam so tests start a stand-in.
 nonisolated protocol ChromiumHostLaunching: Sendable {
-    /// Starts `executable` with `arguments`; it reads frames from cmux on its
+    /// Starts `executable` with `arguments` off the caller's thread; it reads frames from cmux on its
     /// fd 3 and writes frames to cmux on its fd 4.
-    func launch(executable: URL, arguments: [String]) throws -> ChromiumHostProcessHandle
+    func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle
     /// Waits until `pid` ends. The pid stays a zombie (not reaped), so it is
     /// never reused while its owner may still signal it; ``reap(_:)`` frees it.
     func exit(of pid: pid_t) async -> ChromiumHostExit
@@ -55,6 +55,18 @@ nonisolated protocol ChromiumHostLaunching: Sendable {
     /// SIGKILL to `pid`, a host this launcher started and nobody reaped yet
     /// (so the pid is still that host's, never a reused one).
     func kill(_ pid: pid_t)
+}
+
+extension ChromiumHostLaunching {
+    /// Ends a started host nobody will connect (its session went away during the launch), and frees its
+    /// pid and both wire ends.
+    func discard(_ handle: ChromiumHostProcessHandle) async {
+        Darwin.close(handle.readFD)
+        Darwin.close(handle.writeFD)
+        kill(handle.pid)
+        _ = await exit(of: handle.pid)
+        reap(handle.pid)
+    }
 }
 
 /// Starts a host with `posix_spawn`: one stream `socketpair` per direction
@@ -84,18 +96,32 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// collectable, which follows the event at once), so hosts never wait on each other for long.
     /// userInitiated: the exit restarts the page a person is looking at.
     private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
+    /// Spawns this launcher's hosts in order, off the main thread: Chrome's process launcher thread
+    /// (content/browser/child_process_launcher_helper.cc). userInitiated: the host draws the page a
+    /// person is looking at.
+    private let spawns = ChildSpawnQueue(label: "com.cmuxterm.chromium-host.spawn", qos: .userInitiated)
 
     init() {}
 
-    func launch(executable: URL, arguments: [String]) throws -> ChromiumHostProcessHandle {
+    func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle {
+        let qos = spawns.qos
+        return try await spawns.run { () throws(LaunchError) -> ChromiumHostProcessHandle in
+            try Self.spawn(executable: executable, arguments: arguments, qos: qos)
+        }
+    }
+
+    /// ``launch(executable:arguments:)``'s work, on the spawn queue (a test calls it on its own thread to
+    /// set the spawning thread's signal mask).
+    static func spawn(executable: URL, arguments: [String],
+                      qos: ChildProcessQoS) throws(LaunchError) -> ChromiumHostProcessHandle {
         var toHost: [Int32] = [-1, -1]
         var fromHost: [Int32] = [-1, -1]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw LaunchError.socketPair(errno) }
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw .socketPair(errno) }
         toHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
             let error = errno
             toHost.forEach { _ = Darwin.close($0) }
-            throw LaunchError.socketPair(error)
+            throw .socketPair(error)
         }
         fromHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
         for fd in [toHost[0], fromHost[0]] {
@@ -124,13 +150,13 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
         var pid: pid_t = 0
-        let result = posix_spawn(&pid, executable.path, &actions, &attributes, argv, environ)
+        let result = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, qos: qos)
         Darwin.close(toHost[1])
         Darwin.close(fromHost[1])
         guard result == 0 else {
             Darwin.close(toHost[0])
             Darwin.close(fromHost[0])
-            throw LaunchError.spawn(result)
+            throw .spawn(result)
         }
         return ChromiumHostProcessHandle(pid: pid, readFD: fromHost[0], writeFD: toHost[0])
     }

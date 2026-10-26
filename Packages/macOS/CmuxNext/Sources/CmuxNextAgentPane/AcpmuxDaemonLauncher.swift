@@ -124,48 +124,18 @@ nonisolated enum AcpmuxDaemonLauncher {
             if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
             if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
         }
-        var actions: posix_spawn_file_actions_t?
-        var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0,
-              posix_spawnattr_init(&attributes) == 0 else {
-            throw Failure.spawnFailed("unable to initialize acpmux spawn")
-        }
-        defer {
-            posix_spawn_file_actions_destroy(&actions)
-            posix_spawnattr_destroy(&attributes)
-        }
-        // The read end closes first: in a process with few descriptors open it can be the
-        // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
-        // then closed its own I/O driver's descriptor in its place and panicked).
-        let actionStatus = posix_spawn_file_actions_addclose(&actions, outputPipe[0])
-        guard actionStatus == 0,
-              posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO) == 0,
-              (!environment.passesPersonKeyAtSpawn
-               || posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0),
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
-              }) == 0,
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY, 0)
-              }) == 0 else {
-            throw Failure.spawnFailed("unable to configure acpmux spawn")
-        }
-        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
-        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
-            throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
-        }
-
-        var processIdentifier: pid_t = 0
         // posix_spawn follows exec(2)'s argv contract. Foundation.Process accepts
         // arguments without argv[0], but the shell requires its executable name
         // in argv[0] before `-c` and the script.
         let spawnArguments = ["/bin/sh"] + arguments(for: environment)
-        let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
-            try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
-                "/bin/sh".withCString { executable in
-                    posix_spawn(&processIdentifier, executable, &actions, &attributes, argv, envp)
-                }
-            }
+        let spawnVariables = variables.map { "\($0.key)=\($0.value)" }
+        let descriptors = SpawnDescriptors(outputRead: outputPipe[0], outputWrite: outputPipe[1],
+                                           keyRead: environment.passesPersonKeyAtSpawn ? keyPipe[0] : nil)
+        // On a queue of its own at default QoS (an agent's daemon: its work shows soon), never on the
+        // cooperative pool this function runs on.
+        let spawns = ChildSpawnQueue(label: "cmux.next.agent-pane.acpmux-launch-spawn", qos: .default)
+        let (spawnStatus, processIdentifier) = try await spawns.run { () throws -> (status: Int32, pid: pid_t) in
+            try Self.spawnShell(arguments: spawnArguments, variables: spawnVariables, descriptors: descriptors, qos: spawns.qos)
         }
         // The shell holds its own copy of the DEV key's read end now (or the spawn failed).
         if keyPipe[0] >= 0 {
@@ -189,6 +159,60 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
         await Self.reap(processIdentifier)
         return try ready.get()
+    }
+
+    /// The pipe ends the launch shell gets: `outputRead` closes in it, `outputWrite` is its stdout, and
+    /// `keyRead` (an unsigned DEV daemon only) is its ``personKeyDescriptor``.
+    private struct SpawnDescriptors: Sendable {
+        let outputRead: Int32
+        let outputWrite: Int32
+        let keyRead: Int32?
+    }
+
+    /// Spawns `/bin/sh` with `arguments` (argv[0] first) and `variables` (`KEY=value`) at `qos`: stdin and
+    /// stderr /dev/null, its own session, and no descriptor of the app but `descriptors`. Blocking:
+    /// ``launch(_:deadline:onSpawn:)`` runs it on a ``ChildSpawnQueue``.
+    /// - Returns: `posix_spawn`'s status and the shell's pid.
+    private static func spawnShell(arguments: [String], variables: [String], descriptors: SpawnDescriptors,
+                                   qos: ChildProcessQoS) throws -> (status: Int32, pid: pid_t) {
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0,
+              posix_spawnattr_init(&attributes) == 0 else {
+            throw Failure.spawnFailed("unable to initialize acpmux spawn")
+        }
+        defer {
+            posix_spawn_file_actions_destroy(&actions)
+            posix_spawnattr_destroy(&attributes)
+        }
+        // The read end closes first: in a process with few descriptors open it can be the
+        // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
+        // then closed its own I/O driver's descriptor in its place and panicked).
+        let actionStatus = posix_spawn_file_actions_addclose(&actions, descriptors.outputRead)
+        guard actionStatus == 0,
+              posix_spawn_file_actions_adddup2(&actions, descriptors.outputWrite, STDOUT_FILENO) == 0,
+              descriptors.keyRead.map({ posix_spawn_file_actions_adddup2(&actions, $0, personKeyDescriptor) == 0 }) ?? true,
+              "/dev/null".withCString({ path in
+                  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
+              }) == 0,
+              "/dev/null".withCString({ path in
+                  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY, 0)
+              }) == 0 else {
+            throw Failure.spawnFailed("unable to configure acpmux spawn")
+        }
+        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
+        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
+            throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
+        }
+        var processIdentifier: pid_t = 0
+        let status = try withCStringArray(arguments) { argv in
+            try withCStringArray(variables) { envp in
+                "/bin/sh".withCString { executable in
+                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp, qos: qos)
+                }
+            }
+        }
+        return (status, processIdentifier)
     }
 
     private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
