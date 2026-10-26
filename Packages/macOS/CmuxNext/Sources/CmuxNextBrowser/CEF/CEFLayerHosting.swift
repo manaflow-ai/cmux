@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextSignposts
 import CmuxNextWakeups
+import IOSurface
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -48,6 +49,13 @@ import CmuxNextWakeups
 /// catches up (`content/browser/renderer_host/delegated_frame_host.cc`,
 /// `WasShown`).
 ///
+/// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
+/// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
+/// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
+/// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
+/// next frame takes it away. A snapshot the system purged shows the page's background
+/// (``CEFHiddenPageSnapshot``).
+///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
     /// The fork's layer hosting call: a seam, so tests run this state machine
@@ -75,17 +83,30 @@ final class CEFLayerHosting {
         /// window kept for its next show (the app's ``CEFHiddenFrames`` decides
         /// when). Nil: Chromium's own frame eviction decides.
         let evictFrame: ((_ browser: Int32) -> Bool)?
+        /// The fork's copy of a hidden page window's last frame into a new IOSurface the app owns
+        /// (p03-rendering-055): made on the fork's GPU thread, delivered once on the main thread (nil when
+        /// there was no frame), as Chromium's `CopyFromCompositingSurface` answers on its UI thread.
+        /// False when no copy was started. Nil without the call.
+        let copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)?
+        /// Calls `presented` once, on the main thread, when the page window presents its next frame
+        /// or can present none (its renderer went away): Chromium's first surface activation after a
+        /// show. False when the fork cannot tell. Nil without the call.
+        let onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
              trackA: TrackA? = nil,
              setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)? = nil,
-             evictFrame: ((_ browser: Int32) -> Bool)? = nil) {
+             evictFrame: ((_ browser: Int32) -> Bool)? = nil,
+             copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)? = nil,
+             onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.trackA = trackA
             self.setVisibility = setVisibility
             self.evictFrame = evictFrame
+            self.copyFrame = copyFrame
+            self.onNextFrame = onNextFrame
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -106,6 +127,9 @@ final class CEFLayerHosting {
             }
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil
+            // The fork's frame copy and next-frame calls (p03-rendering-055) come with the same exports.
+            copyFrame = nil
+            onNextFrame = nil
         }
 
         /// A page window `runtime` made in process, with its feature's Track A calls.
@@ -154,6 +178,8 @@ final class CEFLayerHosting {
     private(set) var fork: Fork?
     /// The fork work of a show or hide, after the switch's commit.
     let switchCommit: CEFSwitchCommit
+    /// The page's volatile snapshot while it is hidden past its grace.
+    let hiddenSnapshot: CEFHiddenPageSnapshot
     /// The fork hosts this view's page window (in process, fork API 26). False in host mode, where
     /// the pane's ``ChromiumHostPageView`` shows the context the Chromium Host gives (task 023).
     var isForkBacked: Bool { fork != nil }
@@ -191,11 +217,13 @@ final class CEFLayerHosting {
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) }) {
         self.isEnabled = isEnabled
         switchCommit = CEFSwitchCommit(afterCommit: afterCommit)
+        hiddenSnapshot = CEFHiddenPageSnapshot()
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+        switchCommit.pastGrace = { [weak self] browser, fork in self?.hiddenPastGrace(browser: browser, fork: fork) }
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -231,6 +259,8 @@ final class CEFLayerHosting {
     func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         defer { tabSwitch?.pageShown() }
         guard let fork else { return }
+        // Another tab's page: a snapshot of the last one never covers it.
+        hiddenSnapshot.pageShown(browser: browser)
         self.browser = browser
         let wanted = wants(fork)
         if wanted == (page != nil) {
@@ -382,6 +412,7 @@ final class CEFLayerHosting {
     private func dropPage() {
         // Not hosted any more: the fork follows the page window again, and no hidden frame is kept for it.
         switchCommit.reset()
+        hiddenSnapshot.reset()
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
