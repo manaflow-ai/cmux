@@ -8,7 +8,7 @@ import CmuxNextWakeupsTestSupport
 @MainActor
 @Suite struct FirstFrameGateTests {
     @Test func workWaitsForTheFirstFrameThenRunsOnceInOrder() {
-        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()), launchMetric: .unmeasured)
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()), launchMetric: .notMeasured)
         var ran: [String] = []
         gate.whenOpen { ran.append("updater") }
         gate.whenOpen { ran.append("warm-ups") }
@@ -22,7 +22,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aLaunchWithNoWindowStillRunsTheWorkAfterTheBackstop() async throws {
         let clock = ManualClock()
-        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: .unmeasured)
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: .notMeasured)
         var ran = 0
         gate.whenOpen { ran += 1 }
         gate.armBackstop(after: .seconds(3))
@@ -36,7 +36,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theFirstFrameCancelsTheBackstop() async throws {
         let clock = ManualClock()
-        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: .unmeasured)
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: .notMeasured)
         var ran = 0
         gate.whenOpen { ran += 1 }
         gate.armBackstop(after: .seconds(3))
@@ -66,20 +66,33 @@ import CmuxNextWakeupsTestSupport
         }
     }
 
-    @Test func aBackstopOpeningIsNotAFrameButALaterFrameStillRecords() async throws {
+    @Test func aBackstopOpeningInterruptsTheLaunchSoALaterFrameRecordsNothing() async throws {
         let clock = ManualClock()
-        let spy = LaunchSpy(sinceProcessStart: .seconds(5), temperature: .cold)
+        let spy = LaunchSpy(sinceProcessStart: .seconds(600), temperature: .cold)
         let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: spy.metric)
         gate.armBackstop(after: .seconds(3))
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(3))
         for _ in 0..<50 where !gate.isOpen { await Task.yield() }
         #expect(gate.isOpen)
+        // The person opens the first window minutes later: not a launch sample.
+        gate.open()
         #expect(spy.records.isEmpty)
         #expect(spy.measures == 0)
+    }
+
+    @Test func aFrameBeforeTheBackstopRecordsAndTheBackstopNeverFires() async throws {
+        let clock = ManualClock()
+        let spy = LaunchSpy(sinceProcessStart: .milliseconds(900), temperature: .warm)
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock), launchMetric: spy.metric)
+        gate.armBackstop(after: .seconds(3))
+        try await clock.waitForSleeper()
         gate.open()
-        #expect(spy.records.map { $0.0.name } == ["launch.first_frame.cold"])
-        #expect(spy.records.map { $0.1 } == [.seconds(5)])
+        clock.advance(by: .seconds(3))
+        for _ in 0..<20 { await Task.yield() }
+        gate.open()
+        #expect(spy.records.map { $0.0.name } == ["launch.first_frame.warm"])
+        #expect(spy.records.map { $0.1 } == [.milliseconds(900)])
     }
 
     @Test func anUnknownLaunchRecordsNothingAndStillOpens() {
@@ -116,9 +129,4 @@ private final class LaunchSpy {
             },
             record: { [self] in records.append(($0, $1)) })
     }
-}
-
-extension LaunchFirstFrameMetric {
-    /// A launch with no process start: records nothing.
-    static var unmeasured: Self { Self(measure: { nil }, record: { _, _ in }) }
 }

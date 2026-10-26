@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
+import CmuxNextMetrics
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -57,7 +58,9 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
+        // launch.first_frame.<temperature> needs task 034's LaunchClock (process start and startup
+        // temperature); this root builds it from that clock once 034 is on the branch.
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, launchFirstFrame: .notMeasured)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

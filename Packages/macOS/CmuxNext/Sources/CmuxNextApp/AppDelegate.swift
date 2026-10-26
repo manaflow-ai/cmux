@@ -8,6 +8,7 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextKeepAwake
+import CmuxNextMetrics
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
@@ -25,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
     /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
@@ -56,9 +57,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+    /// - Parameter launchFirstFrame: Records `launch.first_frame.<temperature>` at the first window's
+    ///   first frame; built from the process's one launch clock.
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchFirstFrame: LaunchFirstFrameMetric,
+         launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
+        firstFrame = FirstFrameGate(launchMetric: launchFirstFrame)
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
