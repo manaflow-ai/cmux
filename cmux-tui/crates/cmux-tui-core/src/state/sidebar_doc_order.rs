@@ -54,17 +54,11 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
         let mut seen = HashSet::new();
         let mut machine_start = None;
         let mut archived_start = None;
-        let mut pinned = HashSet::new();
         let mut push = |ids: &mut Vec<String>, item: &Item| {
             if let Some(reference) = item.body.workspace()
                 && reference.session_id == local
                 && seen.insert(reference.workspace_id.clone())
             {
-                if (item.section == PINNED_SECTION_ID && item.parent.is_none())
-                    || item.pinned_in_group()
-                {
-                    pinned.insert(reference.workspace_id.clone());
-                }
                 ids.push(reference.workspace_id.clone());
             }
         };
@@ -91,7 +85,21 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
             }
         }
         let machine_start = machine_start.unwrap_or(ids.len());
-        Ok(Some(DocumentOrder { ids, machine_start, archived_start, placed: seen, pinned }))
+        // Every item, subgroups at any depth too, so a nested member is placed.
+        let (mut placed, mut pinned) = (HashSet::new(), HashSet::new());
+        for item in doc.items_unordered() {
+            let Some(reference) = item.body.workspace() else { continue };
+            if reference.session_id != local {
+                continue;
+            }
+            placed.insert(reference.workspace_id.clone());
+            if (item.section == PINNED_SECTION_ID && item.parent.is_none())
+                || item.pinned_in_group()
+            {
+                pinned.insert(reference.workspace_id.clone());
+            }
+        }
+        Ok(Some(DocumentOrder { ids, machine_start, archived_start, placed, pinned }))
     })
 }
 

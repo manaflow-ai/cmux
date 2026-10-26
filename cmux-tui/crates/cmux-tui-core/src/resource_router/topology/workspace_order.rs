@@ -32,7 +32,9 @@ pub(super) fn list_workspaces(
         }
     };
     let Value::Array(mut workspaces) = listed else { return Ok(listed) };
-    let document = mux.personal_state_read(crate::state::sidebar_doc_order::document_order)?;
+    let document = mux.personal_state_read(crate::state::sidebar_doc_order::document_order);
+    // The session order never needed the document: an unreadable one costs it only the pins.
+    let document = if personal.is_none() { document.ok().flatten() } else { document? };
     insert_pinned(mux, &mut workspaces, document.as_ref());
     match (personal, &document) {
         (None, _) => {}

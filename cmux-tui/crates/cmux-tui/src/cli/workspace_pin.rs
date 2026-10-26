@@ -2,7 +2,7 @@
 //! `workspace pin-unpin`, MCP `app_workspace_pin_unpin`) with its `pinned` argument set, so the
 //! pin goes through the one pin path the sidebar row, the palette and drags use (PinCommands):
 //! the sidebar document, and the workspace's own daemon flag. `workspace list` reports the result
-//! in each row's `pinned`. The selector is the action's `--target` (a `ws_…` id).
+//! in each row's `pinned`. The workspace is the action's `--target`, a `ws_…` id.
 
 const ACTION: &str = "workspace pin-unpin";
 
@@ -10,7 +10,8 @@ const ACTION: &str = "workspace pin-unpin";
 /// words.
 pub(super) fn action(command_args: &[String]) -> Option<(String, Vec<String>)> {
     let [scope, workspace, verb, rest @ ..] = command_args else { return None };
-    if scope != "workspace" || workspace.starts_with('-') {
+    // The app's action target is an id; a name or `current` stays a usage error.
+    if scope != "workspace" || !workspace.starts_with("ws_") {
         return None;
     }
     let pinned = match verb.as_str() {
@@ -44,6 +45,7 @@ mod tests {
             &["workspace", workspace, "rename"][..],
             &["workspace", "pin-unpin", "--target", workspace][..],
             &["workspace", "--target", "pin"][..],
+            &["workspace", "current", "pin"][..],
             &["screen", workspace, "pin"][..],
         ] {
             assert_eq!(action(&words(other)), None, "{other:?}");
