@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextTerminal
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
@@ -19,8 +18,6 @@ import Foundation
 enum LaunchWarmup {
     static func start() {
         let thread = Thread {
-            // ghostty_init (p02-threads-129): done before the settings land and Ghostty's first config builds on a lane.
-            GhosttyRuntime.initializeLibrary()
             _ = ActionCatalog.all
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).

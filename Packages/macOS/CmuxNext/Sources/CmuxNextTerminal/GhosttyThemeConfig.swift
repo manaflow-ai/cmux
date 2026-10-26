@@ -29,16 +29,14 @@ public final class GhosttyThemeConfig {
 }
 
 extension GhosttyRuntime {
-    /// The user's config with theme `name` applied, built once per name and
-    /// reused until the next config change. The build reads the config
-    /// files, so it runs on the config loader: the first ask returns nil and
-    /// starts it, and the handlers of ``addThemeConfigHandler(_:)`` run when
-    /// it is cached (the owner meanwhile inherits, as for no theme). Nil also
-    /// when libghostty is unavailable or `name` could inject another config
-    /// line.
+    /// The user's config with theme `name` applied. The build reads the config files, so it runs on the config
+    /// loader: the first ask for a name returns nil and starts it, and the handlers of ``addThemeConfigHandler(_:)``
+    /// run when it lands (the owner meanwhile inherits, as for no theme). After a config change the last config
+    /// is served until its rebuild lands (``GhosttyThemeConfigCache``). Nil also when libghostty is unavailable or
+    /// `name` could inject another config line.
     public func themeConfig(named name: String) -> GhosttyThemeConfig? {
         guard app != nil, Self.themeOverrideLine(name) != nil, let configLoader else { return nil }
-        return themeConfigs.config(named: name, loader: configLoader) { GhosttyConfigInputs.current(theme: name) }
+        return themeConfigs.config(named: name, loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
     }
 
     /// Runs `handler` each time a theme config ``themeConfig(named:)`` asked for lands and is cached: an owner

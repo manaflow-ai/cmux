@@ -11,15 +11,30 @@ extension GhosttyRuntime {
         configLoader = loader
         let inputs = GhosttyConfigInputs.current(theme: nil)
         loader.load({ inputs.buildConfig() }) { [weak self] built in
-            self?.start(with: built)
+            guard let self else {
+                built?.free()
+                return then()
+            }
+            self.start(with: built)
+            // Overrides that changed while the first build ran (its snapshot predates them).
+            if self.reloadAfterStart {
+                self.reloadAfterStart = false
+                self.reloadConfig()
+            }
             then()
         }
     }
 
     /// Reloads the user's Ghostty config on the loader and, when it lands on the main actor, pushes it to every
-    /// surface (`ghostty_app_update_config`, ghostty.h:1339). A later request supersedes one still in flight.
+    /// surface (`ghostty_app_update_config`, ghostty.h:1339). A later request supersedes one still in flight; one
+    /// asked before the first config landed runs when it does.
     public func reloadConfig() {
-        guard app != nil, let configLoader else { return }
+        guard let configLoader else { return }
+        guard isStarted else {
+            reloadAfterStart = true
+            return
+        }
+        guard app != nil else { return }
         reloadRequests &+= 1
         let (request, inputs) = (reloadRequests, GhosttyConfigInputs.current(theme: nil))
         configLoader.load({ inputs.buildConfig() }) { [weak self] built in

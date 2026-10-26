@@ -18,21 +18,18 @@ import CmuxNextCompat
 ///
 /// Created lazily, on the main actor. No config build runs there: the app
 /// starts the runtime with a config built on its loader
-/// (``start(loadingOn:then:)``, GhosttyRuntime+ConfigLoad.swift); a process
-/// without the app's launch (tests) starts it at the first read of ``app``
-/// or ``config``, building that first config in place.
+/// (``start(loadingOn:then:)``, GhosttyRuntime+ConfigLoad.swift). Until that
+/// build lands, ``app`` and ``config`` are nil, as when libghostty failed.
 public final class GhosttyRuntime {
     public static let shared = GhosttyRuntime()
 
-    /// Nil when libghostty failed to initialize; surfaces then stay blank.
-    var app: ghostty_app_t? { startIfNeeded(); return startedApp }
-    private var startedApp: ghostty_app_t?
+    /// Nil before the app starts (``start(with:)``) or when libghostty failed to initialize; surfaces then stay blank.
+    private(set) var app: ghostty_app_t?
 
-    /// The finalized configuration currently applied to the app.
-    var config: ghostty_config_t? { startIfNeeded(); return appliedConfig }
-    private var appliedConfig: ghostty_config_t?
+    /// The finalized configuration currently applied to the app; nil before the app starts.
+    private(set) var config: ghostty_config_t?
     /// Whether the app was started (``start(with:)``), with or without success.
-    private var started = false
+    private(set) var isStarted = false
     /// Where config builds run (``start(loadingOn:then:)``, or a test's); nil: no reload or theme build runs.
     var configLoader: (any GhosttyConfigLoading)?
     /// `background-opacity` from the user's config with cmux.json's
@@ -40,10 +37,12 @@ public final class GhosttyRuntime {
     var configuredBackgroundOpacity: Double = 1
 
     /// The user's config with one theme applied, per theme name, built on
-    /// demand (`themeConfig(named:)`) and dropped on every config change.
+    /// demand (`themeConfig(named:)`) and rebuilt on every config change.
     let themeConfigs = GhosttyThemeConfigCache()
     /// Counts ``reloadConfig()`` requests; only the latest one's build is applied.
     var reloadRequests = 0
+    /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
+    var reloadAfterStart = false
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -94,18 +93,19 @@ public final class GhosttyRuntime {
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
-    /// Runs `ghostty_init` (the test helpers' configs need it); the app starts at ``start(with:)``.
-    private init() {
+    /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
+    /// runtime, ``shared``; a test makes its own only to check one that never started.
+    init() {
         Self.initializeLibrary()
     }
 
     /// Starts libghostty's app once, with `built` (nil: the build failed); a later call frees what it was given.
     func start(with built: GhosttyBuiltConfig?) {
-        guard !started else {
+        guard !isStarted else {
             built?.free()
             return
         }
-        started = true
+        isStarted = true
         var phase = ContinuousClock.now
         func mark(_ name: String) {
             let now = ContinuousClock.now
@@ -121,7 +121,7 @@ public final class GhosttyRuntime {
         guard let built else { return }
         mark("config_load")
         recordUserConfigLoad(built)
-        appliedConfig = built.config
+        config = built.config
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while it starts (for
         // example set_color_scheme emits CONFIG_CHANGE).
@@ -136,8 +136,8 @@ public final class GhosttyRuntime {
         runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
         runtime.write_clipboard_cb = ghosttyWriteClipboard
         runtime.close_surface_cb = ghosttyCloseSurface
-        startedApp = ghostty_app_new(&runtime, built.config)
-        guard let app = startedApp else {
+        app = ghostty_app_new(&runtime, built.config)
+        guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
             return
         }
@@ -145,15 +145,12 @@ public final class GhosttyRuntime {
         installObservers()
     }
 
-    /// A process without the app's launch (tests) builds the first config here: a recorded `ffi` site.
-    private func startIfNeeded() {
-        if !started { start(with: GhosttyConfigInputs.current(theme: nil).buildConfig()) }
-    }
-
     // MARK: Config
 
-    /// Runs `ghostty_init` once per process, from any thread; true when it succeeded. A process that skips
-    /// `main` (tests) prepares and freezes the environment here: no write may follow ghostty_init.
+    /// Runs `ghostty_init` once per process; true when it succeeded. The app calls it first in `main`, after the
+    /// environment freeze and before any other thread starts: ghostty_init may setenv `LANG` and call `setlocale`
+    /// (Ghostty's `internal_os.ensureLocale`), which must not race another thread's `environ` read. Later calls
+    /// only read the result. A process that skips `main` (tests) prepares and freezes the environment here.
     @discardableResult
     public nonisolated static func initializeLibrary() -> Bool { libraryInitialized }
 
@@ -171,11 +168,11 @@ public final class GhosttyRuntime {
     }
 
     func replaceConfig(_ fresh: ghostty_config_t?) {
-        if let appliedConfig { ghostty_config_free(appliedConfig) }
-        appliedConfig = fresh
+        if let config { ghostty_config_free(config) }
+        config = fresh
         hostKeybindCache.binds = nil
-        // Themed configs were built on the old files; rebuild on demand.
-        themeConfigs.dropAll()
+        // Themed configs were built on the old files: each keeps serving until its rebuild lands.
+        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }

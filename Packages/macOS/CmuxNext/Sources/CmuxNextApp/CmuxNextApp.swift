@@ -46,6 +46,9 @@ public struct CmuxNextApp {
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
         DebugTimings.markLaunch("main.environment_frozen")
+        // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
+        // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
+        GhosttyRuntime.initializeLibrary()
         // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
