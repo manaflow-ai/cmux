@@ -12,7 +12,7 @@ public import Foundation
 /// state rather than count events.
 public final class ConfigFileWatcher: @unchecked Sendable {
     public let url: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher")
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility)
     private let onChange: @Sendable () -> Void
     // Queue-confined state.
     private var fileSource: (any DispatchSourceFileSystemObject)?

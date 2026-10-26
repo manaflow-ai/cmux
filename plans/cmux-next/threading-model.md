@@ -112,23 +112,24 @@ A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here 
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
-- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
-  `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
+- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`,
+  `com.cmuxterm.next.daemon.path.<machine>` (utility), `com.cmuxterm.next.daemon.exit.<pid>` (utility),
+  `com.cmuxterm.next.retry-wake` (utility), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
+- Settings and files: `com.cmuxterm.next.settings.watcher` (utility), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
-  `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
-- Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
-  `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,
+  `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane` (user-initiated)
+- Browser: `com.cmuxterm.next.browser-host.provider.write` (user-initiated), `cmux browser-host provider reader`,
+  `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children` (utility),
   `com.cmuxterm.import-history-sync`
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
-  `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
@@ -136,7 +137,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,
   `cmux-trace-open`
-- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
+- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network` (utility),
   `cmux.home.fixture.video`
 - Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
   `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,

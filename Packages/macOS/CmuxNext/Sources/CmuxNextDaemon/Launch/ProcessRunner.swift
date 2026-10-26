@@ -145,7 +145,7 @@ final class ProcessBox: @unchecked Sendable {
 final class StdoutProgress: Sendable {
     private let writes = Mutex<Int>(0)
     private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress", qos: .utility)
 
     init(watching fd: Int32) {
         let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)

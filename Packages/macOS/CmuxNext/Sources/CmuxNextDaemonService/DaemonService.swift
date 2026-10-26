@@ -280,7 +280,7 @@ public final class DaemonService {
         monitor.pathUpdateHandler = { path in
             if path.status == .satisfied { wake.fire() }
         }
-        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)", qos: .utility))
         pathMonitor = monitor
         let clock = startupClock
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
