@@ -80,6 +80,32 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     expect(reducedMotion).toEqual({ name: "none", duration: "0s" });
   });
 
+  test("a message text update keeps its entrance animation object and start time", async () => {
+    const p = await page(
+      `:root{--agent-motion-in:180ms}${desktop}${conversation}`,
+      `<div class="acpmux-row--message-enter" data-message>first token</div>`,
+      "no-preference",
+    );
+    await p.waitForFunction(() => document.querySelector<HTMLElement>("[data-message]")?.getAnimations().length === 1);
+    await p.$eval("[data-message]", (row) => {
+      const animation = row.getAnimations()[0];
+      if (!animation) throw new Error("message entrance did not start");
+      (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } }).__entrance = {
+        animation,
+        startTime: animation.startTime,
+      };
+      row.textContent = "first token and another token";
+    });
+    await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const stable = await p.$eval("[data-message]", (row) => {
+      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: number | null } }).__entrance;
+      const current = row.getAnimations()[0];
+      return { sameObject: current === saved?.animation, sameStart: current?.startTime === saved?.startTime };
+    });
+    await p.close();
+    expect(stable).toEqual({ sameObject: true, sameStart: true });
+  });
+
   test("the Jump to Latest pill rises in without growing", async () => {
     const p = await page(conversation, `<button class="acpmux-jump-latest">v</button>`, "no-preference");
     const hidden = await p.$eval(".acpmux-jump-latest", (pill) => getComputedStyle(pill).transform);

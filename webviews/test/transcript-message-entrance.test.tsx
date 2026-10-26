@@ -90,17 +90,25 @@ test("new user and assistant rows enter once, while streamed versions stay still
       row("prompt-2", "user", "New prompt"),
       row("reply-2", "assistant", "First token", 1),
     ]);
-    expect(dom.window.document.querySelector('[data-row-id="reply-2"]')?.classList.contains("acpmux-row--message-enter")).toBe(
-      true,
-    );
+    const promptNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="prompt-2"]');
+    const replyNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="reply-2"]');
+    expect(promptNode).toBeTruthy();
+    expect(replyNode).toBeTruthy();
+    const promptEntered = promptNode!.classList.contains("acpmux-row--message-enter");
+    const replyEntered = replyNode!.classList.contains("acpmux-row--message-enter");
+    expect(promptEntered).toBe(true);
+    expect(replyEntered).toBe(true);
     await render([
       ...existing,
       row("prompt-2", "user", "New prompt"),
       row("reply-2", "assistant", "First token and another token", 2),
     ]);
-    expect(dom.window.document.querySelector('[data-row-id="reply-2"]')?.classList.contains("acpmux-row--message-enter")).toBe(
-      false,
-    );
+    const promptAfter = dom.window.document.querySelector<HTMLElement>('[data-row-id="prompt-2"]');
+    const replyAfter = dom.window.document.querySelector<HTMLElement>('[data-row-id="reply-2"]');
+    expect(promptAfter).toBe(promptNode);
+    expect(replyAfter).toBe(replyNode);
+    expect(promptAfter?.classList.contains("acpmux-row--message-enter")).toBe(promptEntered);
+    expect(replyAfter?.classList.contains("acpmux-row--message-enter")).toBe(replyEntered);
   } finally {
     await act(async () => root.unmount());
   }
