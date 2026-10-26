@@ -12,6 +12,7 @@ struct DemandTimerLeewayTests {
         let clock = ManualClock()
         let fires: AsyncStream<Duration>
         private let fired: AsyncStream<Duration>.Continuation
+        let ledger = WakeupLedger()
         let timer: DemandTimer
 
         init(policy: DelayPolicy = .flexibleNoSooner, energy: EnergyPolicySource? = nil) {
@@ -19,7 +20,12 @@ struct DemandTimerLeewayTests {
             fires = stream.stream
             fired = stream.continuation
             timer = DemandTimer(owner: "test.demand-timer.leeway", policy: policy, clock: clock,
-                                ledger: WakeupLedger(), energy: energy)
+                                ledger: ledger, energy: energy)
+        }
+
+        /// How many deadlines have fired so far (each fire is one ledger record).
+        var fireCount: UInt64 {
+            ledger.snapshot().filter { $0.owner == timer.owner }.reduce(0) { $0 + $1.count }
         }
 
         /// Schedules a fire after `delay` and returns the sleep the timer asked of the clock.
@@ -86,10 +92,34 @@ struct DemandTimerLeewayTests {
         #expect(request?.tolerance == .milliseconds(8))
     }
 
-    @Test func anExplicitToleranceWinsOverThePolicy() async throws {
+    @Test func anExplicitToleranceReplacesTheFlexibleLeeway() async throws {
         let rig = Rig()
         let request = try await rig.schedule(after: .seconds(5), tolerance: .zero)
         #expect(request?.deadline.offset == .seconds(5))
+        #expect(request?.tolerance == .zero)
+    }
+
+    /// `.flexiblePreferEarly` is never late, whoever sets the leeway: an explicit tolerance moves the
+    /// sleep that much short of the deadline, as the policy's own leeway does.
+    @Test func preferEarlyWithAnExplicitToleranceAsksTheDeadlineMinusTheTolerance() async throws {
+        let rig = Rig(policy: .flexiblePreferEarly)
+        let request = try await rig.schedule(after: .seconds(1), tolerance: .milliseconds(50))
+        #expect(request?.deadline.offset == .milliseconds(950))
+        #expect(request?.tolerance == .milliseconds(50))
+    }
+
+    @Test func preferEarlyWithAToleranceLongerThanTheDelayAsksNow() async throws {
+        let rig = Rig(policy: .flexiblePreferEarly)
+        let request = try await rig.schedule(after: .milliseconds(20), tolerance: .milliseconds(50))
+        #expect(request?.deadline.offset == .zero)
+        #expect(request?.tolerance == .milliseconds(50))
+    }
+
+    /// A precise deadline below 36 ms stays exact; an explicit tolerance does not make it flexible.
+    @Test func aPreciseDeadlineIgnoresAnExplicitTolerance() async throws {
+        let rig = Rig(policy: .precise)
+        let request = try await rig.schedule(after: .milliseconds(20), tolerance: .milliseconds(10))
+        #expect(request?.deadline.offset == .milliseconds(20))
         #expect(request?.tolerance == .zero)
     }
 
@@ -105,7 +135,7 @@ struct DemandTimerLeewayTests {
         #expect(!rig.timer.isScheduled)
     }
 
-    /// A reset asks the new deadline's tolerance; only the last deadline fires.
+    /// A reset cancels the old sleep and asks the new deadline's tolerance; the old deadline never fires.
     @Test func aResetAsksTheNewDeadlinesTolerance() async throws {
         let rig = Rig()
         _ = try await rig.schedule(after: .seconds(5))
@@ -113,9 +143,17 @@ struct DemandTimerLeewayTests {
         let reset = try await rig.schedule(after: .milliseconds(200))
         #expect(reset?.deadline.offset == .milliseconds(1_200))
         #expect(reset?.tolerance == .milliseconds(8))
+        #expect(rig.clock.sleeperCount == 1)
         rig.clock.advance(by: .milliseconds(200))
         #expect(await rig.nextFire() == .milliseconds(1_200))
+        #expect(rig.fireCount == 1)
+
+        // Past the old 5 s deadline, then one more deadline: the next fire is that one, and the
+        // ledger holds exactly two fires, so the old deadline did not fire in between.
         rig.clock.advance(by: .seconds(10))
-        #expect(rig.clock.sleeperCount == 0)
+        _ = try await rig.schedule(after: .milliseconds(100))
+        rig.clock.advance(by: .milliseconds(100))
+        #expect(await rig.nextFire() == .milliseconds(11_300))
+        #expect(rig.fireCount == 2)
     }
 }

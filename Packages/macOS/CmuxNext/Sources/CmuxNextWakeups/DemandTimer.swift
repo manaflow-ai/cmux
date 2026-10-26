@@ -15,7 +15,8 @@ import CmuxNextCompat
 /// `subtle::DelayPolicy`, base/task/delay_policy.h). A `.precise` timer below
 /// 36 ms asks for no tolerance; a 5 s flexible one asks 0.5 s. The sub-second
 /// leeway is the injected ``EnergyPolicySource``'s wake alignment (32 ms under
-/// Energy Saver), read at each schedule; an owner with no source gets 8 ms.
+/// Energy Saver), read at each schedule; an owner with no source gets 8 ms. A
+/// caller's explicit tolerance replaces the leeway, never the policy.
 public final class DemandTimer: Sendable {
     public let owner: String
     /// How strictly each deadline is honored; `.flexibleNoSooner` by default.
@@ -58,9 +59,10 @@ public final class DemandTimer: Sendable {
     ///
     /// - Parameters:
     ///   - delay: How long to wait.
-    ///   - tolerance: How late the wakeup may be, passed to the clock's sleep. nil (the default) is
-    ///     the ``WakeLeeway`` window of ``policy`` for `delay` (0 when precise below 36 ms, the wake
-    ///     alignment below 1 s, 10% up to 1 s from 1 s on); `.zero` asks for exact timing.
+    ///   - tolerance: The leeway of this deadline, in place of the ``WakeLeeway`` default (0 when
+    ///     precise below 36 ms, the wake alignment below 1 s, 10% up to 1 s from 1 s on). ``policy``
+    ///     still decides its side: after the deadline for `.flexibleNoSooner`, before it for
+    ///     `.flexiblePreferEarly`, and none for `.precise` below 36 ms. `.zero` asks for exact timing.
     ///   - action: Runs once at the deadline.
     public func schedule(after delay: Duration, tolerance: Duration? = nil,
                          _ action: @escaping @isolated(any) @Sendable () async -> Void) {
@@ -94,14 +96,21 @@ public final class DemandTimer: Sendable {
         }
     }
 
-    /// The relative sleep and tolerance for a deadline `delay` from now: the caller's tolerance as
-    /// given, else ``policy``'s ``WakeLeeway`` window on the energy source's wake alignment
-    /// (`.flexiblePreferEarly` sleeps its leeway short, since a clock sleep only fires late).
+    /// The relative sleep and tolerance for a deadline `delay` from now: ``policy``'s ``WakeLeeway``
+    /// window on the energy source's wake alignment, with the caller's tolerance as its leeway when
+    /// given. As in Chromium, the policy always decides where the leeway lies
+    /// (base/task/delay_policy.h): `.flexiblePreferEarly` sleeps its leeway short, since a clock sleep
+    /// only fires late, and an effective `.precise` deadline gets no leeway.
     private func sleepRequest(for delay: Duration, tolerance: Duration?) -> (delay: Duration, tolerance: Duration) {
-        if let tolerance { return (delay, tolerance) }
         let alignment = energy?.policy.wakeAlignment ?? WakeLeeway.defaultAlignment
         let window = WakeLeeway.window(delay: delay, policy: policy, alignment: alignment)
-        return (window.sleepDelay, window.tolerance)
+        guard let tolerance else { return (window.sleepDelay, window.tolerance) }
+        let leeway = max(tolerance, .zero)
+        switch window.policy {
+        case .precise: return (delay, .zero)
+        case .flexibleNoSooner: return (delay, leeway)
+        case .flexiblePreferEarly: return (max(delay - leeway, .zero), leeway)
+        }
     }
 
     /// Claims the fire for `generation`; false when it was reset or cancelled.
