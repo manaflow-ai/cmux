@@ -24,6 +24,11 @@ public final class DaemonUpdateBoard {
 
     public init() {}
 
+    /// The window a notice goes to. Not written yet.
+    static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], visible: (NSWindow) -> Bool) -> NSWindow? {
+        key ?? main
+    }
+
     public func apply(_ event: DaemonUpdateEvent) {
         guard event.state != .cleared else {
             targets[event.id] = nil

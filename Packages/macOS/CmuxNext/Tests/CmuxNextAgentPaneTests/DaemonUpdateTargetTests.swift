@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -104,5 +105,18 @@ import Testing
         #expect(shown.count == 2)
         #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
         #expect(shown.last?.contains("huge-blue") == true && shown.last?.contains("0123456ff") == true)
+    }
+
+    /// An update fails in the background, while the app is not active: AppKit then has no key and
+    /// no main window, and the toast still goes to the app's frontmost window, not nowhere.
+    @Test @MainActor func aNoticeWithTheAppInTheBackgroundGoesToItsFrontWindow() {
+        let behind = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        let front = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [panel, front, behind], visible: { _ in true }) === front)
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [front, behind], visible: { $0 === behind }) === behind,
+                "a window that is not shown is skipped")
+        #expect(DaemonUpdateBoard.noticeWindow(key: behind, main: front, ordered: [front], visible: { _ in true }) === behind, "the key window first")
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [], visible: { _ in true }) == nil)
     }
 }
