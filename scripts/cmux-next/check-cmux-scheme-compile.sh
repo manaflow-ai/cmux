@@ -212,12 +212,6 @@ if (( status == 0 )) && [[ -n "$product_name" ]]; then
   done
   echo "check-cmux-scheme-compile: $product_name.app from $built_name.app"
 fi
-# Where the time went: per task kind and the slowest tasks
-# (scripts/ci/xcode_build_timeline.py). Advisory; it never changes the verdict.
-if [[ -n "$timeline_dir" && -d "${result_bundle:-}" ]]; then
-  python3 "$repo_root/scripts/ci/xcode_build_timeline.py" --xcresult "$result_bundle" \
-    --json "$metrics_dir/build-timeline.json" || true
-fi
 # Prune the cache whatever the build's outcome; it never changes the verdict.
 [[ "$compilation_cache" != 1 ]] || ! (( kept_path )) || cmux_next_cas_bound "$repo_root" "$derived_data"
 if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
@@ -230,5 +224,12 @@ if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
   [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
   python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
     || echo "check-cmux-scheme-compile: warning: could not write build metrics" >&2
+fi
+# Where the time went: per task kind and the slowest tasks
+# (scripts/ci/xcode_build_timeline.py). Advisory and after the
+# metrics, so it changes neither the verdict nor the recorded compile seconds.
+if [[ -n "$timeline_dir" && -d "${result_bundle:-}" ]]; then
+  python3 "$repo_root/scripts/ci/xcode_build_timeline.py" --xcresult "$result_bundle" \
+    --json "$metrics_dir/build-timeline.json" || true
 fi
 exit "$status"

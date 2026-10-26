@@ -127,7 +127,7 @@ def read_log(args: argparse.Namespace) -> Mapping[str, Any]:
     if args.log_json:
         return json.loads(Path(args.log_json).read_text(encoding="utf-8"))
     out = subprocess.run(["xcrun", "xcresulttool", "get", "log", "--type", "build", "--compact", "--path", args.xcresult],
-                         capture_output=True, text=True, timeout=300, check=True).stdout
+                         capture_output=True, text=True, timeout=120, check=True).stdout
     return json.loads(out)
 
 

@@ -112,6 +112,8 @@ class TimelineTests(unittest.TestCase):
         self.assertIn("-showBuildTimingSummary", script)
         self.assertIn('scripts/ci/xcode_build_timeline.py" --xcresult "$result_bundle"', script)
         self.assertIn('--json "$metrics_dir/build-timeline.json" || true', script)
+        # After the metrics: the timeline never counts in the recorded compile seconds.
+        self.assertLess(script.index('--compile-seconds "$SECONDS"'), script.index("xcode_build_timeline.py"))
 
 
 if __name__ == "__main__":
