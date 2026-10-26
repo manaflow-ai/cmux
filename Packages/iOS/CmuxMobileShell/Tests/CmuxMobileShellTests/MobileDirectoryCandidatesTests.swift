@@ -1,4 +1,6 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -61,6 +63,47 @@ import Testing
         #expect(shell.discoveredIrohMacs.isEmpty)
     }
 
+    @Test func aResponseAfterIdentityLossCannotPublish() async throws {
+        let discovery = PendingDirectoryDiscovery()
+        let identity = StaticIdentityProvider(userID: "user-1")
+        let shell = makeShell(discovery, identity: identity)
+        let refresh = Task { await shell.refreshDirectoryCandidates() }
+        await discovery.waitForRequest(1)
+        identity.currentUserID = nil
+        discovery.finish(1, with: [try candidate("mac-a")])
+        await refresh.value
+
+        #expect(shell.discoveredIrohMacs.isEmpty)
+    }
+
+    @Test func aPrivatePathCannotChangeATailscalePairingToIroh() throws {
+        let shell = makeShell(PendingDirectoryDiscovery())
+        let mac = try candidate("mac-a")
+        let pairing = MobilePairedMac(
+            macDeviceID: mac.deviceID,
+            displayName: mac.displayName,
+            routes: mac.routes,
+            createdAt: mac.lastSeenAt,
+            lastSeenAt: mac.lastSeenAt,
+            isActive: false,
+            stackUserID: "user-1",
+            instanceTag: mac.instanceTag,
+            connectionMethodRawValue: MobileConnectionMethod.tailscale.rawValue
+        )
+        let plan = shell.storedMacDialPlan(
+            routes: mac.routes,
+            pairedMacDeviceID: mac.deviceID,
+            expectedInstanceTag: mac.instanceTag,
+            legacyTailscaleRoutes: [],
+            knownPairing: pairing,
+            directOnlyDialCandidates: [CmxIrohDirectDialCandidate(address: "100.64.0.2", port: 52074)]
+        )
+
+        #expect(plan.method == .tailscale)
+        #expect(plan.methodPinnedCandidates == nil)
+        #expect(plan.routes.isEmpty)
+    }
+
     private func makeShell(
         _ discovery: PendingDirectoryDiscovery,
         identity: StaticIdentityProvider? = nil
@@ -69,6 +112,7 @@ import Testing
         return MobileShellComposite(
             isSignedIn: true,
             personalIrohDiscovery: discovery,
+            clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: identity ?? StaticIdentityProvider(userID: "user-1"),
             pairingHintDefaults: defaults,
             multiMacAggregationDefaults: defaults
