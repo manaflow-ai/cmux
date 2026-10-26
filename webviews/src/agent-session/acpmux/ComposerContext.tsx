@@ -246,7 +246,7 @@ export function ComposerContext({
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
-  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const offload: OffloadKind | undefined = started && onOffload ? offloads[0] : undefined;
   const computerDisabled = readOnly && !offload && !onBrowseFolder;
   // New Tab and started chats use the same environment picker; preview controls it for fresh chats.
   const environmentsShown = pickerEnabled && !computerDisabled;
