@@ -211,6 +211,52 @@ class ReleaseNotesTests(unittest.TestCase):
         for title in titles:
             self.assertNotRegex(title, r"\((?:a|u)\d+\)")
 
+    def touch(self, subject, *paths):
+        """A commit that changes `paths`, with `subject`."""
+        for path in paths:
+            full = os.path.join(self.repo, path)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "a") as f:
+                f.write(subject + "\n")
+        git(self.repo, "add", *paths)
+        git(self.repo, "commit", "-q", "-m", subject)
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_release_tooling_never_reaches_the_summary(self):
+        # Leo's update to nightly 4037632091801 (2026-10-26) read "Fixed: validate release headings
+        # within their day": #25533 changed only the release-notes checker and its test.
+        since = self.head
+        self.touch("fix(changelog): validate release headings within their day (#25533)",
+                   "webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts")
+        # Any subject: every file it touches is CI or tooling.
+        self.touch("fix: headings of one day stay in order (#9001)",
+                   "webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts")
+        self.touch("fix: feeds check twice as often (#9002)", ".github/workflows/next.yml", "scripts/ci/feed.py")
+        self.touch("fix(sidebar): rows keep their order after a rename (#9003)",
+                   "webviews/src/pages/sidebar/Rows.tsx", "webviews/test/sidebar-rows.test.ts")
+        notes = self.build(since, build="10")
+        self.assertEqual([line["title"] for line in notes["summary"]], ["Rows keep their order after a rename"])
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]],
+                         [(9003, False), (9002, True), (9001, True), (25533, True)])
+        self.assertNotIn("internal", notes["items"][0])
+        entries = (notes.get("whatsNew") or {}).get("entries", [])
+        self.assertEqual([e["title"]["en"] for e in entries], ["Rows keep their order after a rename"])
+
+    def test_tooling_paths(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_paths", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for paths in (["webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts"],
+                      [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
+                      ["docs/ci/runners.md", "AGENTS.md"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
+                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
+            self.assertTrue(notes.tooling_only(paths), paths)
+        for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
+                      ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
+                      ["webviews/src/pages/changelog/Localizable.xcstrings"]):
+            self.assertFalse(notes.tooling_only(paths), paths)
+
     def check(self, notes_path):
         return subprocess.run([sys.executable, SCRIPT, "check", "--notes", notes_path],
                               cwd=self.repo, capture_output=True, text=True)
