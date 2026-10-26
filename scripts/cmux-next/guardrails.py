@@ -3061,8 +3061,13 @@ SEAM_BLOCKING = re.compile(
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
     r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
-# sleep holds a thread to wait for time.
-ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
+# sleep holds a thread to wait for time; `runModal(` spins a nested modal run loop on main until the person answers
+# (p02-threads-132). Chrome shows its dialogs window-modal, never in a nested loop: SelectFileDialogBridge begins its
+# panel with beginSheetModalForWindow (components/remote_cocoa/app_shim/select_file_dialog_bridge.mm). Use
+# beginSheetModal(for:), a panel's begin(completionHandler:) or a CmuxDialogSpec. NSPrintOperation's sheet form
+# `runModal(for: window, delegate:...)` returns at once, so a call with a `delegate:` is not one.
+ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\("
+                             r"|\.runModal\((?![^)]*\bdelegate:)")
 # A new thread or queue. `extension Thread {` and a type annotation are not one.
 # `Thread {` counts only where a value starts (after `=`, `(`, `,`, `return`, or as a statement), so a superclass,
 # a return type or a type annotation (`class W: Thread {`, `-> Thread {`, `var t: Thread {`) is not one.
@@ -3119,7 +3124,7 @@ BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync"
                  "icon(", "SMAppService", "AuthorizationCopyRights", "synchronousRemoteObjectProxy", "executeAndReturnError")
 RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
-ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
+ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep", "runModal"))
 THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
                           ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance", "ChildProcessLauncher"))
 

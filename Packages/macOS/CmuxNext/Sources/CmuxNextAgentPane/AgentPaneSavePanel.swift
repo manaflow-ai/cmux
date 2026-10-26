@@ -18,13 +18,13 @@ final class AgentPaneSavePanel {
         panel.nameFieldStringValue = save.suggestedName
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        let response: NSApplication.ModalResponse
-        if let window {
-            response = await withCheckedContinuation { continuation in
+        // A sheet on the pane's window, else a free panel: never a nested modal loop (p02-threads-132).
+        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+            if let window {
                 panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+            } else {
+                panel.begin { continuation.resume(returning: $0) }
             }
-        } else {
-            response = panel.runModal()
         }
         guard response == .OK, let url = panel.url else { return false }
         try Data(save.text.utf8).write(to: url, options: .atomic)

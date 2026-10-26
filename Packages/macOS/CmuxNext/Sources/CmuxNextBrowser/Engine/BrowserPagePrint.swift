@@ -45,6 +45,7 @@ public struct BrowserPagePrint {
         // previews and prints blank pages.
         operation.view?.frame = webView.bounds
         let ended = PrintEnded(done)
+        // The sheet form: it returns at once and `ended` runs when the panel ends (no nested modal loop).
         operation.runModal(for: window, delegate: ended, didRun: #selector(PrintEnded.printOperationDidRun(_:success:contextInfo:)),
                            contextInfo: Unmanaged.passRetained(ended).toOpaque())
         return true
