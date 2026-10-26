@@ -3,7 +3,7 @@
 #   1. Release (what users get): the detector is compiled out. No object of the CmuxNextApp scheme's Release
 #      build defines or references a detector symbol, and the inlinable check is a bare return.
 #   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml passes on the
-#      nightly-next track and bench builds pass): it compiles, and the detector is in it (the flag reaches
+#      nightly-next track and `reload.sh --config bench-checks` passes): it compiles, and the detector is in it (the flag reaches
 #      the package targets).
 #   3. Nightly's tests and cost: CmuxNextCompat and its blocking tests in a scratch package built
 #      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records, never traps, and a clean checked call

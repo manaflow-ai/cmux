@@ -21,9 +21,11 @@ final class AppControl {
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
-    private let frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: RenderStats(layoutGuard: .shared)))
+    /// `debug.frames` and `debug.damage` share the app's one RenderStats (its hooks are process-wide).
+    private let frameProbe: DebugFrameProbe
+    private let damageWindow: RenderDamageWindow
     private let mainCPUProbe = DebugMainCPUProbe()
-    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    private let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -48,6 +50,12 @@ final class AppControl {
     init(mainWork: MainWorkScheduler) {
         self.mainWork = mainWork
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
+        let renderStats = RenderStats(layoutGuard: .shared)
+        let terminalDisplay = DebugTerminalDisplayProbe()
+        terminalDisplayProbe = terminalDisplay
+        frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
+        damageWindow = RenderDamageWindow(stats: renderStats, displayPasses: terminalDisplay,
+                                          ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
 
     /// Starts stall and busy detection. Call first thing at launch.
@@ -117,6 +125,14 @@ final class AppControl {
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
+            // Render damage per owner over a window (render-idle-damage.py: the MQ-damage-owners queue).
+            .mainActor("debug.damage") { [damage = damageWindow] call in
+                switch call.params["action"]?.stringValue ?? "read" {
+                case "start": .followUp { JSONValue(foundation: await damage.start().foundationObject) ?? .null }
+                case "stop": .value(JSONValue(foundation: damage.stop().foundationObject) ?? .null)
+                default: .value(JSONValue(foundation: damage.read().foundationObject) ?? .null)
+                }
+            }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.

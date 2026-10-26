@@ -11,4 +11,12 @@ extension CEFTab: BrowserProcessReporting {
         guard count > 0 else { return .none }
         return .chromiumRendererClients(Array(ids.prefix(Int(count))))
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The renderer client ids of ``contentProcesses``; empty before the browser exists or
+    /// without Chromium (`debug.webui`).
+    public var rendererClientIDs: [Int32] {
+        if case .chromiumRendererClients(let ids) = contentProcesses { ids } else { [] }
+    }
+    #endif
 }

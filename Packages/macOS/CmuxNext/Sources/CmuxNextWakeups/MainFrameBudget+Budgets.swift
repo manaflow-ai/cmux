@@ -1,4 +1,10 @@
 extension MainFrameBudget {
+    /// `duration` in whole nanoseconds (negative durations count as zero).
+    public static func nanos(_ duration: Duration) -> UInt64 {
+        let (seconds, attoseconds) = duration.components
+        return UInt64(clamping: seconds) &* 1_000_000_000 &+ UInt64(clamping: attoseconds / 1_000_000_000)
+    }
+
     /// Per-frame budgets of the budgeted classes.
     ///
     /// The target is no main-thread stall over 8 ms (perf-lead.md section 1: key to frame p95
