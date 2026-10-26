@@ -2798,10 +2798,28 @@ a.cv-sha:focus-visible {
     translate: 0 0;
   }
 }
+/* A new user or assistant message arrives with a quiet ChatGPT-style bump. The static reference is
+ * apps/chatgpt/live/transcript-thinking-and-tool-calls-consolidation.png; no dynamic entrance clip
+ * is available in the reference package. `scale` is a longhand so the virtualizer's inline
+ * translateY placement remains intact, and the row's measured height is reserved before paint. */
+@keyframes cv-message-enter {
+  from {
+    opacity: 0;
+    scale: 0.985;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  .acpmux-row--message-enter {
+    transform-origin: center bottom;
+    animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
