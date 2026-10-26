@@ -168,8 +168,13 @@ enum PaletteSourcesBridge {
         /// selects the tab and focuses its pane. Selecting through the pane alone missed a tab in
         /// another workspace: the window swaps that workspace's content in on a later turn, so
         /// its pane was not there yet and the jump landed on the workspace (Leo 2026-10-19).
-        func selectTab(id: String) {
-            _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+        func selectTab(id: String) { selectTab(id: id, inputTimestamp: nil) }
+
+        /// ``selectTab(id:)`` answering the input stamped `inputTimestamp` (a page's click, carried with its request).
+        func selectTab(id: String, inputTimestamp: Double?) {
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)
+            invocation.inputTimestamp = inputTimestamp
+            _ = services.registry.perform("tab.focus", invocation: invocation)
         }
 
         func renameTab(id: String, to title: String) {

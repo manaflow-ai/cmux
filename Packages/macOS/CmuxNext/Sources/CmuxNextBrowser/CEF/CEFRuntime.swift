@@ -43,6 +43,9 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    /// The chat open of each page window by pane (``CEFEngine/pagesTabConfiguration(chatOpen:)``); each leaves at its
+    /// window's first contentful paint or when its host leaves ``hosts``.
+    var chatOpens: [String: ChatOpenStages] = [:]
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
@@ -71,11 +74,12 @@ final class CEFRuntime {
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
     var input: InputEventTap?
-    /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
-    /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
+    /// The last `CEFEngine`'s frame-aligned pointer input (feature `pointerFrameDrags`): the DevTools divider's drag.
     var pointerFrames: FrameInputCoalescers?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
+    /// The last `CEFEngine`'s feature `cefLayerHosting`: nil while off, else the Track A calls the app makes.
+    var layerHostingTrackA: CEFLayerHosting.TrackA?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -140,8 +144,7 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
-    /// Hides or closes top-level Chromium windows that slip through (see
-    /// `ChromiumWindowGuard`).
+    /// Hides or closes top-level Chromium windows that slip through (`ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
         self?.isPlacedDevToolsWindow(window) ?? false
     }
@@ -166,8 +169,17 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
-    /// Maps the in-process shim and framework (``loadLibrary(_:signatureChecker:)``; a test's counter).
-    var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { CEFRuntime.loadLibrary($0) }
+    /// A preload's framework read behind the startup fence and its layout (``preloadMap()``); false: quit dropped it.
+    private(set) var fencedRead: (read: Task<Bool, any Error>, layout: CEFRuntimeLayout)?
+    /// The framework's file-cache read (``CEFFrameworkPrefetch``); every in-process load reads through it.
+    nonisolated let prefetch = CEFFrameworkPrefetch()
+    /// The lanes whose startup fence holds a preload's framework read (feature `cefPrefetchBehindFence`); a start
+    /// promotes it. Nil: the preload reads and maps at once, at utility.
+    var prefetchWork: BackgroundWork?
+    /// Maps the in-process shim and framework through ``prefetch`` (``CEFLibraryLoader``; a test's counter).
+    lazy var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { [loader = CEFLibraryLoader(prefetch: self.prefetch)] in
+        loader.load($0)
+    }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
     var hostStart: CEFHostStart?
     private(set) var preloaded = false
@@ -289,11 +301,14 @@ final class CEFRuntime {
         let loaded: Result<CEFRuntimeBoot, BootError>
         if let hostStart {
             loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
+        } else if fencedRead != nil, let prefetchWork, !(await prefetch.promote(on: prefetchWork)) {
+            // Quit dropped the preload's fenced framework read before this start promoted it: nothing maps.
+            loaded = .failure(.quit)
         } else {
+            // The map runs at this start's priority (after a promoted read too), unless a preload's already runs:
+            // that one is a plain task, not a lane item, and the await below raises its priority to this task's.
             let task = loadTask ?? makeLoadTask(candidate, priority: .userInitiated)
             loadTask = task
-            // A utility-priority preload may still be running; the await below
-            // raises its priority to this task's.
             loaded = await task.value.map(CEFRuntimeBoot.inProcess)
         }
         // Another awaiter finished first, or the app began to quit.
@@ -309,16 +324,36 @@ final class CEFRuntime {
     /// Starts mapping the shim and the framework in the background without
     /// initializing CEF, so a later first tab skips the load. For a moment
     /// that predicts a Chromium tab (the "+" menu or palette entry opening).
+    /// With ``prefetchWork`` the read waits behind the startup fence, the map after it; a start promotes the read.
     func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
         guard state == .idle, loadTask == nil, hostStart == nil else { return }
         state = .loading
         preloaded = true
-        let task = makeLoadTask(candidate, priority: .utility)
-        loadTask = task
+        if let prefetchWork, let candidate {
+            fencedRead = (prefetch.postAwaited(candidate, on: prefetchWork), candidate)
+        } else {
+            loadTask = makeLoadTask(candidate, priority: .utility)
+        }
         Task { [weak self] in
+            guard let task = await self?.preloadMap() else { return }
             _ = await task.value
             self?.libraryLoaded = true
         }
+    }
+
+    /// Returns once the preload's load (behind the fence or not) ended.
+    func libraryLoadEnded() async { _ = await preloadMap()?.value }
+
+    /// The preload's map, ``loadTask``. Behind the fence it is made after ``fencedRead``, off the lanes as without
+    /// the fence, by the first of the preload and a start: at utility, or at user-initiated once a start promoted
+    /// the read. Nil when quit dropped the read, or a start ended without a map.
+    private func preloadMap() async -> Task<Result<CEFLoadedLibrary, BootError>, Never>? {
+        guard let fencedRead else { return loadTask }
+        guard (try? await fencedRead.read.value) == true else { return nil }
+        if loadTask == nil, state == .loading {
+            loadTask = makeLoadTask(fencedRead.layout, priority: prefetch.isPromoted ? .userInitiated : .utility)
+        }
+        return loadTask
     }
 
     /// The one off-main load of the shim and the framework (``loadInProcess``), marked
@@ -399,7 +434,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = CEFStartReport.secondsSinceLaunch()
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
@@ -417,42 +452,6 @@ final class CEFRuntime {
             onStartFailed?()
             throw .engineUnavailable(.cef, reason: reason)
         }
-    }
-
-    /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
-    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
-    nonisolated static func loadLibrary(
-        _ candidate: CEFRuntimeLayout?,
-        signatureChecker: (any CEFCodeSignatureChecking)? = nil
-    ) -> Result<CEFLoadedLibrary, BootError> {
-        guard let layout = candidate else { return .failure(.notEmbedded) }
-        if case .downloaded(let teamID) = layout.trust {
-            guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
-            let checker = signatureChecker ?? SecCodeCEFCodeSignatureChecker()
-            if let invalid = checker.invalidItem(in: layout, teamID: teamID) {
-                return .failure(.untrusted(invalid))
-            }
-        }
-        let clock = ContinuousClock()
-        let started = clock.now
-        let shim: CEFShimLibrary
-        let shimABI = CEFShimABI.bundledIdentity()
-        do { shim = try CEFShimLibrary.open(layout.shim, expected: shimABI) } catch { return .failure(.shim(error)) }
-        // Read the binary before mapping it: `dlopen` holds dyld's loader
-        // lock for the whole map, and every main-thread dlopen/dladdr waits
-        // on that lock (CEFFrameworkPrefetch).
-        CEFFrameworkPrefetch.readBinary(layout)
-        var message = [CChar](repeating: 0, count: 512)
-        let mapStarted = clock.now
-        guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
-            let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            return .failure(.framework(text))
-        }
-        CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
-        CEFFrameworkPrefetch.warm(layout)
-        // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
-        return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
@@ -534,7 +533,7 @@ final class CEFRuntime {
             pump?.stop()
             throw .initialize
         }
-        shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        installDevToolsKeyPolicy()
         shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
@@ -595,6 +594,7 @@ final class CEFRuntime {
     func hostEmptied(_ host: CEFPaneHost) {
         guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
         hosts[host.key] = nil
+        chatOpens[host.key.pane.rawValue] = nil
         if lastShownHost === host { lastShownHost = nil }
     }
 

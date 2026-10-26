@@ -16,8 +16,8 @@
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
-/// ``createWorkspace`` and
-/// ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus`` and
+/// ``burstEvent`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -131,10 +131,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 102, PL-trace). The main thread's IOSurface contents handoff of that frame.
     case keyEchoContents = 32
 
-    // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
+    // MARK: switch (PL-switch)
 
-    /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
-    /// workspace. Ring: AB/AE; begin arg0 the input age in us.
+    /// A workspace switch (task 027, `DebugWorkspaceSwitch`, every build): the intent
+    /// (`WindowManager.show(workspaceID:in:)`) to the ``CommitBoundary`` after its turn, which shows the new
+    /// workspace. An intent that shows nothing in its turn, or a superseded one, ends `commit=missed`. Ring: AB/AE;
+    /// begin arg0 the input age in us (all ones without an input event); end arg0 the boundary's `EndCode`.
     case switchWorkspace = 9
     /// A tab switch (``TabSwitchSignpost``, every build): the intent to the app's commit that shows the destination
     /// tab's content. Begin message `kind=<cold|warm|page>`. A switch to a live Chromium page ends at the commit after
@@ -167,7 +169,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// ``CommitBoundary`` that shows content with no frame signal of its own. Begin message
     /// `kind=<terminal|chromium|webkit|chat|page>`, end message `outcome=<shown|closed|hidden|missed>`; only shown is a
     /// create latency. Ring: AB/AE keyed by the intent id; begin arg0 the kind, end arg0 the outcome (0 shown, 1 closed,
-    /// 2 hidden, 3 missed); an instant marks the stand-in commit.
+    /// 2 hidden, 3 missed). Instants, on the intent id (`CreateTabInterval.Scope`): the stand-in commit (arg0 the
+    /// kind, arg1 the intent id) and a chat open's stages (`ChatOpenStage`: arg0 the chat kind with the stage's code
+    /// in bits 8-15, arg1 the intent id; message `kind=chat stage=<name>`), which may come after the end.
     case createTab = 12
     /// A new workspace (`SidebarNewRowTimer`, every build): its create to the ``CommitBoundary`` after the list reload
     /// that first lists its row; `input_age_ms=<age>` (the press's own input, -1 for a script). A row gone before it
@@ -403,6 +407,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// waiting=<steps released>`. Ring: instant; arg0 the steps released. Once per read per launch.
     case launchReadDone = 80
 
+    // MARK: burst (emitter: CmuxNextControl `BurstTrace`, task p09-observability-044)
+
+    /// One burst bench mark (`BurstTrace`), in every build while the `burst` category records: a refusal the person
+    /// saw, a Cmd-W's outcome, a grid sent to a PTY, its echo, the first output after it. Ring only: instant; arg0
+    /// bits 0-7 the kind (`BurstTrace.Kind.traceCode`); a grid's cols in bits 8-23, rows in 24-39 and its echo due in
+    /// bit 40; a close's tab count in bits 8-23 and pane emptied in bit 24. arg1 the PTY surface of a grid or an
+    /// output, else the input event's `CLOCK_UPTIME_RAW` ns (0 without one).
+    case burstEvent = 81
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -486,6 +499,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .daemonStep: "daemon.step"
         case .webuiAgentPaneStep: "webui.agent_pane_step"
         case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
+        case .burstEvent: "burst.event"
         }
     }
 }

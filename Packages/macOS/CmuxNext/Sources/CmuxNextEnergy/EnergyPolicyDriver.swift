@@ -10,6 +10,9 @@ public import CmuxNextWakeups
 ///
 /// Nothing is published until both the setting and the inputs are known, so the first policy already
 /// follows `energy.saver`: a Mac in Low Power Mode with the setting `off` never starts in the saver.
+/// With the `energySaver` feature off the setting decides nothing, so the inputs alone publish, and
+/// Low Power Mode reaches the page consumers as ``EnergyPolicy/lowPowerFallback``, as it did before
+/// the saver existed.
 @MainActor
 public final class EnergyPolicyDriver {
     /// The policy every consumer reads.
@@ -71,7 +74,12 @@ public final class EnergyPolicyDriver {
     }
 
     private func publish() {
-        guard let setting, let inputs else { return }
+        guard let inputs else { return }
+        guard resolver.isEnabled else {
+            source.update(EnergyPolicy(suspended: inputs.suspended, onBattery: inputs.onBattery, lowPowerFallback: inputs.lowPowerMode))
+            return
+        }
+        guard let setting else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)
         source.update(EnergyPolicy(saverReason: reason, suspended: inputs.suspended, onBattery: inputs.onBattery))
     }

@@ -100,6 +100,9 @@ final class AppControl {
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
+        // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
+        // the cache publishes: the watchdog reads it off the main thread.
+        watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)
     }
@@ -145,7 +148,14 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium)]).method])
+        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               ScrollViewAuditSource { [mainWork = services.mainWork] in
+                                                   await withCheckedContinuation { continuation in
+                                                       mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
+                                                           continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
+                                                       }
+                                                   }
+                                               }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

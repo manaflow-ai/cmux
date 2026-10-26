@@ -171,6 +171,8 @@ class Signposts(Fixture):
                 case qualified = 6
                 case bound = 7
                 case ring = 8
+                case timer = 9
+                case timerShort = 10
             }
             """)
         self.write("Packages/macOS/CmuxNext/Sources/A/Emit.swift", """
@@ -182,6 +184,8 @@ class Signposts(Fixture):
             Signposter.stall.begin(SignpostName.qualified, taskClass: "a", owner: "b")
             let name: SignpostName = .bound
             trace.asyncBegin(.ring, id: 1)
+            static let timer = SwitchFrameTimer(owner: "debug.x", signpost: SignpostName.timer)
+            let short = SwitchFrameTimer(owner: "y", signpost: .timerShort, trace: runtime)
             switch name {
             case .switched: break
             }

@@ -311,6 +311,7 @@ public final class AgentTurnStateStore {
         held.source = source
         if recordsTimeline, held.state == .working, state != .working { onTurnEnded?(session) }
         if recordsTimeline {
+            // wall-clock: timeline events are shown dates, Unix ms.
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
             for event in AgentTimeline.chatEvents(from: held.state, held.detail, to: state, detail, nowMs: nowMs) {
                 held.timeline.append(event)

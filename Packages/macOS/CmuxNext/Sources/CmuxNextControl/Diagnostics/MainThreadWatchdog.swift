@@ -193,7 +193,6 @@ public final class MainThreadWatchdog: Sendable {
     /// Set once the task diagnostics mode is on (sampler and board installed): the watchdog loop
     /// reads this one atomic and takes no lock in every other launch.
     let taskDiagnostics = Atomic<Bool>(false)
-    private let observer = Mutex<ObserverBox?>(nil)
     #if DEBUG
     /// Tests: runs on the watchdog thread right after a sample, to hold that
     /// thread past the end of a stall. Debug builds only: release builds
@@ -206,6 +205,12 @@ public final class MainThreadWatchdog: Sendable {
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
     /// Times the watchdog thread returned from a wait (tests count its idle wakeups).
     let watchdogWakes = Atomic<UInt64>(0)
+    /// Tests: the run-loop observers still on the main run loop. Its own object, so a test reads it
+    /// after the watchdog is gone.
+    let observersForTesting = ObserverCountForTesting()
+    final class ObserverCountForTesting: Sendable {
+        let live = Atomic<Int>(0)
+    }
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
@@ -284,17 +289,31 @@ public final class MainThreadWatchdog: Sendable {
         // (order CFIndex.min); before-waiting stamps last (lastOrder), so
         // AppKit's layout, display and the Core Animation commit, which run
         // in before-waiting observers, count as main-thread work.
+        // Each observer removes itself on the main thread at its first call after ``stop()`` (or after the
+        // watchdog is gone), so no other thread ever holds or invalidates it.
+        #if DEBUG
+        let observerCount = observersForTesting
+        #endif
+        let beat: (CFRunLoopObserver?, CFRunLoopActivity) -> Void = { [weak self] observer, activity in
+            guard let self, running.load(ordering: .acquiring) else {
+                guard let observer, CFRunLoopObserverIsValid(observer) else { return }
+                CFRunLoopObserverInvalidate(observer)
+                #if DEBUG
+                observerCount.live.subtract(1, ordering: .relaxed)
+                #endif
+                return
+            }
+            heartbeat(activity)
+        }
         let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
-        let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
-            self?.heartbeat(activity)
-        }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, MainRunLoopObserver.lastOrder) { [weak self] _, activity in
-            self?.heartbeat(activity)
-        }
+        let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min, beat)
+        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true,
+                                                              MainRunLoopObserver.lastOrder, beat)
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
-        let box = ObserverBox([earlyObserver, lateObserver])
-        observer.withLock { $0 = box }
+        #if DEBUG
+        observerCount.live.add(2, ordering: .relaxed)
+        #endif
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
         // Without its kqueue the thread could not wait: stalls are still measured on the main thread.
@@ -318,9 +337,6 @@ public final class MainThreadWatchdog: Sendable {
     public func stop() {
         hangWatchSink.withLock { $0 }?.watch.detachMonitor()
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
-        if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
-            for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
-        }
         alarm.wake()
     }
 
@@ -519,11 +535,5 @@ public final class MainThreadWatchdog: Sendable {
             if exchanged { break }
             current = original
         }
-    }
-
-    /// CFRunLoopObserver is thread-safe to invalidate from any thread.
-    private final class ObserverBox: @unchecked Sendable {
-        let observers: [CFRunLoopObserver]
-        init(_ observers: [CFRunLoopObserver?]) { self.observers = observers.compactMap { $0 } }
     }
 }

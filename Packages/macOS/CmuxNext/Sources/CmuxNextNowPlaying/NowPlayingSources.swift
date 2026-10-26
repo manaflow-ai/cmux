@@ -48,8 +48,8 @@ public final class NowPlayingSources: NowPlayingSource {
 
     public var nowPlaying: SidebarNowPlaying? { holder?.1 }
 
-    public func run(_ on: Bool) {
-        system?.run(on && otherApps())
+    public func run(_ need: NowPlayingNeed) {
+        system?.run(otherApps() ? need : .off)
     }
 
     public func perform(_ command: SidebarNowPlayingCommand) {
