@@ -55,6 +55,28 @@ Sessions (--sessions):
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
                 every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
+  occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`: another
+                app that activates and shows its key window in front; debug.window_list must report every main window
+                occluded and no window of the app key, so the app resigned active)
+  home          the light session with Home selected (action home.show; xbench's idle-wakeups-home, D6)
+  signed-in     the light session signed in as the host's staging agent test account (CMUX_UITEST_STACK_* of
+                --signed-in-credentials, default the fleet secrets file, which the app reads itself; the bench passes
+                the account's email and the agent profile only, so no secret or token reaches a log or the report),
+                with Phone Access and the GitHub feed on and both keep-awake settings off; auth.status must report the
+                account signed in, and the app signs out (debug.cloud.end_session) before it stops. The app signs a
+                test account in only in a Debug build (DogfoodCredentials): the session is refused on another build,
+                and on a Debug build its own rows are reported, not judged (not the code users run)
+  signed-in-display-sleep  signed-in with `pmset displaysleepnow` after the activation (the display wakes at the
+                teardown); judged by its relative row: app <= light-hidden of the same run (D13)
+  Every session other than the signed-in ones runs signed out: a sign-in the app restores is ended first, and each
+  session's `shape.signed_in` records which it ran as.
+  app-quit      the light session quit after the settle with the sessions kept (action quitKeepSessions), then settled
+                QUIT_SETTLE_S again: the window measures what keeps running without the app (daemon, holders, terminal
+                hosts, acpmux; TagTeardown's process set of the tag)
+  external-churn  the light session hidden, its terminal in a git project the bench writes 10 times a second, and a
+                Chrome History fixture (Chromium's `urls` table) imported with Keep in Sync (the tag's BrowserImport
+                store, seeded before the launch and restored after) that gets a visit appended every
+                HISTORY_PERIOD_S; the writes run through the settle and the window, from this script
   energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
                 one fetch the server holds (no wake while held); the bench answers it and the page POSTs
@@ -85,6 +107,20 @@ Sessions (--sessions):
                 measured, POWER-OVER lines list each owner group >= 2 mW (Chrome's kinds: the app and cef-host are
                 `browser`) that spends more than Chrome's same group, or that Chrome does not have: reported, not
                 judged.
+  agent-idle    two agent chats on the ACP fake agent (cmux-tui/crates/acpmux/tests/fake_agent.py, the default
+                harness of the session's own ACPMUX_HOME and ACPMUX_SOCKET) after a finished turn: one in a workspace
+                that then hides behind the launch workspace, one in the launch pane; plus one pooled entry
+                (_acpmux/prewarm). Settled past p14-energy-117's harness freeze (HARNESS_FREEZE_S). Its hidden chat's
+                harness rows are `hidden` (under that chat's agent host, from its `hosts/<session>.json` record).
+                The window is refused (IDLE-BUDGET-REFUSED) when no measured harness row is under the hidden chat's
+                host or under a pooled host: a harness that exited would pass its rows with nothing measured.
+  agent-working-visible  the launch pane's chat in a turn that sends nothing (the fake agent's `gate:` blocks on a
+                FIFO until the session ends): the pane's working state is what moves. The chat must show in
+                Chromium (`debug.agent_pane engine` == cef): its row sums the cef kinds, and a WebKit chat's work
+                would fall outside them
+  busy-hidden   the launch terminal prints one line every 100 ms, then a new workspace shows over it
+  Every process under an acpmux agent host (`__agent-host`, pooled entries included) is kind agent-harness
+  (procs.agent_harness_pids); the host itself is acpmux.
 
 Per window the report also has, per session: `energy_mw` (CPU and billed energy, summed per kind and over the
 tree), `assertions` (`pmset -g assertions` held by or created for a pid of the set), `saver` (asked by the
@@ -135,19 +171,28 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
   D6 on an xbench.py result (any host): python3 scripts/cmux-next/idle-budget.py --xbench OUT/results.json [--gate]
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
+    scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- \\
+        --sessions home,occluded,app-quit,external-churn      (Release + CMUX_BENCH_HOOKS: these four can --gate)
+  The signed-in sessions need a Debug build of the same tag (no --gate; their own rows are not judged there):
+    python3 scripts/cmux-next/idle-budget.py --app "<...>/Debug/cmux DEV <tag>.app" --out DIR \\
+        --sessions light-hidden,signed-in,signed-in-display-sleep
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, IDLE-BUDGET-UNCLASSIFIED <session> pid <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
 `kind other != classified`), IDLE-BUDGET-GOAL for a number the plan names a goal (reported, never an over),
-IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
-unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, IDLE-BUDGET-FRAME-CLIENTS
-when the build has debug.wakeups, IDLE-BUDGET-WINDOWSERVER per session, IDLE-BUDGET-READER-FAILED for a D15 reader
-that failed, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the power sessions and
-POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session `HIDDEN-WAKE {json}` per
-source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json with every sample.
+IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-SHAPE {json} for what a session
+built (signed in or not, the cover, Home, the sign-in and sign-out, the display sleep, the quit, the churn counts),
+IDLE-BUDGET-TEARDOWN for a teardown step that failed (the later steps still run), IDLE-BUDGET-REFUSED for a saver
+mismatch, an unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session,
+IDLE-BUDGET-FRAME-CLIENTS when the build has debug.wakeups, IDLE-BUDGET-WINDOWSERVER per session,
+IDLE-BUDGET-READER-FAILED for a D15 reader that failed, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the
+power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session
+`HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json
+with every sample.
 """
-import argparse, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, shutil, subprocess, sys, tempfile, \
-    threading, time
+import argparse, contextlib, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, select, \
+    shlex, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -198,18 +243,24 @@ def app_tool(cmd):
     return os.path.basename(executable(cmd)) in APP_TOOLS
 
 
-def kind(cmd, pid=None, window=None):
+def kind(cmd, pid=None, window=None, under_agent_host=False):
     """The budget kind of a process of the app's set. With `pid` and `window` (WindowKinds: the window's process
     tree and WebKit census) also what the command line alone cannot tell: a terminal's job (under a terminal host
     or a holder), an agent's harness, what the app's tools and its Now Playing stream run, and whether a WebContent
     process runs cmux's own pages. `other:<executable>` is a process no rule names: an over in every judged session
-    (over_budget)."""
+    (over_budget). `under_agent_host`: the process descends from an acpmux agent host (procs.agent_harness_pids), so it
+    is the harness of an agent session or of a pooled entry, or a tool that harness runs: `agent-harness`, whatever
+    its command. The host itself is acpmux code: `acpmux`."""
+    if under_agent_host:
+        return procs.AGENT_HARNESS
     ancestors = [command for _parent, command in window.tree.ancestors(pid)] if window is not None and pid is not None else []
     for command in ancestors:
         if "__terminal-host" in command or procs.is_holder(command):
             return "terminal-job"  # the person's shell and what it runs, not cmux's work
-        if "__agent-host" in command:
-            return "agent-harness"
+        if procs.is_agent_host(command):
+            return procs.AGENT_HARNESS
+    if procs.is_agent_host(cmd):
+        return "acpmux"
     if procs.is_holder(cmd):
         return "holder"
     if "__terminal-host" in cmd:
@@ -253,10 +304,13 @@ class WindowKinds:
     kind)` is whether the process runs only hidden pages; a WebContent of a build with no census stays
     webkit-webcontent and is never hidden. `shown(pid, kind)` is whether the census reports the process running a
     visible page or the shown tab; a process that is neither is of unknown visibility (no census, or a browser tab
-    of a session without `shown_tab`)."""
+    of a session without `shown_tab`). `harness` ({pid: agent host pid}, procs.Instance.harness) names the agent
+    harness processes; one is hidden when its host is one of `hidden_hosts` (the agent hosts of hidden panes)."""
 
-    def __init__(self, rows, census=None, shown_tab=None):
+    def __init__(self, rows, census=None, shown_tab=None, harness=None, hidden_hosts=()):
         census = census if isinstance(census, dict) else {}
+        self.harness = harness or {}
+        self.hidden_hosts = set(hidden_hosts)
         self.tree = procs.ProcessTree(rows)
         self.app_pages = webkit_app_pages(census)
         self.visible_pids, hidden = census_visibility(census, shown_tab)
@@ -265,9 +319,11 @@ class WindowKinds:
         self.webkit_tabs_hidden = bool(shown_tab) and shown_tab.get("engine") == "chromium"
 
     def __call__(self, cmd, pid=None):
-        return kind(cmd, pid, self)
+        return kind(cmd, pid, self, under_agent_host=pid in self.harness)
 
     def hidden(self, pid, name):
+        if pid in self.harness:
+            return self.harness[pid] in self.hidden_hosts
         if name == "webkit-browser-tab":
             return self.webkit_tabs_hidden
         return pid in self.hidden_pids
@@ -371,9 +427,9 @@ def read_rpc(app, method, params=None):
 
 def window_end(app, pids, read_anim=None):
     """What one end of the window records outside the process counters: the app's energy policy (debug.energy:
-    the saver state), the Mac's thermal state, the power assertions of the pid set and, with `read_anim`
-    (IdlePages.read_anim), the animated page's rAF count."""
-    saver, reason = saver_state(read_rpc(app, "debug.energy"))
+    the saver state; unknown with `app` None, after the app quit), the Mac's thermal state, the power assertions of
+    the pid set and, with `read_anim` (IdlePages.read_anim), the animated page's rAF count."""
+    saver, reason = saver_state(read_rpc(app, "debug.energy") if app is not None else {})
     end = {"saver": saver, "saver_reason": reason, "thermal": procs.thermal_state(),
            "assertions": procs.power_assertions(pids)}
     if read_anim is not None:
@@ -393,7 +449,7 @@ def saver_state(reply):
 
 
 def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None, d15=None,
-            ledger_limit=20):
+            ledger_limit=20, hidden_hosts=()):
     """Counters of every process of the app over `seconds` with no input (`ledger_limit` busiest ledger owners,
     None: all). The window's end reads (window_end and
     the debug.webui census the kinds need) sit outside every counter bracket, the app's own counters included, so
@@ -406,8 +462,16 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     `workdir`) starts before the bracket and before PowerWindow lists the coalition, runs in its own process and only
     its samples stamped inside the window count; `log show` reads logd after it. None of them wakes a measured
     process, and nettop's own counters leave the coalition's (PowerWindow's `outside`, coalition_without).
-    Processes that exit inside the window keep their D15 values (`exited`, aggregate)."""
+    Processes that exit inside the window keep their D15 values (`exited`, aggregate).
+    The agent harness processes (procs.Instance.harness of the last process_set read, the table that named
+    `last_pids`) are kind agent-harness, with `agent_host`; those under one of `hidden_hosts` (the agent host pids of
+    hidden panes) are `hidden` rows. With `app` None (app-quit: the app is gone) only the process counters and D15
+    are read, no socket at all."""
     d15 = d15 or D15Readers()
+
+    def rpc(method, params=None):
+        return read_rpc(app, method, params) if app is not None else {}
+
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
     nettop = d15.start_network(seconds + NETTOP_LEAD_S, workdir)
@@ -417,10 +481,10 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if window:
         window.prepare()
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
-    hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
-    ledger0 = read_rpc(app, "debug.wakeups", {"run_loop": True})
-    sources0 = frame_sources(app) if attribute else None
-    counters0 = app_counters(app)
+    hangs0 = rpc("debug.hangs", {"limit": 0})
+    ledger0 = rpc("debug.wakeups", {"run_loop": True})
+    sources0 = frame_sources(app) if attribute and app is not None else None
+    counters0 = app_counters(app) if app is not None else {}
     server0 = d15.windowserver()
     first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
@@ -437,16 +501,17 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
         window.end()
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
+    harness = {pid: host for pid, host in instance.harness.items() if pid in last_pids}
     last = snapshot(last_pids)
     server1 = d15.windowserver()
     power = window.finish() if window else None
-    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
-    ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
-    sources1 = frame_sources(app) if attribute else None
-    counters1 = app_counters(app)
+    hangs1 = rpc("debug.hangs", {"limit": 0})
+    ledger1 = rpc("debug.wakeups", {"run_loop": True})
+    sources1 = frame_sources(app) if attribute and app is not None else None
+    counters1 = app_counters(app) if app is not None else {}
     # debug.webui runs on the app's main actor: read after every counter, with the window's other end reads.
-    census = read_rpc(app, "debug.webui")
-    classify = WindowKinds(last_pids.rows, census, shown_tab)
+    census = rpc("debug.webui")
+    classify = WindowKinds(last_pids.rows, census, shown_tab, harness, hidden_hosts)
     end = window_end(app, last_pids, read_anim)
     # The roles at the window's end, after every counter (proc_pidinfo wakes no process); the pooled agents from the
     # set's own `ps` rows.
@@ -456,7 +521,8 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     logs = d15.read_log(set(pids) | set(last_pids), wall_began, wall_ended)
     network = NOT_MEASURED if network is None else network
     logs = NOT_MEASURED if logs is None else logs
-    rows = process_rows(first, last, elapsed, gpu0, gpu1, classify, network=network, logs=logs)
+    rows = process_rows(first, last, elapsed, gpu0, gpu1, classify, network=network, logs=logs, harness=harness,
+                        hidden_hosts=hidden_hosts)
     for row in rows:
         row["hidden"] = classify.hidden(row["pid"], row["kind"])
         row["shown"] = classify.shown(row["pid"], row["kind"])
@@ -534,11 +600,14 @@ class _NotMeasured:
 NOT_MEASURED = _NotMeasured()
 
 
-def process_rows(first, last, elapsed, gpu0, gpu1, classify, network=None, logs=None):
+def process_rows(first, last, elapsed, gpu0, gpu1, classify, network=None, logs=None, harness=None, hidden_hosts=()):
     """One row per process alive at the window's end, from two snapshots and two GPU reads `elapsed` seconds
     apart, its kind from `classify`; a process that started inside the window counts from its start (`partial`).
     Every row has its disk bytes written; `network` (procs.parse_nettop) and `logs` (procs.parse_log) are {pid:
-    reading}, NOT_MEASURED when their reader failed, or None when the run did not read them (no such fields)."""
+    reading}, NOT_MEASURED when their reader failed, or None when the run did not read them (no such fields).
+    `harness` ({pid: agent host pid}, procs.Instance.harness) names the agent harness processes: kind agent-harness,
+    with `agent_host`, and `hidden` when that host is one of `hidden_hosts`."""
+    harness = harness or {}
     rows = []
     for pid, (cmd, c1, o1, t1) in sorted(last.items()):
         if c1 is None or o1 is None:
@@ -552,9 +621,15 @@ def process_rows(first, last, elapsed, gpu0, gpu1, classify, network=None, logs=
             if cpu > before:
                 ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
         ran.sort(key=lambda t: -t["cpu_us"])
-        rows.append(process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
-                                threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran, classify=classify,
-                                disk=max(0, o1[0] - o0[0]), network=_reading(network, pid), log=_reading(logs, pid)))
+        row = process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
+                          threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran, classify=classify,
+                          disk=max(0, o1[0] - o0[0]), network=_reading(network, pid), log=_reading(logs, pid),
+                          under_agent_host=pid in harness)
+        if pid in harness:
+            row["agent_host"] = harness[pid]
+            if harness[pid] in hidden_hosts:
+                row["hidden"] = True
+        rows.append(row)
     return rows
 
 
@@ -567,14 +642,16 @@ def _reading(readings, pid):
 
 
 def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, classify=None, disk=None, network=None,
-                log=None):
+                log=None, under_agent_host=False):
     """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
     window, `partial`); its kind from `classify(cmd, pid)` (default: the cmux kinds, `kind`). D15: `disk` is the bytes it wrote
     in the window; `network` and `log` its procs.parse_nettop and procs.parse_log entries, NOT_MEASURED when the
-    reader failed (the values are None), None when not read (the row has no such fields)."""
+    reader failed (the values are None), None when not read (the row has no such fields). A process
+    `under_agent_host` is agent-harness."""
     got = procs.rates(first, last, elapsed)
+    name = procs.AGENT_HARNESS if under_agent_host else (classify or kind)(cmd, pid)
     row = {
-        "pid": pid, "kind": (classify or kind)(cmd, pid), "command": cmd[:160], "partial": first is None,
+        "pid": pid, "kind": name, "command": cmd[:160], "partial": first is None,
         "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
         "cpu_pct": round(got["cpu_pct"], 4),
         "wakeups_per_s": round(got["wakeups_per_s"], 3),
@@ -1647,7 +1724,8 @@ def summarize(session, result, budget):
     entry["role_mismatches"] = roles
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["over"] += [[m["kind"], "role", m["observed"], m["expected"]] for m in roles]
-    entry["not_judged"] = kind_notes(session, kinds, budget) + sum_notes(session, kinds, budget) + role_notes
+    entry["not_judged"] = kind_notes(session, kinds, budget) + sum_notes(session, kinds, budget) + role_notes \
+        + deferred_notes(session, kinds, budget)
     entry["goals"] = goal_rows(budget, session, kinds)
     return entry
 
@@ -1690,6 +1768,22 @@ def refusals(entry):
         out.append(("saver", entry["saver"]["mismatch"]))
     if "error" in (entry.get("anim") or {}):
         out.append(("anim", f"no page rAF rate: {entry['anim']['error']}"))
+    return out + agent_refusals(entry.get("agents"), (entry.get("result") or {}).get("processes") or [])
+
+
+def agent_refusals(agents, rows):
+    """[(what, why)] for an agent session (build_agents's record) whose window did not measure the harnesses it
+    built: no agent-harness row under the hidden chat's host, or none under a pooled host. A harness that exited
+    has no row, and a limit on a kind with no row passes, so the D14 hidden-harness row would pass unmeasured."""
+    if not agents:
+        return []
+    plan = agents.get("plan") or {}
+    hosts = {row.get("agent_host") for row in rows if row.get("kind") == procs.AGENT_HARNESS}
+    out = []
+    if plan.get("hidden") and not hosts & set(agents.get("hidden_hosts") or ()):
+        out.append(("agents", f"no agent-harness row under the hidden chat's host {agents.get('hidden_hosts')}"))
+    if plan.get("pool") and not hosts & set(agents.get("pool_hosts") or ()):
+        out.append(("agents", f"no agent-harness row under a pooled host {agents.get('pool_hosts')}"))
     return out
 
 
@@ -1932,6 +2026,20 @@ def sum_notes(session, kinds, budget):
     return [f"{session} {selector} {field}: not judged: unknown"
             for selector, limits in (session_budget(budget, session).get("sums") or {}).items()
             for field, limit in limits.items() if limit is not None and unknown_sum(kinds, selector, field)]
+
+
+def deferred_notes(session, kinds, budget):
+    """The session's kind limits set to null with a `_<field>` reason (a row a later task turns on): reported as
+    not judged, with the measured value and that reason, so the gap shows in every run."""
+    notes = []
+    for name, limits in sorted((session_budget(budget, session).get("kinds") or {}).items()):
+        for field, limit in sorted(limits.items()):
+            reason = limits.get("_" + field)
+            if field.startswith("_") or limit is not None or not reason:
+                continue
+            value = (kinds.get(name) or {}).get(field, "not measured")
+            notes.append(f"{session} {name} {field}: not judged: {value} measured; {reason}")
+    return notes
 
 
 def xbench_overs(budget, result):
@@ -2669,6 +2777,359 @@ def build_stress(app, static=False):
     return summary
 
 
+# ---------------------------------------------------------------------------------------------------------
+# The agent sessions and busy-hidden (p14-energy-103, D14)
+
+# The app runs its own acpmux home whose default harness is the ACP fake agent, as readiness-soak.py runs it: no
+# network and no credential, but the same agent hosts and session pool a real harness gets.
+FAKE_AGENT = os.path.join(HERE, "..", "..", "cmux-tui", "crates", "acpmux", "tests", "fake_agent.py")
+AGENT_HARNESS_ID = "idle-budget-agent"
+# p14-energy-117 freezes the harness of an idle hidden session this long after it hides (freezeAfterSeconds); agent-idle
+# settles past it (FREEZE_GRACE_S more), so its rows are the frozen state D14 judges once 117 lands.
+HARNESS_FREEZE_S = 300
+# The pooled entry outlives the settle and the window (acpmux's default pool.idleMinutes is 10).
+POOL_IDLE_MINUTES = 60
+# How long acpmux, an agent page, a chat start or a turn may take to answer while the session is built.
+AGENT_STEP_S = 60
+# busy-hidden: the hidden terminal prints one line this often.
+BUSY_PERIOD_S = 0.1
+
+
+def agent_config(python, agent):
+    """config.json of the session's acpmux home: the fake agent is the default harness, and a pooled entry stays
+    for POOL_IDLE_MINUTES."""
+    return {"harnesses": {AGENT_HARNESS_ID: {"argv": [python, agent]}}, "defaultHarness": AGENT_HARNESS_ID,
+            "pool": {"idleMinutes": POOL_IDLE_MINUTES}}
+
+
+def chat_session(reply):
+    """The session id in a debug.agent_pane chat_state reply (its `result` is the page's JSON, as text or an
+    object), or None."""
+    if not isinstance(reply, dict) or "error" in reply:
+        return None
+    result = reply.get("result", reply)
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return None
+    return result.get("sessionId") if isinstance(result, dict) else None
+
+
+def turn_done(entry):
+    """Whether an acpmux session entry (`_acpmux/sessions`) finished a turn, runs none and still has its harness:
+    `ready` (store.rs SessionStatus::Ready, child alive). `idle` is no child process: a harness that exited, which
+    the session would then measure as nothing."""
+    return entry.get("status") == "ready" and bool((entry.get("lastTurn") or {}).get("endedAt"))
+
+
+def answered(reply):
+    return isinstance(reply, dict) and "error" not in reply
+
+
+class AgentHome:
+    """The session's acpmux home and socket (ACPMUX_HOME, ACPMUX_SOCKET in the app's env, which its acpmux and agent
+    hosts inherit): config.json (agent_config), the chats' folder, the gates of working turns, and JSON-RPC over
+    the socket (one request per connection after `initialize`, as readiness-soak.py's Acpmux)."""
+
+    def __init__(self, folder, session):
+        self.folder = folder
+        self.home = os.path.join(folder, "acpmux")
+        self.cwd = os.path.join(folder, "agent-work")
+        self.pool_cwd = os.path.join(folder, "agent-pool")
+        # One socket per run, short enough for AF_UNIX (104 bytes) whatever --out is.
+        self.socket = f"/tmp/idle-budget-acp-{os.getpid()}-{session}.sock"
+        self.gates = []
+
+    def env(self):
+        return {"ACPMUX_HOME": self.home, "ACPMUX_SOCKET": self.socket}
+
+    def write(self):
+        shutil.rmtree(self.home, ignore_errors=True)
+        for folder in (self.home, self.cwd, self.pool_cwd):
+            os.makedirs(folder, exist_ok=True)
+        agent = os.path.join(self.folder, "fake_agent.py")
+        shutil.copy(FAKE_AGENT, agent)
+        with open(os.path.join(self.home, "config.json"), "w") as handle:
+            json.dump(agent_config(sys.executable, agent), handle)
+
+    def call(self, method, params=None, timeout=10):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            try:
+                conn.connect(self.socket)
+                init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": 1, "clientInfo": {"name": "idle-budget", "version": "1"}}}
+                request = {"jsonrpc": "2.0", "id": 2, "method": method, "params": params or {}}
+                conn.sendall((json.dumps(init) + "\n" + json.dumps(request) + "\n").encode())
+                buffer = b""
+                while True:
+                    chunk = conn.recv(1 << 16)
+                    if not chunk:
+                        return {"error": "acpmux closed the connection"}
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        message = json.loads(line or b"{}")
+                        if message.get("id") == 2:
+                            if "error" in message:
+                                return {"error": message["error"]}
+                            result = message.get("result")
+                            return {} if result is None else result  # a null result is an answer
+            except (OSError, ValueError) as error:
+                return {"error": str(error)}
+
+    def sessions(self):
+        reply = self.call("_acpmux/sessions")
+        found = reply.get("sessions") if answered(reply) else None
+        return {s.get("sessionId"): s for s in found or [] if isinstance(s, dict)}
+
+    def host_pid(self, session_id):
+        """The agent host pid of `session_id` from its discovery record (`hosts/<session id>.json`), or None."""
+        try:
+            with open(os.path.join(self.home, "hosts", f"{session_id}.json")) as handle:
+                pid = json.load(handle).get("host_pid")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return pid if isinstance(pid, int) and pid > 1 else None
+
+    def pool_ready(self, cwd):
+        """The ready pooled entries in `cwd` (`_acpmux/status` pool.entries, hub/pool pool_view_json): not an entry
+        the agent page hinted for its own folder."""
+        reply = self.call("_acpmux/status")
+        entries = ((reply.get("pool") or {}).get("entries") if answered(reply) else None) or []
+        folder = os.path.realpath(cwd)
+        return [e for e in entries if isinstance(e, dict) and e.get("state") == "ready"
+                and isinstance(e.get("cwd"), str) and os.path.realpath(e["cwd"]) == folder]
+
+    def pool_host_pids(self):
+        """The host pids of the pooled entries' records (`hosts/pool/*.json`, agent_host::POOL_DIR_NAME)."""
+        folder = os.path.join(self.home, "hosts", "pool")
+        pids = []
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, name)) as handle:
+                    pid = json.load(handle).get("host_pid")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(pid, int) and pid > 1:
+                pids.append(pid)
+        return pids
+
+    def trust(self, cwd):
+        """acp.trust.set `cwd` trusted; returns the refusal (an error reply), printed as AGENT-SESSION-TRUST-REFUSED,
+        or None."""
+        reply = self.call("acp.trust.set", {"cwd": cwd, "level": "trusted"})
+        if answered(reply):
+            return None
+        refusal = {"cwd": cwd, "error": reply.get("error") if isinstance(reply, dict) else reply}
+        print("AGENT-SESSION-TRUST-REFUSED " + json.dumps(refusal), flush=True)
+        return refusal
+
+    def gate(self):
+        """A FIFO the fake agent's `gate:` turn blocks on until release(): a turn that sends nothing meanwhile."""
+        path = os.path.join(self.folder, f"gate-{len(self.gates)}")
+        if not os.path.exists(path):
+            os.mkfifo(path)
+        self.gates.append(path)
+        return path
+
+    def release(self):
+        """Ends every gated turn (its reader is the fake agent; with none, there is nothing to end)."""
+        for path in self.gates:
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+            except OSError:
+                continue
+            try:
+                os.write(fd, b"go\n")
+            finally:
+                os.close(fd)
+
+
+def open_agent_chat(app, home, stress, wait, pane, prompt):
+    """An agent chat in `pane` on the fake harness in home.cwd with `prompt` sent, as a person opens one: the agent
+    tab (palette.newAgentChat), then the page's own new-chat and send verbs (debug.agent_pane), each sent once: a
+    retry after an error reply (a timeout after the page acted) would open a second chat or send the prompt twice.
+    Only read-only state (chat_state, acpmux status) is polled. `stress` and `wait` are perf-stress-session.py's
+    builder and bounded poll. Returns {session, engine (`debug.agent_pane engine`: cef or webkit:<reason>), trust
+    (acp.trust.set's refusal, or None)}; SessionShapeError when a step does not answer."""
+    stress.action("palette.newAgentChat", target=f"pane:{pane}")
+
+    def page(action, **args):
+        return app.rpc("debug.agent_pane", {"action": action, "pane": pane, **args}, timeout=AGENT_STEP_S)
+
+    def once(action, **args):
+        reply = page(action, **args)
+        if not answered(reply):
+            raise SessionShapeError(f"pane {pane}: {action} refused: {json.dumps(reply)[:300]}")
+        return reply
+
+    def state():
+        reply = page("chat_state")
+        return reply if answered(reply) else None
+
+    before = wait(state, AGENT_STEP_S, step=1)
+    if not before:
+        raise SessionShapeError(f"no agent page in pane {pane} (refusals: {stress.refusals[-3:]})")
+    if not wait(lambda: answered(home.call("_acpmux/status", timeout=3)), AGENT_STEP_S, step=1):
+        raise SessionShapeError(f"acpmux does not answer on {home.socket}")
+    trust = home.trust(home.cwd)
+    started = once("new_chat", harness=AGENT_HARNESS_ID, cwd=home.cwd)
+    if started.get("pending"):
+        raise SessionShapeError(f"pane {pane}: new_chat waits on a question (folder trust: {trust or 'set'})")
+    sent = once("send_prompt", text=prompt)
+    prior = chat_session(before)
+
+    def new_session(candidate):
+        return candidate if candidate and candidate != prior else None
+
+    session = new_session(sent.get("sessionId")) or wait(lambda: new_session(chat_session(state())), AGENT_STEP_S, step=1)
+    if not session:
+        raise SessionShapeError(f"pane {pane}: the chat has no new session after its prompt")
+    engine = page("engine")
+    return {"session": session, "engine": engine.get("engine") if answered(engine) else None, "trust": trust}
+
+
+def build_agents(app, home, plan, stress_module=None):
+    """The agent panes of `plan` (SESSIONS `agents`): with `hidden`, a chat in a new workspace that then hides
+    behind the launch workspace; with `visible`, a chat in the launch pane, its turn gated (sends nothing until
+    AgentHome.release) when `working`, else finished, on `engine` when the plan names one; `pool` ready pooled
+    entries in home.pool_cwd (_acpmux/prewarm). Returns what it built: `plan`, `hidden_hosts` the agent host pids of
+    the hidden chats (measure's hidden rows), `pool_hosts` the pooled hosts' pids (agent_refusals), `trust` the
+    refused acp.trust.set calls. `stress_module`: perf-stress-session.py (load_stress) or a test's fake."""
+    module = stress_module or load_stress()
+    stress, wait = module.Stress(app.rpc), module.wait
+    shown = stress.focused_workspace()
+    built = {"plan": plan, "shown_workspace": shown, "hidden_hosts": [], "pool_hosts": [], "chats": [], "trust": []}
+
+    def opened(pane, prompt):
+        chat = open_agent_chat(app, home, stress, wait, pane, prompt)
+        if chat["trust"]:
+            built["trust"].append(chat["trust"])
+        return chat
+
+    def first_pane(workspace):
+        panes = stress.panes(stress.workspace(workspace))
+        if not panes:
+            raise SessionShapeError(f"workspace {workspace} has no pane")
+        return panes[0]["id"]
+
+    def finished(session):
+        if not wait(lambda: turn_done(home.sessions().get(session) or {}), AGENT_STEP_S, step=1):
+            raise SessionShapeError(f"chat {session}: its turn did not finish ({home.sessions().get(session)})")
+
+    if plan.get("hidden"):
+        workspace = stress.new_workspace()
+        if not workspace:
+            raise SessionShapeError("the hidden chat's workspace did not appear")
+        stress.show(workspace)
+        chat = opened(first_pane(workspace), "hello")
+        session = chat["session"]
+        finished(session)
+        host = home.host_pid(session)
+        if host is None:
+            raise SessionShapeError(f"chat {session} has no agent host record in {home.home}/hosts")
+        built["hidden_hosts"].append(host)
+        built["chats"].append({"session": session, "workspace": workspace, "visible": False, "host_pid": host,
+                               "engine": chat["engine"]})
+        stress.show(shown)
+        if stress.window_showing(workspace):
+            raise SessionShapeError(f"workspace {workspace} still shows after the launch workspace was shown")
+    if plan.get("visible"):
+        working = plan.get("working", False)
+        chat = opened(first_pane(shown), f"gate: {home.gate()}" if working else "hello")
+        session = chat["session"]
+        if plan.get("engine") and chat["engine"] != plan["engine"]:
+            # The session's row sums the kinds of `engine` (agent-working-visible: cef); a chat on another engine
+            # does its work in kinds the row does not read.
+            raise SessionShapeError(f"chat {session} shows on {chat['engine']}, the session measures {plan['engine']}")
+        if working:
+            if not wait(lambda: (home.sessions().get(session) or {}).get("status") == "running", AGENT_STEP_S, step=1):
+                raise SessionShapeError(f"chat {session}: its gated turn does not run ({home.sessions().get(session)})")
+        else:
+            finished(session)
+        built["chats"].append({"session": session, "workspace": shown, "visible": True, "working": working,
+                               "host_pid": home.host_pid(session), "engine": chat["engine"]})
+    if plan.get("pool"):
+        trust = home.trust(home.pool_cwd)
+        if trust:
+            built["trust"].append(trust)
+        reply =home.call("_acpmux/prewarm", {"harness": AGENT_HARNESS_ID, "cwd": home.pool_cwd, "wait": True},
+                          timeout=AGENT_STEP_S * 2)
+        built["prewarm"] = reply
+        if not answered(reply) or reply.get("accepted") is not True:
+            raise SessionShapeError(f"_acpmux/prewarm in {home.pool_cwd} refused: {json.dumps(reply)[:300]}"
+                                    + (f" (trust: {json.dumps(trust)[:200]})" if trust else ""))
+        if not wait(lambda: len(home.pool_ready(home.pool_cwd)) >= plan["pool"], AGENT_STEP_S, step=1):
+            raise SessionShapeError(f"{plan['pool']} ready pooled entries in {home.pool_cwd} wanted, "
+                                    f"{len(home.pool_ready(home.pool_cwd))} (prewarm: {json.dumps(reply)[:300]})")
+        built["pool_entries"] = len(home.pool_ready(home.pool_cwd))
+        built["pool_hosts"] = home.pool_host_pids()
+        if not built["pool_hosts"]:
+            raise SessionShapeError(f"no pooled host record in {home.home}/hosts/pool")
+    if stress.refusals:
+        built["refusals"] = stress.refusals
+    print("AGENT-SESSION " + json.dumps(built), flush=True)
+    return built
+
+
+def build_busy_hidden(app, period_s, stress_module=None):
+    """The launch terminal prints one line every `period_s`, then a new workspace shows over it: the printing
+    terminal is hidden."""
+    stress = (stress_module or load_stress()).Stress(app.rpc)
+    printing = stress.focused_workspace()
+    tabs = [tab for pane in stress.panes(stress.workspace(printing)) for tab in pane.get("tabs") or []]
+    tab = next((t for t in tabs if t.get("selected")), tabs[0] if tabs else None)
+    if not tab or not tab.get("id"):
+        raise SessionShapeError(f"the launch workspace {printing} has no terminal tab")
+    stress.send(tab["id"], f"while :; do echo idle-budget-tick; sleep {period_s:g}; done\n")
+    if stress.refusals:
+        raise SessionShapeError(f"terminal.sendText refused: {stress.refusals}")
+    shown = stress.new_workspace()
+    if not shown:
+        raise SessionShapeError("the workspace over the printing terminal did not appear")
+    stress.show(shown)
+    if stress.window_showing(printing):
+        raise SessionShapeError(f"the printing workspace {printing} still shows")
+    built = {"printing_workspace": printing, "printing_tab": tab["id"], "period_s": period_s, "shown_workspace": shown}
+    print("BUSY-HIDDEN-SESSION " + json.dumps(built), flush=True)
+    return built
+
+
+def session_app(app_class, app_path, out, session, env):
+    """(app, agents) of one cmux session: an agent session's AgentHome (else None), whose ACPMUX_HOME and
+    ACPMUX_SOCKET join the launch `env`, so the app's acpmux and agent hosts run in it. `app_class`: BenchApp."""
+    agents = AgentHome(os.path.join(out, session), session) if SESSIONS[session].get("agents") else None
+    app = app_class(app_path, out=os.path.join(out, session), env={**env, **(agents.env() if agents else {})},
+                    config=session_config(session))
+    return app, agents
+
+
+def start_session(app, agents, spec, entry, stress_module=None):
+    """Writes the agent home before the launch (acpmux reads its config.json at start), launches, then builds the
+    agent panes and the printing hidden terminal of `spec` into `entry`."""
+    if agents:
+        agents.write()
+    app.launch()
+    if spec.get("agents"):
+        entry["agents"] = build_agents(app, agents, spec["agents"], stress_module)
+    if spec.get("busy_terminal"):
+        entry["busy_terminal"] = build_busy_hidden(app, spec["busy_terminal"], stress_module)
+
+
+def stop_session(app, agents):
+    """Ends the gated turns before the app stops (a turn blocked on its gate would outlive the teardown), and stops
+    the app whatever the release did."""
+    try:
+        if agents:
+            agents.release()
+    finally:
+        app.stop()
+
+
 def build_sha_of(app_path):
     """The commit the app was built from (bench_launch.build_sha); raises bench_launch.RecordError when neither the
     bundle nor CMUX_CI_SHA names one (a hidden-wake report without its sha can not be cited)."""
@@ -2694,17 +3155,39 @@ TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
 ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
 POWER_SESSION, CHROME_POWER_SESSION = "power-visible", "chrome-power-visible"
 POWER_SETTLE_S = 120
-# The sessions (the docstring describes each). Keys: config (adds to BASE_CONFIG: session_config), hide, minimize,
+# signed-in: Phone Access and the GitHub feed on (both off by default), keep-awake still off (D11, D13).
+SIGNED_IN_CONFIG = {"phone": {"allowConnections": True}, "feed": {"github": {"enabled": True}}}
+# Seconds auth.status has to report the test account signed in after the launch, and signed out after the sign-out.
+SIGN_IN_WAIT_S = 90
+SIGN_OUT_WAIT_S = 60
+# Seconds an unsigned session waits for the app's restore of a stored sign-in to end (auth.status `restoring`).
+RESTORE_WAIT_S = 30
+# app-quit: seconds after the app's exit before the window (the daemon's own wind-down after its client left).
+QUIT_SETTLE_S = 30
+# external-churn: writes per second into the watched project, and seconds between two Chrome History visits.
+CHURN_WRITES_PER_S = 10
+HISTORY_PERIOD_S = 5
+# The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), hide, minimize,
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
 # the session's tabs), shown (role_audit: an app window, with a terminal, can be seen; a session without it gets
-# only the role rules that hold in every session), hidden_wake (print HIDDEN-WAKE lines: hidden_wake_sources).
+# only the role rules that hold in every session), hidden_wake (print HIDDEN-WAKE lines: hidden_wake_sources),
+# agents (build_agents's plan, in the session's own acpmux home: AgentHome), busy_terminal (the hidden terminal's
+# print period: build_busy_hidden), cover (benchhelper's full-screen window over the app), home (Home selected),
+# sign_in (the agent test account), display_sleep (`pmset displaysleepnow` after the activation), quit
+# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers).
 SESSIONS = {
     "light": {"shown": True},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
     "light-hidden": {"hide": True, "shown": False, "hidden_wake": True},
     "minimized": {"minimize": True, "shown": False, "hidden_wake": True},
+    "occluded": {"cover": True},
+    "home": {"home": True},
+    "signed-in": {"config": SIGNED_IN_CONFIG, "sign_in": True, "shown": True},
+    "signed-in-display-sleep": {"config": SIGNED_IN_CONFIG, "sign_in": True, "display_sleep": True},
+    "app-quit": {"quit": True},
+    "external-churn": {"churn": True, "hide": True, "shown": False},
     "stress": {"stress": True, "shown": True},
     "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
@@ -2715,12 +3198,25 @@ SESSIONS = {
     CHROME_SESSION: {"chrome": True, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     POWER_SESSION: {"tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
     CHROME_POWER_SESSION: {"chrome": True, "tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
+    "agent-idle": {"agents": {"visible": True, "hidden": True, "pool": 1},
+                   "settle_min": HARNESS_FREEZE_S + FREEZE_GRACE_S, "shown": True},
+    "agent-working-visible": {"agents": {"visible": True, "working": True, "engine": "cef"}, "shown": True},
+    "busy-hidden": {"busy_terminal": BUSY_PERIOD_S, "shown": True},
 }
 
 
 def session_config(session):
-    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys on top."""
-    return {**BASE_CONFIG, **(SESSIONS[session].get("config") or {})}
+    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys merged on top (a session's
+    `phone.allowConnections` keeps BASE_CONFIG's `phone.keepAwake`)."""
+    return merged(BASE_CONFIG, SESSIONS[session].get("config") or {})
+
+
+def merged(base, top):
+    """`base` with `top` merged in, key by key through nested objects; `top` wins on a leaf. Neither is changed."""
+    out = dict(base)
+    for key, value in top.items():
+        out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
 
 
 def parse_sessions(text):
@@ -2955,6 +3451,454 @@ def minimize(app):
     raise SessionShapeError(f"the window is not minimized after 10 s: {window_state(app)}")
 
 
+def wait_occluded(app, seconds=10, inactive=False, what="the cover"):
+    """Waits until debug.window_list reports every main window occluded and, with `inactive`, no window of the app
+    key (the app resigned active, as under another app's window); returns the window state, or raises
+    SessionShapeError with the last one."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = window_state(app)
+        main = state.get("main") or []
+        if main and all(w.get("occluded") for w in main) and not (inactive and state.get("any_key") is not False):
+            return state
+        if time.monotonic() >= deadline:
+            wanted = "occluded and inactive" if inactive else "occluded"
+            raise SessionShapeError(f"the app's windows are not {wanted} {seconds:g} s after {what}: {state}")
+        time.sleep(0.2)  # bench: bounded wait for the window server's occlusion change to reach the app
+
+
+def start_cover(helper_path, seconds=10):
+    """Starts `benchhelper cover` and returns its process once it says its window is shown; raises SessionShapeError
+    (the process ended) when it does not within `seconds`."""
+    cover = subprocess.Popen([helper_path, "cover"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ready, _, _ = select.select([cover.stdout], [], [], seconds)
+    line = cover.stdout.readline().strip() if ready else ""
+    if not line.startswith("covering "):
+        errors = stop_process(cover)
+        raise SessionShapeError(f"benchhelper cover showed no window in {seconds:g} s: {(line or errors)[:200]}")
+    return cover
+
+
+def stop_process(process, seconds=10):
+    """Ends a process this script started (TERM, then KILL) and closes its pipes; returns what it wrote to stderr,
+    or why it could not be ended. Never raises."""
+    try:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            _out, errors = process.communicate(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            _out, errors = process.communicate(timeout=seconds)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return f"pid {process.pid} not ended: {type(error).__name__}: {error}"[:200]
+    return (errors or "").strip()
+
+
+def command_error(run, argv):
+    """Runs `argv` through `run` (subprocess.run's signature); returns "" or the error. Never raises."""
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"{argv[0]}: {error}"[:200]
+    return "" if done.returncode == 0 else f"{argv[0]} exit {done.returncode}: {(done.stderr or '').strip()[:200]}"
+
+
+def sleep_display(run=subprocess.run):
+    """`pmset displaysleepnow` (no root needed); returns "" or the error."""
+    return command_error(run, ["pmset", "displaysleepnow"])
+
+
+def wake_display(run=subprocess.run):
+    """Wakes the display as user activity does (`caffeinate -u`: a 2 s user-active assertion); returns "" or the
+    error."""
+    return command_error(run, ["caffeinate", "-u", "-t", "2"])
+
+
+def sign_in_refusal(build_config):
+    """Why the signed-in sessions cannot run on this build, or None: the app signs a test account in from the fleet
+    secrets only in a Debug build (CloudAuth: a release build never reads them)."""
+    if build_config != "debug":
+        return (f"a {build_config} build signs no test account in (CloudAuth's dev sign-in runs in a Debug build "
+                "only); measure the signed-in sessions on a Debug build")
+    return None
+
+
+def unjudged_on_debug(session, entry, build_config):
+    """A signed-in session's own rows on a Debug build (the only build that signs a test account in) are reported,
+    not judged: a Debug build is not the code users run. Its overs move into `not_judged`; returns the new notes.
+    Its `relative` rows compare two sessions of the same build and are still judged (cross_overs)."""
+    if not SESSIONS[session].get("sign_in") or build_config != "debug":
+        return []
+    overs, entry["over"] = entry.get("over") or [], []
+    notes = [f"{session}: own rows not judged on a Debug build (not the code users run)"]
+    notes += [f"{session} {over[0]} {over[1]}: {over[2]} over {over[3]} on a Debug build" for over in overs]
+    entry.setdefault("not_judged", []).extend(notes)
+    return notes
+
+
+def signed_in_state(reply, account=None):
+    """auth.status reduced to what the report keeps: signed in, still restoring, the backend and, with `account`,
+    whether the account is the test account. The email itself is never kept."""
+    reply = reply if isinstance(reply, dict) else {}
+    state = {"signed_in": reply.get("signed_in") is True, "restoring": reply.get("restoring") is True,
+             "backend": reply.get("backend")}
+    if account is not None:
+        email = reply.get("email") if isinstance(reply.get("email"), str) else ""
+        state["account_matches"] = bool(email) and email.lower() == account.lower()
+    return state
+
+
+def wait_signed_in(app, account, seconds=SIGN_IN_WAIT_S):
+    """Waits until auth.status reports `account` signed in (not restoring); returns signed_in_state, or raises
+    SessionShapeError."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"), account)
+        if state["signed_in"] and not state["restoring"]:
+            if not state["account_matches"]:
+                raise SessionShapeError(f"another account than the test account is signed in: {state}")
+            return state
+        if time.monotonic() >= deadline:
+            raise SessionShapeError(f"the test account is not signed in {seconds:g} s after the launch: {state}")
+        time.sleep(0.5)  # bench: bounded wait for the app's own sign-in
+
+
+def wait_auth_settled(app, seconds=RESTORE_WAIT_S):
+    """auth.status (signed_in_state, no account) once the app's restore of a stored sign-in ended, or the last
+    state after `seconds`."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"))
+        if not state["restoring"] or time.monotonic() >= deadline:
+            return state
+        time.sleep(0.5)  # bench: bounded wait for the app's own restore
+
+
+def sign_out(app, seconds=SIGN_OUT_WAIT_S):
+    """Ends the app's Cloud session (debug.cloud.end_session: CloudAuth.signOut, which clears the stored tokens and
+    `cmux.auth.hasTokens`; the tokens live in the data protection Keychain, which only the app reaches) and waits
+    until auth.status reports it signed out. Returns {"signed_out": bool, "error": str}."""
+    reply = read_rpc(app, "debug.cloud.end_session")
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"))
+        if not state["signed_in"] and not state["restoring"]:
+            return {"signed_out": True, "error": ""}
+        if time.monotonic() >= deadline:
+            return {"signed_out": False,
+                    "error": f"still signed in {seconds:g} s after debug.cloud.end_session: {json.dumps(reply)[:200]}"}
+        time.sleep(0.5)  # bench: bounded wait for the app's own sign-out
+
+
+class QuitTree:
+    """app-quit's process set once the app is gone: the tag's processes (TagTeardown: daemon, holders, terminal
+    hosts, acpmux and their children, by bundle path), as procs.Instance.pids gives them for a running app. `pid`
+    stays the app's (its coalition reads as unknown)."""
+
+    def __init__(self, teardown, pid):
+        self.teardown = teardown
+        self.pid = pid
+
+        self.harness = {}  # the last pids() read's agent harness processes: {pid: host pid}, as procs.Instance's
+
+    def pids(self, table=None):
+        """{pid: command} of the tag's processes (TagTeardown reads its own table) and the agent harnesses under one
+        of them (from `table`, procs.process_table rows, read now when None), as procs.Instance.pids."""
+        found = dict(self.teardown.processes())
+        table = procs.process_table() if table is None else table
+        commands = {pid: cmd for pid, _ppid, cmd in table}
+        self.harness = {pid: host for pid, host in procs.agent_harness_pids(table).items()
+                        if host in found and pid in commands}
+        found.update({pid: commands[pid] for pid in self.harness})
+        return found
+
+
+# external-churn's fixtures: a Chrome profile's History database and its import record with Keep in Sync on.
+CHURN_PROFILE_ID = "6d3c6a4e-0b55-4e7b-9a0c-1d2e3f405162"  # a browser profile id (lowercase UUID) for the import
+CHROME_EPOCH_OFFSET_S = 11644473600  # Chromium's base::Time counts microseconds from 1601-01-01
+# components/history/core/browser/url_database.cc CreateURLTable: the columns ChromiumHistoryReader reads.
+CHROME_URLS_TABLE = ("CREATE TABLE urls(id INTEGER PRIMARY KEY AUTOINCREMENT, url LONGVARCHAR, title LONGVARCHAR, "
+                     "visit_count INTEGER DEFAULT 0 NOT NULL, typed_count INTEGER DEFAULT 0 NOT NULL, "
+                     "last_visit_time INTEGER NOT NULL, hidden INTEGER DEFAULT 0 NOT NULL)")
+
+
+def chrome_time(unix_s):
+    """Chromium's stored time (microseconds since 1601-01-01) of a Unix time."""
+    return int((unix_s + CHROME_EPOCH_OFFSET_S) * 1_000_000)
+
+
+def make_chrome_history(path, visits=20, now=None):
+    """A Chrome `History` database at `path` with `visits` pages, as a profile that has browsed."""
+    now = time.time() if now is None else now
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute(CHROME_URLS_TABLE)
+        db.executemany("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
+                       [(f"https://example.com/page/{n}", f"Page {n}", chrome_time(now - 60 * (visits - n)))
+                        for n in range(visits)])
+    return path
+
+
+def append_chrome_visit(path, n, now=None):
+    """One visit appended to the History database as Chrome writes it: a committed row, with SQLite's rollback
+    journal (`History-journal`) made and removed by the commit, which is what Keep in Sync's folder watch sees."""
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
+                   (f"https://example.com/churn/{n}", f"Churn {n}", chrome_time(time.time() if now is None else now)))
+
+
+def keep_in_sync_store(history, now=None):
+    """{relative path: JSON} of an import store (ImportedDataStore) holding one Chrome profile imported with Keep in
+    Sync on: `sources.json` (the ImportSourceRecord list, `syncedHistoryFile` the History file URL) and the source's
+    batch (`<profile>/<source key>.json`, history kind, no pages yet: the first read fills them)."""
+    record = {"browser": "chrome", "profileDirectory": "Default", "displayName": "Google Chrome",
+              "proposedProfileID": CHURN_PROFILE_ID, "targetProfileID": CHURN_PROFILE_ID, "profileName": "Person 1",
+              "syncedHistoryFile": Path(history).resolve().as_uri()}
+    batch = {"source": record, "bookmarks": [], "history": [], "openTabs": [], "extensions": [], "kinds": ["history"],
+             "importedAt": round(time.time() if now is None else now, 3)}
+    return {"sources.json": [record], f"{CHURN_PROFILE_ID}/chrome_Default.json": batch}
+
+
+def import_store_dir(app):
+    """The tag's browser import store (OnboardingService: Application Support/<bundle id>/BrowserImport), or None when
+    the bundle is not a tagged DEV bundle (its store is a person's own)."""
+    import bench_launch
+    ident = bench_launch.bundle_id(app)
+    if not ident or not ident.startswith("com.cmuxterm.app.debug."):
+        return None
+    return os.path.join(os.path.expanduser("~"), "Library/Application Support", ident, "BrowserImport")
+
+
+class SeededStore:
+    """Writes keep_in_sync_store into the tag's import store for one session and restores the store after: an
+    earlier store moves aside (`<dir>.bench-prev`) and comes back at `restore`."""
+
+    def __init__(self, directory, files):
+        self.directory = directory
+        self.files = files
+        self.aside = directory + ".bench-prev"
+        self.moved = False
+
+    def write(self):
+        if os.path.lexists(self.directory):
+            if os.path.lexists(self.aside):
+                raise SessionShapeError(f"{self.aside} is left from an earlier run: restore or remove it first")
+            os.rename(self.directory, self.aside)
+            self.moved = True
+        for relative, value in self.files.items():
+            path = os.path.join(self.directory, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as handle:
+                json.dump(value, handle, sort_keys=True)
+        return self
+
+    def restore(self):
+        """Removes the seeded store and moves the earlier one back; returns "" or why it could not (the earlier
+        store then stays at `aside`, and the next write refuses to run over it). Never raises."""
+        shutil.rmtree(self.directory, ignore_errors=True)
+        if not self.moved:
+            return ""
+        try:
+            os.rename(self.aside, self.directory)
+        except OSError as error:
+            return f"the earlier store stays at {self.aside}: {error.strerror or error}"
+        self.moved = False
+        return ""
+
+
+def make_project(folder):
+    """A git project with one file at `folder` (the external-churn writes go to its `churn.log`)."""
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "README.md"), "w") as handle:
+        handle.write("idle-budget external-churn project\n")
+    subprocess.run(["git", "init", "-q", folder], check=True, capture_output=True, timeout=30)
+    return folder
+
+
+class ExternalChurn:
+    """Other apps' writes while cmux sits hidden: `writes_per_s` appends a second to the watched project's
+    `churn.log`, and every `history_period_s` one visit appended to the Chrome History fixture. Each step has its own
+    deadline from the start (no drift); a thread runs them through the settle and the window."""
+
+    def __init__(self, project, history, writes_per_s=CHURN_WRITES_PER_S, history_period_s=HISTORY_PERIOD_S):
+        self.file = os.path.join(project, "churn.log")
+        self.history = history
+        self.writes_per_s = writes_per_s
+        self.history_every = max(1, round(writes_per_s * history_period_s))
+        self.writes = self.visits = 0
+        self.error = None
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.run, name="external-churn", daemon=True)
+
+    def step(self, n):
+        """Write number `n`: one line into the project; every `history_every`th also one History visit."""
+        with open(self.file, "a") as handle:
+            handle.write(f"{n} {time.time():.3f}\n")
+        self.writes += 1
+        if n % self.history_every == 0:
+            append_chrome_visit(self.history, n)
+            self.visits += 1
+
+    def run(self):
+        began = time.monotonic()
+        n = 0
+        # bench: each write waits for its own deadline; stop() ends the wait at once
+        while not self.stopped.wait(max(0.0, began + n / self.writes_per_s - time.monotonic())):
+            try:
+                self.step(n)
+            except (OSError, sqlite3.Error) as error:  # the counts show where the churn stopped
+                self.error = f"{type(error).__name__}: {error}"[:200]
+                return
+            n += 1
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def stop(self):
+        """Stops the writes; returns their counts."""
+        self.stopped.set()
+        self.thread.join(10)
+        return {"writes": self.writes, "history_visits": self.visits, "error": self.error}
+
+
+class SessionRig:
+    """What a session builds around the app and takes down after it: the launch env of the signed-in account,
+    the fixtures made before the launch (external-churn's project, Chrome History and import store; the cover's
+    helper, compiled before the app runs), the shape made after the launch and after the activation (the sign-in,
+    or the check that the app runs signed out; the terminal in the project, Home, the cover, the display sleep, the
+    churn), and their teardown (`teardown`). `shape` is what it built, for the report; it never holds a secret.
+    `run` runs pmset and caffeinate (subprocess.run's signature)."""
+
+    def __init__(self, session, build_config, credentials=None, helper_cache=None, run=subprocess.run):
+        self.spec = SESSIONS[session]
+        self.build_config = build_config
+        self.credentials = credentials
+        self.helper_cache = helper_cache
+        self.run = run
+        self.account = self.helper = self.cover = self.churn = self.store = self.scratch = None
+        self.project = self.history = None
+        self.display_slept = False
+        self.shape = {}
+
+    def env(self, base):
+        """The launch env: `base`, plus the agent account's sign-in for a signed-in session (SessionShapeError on a
+        build that signs no test account in, or a credentials file the app would not read or that signs another
+        account in)."""
+        if not self.spec.get("sign_in"):
+            return base
+        refusal = sign_in_refusal(self.build_config)
+        if refusal:
+            raise SessionShapeError(refusal)
+        import bench_launch
+        try:
+            extra = bench_launch.agent_sign_in_env(self.credentials or bench_launch.AGENT_CREDENTIALS)
+        except bench_launch.CredentialsError as error:
+            raise SessionShapeError(f"signed-in: {error}") from None
+        self.account = extra["CMUX_DEV_AUTH_ACCOUNT"]
+        return {**base, **extra}
+
+    def before_launch(self, app_path):
+        if self.spec.get("cover"):
+            import xbench  # scripts/perf-bench (on sys.path): benchhelper, compiled once per source hash
+            self.helper = xbench.Helper(self.helper_cache).path
+        if not self.spec.get("churn"):
+            return
+        store = import_store_dir(app_path)
+        if store is None:
+            raise SessionShapeError("external-churn seeds only a tagged DEV bundle's import store")
+        import tempfile
+        self.scratch = tempfile.mkdtemp(prefix="idle-budget-churn-")
+        self.project = make_project(os.path.join(self.scratch, "project"))
+        profile = os.path.join(self.scratch, "Chrome", "Default")
+        os.makedirs(profile)
+        self.history = make_chrome_history(os.path.join(profile, "History"))
+        self.store = SeededStore(store, keep_in_sync_store(self.history)).write()
+        self.shape["keep_in_sync"] = {"store": store, "history": self.history}
+
+    def after_launch(self, app):
+        """The sign-in of a signed-in session. Any other session runs signed out: a sign-in the app restored (one an
+        earlier run did not end) is ended in the app (`left_signed_in`), or the session is refused. `signed_in`
+        records which it ran as."""
+        if self.account:
+            self.shape["sign_in"] = wait_signed_in(app, self.account)
+            self.shape["signed_in"] = True
+        else:
+            state = wait_auth_settled(app)
+            if state["signed_in"]:
+                ended = self.shape["left_signed_in"] = sign_out(app)
+                if not ended["signed_out"]:
+                    raise SessionShapeError(f"the app restored a stored sign-in and did not sign out: {ended['error']}")
+            self.shape["signed_in"] = False
+        if self.project:
+            run_action(app, "terminal.sendText", {"text": f"cd {shlex.quote(self.project)} && clear\n"})
+            self.shape["project"] = self.project
+
+    def after_activate(self, app):
+        """After the activation and any hide or minimize: Home; the cover, until the app is occluded and no longer
+        active (another app's window in front); the display sleep, until the app is occluded; then the churn (it
+        runs through the settle and the window)."""
+        if self.spec.get("home"):
+            run_action(app, "home.show")
+            self.shape["home"] = True
+        if self.helper:
+            self.cover = start_cover(self.helper)
+            self.shape["cover"] = wait_occluded(app, inactive=True)
+        if self.spec.get("display_sleep"):
+            error = sleep_display(self.run)
+            if error:
+                raise SessionShapeError(f"the display did not sleep: {error}")
+            self.display_slept = True
+            self.shape["display_sleep"] = wait_occluded(app, 15, what="pmset displaysleepnow")
+        if self.project:
+            self.churn = ExternalChurn(self.project, self.history).start()
+
+    def after_window(self):
+        """Stops the churn at the window's end; its counts go into `shape`."""
+        if self.churn is not None and "churn" not in self.shape:
+            self.shape["churn"] = self.churn.stop()
+        return self.shape
+
+    def teardown(self, app, stop=None):
+        """Takes the session down in this order: the churn's writes stop; a signed-in app signs out while it still
+        runs (`shape.sign_out`); the app stops (`stop`, default `app.stop`); then the cover ends, the display wakes, the import store
+        comes back and the scratch folder goes. Every step runs whatever an earlier one raised; returns the steps'
+        errors."""
+        errors = []
+
+        def step(name, work):
+            try:
+                problem = work()
+            except Exception as error:  # noqa: BLE001 - recorded; the later steps still run
+                problem = f"{type(error).__name__}: {error}"
+            if problem:
+                errors.append(f"{name}: {problem}"[:300])
+
+        step("churn", lambda: self.after_window() and None)  # its counts (and a write error) go into `shape`
+        if app is not None:
+            process = getattr(app, "process", None)
+            if self.account and process is not None and process.poll() is None:
+                step("sign-out", lambda: self.sign_out(app))
+            step("app", stop or app.stop)
+        if self.cover is not None:
+            step("cover", self.stop_cover)
+        if self.display_slept:
+            step("display", lambda: wake_display(self.run))
+        if self.store is not None:
+            step("store", self.store.restore)
+        if self.scratch:
+            step("scratch", lambda: shutil.rmtree(self.scratch, ignore_errors=True))
+        return errors
+
+    def stop_cover(self):
+        stop_process(self.cover)
+        return f"benchhelper cover pid {self.cover.pid} still runs" if self.cover.poll() is None else None
+
+    def sign_out(self, app):
+        self.shape["sign_out"] = sign_out(app, SIGN_OUT_WAIT_S)
+        return self.shape["sign_out"]["error"]
+
+
 def bundle_build_config(app):
     """The bundle's build config as bench_launch reads it: `debug`, `bench-hooks` or `release`."""
     import bench_launch
@@ -3158,7 +4102,11 @@ def main(argv=None):
     parser.add_argument("--chrome-template-settle", type=float, default=45,
                         help="seconds the reference browser's template profile runs before its first clone")
     parser.add_argument("--chrome-helper-cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"),
-                        help="xbench's benchhelper cache")
+                        help="xbench's benchhelper cache (the chrome-static reference and occluded's cover window)")
+    parser.add_argument("--signed-in-credentials", default=None,
+                        help="signed-in's 0600 file with the agent test account (CMUX_UITEST_STACK_*; default the fleet "
+                        "secrets file ~/.secrets/cmuxterm-dev.env, which the app finds itself; another file is passed "
+                        "by path and must hold no CMUX_DOGFOOD_STACK_* pair); the bench passes no secret")
     opts, _unknown = parser.parse_known_args(argv)
     budget = load_budget(opts.budget)
     role_errors = role_budget_errors(budget)
@@ -3199,17 +4147,21 @@ def main(argv=None):
         if spec.get("chrome"):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
+        rig = SessionRig(session, build_config, opts.signed_in_credentials, opts.chrome_helper_cache)
         folder = os.path.join(out, session)
-        app = BenchApp(opts.app, out=folder, env=env, config=session_config(session))
+        app = agents = None
         pages = IdlePages() if spec.get("tabs") else None
         try:
             sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
-            entry = {"fresh_session": fresh_session(app)}
+            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env))
+            entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
             if consent:
                 print(f"IDLE-BUDGET-NO-HANG-CONSENT {session}: {consent}", flush=True)
-            app.launch()
+            rig.before_launch(app.app)
+            start_session(app, agents, spec, entry)
+            rig.after_launch(app)
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             shown_tab = None
@@ -3224,6 +4176,7 @@ def main(argv=None):
                 check_action_reply("showHideAllWindows", entry["hide"])
             if spec.get("minimize"):
                 entry["minimize"] = minimize(app)
+            rig.after_activate(app)
             settle = settle_seconds(session, opts.settle)
             entry["settle_s"] = settle
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
@@ -3235,16 +4188,28 @@ def main(argv=None):
             mismatch = draw_mismatch(entry)
             if mismatch:
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
-            window_before = window_state(app)
+            measured_app = app
+            if spec.get("quit"):
+                quit_state = app.quit_keep_sessions()
+                rig.shape["quit"] = quit_state
+                if not quit_state["quit"]:
+                    raise SessionShapeError(quit_state["error"])
+                time.sleep(QUIT_SETTLE_S)  # bench: the daemon's wind-down after its client left, before the window
+                instance, measured_app = QuitTree(app.teardown, app.process.pid), None
+            window_before = window_state(app) if measured_app else None
             problem = hidden_state_problem(spec, window_before) if spec.get("hidden_wake") else None
             if problem:
                 print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps({"start": window_before}), flush=True)
                 raise HiddenStateError(f"before the window: {problem}")
-            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
-                             attribute=spec.get("power", False), shown_tab=shown_tab, workdir=folder,
-                             ledger_limit=None if spec.get("hidden_wake") else 20)
-            result["window_state"] = {"start": window_before, "end": window_state(app)}
-            print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
+            result = measure(measured_app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
+                             attribute=spec.get("power", False) and measured_app is not None, shown_tab=shown_tab,
+                             workdir=folder, ledger_limit=None if spec.get("hidden_wake") else 20,
+                             hidden_hosts=tuple((entry.get("agents") or {}).get("hidden_hosts") or ()))
+            if measured_app:
+                result["window_state"] = {"start": window_before, "end": window_state(app)}
+                print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
+            entry["shape"] = rig.after_window()
+            print(f"IDLE-BUDGET-SHAPE {session} " + json.dumps(entry["shape"]), flush=True)
             problem = hidden_state_problem(spec, result["window_state"]["end"]) if spec.get("hidden_wake") else None
             if problem:
                 raise HiddenStateError(f"at the end of the window: {problem}")
@@ -3259,7 +4224,7 @@ def main(argv=None):
                 if problem:
                     raise HiddenStateError(f"after the wake trace: {problem}")
             texts = []
-            if opts.sample:
+            if opts.sample and measured_app:
                 os.makedirs(folder, exist_ok=True)
                 for index in range(opts.samples or (3 if spec.get("hidden_wake") else 1)):
                     text = run_sample(app.process.pid, opts.sample, os.path.join(folder, f"sample-app-{index + 1}.txt"))
@@ -3274,9 +4239,12 @@ def main(argv=None):
                 # unnamed owner over the floor.
                 taken = {app.process.pid: texts[0]} if texts else {}
                 name_power_owners(result["power"], opts.sample, folder, samples=taken)
-            result["windowserver"] = windowserver_with_reference(app, result["windowserver"], spec, reference_s, entry)
+            # After app-quit no app is left to hide for the reference: the window's own rate, no reference.
+            result["windowserver"] = windowserver_with_reference(app, result["windowserver"], spec,
+                                                                 reference_s if measured_app else 0, entry)
             print(f"IDLE-BUDGET-WINDOWSERVER {session} " + json.dumps(result["windowserver"]), flush=True)
             entry.update(summarize(session, result, budget))
+            unjudged_on_debug(session, entry, build_config)
             for reader in entry["readers_failed"]:
                 print(f"IDLE-BUDGET-READER-FAILED {session} {reader}: not measured", flush=True)
             if result.get("power"):
@@ -3299,7 +4267,7 @@ def main(argv=None):
             for row in result["processes"]:
                 if unclassified(row["kind"]):
                     print(f"IDLE-BUDGET-UNCLASSIFIED {session} pid {row['pid']} {row['kind']}: {row['command']}", flush=True)
-                if row["kind"] in ("app", "daemon", "holder", "acpmux") and row["ran"]:
+                if row["kind"] in ("app", "daemon", "holder", "acpmux", "agent-harness") and row["ran"]:
                     names = ", ".join(f"{t['name'] or t['tid']}={t['cpu_us']}us" for t in row["ran"])
                     print(f"IDLE-BUDGET-THREADS {session} {row['kind']} pid {row['pid']}: {names}", flush=True)
             if result.get("ledger"):
@@ -3348,9 +4316,16 @@ def main(argv=None):
             if isinstance(error, KeyboardInterrupt):
                 raise
         finally:
-            app.stop()
-            if pages is not None:
-                pages.close()
+            try:
+                # The app stops (stop_session: the gated agent turns end first) before the rig's fixtures go.
+                teardown_errors = rig.teardown(app, stop=lambda: stop_session(app, agents))
+                if teardown_errors:
+                    report["sessions"].setdefault(session, {})["teardown_errors"] = teardown_errors
+                for problem in teardown_errors:
+                    print(f"IDLE-BUDGET-TEARDOWN {session} {problem}", flush=True)
+            finally:
+                if pages is not None:
+                    pages.close()
     cross, cross_notes, chrome_refused = judge_across(report, budget, CHROME_SESSION in sessions)
     for note in cross_notes:
         print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
