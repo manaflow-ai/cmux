@@ -43,9 +43,9 @@ final class RemoteStateCard: NSView {
         surface.frame = bounds
     }
 
-    func configure(overlay: RemotePaneOverlay, host: String, colors: RemotePaneColors) {
+    func configure(overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, colors: RemotePaneColors) {
         for view in content { column.removeArrangedSubview(view); view.removeFromSuperview() }
-        let spec = Self.spec(for: overlay, host: host)
+        let spec = Self.spec(for: overlay, host: host, viaCloudTunnel: viaCloudTunnel)
         let icon: NSView = spec.spinner ? Self.spinner() : {
             let image = RemoteChrome.symbol(spec.symbol, size: 24)
             image.contentTintColor = spec.symbolIsAttention ? colors.attention : colors.textSecondary
@@ -107,7 +107,13 @@ final class RemoteStateCard: NSView {
         var note: String?
     }
 
-    static func spec(for overlay: RemotePaneOverlay, host: String) -> Spec {
+    /// `viaCloudTunnel`: a Cloud desktop over the app's own tunnel, which the phase-1 trust gap
+    /// (the development note) does not describe.
+    static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false) -> Spec {
+        if viaCloudTunnel, overlay == .connecting {
+            return Spec(spinner: true, title: RemoteViewStrings.connectingTitle(host),
+                        detail: RemoteViewStrings.connectingCloudDetail, buttons: [.cancel])
+        }
         switch overlay {
         case .connecting:
             return Spec(spinner: true, title: RemoteViewStrings.connectingTitle(host),

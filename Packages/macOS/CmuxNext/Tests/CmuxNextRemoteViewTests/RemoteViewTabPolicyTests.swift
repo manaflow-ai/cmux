@@ -1,5 +1,5 @@
 import Foundation
-import CmuxNextRemoteView
+@testable import CmuxNextRemoteView
 import Testing
 
 @Suite struct RemoteViewTabPolicyTests {
@@ -56,6 +56,17 @@ import Testing
         view.mode = .view
         #expect(policy.decide(record: record, source: .unconfirmed, paneAvailable: true) == .confirm(view))
         #expect(policy.decide(record: record, source: .remoteTree, paneAvailable: true) == .unavailable(.remoteRecord))
+    }
+
+    /// A Cloud desktop's connecting card names the machine and its Cloud tunnel; the phase-1
+    /// development note (loopback or a single-tenant overlay) is for the other paths only.
+    @Test @MainActor func aCloudDesktopsConnectingCardHasNoDevelopmentNote() {
+        let cloud = RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true)
+        #expect(cloud.note == nil)
+        #expect(cloud.title.contains("graceful-amber-owl"))
+        #expect(cloud.detail == RemoteViewStrings.connectingCloudDetail)
+        let other = RemoteStateCard.spec(for: .connecting, host: "local")
+        #expect(other.note == RemoteViewStrings.developmentOnly)
     }
 
     @Test func unconfirmedRecordsRequireConfirmationAndStartInViewMode() throws {

@@ -208,7 +208,8 @@ extension TabContentCache {
                     showAppPage(confirmedURL, in: tab)
                 },
                 cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
-                cloudRd: { [weak services] machine, control in services?.cloudDesktopRdTransport(machine: machine, control: control) })
+                cloudRd: { [weak services] machine, control in services?.cloudDesktopRdTransport(machine: machine, control: control) },
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
