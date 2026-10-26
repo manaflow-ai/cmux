@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 import Foundation
 
 /// Browser-process command-line switches for the embedded Chromium.
@@ -22,6 +23,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// The Chromium features cmux's own `process: chromium` features decide (``ChromiumFeatures``).
+    var chromiumFeatures = ChromiumFeatures()
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -95,8 +98,91 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        result.append(contentsOf: chromiumFeatures.switches)
         result.append(contentsOf: extraSwitches)
-        return result
+        return Self.disableWins(result)
+    }
+
+    static let enableFeaturesPrefix = "enable-features="
+    static let disableFeaturesPrefix = "disable-features="
+
+    /// `switches` with every `enable-features` entry whose feature a `disable-features` entry names
+    /// removed, and an `enable-features` switch left empty dropped. Chromium already lets the disable
+    /// list win ("Process disabled features first, so that disabled ones take precedence over enabled
+    /// ones", FeatureList::InitFromCommandLine, base/feature_list.cc); this keeps the switches cmux
+    /// passes saying the same, so a feature cmux turns off never shows on the enable list.
+    static func disableWins(_ switches: [String]) -> [String] {
+        var disabled: Set<Substring> = []
+        for entry in switches {
+            for feature in featureEntries(of: entry, prefix: disableFeaturesPrefix) ?? [] {
+                disabled.insert(featureName(of: feature))
+            }
+        }
+        guard !disabled.isEmpty else { return switches }
+        return switches.compactMap { entry in
+            guard let features = featureEntries(of: entry, prefix: enableFeaturesPrefix) else { return entry }
+            let kept = features.filter { !disabled.contains(featureName(of: $0)) }
+            if kept.count == features.count { return entry }
+            return kept.isEmpty ? nil : enableFeaturesPrefix + kept.joined(separator: ",")
+        }
+    }
+
+    /// The entries of a feature-list switch (`enable-features=A,B`), trimmed, empties dropped, or nil
+    /// when `entry` is another switch.
+    private static func featureEntries(of entry: String, prefix: String) -> [String]? {
+        guard entry.hasPrefix(prefix) else { return nil }
+        return entry.dropFirst(prefix.count)
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The feature an entry names: `*Name<Study.Group:param/value` is `Name` (the entry syntax
+    /// FeatureList::ParseEnableFeatures reads, base/feature_list.cc).
+    private static func featureName(of entry: String) -> Substring {
+        let name = entry.drop { $0 == "*" }
+        return name.prefix { $0 != "<" && $0 != ":" }
+    }
+
+    /// The Chromium `base::Feature` states that cmux features of process `chromium` decide
+    /// (`chromium_feature` in schemas/features/features.d; p12-perf-process.md section 3.9). Every
+    /// such feature passes its resolved state, so the registry, the environment lists, the remote
+    /// document and a policy can turn a Chromium feature on or off. A Chromium feature that two cmux
+    /// features map to is off when either resolves off.
+    nonisolated struct ChromiumFeatures: Equatable, Sendable {
+        /// Chromium features to turn on, in registry order.
+        var enabled: [String] = []
+        /// Chromium features to turn off, in registry order.
+        var disabled: [String] = []
+
+        init(enabled: [String] = [], disabled: [String] = []) {
+            self.enabled = enabled
+            self.disabled = disabled
+        }
+
+        /// The states `list` resolved for its `process: chromium` features.
+        init(_ list: FeatureList) {
+            var on: [String] = []
+            var off: [String] = []
+            for (feature, resolution) in list.entries where feature.process == .chromium {
+                guard let name = feature.chromiumFeature, !name.isEmpty else { continue }
+                if resolution.isEnabled {
+                    if !on.contains(name) { on.append(name) }
+                } else if !off.contains(name) {
+                    off.append(name)
+                }
+            }
+            self.init(enabled: on.filter { !off.contains($0) }, disabled: off)
+        }
+
+        /// One `enable-features` and one `disable-features` switch; the shim merges both into the
+        /// lists CEF already put on the command line (CEFShim/src/command_line_switches.h).
+        var switches: [String] {
+            var result: [String] = []
+            if !enabled.isEmpty { result.append(CEFSwitches.enableFeaturesPrefix + enabled.joined(separator: ",")) }
+            if !disabled.isEmpty { result.append(CEFSwitches.disableFeaturesPrefix + disabled.joined(separator: ",")) }
+            return result
+        }
     }
 
     /// Chrome's own promotions, tips and first-run prompts are for Google
@@ -156,7 +242,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        chromiumFeatures: ChromiumFeatures = ChromiumFeatures()
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -176,7 +263,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            chromiumFeatures: chromiumFeatures
         )
     }
 
