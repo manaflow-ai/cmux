@@ -116,13 +116,14 @@ export type PublicationInvalidReason =
   | "team_required"
   | "team_not_allowed"
   | "generated_hostname_reserved"
-  | "verification_not_required";
+  | "verification_not_required"
+  | "invalid_api_key_name";
 
 export class PublicationInputError extends Data.TaggedError(
   "PublicationInputError",
 )<{
   readonly reason: PublicationInvalidReason;
-  readonly field: "hostname" | "port" | "accessMode" | "teamId" | "email" | "expiresAt";
+  readonly field: "hostname" | "port" | "accessMode" | "teamId" | "email" | "expiresAt" | "name";
 }> {}
 
 export class PublicationConfigurationError extends Data.TaggedError(
@@ -1195,6 +1196,23 @@ function withVmPublicationOperationLease<A, E, R>(
         now: input.now,
       }).pipe(Effect.ignore),
     ));
+  });
+}
+
+/**
+ * Make sure the account-wide forward-auth config is current, including its
+ * protected cookies, before a credential that relies on them is minted.
+ */
+export function ensurePublicationForwardAuth(input: {
+  readonly forwardAuth?: PublicationForwardAuthConfig;
+  readonly now: Date;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    const provider = yield* VmPublicationProvider;
+    return yield* ensureSharedForwardAuth({
+      repository, provider, providerId: "freestyle", config: input.forwardAuth, now: input.now,
+    });
   });
 }
 
