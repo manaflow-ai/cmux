@@ -365,7 +365,7 @@ fn transcript_turns(
 async fn blocking(
     f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
 ) -> Result<Value, RpcError> {
-    tokio::task::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
+    crate::daemon::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// Sends every index change to `conn` until it closes or turns watching off.

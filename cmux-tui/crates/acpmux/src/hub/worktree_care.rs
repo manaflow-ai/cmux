@@ -140,7 +140,7 @@ impl Hub {
         if CARE.running.load(Ordering::SeqCst) {
             return;
         }
-        let due = tokio::task::spawn_blocking(move || {
+        let due = crate::daemon::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
                 return false;
             }

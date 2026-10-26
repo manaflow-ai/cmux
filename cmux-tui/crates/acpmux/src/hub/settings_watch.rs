@@ -16,6 +16,7 @@
 //! was (another key, the same value) tells nobody.
 
 use super::*;
+use crate::daemon::hang_watch::{BLOCKING_ITEM, SyncThread};
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
@@ -86,7 +87,7 @@ impl Hub {
                     hub.subsession_runs.wake();
                 }
                 let Ok(now) =
-                    tokio::task::spawn_blocking(super::start_mode::setting_snapshot).await
+                    crate::daemon::spawn_blocking(super::start_mode::setting_snapshot).await
                 else {
                     break;
                 };
@@ -103,7 +104,7 @@ impl Hub {
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
-            .name("acpmux-settings-watch".into())
+            .name(THREAD.into())
             .spawn(move || run(&rx, &watch, &files, &signal));
         if let Err(e) = thread {
             tracing::warn!("settings watch thread cannot start: {e}");
@@ -159,8 +160,12 @@ fn real(path: &Path) -> PathBuf {
     }
 }
 
+/// The watch thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-settings-watch";
+
 /// Ends when the watcher is dropped (the channel closes), or when the task
-/// is gone (the runtime stopped or the hub dropped).
+/// is gone (the runtime stopped or the hub dropped). Each burst's refresh,
+/// not its wait, is one hang-watch item.
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<SettingsWatcher>,
@@ -179,6 +184,7 @@ fn run(
         Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => false,
         Ok(event) => event.need_rescan() || event.paths.iter().any(|p| relevant(p)),
     };
+    let watched = SyncThread::register(THREAD, BLOCKING_ITEM);
     while let Ok(first) = rx.recv() {
         let started = Instant::now();
         let mut changed = matters(first);
@@ -198,6 +204,7 @@ fn run(
             }
         }
         if changed {
+            let _item = watched.item();
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(files);
             drop(watch);

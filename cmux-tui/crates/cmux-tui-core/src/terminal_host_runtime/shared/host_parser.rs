@@ -14,7 +14,7 @@ use ghostty_vt::Callbacks;
 
 use super::super::*;
 use super::clipboard_read::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 /// State the parser shares with the terminal's callbacks.
@@ -160,7 +160,10 @@ pub(crate) fn run_host_parser(
             let _ = writer.flush();
         }
     };
+    let hang_watch = HostLoop::Parser.register();
     while let Ok(command) = waits::recv(&parser_command_receiver) {
+        // One hang-watch scope per command, after its wait.
+        let _item = HostLoop::Parser.watch(&hang_watch);
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

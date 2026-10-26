@@ -98,10 +98,11 @@ impl Hub {
         let home = route.file.account_home.clone().map(PathBuf::from);
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
-        let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| route_error(&e))?;
+        let route_env =
+            crate::daemon::spawn_blocking(move || routes::env_for(&route, &fam, &state))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
@@ -132,7 +133,7 @@ impl Hub {
             let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
-            tokio::task::spawn_blocking(move || routes::env_for(&found, &family, &state2))
+            crate::daemon::spawn_blocking(move || routes::env_for(&found, &family, &state2))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
                 .map_err(|e| route_error(&e))?;

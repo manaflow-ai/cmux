@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub mod hang_watch;
+pub use hang_watch::spawn_blocking;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -133,6 +135,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the hub's threads start, so each one registers; hangs go beside the panic log.
+    hang_watch::init(&home());
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
     poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -543,7 +547,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     };
     // After the agents: their model streams go through the router.
-    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
+    let _ = hang_watch::spawn_blocking(move || release_router(kept == 0)).await;
     let _ = std::fs::remove_file(home().join("daemon.pid"));
     for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);

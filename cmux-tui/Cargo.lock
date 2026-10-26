@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -1216,6 +1217,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
@@ -1808,6 +1810,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",

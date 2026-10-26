@@ -265,6 +265,11 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     // holder-lifetime directory beside its socket, in the daemon's private
     // socket directory. The file opens on a one-shot thread, never the loop.
     drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
+    // The hang watch, before the loop registers: a hang appends a line to
+    // `hangs-<pid>.jsonl` in the same directory, from the watch's own thread.
+    if let Err(error) = cmux_hang_watch::init(socket.with_extension("trace")) {
+        eprintln!("cmux-holder: the loop is not hang-watched: {error}");
+    }
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);

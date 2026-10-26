@@ -36,7 +36,7 @@ impl Hub {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
             // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
-            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
+            let plan = crate::daemon::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
             // An edit to a startup file reads the shell again (D26).
@@ -99,7 +99,7 @@ impl Hub {
     async fn verify_launchers(&self) {
         let mut probe = self.config.read().await.clone();
         let before = probe.harnesses.clone();
-        let Ok(probe) = tokio::task::spawn_blocking(move || {
+        let Ok(probe) = crate::daemon::spawn_blocking(move || {
             crate::config::verify_launchers(&mut probe);
             probe
         })

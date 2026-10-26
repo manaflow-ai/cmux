@@ -178,7 +178,7 @@ impl Hub {
             .map_err(|_| timed_out())?
             .map_err(|e| failed(e.to_string()))?;
         // One fixed empty cwd; this run's files in its own folder (`places.rs`).
-        let places = tokio::task::spawn_blocking(|| {
+        let places = crate::daemon::spawn_blocking(|| {
             let places = Places::for_daemon();
             places.ensure().map(|()| places)
         })

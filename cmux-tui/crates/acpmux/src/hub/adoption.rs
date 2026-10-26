@@ -38,7 +38,7 @@ impl Hub {
         let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (found, _) = tokio::task::spawn_blocking(move || {
+        let (found, _) = crate::daemon::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &family, &id);
             crate::adopt::find_any(&family, &id, &homes, &others)
         })
@@ -100,7 +100,7 @@ impl Hub {
         // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
         let check = a.if_live == IfLive::Refuse && !a.watch;
         let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
-        let ((found, store), live) = tokio::task::spawn_blocking(move || {
+        let ((found, store), live) = crate::daemon::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
             // The holder the harness records in the store that holds the chat; one that has
@@ -435,7 +435,7 @@ impl Hub {
         }
         let fam = family.to_owned();
         let Ok(turns) =
-            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
+            crate::daemon::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
         else {
             return;
         };

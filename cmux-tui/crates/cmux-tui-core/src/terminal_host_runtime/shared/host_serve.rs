@@ -17,7 +17,7 @@ use super::super::sys::{self, HostStream};
 use super::super::*;
 use super::clipboard_read::*;
 use super::codec::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 mod stdio;
@@ -450,8 +450,11 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     let command_stream = stream.try_clone()?;
     let command_host = host.clone();
     let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
+        let hang_watch = HostLoop::ClientInput.register();
         let mut detached = false;
         while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
+            // One hang-watch scope per frame, after its read.
+            let _item = HostLoop::ClientInput.watch(&hang_watch);
             // Client-to-host messages define one flag (a negotiated
             // FLAG_INPUT_FLOW on interactive Input) and never participate
             // in the host live-stream sequence.
@@ -549,6 +552,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         && let Ok(delay) = delay.parse::<u64>()
                         && delay > 0
                     {
+                        // The injected late receipt is a wait, not a hang.
+                        hang_watch.invalidate_active();
                         thread::sleep(Duration::from_millis(delay.min(5_000)));
                     }
                     if launch_owner_claimed {
@@ -720,7 +725,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         }
         command_host.remove_client(client);
     };
-    let client_input = "terminal-host-client-input";
+    let client_input = HostLoop::ClientInput.thread_name();
     crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 

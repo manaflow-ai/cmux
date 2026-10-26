@@ -181,7 +181,7 @@ pub(super) async fn handle(
                 }
                 None => None,
             };
-            let added = tokio::task::spawn_blocking(move || {
+            let added = crate::daemon::spawn_blocking(move || {
                 admin::add(&p, &sources, registry.as_ref(), &crate::config::which)
             })
             .await
@@ -195,7 +195,7 @@ pub(super) async fn handle(
                 text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
             let cfg = hub.config.read().await.clone();
             let removed =
-                tokio::task::spawn_blocking(move || admin::remove(&id, &cfg, &sources, &home))
+                crate::daemon::spawn_blocking(move || admin::remove(&id, &cfg, &sources, &home))
                     .await
                     .map_err(joined)?
                     .map_err(rpc_error)?;
@@ -207,7 +207,7 @@ pub(super) async fn handle(
                 .ok_or_else(|| RpcError::invalid_params("backup is required"))?
                 .to_owned();
             let restored =
-                tokio::task::spawn_blocking(move || admin::restore(&backup, &sources, &home))
+                crate::daemon::spawn_blocking(move || admin::restore(&backup, &sources, &home))
                     .await
                     .map_err(joined)?
                     .map_err(rpc_error)?;

@@ -915,7 +915,7 @@ pub(super) async fn end_host_blocking(
     nonce: Option<String>,
     host_pid: Option<u32>,
 ) -> bool {
-    tokio::task::spawn_blocking(move || {
+    crate::daemon::spawn_blocking(move || {
         agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)
             .unwrap_or(false)
     })

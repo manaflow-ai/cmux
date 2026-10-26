@@ -459,10 +459,11 @@ impl Hub {
         };
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
-        let measured: HashMap<u32, u64> =
-            tokio::task::spawn_blocking(move || pids.into_iter().map(|p| (p, probe(p))).collect())
-                .await
-                .unwrap_or_default();
+        let measured: HashMap<u32, u64> = crate::daemon::spawn_blocking(move || {
+            pids.into_iter().map(|p| (p, probe(p))).collect()
+        })
+        .await
+        .unwrap_or_default();
         let evicted = {
             let mut pool = lock(&self.pool.pool);
             for p in pool.ready_mut() {

@@ -13,6 +13,12 @@
 //! frame (an echo) goes ahead of queued bulk output. No timers: `poll`
 //! waits forever unless a CLOSE grace, a handshake deadline or the idle
 //! exit is pending.
+//!
+//! The loop thread is hang-watched (p09-observability section 3E): it
+//! registers as [`POLL_THREAD`] and each turn's work, never its `poll` wait,
+//! runs in one scope with the [`TURN_DEADLINE`] (Chrome's `WatchHangsInScope`
+//! around a task, not around the message pump's wait,
+//! base/threading/hang_watcher.h).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
@@ -21,6 +27,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
+
+use cmux_hang_watch::ThreadKind;
 
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
@@ -58,6 +66,13 @@ const READ_PER_TURN: usize = 256 * 1024;
 const HANDSHAKE: Duration = Duration::from_secs(5);
 /// Connections waiting to authenticate at once; the oldest goes first.
 const MAX_PENDING: usize = 8;
+/// The loop thread's name in a hang record.
+pub const POLL_THREAD: &str = "cmux-holder-poll";
+/// How long one turn's work may take before the hang watch reports the
+/// loop: its reads and writes are nonblocking and bounded per turn, so only
+/// a stuck system call or a runaway loop runs this long. The 2 s of a write
+/// lane (p09-observability task 069).
+pub const TURN_DEADLINE: Duration = Duration::from_secs(2);
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -271,6 +286,8 @@ pub struct Holder {
     trace: Box<dyn TraceControl>,
     /// The current link started the recording: it stops when the link ends.
     link_recording: bool,
+    /// The hang-watch deadline of one turn's work ([`TURN_DEADLINE`]).
+    turn_deadline: Duration,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -365,6 +382,7 @@ impl Holder {
             sigchld,
             trace: Box::new(ProcessTrace::new(wake_loop)),
             link_recording: false,
+            turn_deadline: TURN_DEADLINE,
         })
     }
 
@@ -386,9 +404,17 @@ impl Holder {
         self.orphan_grace = grace;
     }
 
+    /// Report a turn whose work takes longer than `deadline` (default
+    /// [`TURN_DEADLINE`]) as a hang of the loop thread.
+    pub fn set_turn_deadline(&mut self, deadline: Duration) {
+        self.turn_deadline = deadline;
+    }
+
     /// Serve until launchd ends the holder or it has been idle for its idle
-    /// exit, then remove the socket file.
+    /// exit, then remove the socket file. The calling thread is the loop:
+    /// it is registered with the process's hang watch while it serves.
     pub fn run(&mut self) -> io::Result<()> {
+        let _hang_watch = cmux_hang_watch::register_thread(ThreadKind::Io, POLL_THREAD);
         loop {
             self.turn()?;
             let idle_over = self.idle_since.is_some_and(|since| since.elapsed() >= self.idle_exit);
@@ -455,6 +481,8 @@ impl Holder {
         // The turn's work, not its wait (Chrome's `ThreadController` active slice): recording
         // only (`task`), so an idle holder writes nothing.
         let _turn = cmux_trace::trace_scope!(task, "task.holder_poll", ready, fds.len());
+        // The same turn, watched: the wait above stays outside.
+        let _watched = cmux_hang_watch::watch(self.turn_deadline);
         if fds[1].revents != 0 {
             self.reap();
             self.poll_trace();

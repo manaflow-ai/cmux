@@ -2,6 +2,8 @@
 //! accept loop and every client thread (cx-ko2e table B). The OS edges sit
 //! behind `sys` seams: the accept waker, the PTY drain waker stream, the
 //! adopted session id, and process-group signals (`GroupSignal`).
+//!
+//! The PTY, parser and client-input loops are hang-watched ([`HostLoop`]).
 
 use crate::panic_free::RecoverPoison;
 use cmux_threads::checked::sync as waits;
@@ -24,6 +26,8 @@ use super::codec::*;
 use super::host_state::*;
 use super::records::*;
 
+#[cfg(test)]
+mod hang_watch_tests;
 mod lifecycle;
 mod resize;
 
@@ -112,6 +116,70 @@ pub(crate) enum InputWrite {
     Dropped = 1,
     /// The write failed.
     Failed = 2,
+}
+
+/// The host's hang-watched loop threads (p09-observability section 3E). Each registers once with
+/// the process's hang watch ([`HostLoop::register`]) and runs every item, after its wait, in one
+/// scope ([`HostLoop::watch`]): Chrome's `WatchHangsInScope` covers a task, never the wait for
+/// the next one (base/threading/hang_watcher.h).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HostLoop {
+    /// `terminal-host-pty`: one PTY read and its publication to the clients and the parser.
+    Pty,
+    /// `terminal-host-parser`: one parser command.
+    Parser,
+    /// `terminal-host-client-input`: one client frame, its PTY write included.
+    ClientInput,
+}
+
+impl HostLoop {
+    /// The thread's name, also its name in a hang record.
+    pub(crate) const fn thread_name(self) -> &'static str {
+        match self {
+            HostLoop::Pty => "terminal-host-pty",
+            HostLoop::Parser => "terminal-host-parser",
+            HostLoop::ClientInput => "terminal-host-client-input",
+        }
+    }
+
+    /// How long one item may run: 1 s for a parser command, 2 s for an item that writes (a
+    /// publication that waits for parser room, a PTY write), as the app's terminal lanes
+    /// (p09-observability task 069).
+    pub(crate) const fn deadline(self) -> Duration {
+        match self {
+            HostLoop::Parser => Duration::from_secs(1),
+            HostLoop::Pty | HostLoop::ClientInput => Duration::from_secs(2),
+        }
+    }
+
+    const fn kind(self) -> cmux_hang_watch::ThreadKind {
+        match self {
+            HostLoop::Parser => cmux_hang_watch::ThreadKind::Lane,
+            HostLoop::Pty | HostLoop::ClientInput => cmux_hang_watch::ThreadKind::Io,
+        }
+    }
+
+    /// Registers the calling thread as this loop; the slot is freed when the guard drops.
+    pub(crate) fn register(self) -> cmux_hang_watch::Guard<'static> {
+        cmux_hang_watch::register_thread(self.kind(), self.thread_name())
+    }
+
+    /// One item's scope on the loop's registration `guard`.
+    pub(crate) fn watch<'a>(
+        self,
+        guard: &cmux_hang_watch::Guard<'a>,
+    ) -> cmux_hang_watch::Scope<'a> {
+        guard.watch(self.deadline())
+    }
+}
+
+/// Starts the host process's hang watch, before its loops start: a hang appends a line to
+/// `hangs-<pid>.jsonl` in the host's trace folder, beside its discovery record at `record_path`.
+pub(crate) fn start_process_hang_watch(record_path: &Path) {
+    let dir = super::host_trace::host_trace_dir(record_path);
+    if let Err(error) = cmux_hang_watch::init(dir) {
+        eprintln!("terminal-host: the loops are not hang-watched: {error}");
+    }
 }
 
 impl InputWrite {

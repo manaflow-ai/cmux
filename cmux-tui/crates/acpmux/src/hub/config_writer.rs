@@ -10,6 +10,7 @@
 //! one write and the file never goes back to an older state. `flush` waits for what is queued:
 //! before the daemon reads `config.json` back (`reload_catalog`) and at shutdown.
 
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
@@ -28,6 +29,9 @@ struct Shared {
     written: Condvar,
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-config-writer";
+
 pub(crate) struct ConfigWriter {
     shared: Arc<Shared>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -38,7 +42,7 @@ impl Default for ConfigWriter {
         let shared = Arc::new(Shared::default());
         let worker = shared.clone();
         let thread = std::thread::Builder::new()
-            .name("acpmux-config-writer".into())
+            .name(THREAD.into())
             .spawn(move || run(&worker))
             .map_err(|e| {
                 tracing::error!("the config writer did not start; files are written in place: {e}")
@@ -89,6 +93,7 @@ impl Drop for ConfigWriter {
 }
 
 fn run(shared: &Shared) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         if state.queued.is_empty() {
@@ -102,6 +107,7 @@ fn run(shared: &Shared) {
         state.writing = true;
         drop(state);
         for (path, bytes) in batch {
+            let _item = watched.item();
             write(&path, &bytes);
         }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());

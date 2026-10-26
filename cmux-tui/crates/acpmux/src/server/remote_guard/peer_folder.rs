@@ -43,7 +43,7 @@ pub(super) async fn make_inside_root(
     if !make {
         return Ok(None);
     }
-    let made = tokio::task::spawn_blocking(move || make_below(&found, &rest)).await;
+    let made = crate::daemon::spawn_blocking(move || make_below(&found, &rest)).await;
     if !matches!(made, Ok(Ok(()))) {
         return Err(Some(folder_refused("cwd")));
     }

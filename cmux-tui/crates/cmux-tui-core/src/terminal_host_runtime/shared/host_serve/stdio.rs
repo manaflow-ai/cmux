@@ -29,13 +29,31 @@ pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     // Key-press flow marks start here, before any PTY or client work (`CMUX_TRACE_FLOWS`).
     cmux_flow_trace::init();
     let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
-    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    serve_host(args, &mut reader, &mut writer, HangWatch::Process)
 }
 
+/// [`serve_terminal_host_process`] on given bootstrap streams, inside a process that is not only
+/// this host (a test): the process's hang watch is not started.
 pub fn serve_terminal_host_stdio(
     args: &[String],
     reader: &mut impl Read,
     writer: &mut impl Write,
+) -> anyhow::Result<()> {
+    serve_host(args, reader, writer, HangWatch::Embedded)
+}
+
+/// Whether the host owns its process, and so starts the process's hang watch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HangWatch {
+    Process,
+    Embedded,
+}
+
+fn serve_host(
+    args: &[String],
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    hang_watch: HangWatch,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
@@ -46,6 +64,10 @@ pub fn serve_terminal_host_stdio(
         return Ok(());
     };
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
+    // Before the loops start, so each one registers with it.
+    if hang_watch == HangWatch::Process {
+        super::super::host_shared::start_process_hang_watch(Path::new(&launch.record_path));
+    }
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {

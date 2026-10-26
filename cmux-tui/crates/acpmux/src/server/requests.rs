@@ -1129,7 +1129,7 @@ async fn dispatch_request(
             let value = str_param(&params, "path").unwrap_or("");
             let path = crate::tui::directory::resolve(&base, value, &home, None)
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-            let result = tokio::task::spawn_blocking(move || -> Result<Value, std::io::Error> {
+            let result = crate::daemon::spawn_blocking(move || -> Result<Value, std::io::Error> {
                 let path = std::fs::canonicalize(path)?;
                 if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
                 let children = crate::tui::directory::children(&path);

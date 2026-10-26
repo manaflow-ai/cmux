@@ -175,7 +175,7 @@ impl Hub {
                 }
                 let file = watching.file.clone();
                 let read =
-                    tokio::task::spawn_blocking(move || read_lines(&file, watching.offset)).await;
+                    crate::daemon::spawn_blocking(move || read_lines(&file, watching.offset)).await;
                 let (lines, offset) = match read {
                     Ok(Ok(read)) => read,
                     // Gone or unreadable for now (the app rotates or rewrites it): try again.
@@ -318,7 +318,7 @@ impl Hub {
             });
             let (fam, sid) = (family.clone(), id.clone());
             let live =
-                tokio::task::spawn_blocking(move || crate::adopt_live::holder(&fam, &sid, &root))
+                crate::daemon::spawn_blocking(move || crate::adopt_live::holder(&fam, &sid, &root))
                     .await
                     .map_err(|e| RpcError::internal(e.to_string()))?;
             if let Some(live) = live {

@@ -919,7 +919,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     let dir = peer_scratch_root()?.join(name);
     let made = {
         let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
+        crate::daemon::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true);
             #[cfg(unix)]

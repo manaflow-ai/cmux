@@ -52,7 +52,8 @@ impl Hub {
             {
                 return Err(folder_missing(&meta));
             }
-            let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
+            let read =
+                crate::daemon::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
             if let Ok(Ok(Some(found))) = tokio::time::timeout(Duration::from_secs(2), read).await {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = found;
                 self.save_meta(session);
@@ -95,7 +96,7 @@ impl Hub {
     async fn recorded_worktree_is_here(&self, cwd: &Path, origin: &WorktreeOrigin) -> bool {
         let expected = origin.clone();
         let cwd = cwd.to_owned();
-        tokio::task::spawn_blocking(move || {
+        crate::daemon::spawn_blocking(move || {
             matches!(
                 origin_of(&cwd, &GitState::read(&cwd)),
                 Some(Some(found))
