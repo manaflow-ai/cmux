@@ -39,7 +39,9 @@ extension MainDeadline: ParkedWorkspaceDeadline {}
 ///   (a `sidebar.multiView` companion on screen, the workspace under a top page) still counts.
 /// - **Idle timeout.** A parked workspace hidden ``idleTimeout`` goes even within the budget, as
 ///   Chrome's proactive discard takes tabs hidden past their time
-///   (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc).
+///   (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc). The Memory Saver mode
+///   (`memory.saver`) scales it as Chrome's memory_saver_mode_policy.cc scales its tab timers
+///   (``MemorySaverMode/proactiveTimeout(_:)``); off, only the budget and pressure tear down.
 /// - **Pressure.** A ``MemoryConsumer`` of the app's coordinator: a lower limit is released by
 ///   ``releaseMemory(within:)``, one teardown per slice (p07-memory-096), workspaces of windows off
 ///   screen first, as Chrome's urgent page discarding takes hidden tabs before visible ones
@@ -61,8 +63,11 @@ package final class ParkedWorkspaceBudget {
     /// Parked workspaces across all windows at normal pressure (`SubsystemBudget.parkedWorkspaces`);
     /// `Int.max` with no budget.
     package let capacity: Int
-    /// How long a parked workspace may stay hidden; nil: only the budget and pressure tear down.
-    package let idleTimeout: Duration?
+    /// How long a parked workspace may stay hidden in the current Memory Saver mode; nil: only the
+    /// budget and pressure tear down.
+    package var idleTimeout: Duration? { mediumIdleTimeout.flatMap { saverMode.proactiveTimeout($0) } }
+    /// The `memory.saver` mode the idle timeout follows (the coordinator hands it over).
+    package private(set) var saverMode: MemorySaverMode = .medium
     /// The coordinator's limit; ``capacity`` scaled by it is the budget now.
     package private(set) var limit: MemoryLimit = .default
     /// Workspaces torn down so far (tests, diagnostics).
@@ -84,6 +89,8 @@ package final class ParkedWorkspaceBudget {
         var kept: Bool
     }
 
+    /// The idle timeout in the default mode, medium.
+    private let mediumIdleTimeout: Duration?
     private var entries: [Key: Entry] = [:]
     private var serial: UInt64 = 0
     private let deadline: any ParkedWorkspaceDeadline
@@ -93,14 +100,14 @@ package final class ParkedWorkspaceBudget {
     /// - Parameters:
     ///   - capacity: Parked workspaces across all windows at normal pressure; nil for no budget (only
     ///     critical pressure tears down).
-    ///   - idleTimeout: How long one may stay hidden; nil for no timeout.
+    ///   - idleTimeout: How long one may stay hidden in Memory Saver's medium mode; nil for no timeout.
     ///   - deadline: The one deadline of the next look.
     ///   - memory: The app's memory coordinator; nil keeps the limit at 100 %.
     ///   - now: The clock of hidden times (tests set it).
     package init(capacity: Int?, idleTimeout: Duration?, deadline: any ParkedWorkspaceDeadline,
                  memory: (any MemoryConsumerRegistry)? = nil, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.capacity = capacity.map { max($0, 0) } ?? .max
-        self.idleTimeout = idleTimeout
+        mediumIdleTimeout = idleTimeout
         self.deadline = deadline
         self.now = now
         memoryRegistration = memory.map {
@@ -230,4 +237,15 @@ extension ParkedWorkspaceBudget: MemoryConsumer {
 
     /// Unknown: a workspace's views are not sampled on their own.
     package var memoryUsage: MemoryUsage? { nil }
+}
+
+// The Memory Saver mode scales the idle timeout: a change looks again after this turn, which arms the
+// deadline for the new timeout or drops it (off, within the budget).
+extension ParkedWorkspaceBudget: MemorySaverModeConsumer {
+    package func memorySaverModeDidChange(_ mode: MemorySaverMode) {
+        guard mode != saverMode else { return }
+        saverMode = mode
+        guard !entries.isEmpty else { return }
+        deadline.schedule(after: .zero) { [weak self] in self?.plan() }
+    }
 }
