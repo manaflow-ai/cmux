@@ -316,6 +316,15 @@ impl Saved {
         }))
     }
 
+    /// [`Self::settle`] for an answer that is the prompt's acceptance (a family message,
+    /// `subsession_send.rs`).
+    pub async fn settle_acceptance(self, answer: &Result<Value, RpcError>) {
+        if answer.as_ref().is_ok_and(|v| v.get("duplicate") != Some(&Value::Bool(true))) {
+            self.accepted.store(true, Ordering::SeqCst);
+        }
+        self.settle(answer).await;
+    }
+
     /// Deletes the files nothing will read: the prompt was a resend the ledger answered with its
     /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
     /// it was refused before it reached the session, or it was queued and then left the queue
@@ -363,6 +372,20 @@ fn file_uri(path: &Path) -> String {
     reqwest::Url::from_file_path(path)
         .map(String::from)
         .unwrap_or_else(|()| format!("file://{}", path.display()))
+}
+
+/// Drops the bytes of `request`'s attachments (`session/prompt` params): a delivery the outbox
+/// settled keeps its record for a day (`hub/outbox.rs`).
+pub fn strip(request: &mut Value) {
+    let Some(blocks) = request.get_mut("prompt").and_then(Value::as_array_mut) else { return };
+    for b in blocks.iter_mut().filter(|b| mark(b).is_some()) {
+        if let Some(o) = b.as_object_mut() {
+            o.remove("data");
+        }
+        if let Some(o) = b.get_mut("resource").and_then(Value::as_object_mut) {
+            o.remove("blob");
+        }
+    }
 }
 
 #[cfg(test)]

@@ -51,20 +51,19 @@ impl Hub {
         // one is checked again when it runs (`turns.rs`).
         self.receiver_check(caller, target).await?;
         let mut blocks = vec![json!({"type": "text", "text": text})];
-        if !attachments.is_empty() {
-            // Saved in the receiver's uploads, as a message's files are (`attach.rs`).
-            blocks.extend(attachments);
-            let (id, key) = (target.id.clone(), prompt_id.clone());
-            blocks = tokio::task::spawn_blocking(move || {
-                crate::attach::receive(&id, key.as_deref(), false, &mut blocks).map(|()| blocks)
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))??;
+        blocks.extend(attachments);
+        // Saved in the receiver's uploads, as a message's files are (`attach.rs`).
+        let id = target.id.clone();
+        let received = tokio::task::spawn_blocking(move || {
+            crate::attach::receive(&id, false, &mut blocks).map(|saved| (blocks, saved))
+        });
+        let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+        let accepted =
+            self.send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None).await;
+        if let Some(saved) = saved {
+            saved.settle_acceptance(&accepted).await;
         }
-        let accepted = self
-            .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None)
-            .await?;
-        Ok(sent_reply(target, &accepted))
+        Ok(sent_reply(target, &accepted?))
     }
 }
 

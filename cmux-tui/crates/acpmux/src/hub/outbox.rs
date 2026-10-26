@@ -114,7 +114,29 @@ impl Outbox {
         *self.path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_owned());
         let mut deliveries = self.deliveries.lock().unwrap_or_else(|e| e.into_inner());
         deliveries.extend(saved);
+        // Attachments come back from beside the file; ones no waiting delivery names go.
+        let dir = attachments_dir(path);
+        let mut named = std::collections::HashSet::new();
+        for d in deliveries.values_mut().filter(|d| !d.settled()) {
+            let kept = dir.join(format!("{}.json", d.id));
+            if let Some(request) = std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+                d.request = request;
+                named.insert(kept);
+            }
+        }
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if !named.contains(&entry.path()) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
         deliveries.values().filter(|d| !d.settled()).cloned().collect()
+    }
+
+    /// Where delivery `d`'s attachments are kept, when it has any and the outbox is on disk.
+    pub fn attachments_path(&self, d: &Delivery) -> Option<PathBuf> {
+        let blocks = d.request.get("prompt").and_then(Value::as_array)?;
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
     /// Records a new delivery; the same prompt id again answers with the first one.
@@ -154,13 +176,36 @@ impl Outbox {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return;
         };
-        let written = serde_json::to_vec_pretty(&*deliveries)
+        // Attachment bytes are kept once beside the file (`keep_attachments`), not rewritten here.
+        let saved: BTreeMap<&String, std::borrow::Cow<Delivery>> = deliveries
+            .iter()
+            .map(|(id, d)| {
+                let blocks = d.request.get("prompt").and_then(Value::as_array);
+                if !blocks.is_some_and(|b| crate::attach::any(b)) {
+                    return (id, std::borrow::Cow::Borrowed(d));
+                }
+                let mut d = d.clone();
+                crate::attach::strip(&mut d.request);
+                (id, std::borrow::Cow::Owned(d))
+            })
+            .collect();
+        let written = serde_json::to_vec_pretty(&saved)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| crate::config::write_atomic(&path, &bytes));
         if let Err(e) = written {
             tracing::warn!("outbox: could not save {}: {e:#}", path.display());
         }
     }
+}
+
+/// The folder beside `outbox.json` (at `path`) that keeps waiting deliveries' attachments.
+fn attachments_dir(path: &Path) -> PathBuf {
+    path.with_file_name("outbox-attachments")
+}
+
+/// Keeps `request` (with its attachment bytes) at `path`, owner-only. Blocking.
+pub fn keep_attachments(path: &Path, request: &Value) -> anyhow::Result<()> {
+    crate::agent_tools::write_private(path, &serde_json::to_vec(request)?)
 }
 
 type AcceptHook = Box<dyn FnOnce(Value) + Send>;
@@ -215,4 +260,39 @@ impl PeerAccepts {
 pub fn local_only() -> RpcError {
     RpcError::invalid_params("only the unix socket queues a message for delivery")
         .with_data(json!({"reason": "outbox.local_only"}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A waiting delivery's attachments are kept once beside `outbox.json`, which never holds
+    /// their bytes; a restart reads them back, and ones nothing names go.
+    #[test]
+    fn attachments_are_kept_beside_the_file_and_come_back_after_a_restart() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let block = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+        let data = block["data"].as_str().unwrap().to_owned();
+        let request = json!({"sessionId": "lane", "prompt": [block],
+                             "_meta": {"acpmux": {"promptId": "p1"}}});
+        let d = Delivery { id: "d1".into(), target: "lane".into(), request, caller: None,
+            state: State::Queued, attempts: 0, error: None, accepted: None,
+            created_at: 0, updated_at: crate::store::now_ms() };
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        let kept = outbox.attachments_path(&d).unwrap();
+        keep_attachments(&kept, &d.request).unwrap();
+        let orphan = kept.with_file_name("gone.json");
+        std::fs::write(&orphan, b"{}").unwrap();
+        outbox.add(d);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains(&data));
+        assert_eq!(outbox.get("d1").unwrap().request["prompt"][0]["data"], data);
+        let restarted = Outbox::default();
+        let pending = restarted.open(&path);
+        assert_eq!(pending[0].request["prompt"][0]["data"], data);
+        assert!(kept.exists() && !orphan.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

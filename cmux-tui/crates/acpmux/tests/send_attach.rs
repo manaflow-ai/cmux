@@ -397,3 +397,24 @@ async fn a_message_refused_after_its_files_are_read_keeps_none() {
     assert!(reply.get("error").is_some(), "{reply}");
     assert!(saved(&session).is_empty(), "{:?}", saved(&session));
 }
+
+/// `acpmux send --no-wait` (`_acpmux/send_queue`) past the cap is refused before the outbox keeps
+/// it, and within it the attachment reaches the session.
+#[tokio::test]
+async fn a_queued_send_over_the_cap_is_refused_before_the_outbox_keeps_it() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("attach-queue").await;
+    let request = json!({"sessionId": session, "prompt": [image("big.png", &png(MAX_FILE + 1))]});
+    let queued = c.call("_acpmux/send_queue", json!({"request": request})).await;
+    assert_eq!(queued["error"]["data"]["reason"], "attach.tooLarge", "{queued}");
+    let shot = png(128);
+    let request = json!({"sessionId": session, "prompt": [{"type": "text", "text": "q"},
+        image("q.png", &shot)]});
+    let queued = c.call("_acpmux/send_queue", json!({"request": request})).await;
+    let id = queued["result"]["deliveryId"].as_str().unwrap_or_else(|| panic!("{queued}"));
+    let status = json!({"deliveryId": id, "waitMs": 10000});
+    let settled = c.call("_acpmux/send_status", status).await;
+    assert_eq!(settled["result"]["status"], "delivered", "{settled}");
+    assert_saved(&session, "q.png", &shot);
+}
