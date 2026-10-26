@@ -46,6 +46,8 @@ import Darwin
     /// Occluded counts as not visible, as Blink's page visibility treats an occluded WebContents.
     /// Hidden-work rules such as the 5-minute timer alignment read it.
     public private(set) var hiddenSince: Duration?
+    /// When ``effective`` last became ``Visibility/hidden``; `nil` while visible or occluded (Chrome `WasHidden`).
+    public private(set) var hiddenStateSince: Duration?
 
     /// Whether ``effective`` is ``Visibility/visible``. O(1): the state is kept, never walked.
     public var isVisible: Bool { effective == .visible }
@@ -96,6 +98,7 @@ import Darwin
         self.isRoot = true
         self.uptime = uptime
         self.hiddenSince = own == .visible ? nil : uptime()
+        self.hiddenStateSince = own == .hidden ? uptime() : nil
     }
 
     /// Makes a child of `parent`. It uses the parent's clock.
@@ -113,6 +116,7 @@ import Darwin
         self.isRoot = false
         self.uptime = parent.uptime
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
+        self.hiddenStateSince = effective == .hidden ? parent.uptime() : nil
         self.parent = parent
         parent.insert(self)
     }
@@ -311,6 +315,7 @@ import Darwin
         } else if effective == .visible {
             hiddenSince = uptime()
         }
+        if next != .hidden { hiddenStateSince = nil } else if effective != .hidden { hiddenStateSince = uptime() }
         effective = next
         flipped.append(self)
         for child in liveShownChildren() { child.recompute(into: &flipped) }
