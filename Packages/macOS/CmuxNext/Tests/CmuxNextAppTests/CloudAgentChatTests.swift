@@ -57,6 +57,18 @@ struct CloudAgentChatTests {
             let answered = await world.until { frames.agentText().contains(prompt) }
             #expect(answered, "the machine's agent did not answer the prompt; frames: \(frames.lines.suffix(5))")
             wire.cancel(code: 1000, reason: "test")
+
+            // The page's next connection (a reload, the tab shown again) attaches to that chat on
+            // the machine and replays it; it never starts another.
+            let again = try await world.page(chat.key)
+            let rewire = try #require(again.wire, "the started chat has no remote route")
+            let replay = try await Frames.open(rewire)
+            let attached = try await replay.call(rewire, "_acpmux/attach", ["sessionId": session])
+            #expect(attached.errorCode == nil, "\(attached.raw)")
+            let replayed = await world.until { replay.agentText().contains(prompt) }
+            #expect(replayed, "the reconnected page does not replay the machine's chat")
+            #expect(world.agentSessions() == [session], "a reconnect started another chat on the machine")
+            rewire.cancel(code: 1000, reason: "test")
         }
     }
 
