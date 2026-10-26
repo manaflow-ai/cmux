@@ -228,6 +228,13 @@ test("a pointer click still submits when pointerdown suppresses compatibility mo
     row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
   });
   expect(calls).toEqual(["open"]);
+  // A prior press released outside has no click. A later pointer gesture is independent.
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+    row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
+  });
+  expect(calls).toEqual(["open", "open", "open"]);
 });
 
 test("Tab skips disabled suggestions and submits the enabled destination", async () => {
