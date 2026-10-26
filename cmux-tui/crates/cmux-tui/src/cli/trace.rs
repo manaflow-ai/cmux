@@ -1,4 +1,4 @@
-//! `cmux trace record|start|stop|status`: a Release trace from the command line
+//! `cmux trace record|start|stop|status|export`: a Release trace from the command line
 //! (plans/cmux-next/chrome-parity/p09-observability.md, task 021).
 //!
 //! `start`, `stop` and `status` are one app method each (task 020): `trace.start {categories?,
@@ -9,13 +9,8 @@
 //! `record` is Perfetto's command line (`src/perfetto_cmd/perfetto_cmd.cc`): start a session,
 //! wait for its duration or Ctrl-C, stop, then read every buffer into one place. It copies each
 //! recording ring the stop reply names and the Chromium JSON into `--out`, writes
-//! `manifest.json`, and runs the Perfetto exporter (task 022) on that bundle.
-//!
-//! The stop reply it reads (task 020's contract): `processes`, the app's own entries (the app,
-//! the Chromium host); `daemon`, the daemon's `trace-stop` reply as it came (its own `processes`);
-//! and `chromium_trace.path` when Chromium tracing ran. An entry has the daemon's shape
-//! (`server/trace_control.rs`): `role`, `pid`, `state`, `recording_path`, `recording_bytes`,
-//! `reason` or `error`.
+//! `manifest.json`, and runs the Perfetto exporter (task 022) on that bundle ([`bundle`] reads
+//! the stop reply). `export` runs the exporter again on a recorded directory.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -27,6 +22,10 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::localization::TraceMessages;
+
+mod bundle;
+
+use bundle::{Bundle, PerfettoExport, TraceExporter, chromium_entry, collect, process_entries};
 
 /// `trace.start`'s largest `seconds_cap` (task 020).
 const MAX_SECONDS_CAP: u32 = 600;
@@ -59,6 +58,15 @@ pub(super) enum Verb {
     Start(StartPlan),
     Stop,
     Status,
+    Export(ExportPlan),
+}
+
+/// `trace export --in DIR [--out FILE]`.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ExportPlan {
+    pub dir: PathBuf,
+    /// `None`: `DIR/trace.perfetto-trace`.
+    pub to: Option<PathBuf>,
 }
 
 /// What `trace.start` is asked for.
@@ -122,7 +130,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             options.allow(verb, &["seconds", "out", "categories", "keys", "chromium"])?;
             let seconds = options.seconds("seconds", MAX_RECORD_SECONDS, messages.seconds_range)?;
             let seconds = seconds.ok_or_else(|| UsageError::new(messages.seconds_required))?;
-            let out = options.value("out").ok_or_else(|| UsageError::new(messages.out_required))?;
+            let out = options.path("out").ok_or_else(|| UsageError::new(messages.out_required))?;
             let mut start = options.start_plan()?;
             start.seconds_cap = Some(seconds + STOP_SLACK_SECONDS);
             Verb::Record(RecordPlan { seconds, out: PathBuf::from(out), start })
@@ -133,6 +141,15 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             start.seconds_cap =
                 options.seconds("seconds-cap", MAX_SECONDS_CAP, messages.seconds_cap_range)?;
             Verb::Start(start)
+        }
+        "export" => {
+            options.allow(verb, &["in", "out"])?;
+            let dir = options.path("in").ok_or_else(|| UsageError::new(messages.in_required))?;
+            if options.value("out").is_some() && options.path("out").is_none() {
+                return Err(UsageError::new(messages.export_out_empty));
+            }
+            let to = options.path("out").map(PathBuf::from);
+            Verb::Export(ExportPlan { dir: PathBuf::from(dir), to })
         }
         "stop" | "status" => {
             options.allow(verb, &[])?;
@@ -150,7 +167,7 @@ struct Options {
 }
 
 const FLAGS: [&str; 2] = ["keys", "chromium"];
-const VALUED: [&str; 4] = ["seconds", "out", "categories", "seconds-cap"];
+const VALUED: [&str; 5] = ["seconds", "out", "categories", "seconds-cap", "in"];
 
 impl Options {
     fn parse(verb: &str, args: &[String]) -> Result<Self, UsageError> {
@@ -209,6 +226,11 @@ impl Options {
 
     fn value(&self, key: &str) -> Option<&str> {
         self.values.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.as_str())
+    }
+
+    /// A path value; an empty one is none (`--out=` must not mean the current directory).
+    fn path(&self, key: &str) -> Option<&str> {
+        self.value(key).filter(|value| !value.trim().is_empty())
     }
 
     fn flag(&self, key: &str) -> bool {
@@ -304,9 +326,10 @@ fn transport_error(message: String) -> Value {
     json!({ "code": "app.transport", "message": message, "details": {}, "retryable": false })
 }
 
-/// How `record` waits; [`SignalWait`] in the CLI.
+/// How `record` waits, and its clock; [`SignalWait`] in the CLI.
 pub(super) trait RecordWait {
     fn wait(&self, duration: Duration) -> Waited;
+    fn now(&self) -> Instant;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -342,43 +365,9 @@ impl RecordWait for SignalWait {
             Err(mpsc::RecvTimeoutError::Timeout) => Waited::Elapsed,
         }
     }
-}
 
-/// The files `record` collected into `--out`: the exporter's input.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Bundle {
-    pub dir: PathBuf,
-    pub rings: Vec<RingFile>,
-    pub chromium: Option<PathBuf>,
-}
-
-/// One recording ring, copied to `path` under [`RINGS_DIR`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct RingFile {
-    pub role: String,
-    pub pid: Option<u64>,
-    pub path: PathBuf,
-}
-
-/// The Perfetto exporter over a [`Bundle`]; [`PerfettoExport`] in the CLI.
-pub(super) trait TraceExporter {
-    /// Whether this build has an exporter; without one the bundle is the result.
-    fn available(&self) -> bool;
-    /// Writes the bundle as one Perfetto trace at `to`.
-    fn export(&self, bundle: &Bundle, to: &Path) -> Result<(), String>;
-}
-
-/// `cmux_trace`'s native Perfetto protobuf exporter (task 022), not in this build yet: the
-/// bundle is already its input.
-pub(super) struct PerfettoExport;
-
-impl TraceExporter for PerfettoExport {
-    fn available(&self) -> bool {
-        false
-    }
-
-    fn export(&self, _bundle: &Bundle, _to: &Path) -> Result<(), String> {
-        Err("this build has no Perfetto exporter".to_owned())
+    fn now(&self) -> Instant {
+        Instant::now()
     }
 }
 
@@ -408,14 +397,9 @@ impl Failure {
         Self { error, exit_code: 3 }
     }
 
-    /// A `record` whose stop failed: the recording still ends at its cap, `cap_seconds` after
-    /// the start, so the message says when.
-    fn stop_failed(self, cap_seconds: u32, messages: &TraceMessages) -> Self {
-        let reason = self.error.get("message").and_then(Value::as_str).unwrap_or_default();
-        let message = messages
-            .stop_failed
-            .replace("{error}", reason)
-            .replace("{seconds}", &cap_seconds.to_string());
+    /// A `record` whose stop failed: the recording still ends at its cap, `left` from now.
+    fn stop_failed(self, left: Duration, messages: &TraceMessages) -> Self {
+        let message = Self::filled(messages.stop_failed, &self.error, left);
         let error = json!({
             "code": "trace.stop_failed",
             "message": message,
@@ -424,6 +408,51 @@ impl Failure {
         });
         Self { error, exit_code: self.exit_code }
     }
+
+    /// `template` with `{error}` (the error's message) and `{seconds}` (`left`, rounded up).
+    fn filled(template: &str, error: &Value, left: Duration) -> String {
+        let reason = error.get("message").and_then(Value::as_str).unwrap_or_default();
+        let seconds = left.as_secs() + u64::from(left.subsec_nanos() > 0);
+        template.replace("{error}", reason).replace("{seconds}", &seconds.to_string())
+    }
+}
+
+/// `trace.start` for `record`. When the request went out but no reply came (`app.transport`: a
+/// read timeout, a dropped connection), the app may have started: a best-effort `trace.stop`
+/// ends that recording, or the message says when its cap does.
+fn start_recording(
+    app: &mut dyn TraceApp,
+    plan: &StartPlan,
+    messages: &TraceMessages,
+) -> Result<Value, Failure> {
+    let lost = match app.call("trace.start", plan.params(), START_TIMEOUT) {
+        Ok(Ok(started)) => return Ok(started),
+        Ok(Err(refusal)) => return Err(Failure::refused(refusal)),
+        Err(error) if code_of(&error) == Some("app.transport") => error,
+        Err(error) => return Err(Failure::transport(error)),
+    };
+    let (template, stop) = match app.call("trace.stop", json!({}), STOP_TIMEOUT) {
+        Ok(Ok(reply)) => (messages.start_unanswered_stopped, json!({ "ok": reply })),
+        // Nothing started.
+        Ok(Err(refusal)) if code_of(&refusal) == Some("not_recording") => {
+            return Err(Failure::transport(lost));
+        }
+        Ok(Err(error)) | Err(error) => {
+            (messages.start_unanswered_running, json!({ "error": error }))
+        }
+    };
+    let cap = Duration::from_secs(u64::from(plan.seconds_cap.unwrap_or(MAX_SECONDS_CAP)));
+    let error = json!({
+        "code": "trace.start_unanswered",
+        "message": Failure::filled(template, &lost, cap),
+        "details": { "error": lost, "stop": stop },
+        "retryable": false,
+    });
+    Err(Failure { error, exit_code: 3 })
+}
+
+fn code_of(error: &Value) -> Option<&str> {
+    error.get("code").and_then(Value::as_str)
 }
 
 fn call(
@@ -482,6 +511,12 @@ pub(super) fn execute(
         Verb::Start(plan) => call(app, "trace.start", plan.params(), START_TIMEOUT)?,
         Verb::Stop => call(app, "trace.stop", json!({}), STOP_TIMEOUT)?,
         Verb::Status => call(app, "trace.status", json!({}), STATUS_TIMEOUT)?,
+        Verb::Export(plan) => {
+            let value = export(&plan, exporter)?;
+            let path = value["perfetto"].as_str().unwrap_or_default();
+            let text = messages.perfetto_written.replace("{path}", path);
+            return Ok((value, text));
+        }
     };
     let text = status_text(&value, messages);
     Ok((value, text))
@@ -497,30 +532,30 @@ pub(super) fn record(
     notes: &mut dyn FnMut(String),
 ) -> Result<Value, Failure> {
     let messages = &crate::localization::catalog().trace;
-    prepare_out(&plan.out)?;
-    let start = call(app, "trace.start", plan.start.params(), START_TIMEOUT)?;
+    check_out(&plan.out)?;
+    let start = start_recording(app, &plan.start, messages)?;
+    let started = wait.now();
     notes(messages.recording.replace("{seconds}", &plan.seconds.to_string()));
     let waited = wait.wait(Duration::from_secs(u64::from(plan.seconds)));
     if waited == Waited::Interrupted {
         notes(messages.interrupted.to_owned());
     }
-    let cap = plan.start.seconds_cap.unwrap_or(MAX_SECONDS_CAP);
-    let stop = call(app, "trace.stop", json!({}), STOP_TIMEOUT)
-        .map_err(|failure| failure.stop_failed(cap, messages))?;
-    let collected = collect(&stop, &plan.out);
+    let cap = Duration::from_secs(u64::from(plan.start.seconds_cap.unwrap_or(MAX_SECONDS_CAP)));
+    let stop = call(app, "trace.stop", json!({}), STOP_TIMEOUT).map_err(|failure| {
+        let left = cap.saturating_sub(wait.now().saturating_duration_since(started));
+        failure.stop_failed(left, messages)
+    })?;
+    let collected = collect(&stop, &plan.out, plan.start.chromium)?;
     let mut manifest = json!({
         "seconds": plan.seconds,
         "interrupted": waited == Waited::Interrupted,
         "start": start,
         "stop": stop,
-        "rings": collected.bundle.rings.iter().map(|ring| json!({
-            "role": ring.role,
-            "pid": ring.pid,
-            "file": relative(&plan.out, &ring.path),
-        })).collect::<Vec<_>>(),
-        "chromium": collected.bundle.chromium.as_ref().map(|path| relative(&plan.out, path)),
         "not_copied": collected.not_copied,
     });
+    for (key, value) in collected.bundle.manifest_fields() {
+        manifest[key] = value;
+    }
     write_file(&plan.out.join(MANIFEST_FILE), &manifest_bytes(&manifest))?;
     let perfetto = plan.out.join(PERFETTO_FILE);
     if !exporter.available() {
@@ -540,13 +575,31 @@ fn manifest_bytes(manifest: &Value) -> Vec<u8> {
     bytes
 }
 
-fn relative(dir: &Path, path: &Path) -> String {
-    path.strip_prefix(dir).unwrap_or(path).display().to_string()
+/// `trace export`: the exporter over the bundle `plan.dir`'s manifest names.
+pub(super) fn export(plan: &ExportPlan, exporter: &dyn TraceExporter) -> Result<Value, Failure> {
+    let messages = &crate::localization::catalog().trace;
+    let shown = plan.dir.display().to_string();
+    let bundle = Bundle::read(&plan.dir).map_err(|error| {
+        let message = messages.not_a_bundle.replace("{path}", &shown).replace("{error}", &error);
+        Failure::local("trace.not_a_bundle", message, 1)
+    })?;
+    if !exporter.available() {
+        let rings = plan.dir.join(RINGS_DIR).display().to_string();
+        let message = messages.export_unavailable.replace("{path}", &rings);
+        return Err(Failure::local("trace.export_unavailable", message, 1));
+    }
+    let to = plan.to.clone().unwrap_or_else(|| plan.dir.join(PERFETTO_FILE));
+    exporter.export(&bundle, &to).map_err(|error| {
+        let message = messages.export_failed.replace("{error}", &error);
+        Failure::local("trace.export_failed", message, 1)
+    })?;
+    Ok(json!({ "out": shown, "perfetto": to.display().to_string() }))
 }
 
-/// `--out` must be new or empty, so a record never mixes with an older one; checked before
-/// anything starts.
-fn prepare_out(out: &Path) -> Result<(), Failure> {
+/// `--out` must be new or empty, so a record never mixes with an older one. Checked before
+/// anything starts, and nothing is created before the stop: a failed start leaves `--out` as it
+/// was.
+fn check_out(out: &Path) -> Result<(), Failure> {
     let messages = &crate::localization::catalog().trace;
     let shown = out.display().to_string();
     let not_empty =
@@ -559,7 +612,7 @@ fn prepare_out(out: &Path) -> Result<(), Failure> {
         Err(_) if out.exists() => return Err(not_empty()),
         Err(error) => return Err(write_failure(out, &error)),
     }
-    std::fs::create_dir_all(out.join(RINGS_DIR)).map_err(|error| write_failure(out, &error))
+    Ok(())
 }
 
 fn write_failure(path: &Path, error: &std::io::Error) -> Failure {
@@ -575,75 +628,12 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), Failure> {
     std::fs::write(path, bytes).map_err(|error| write_failure(path, &error))
 }
 
-struct Collected {
-    bundle: Bundle,
-    /// The processes whose ring is not in the bundle, and why.
-    not_copied: Vec<Value>,
-}
-
-/// Every process entry of a stop reply: the app's, then the daemon's.
-pub(super) fn process_entries(reply: &Value) -> Vec<&Value> {
-    let own = reply.get("processes").and_then(Value::as_array);
-    let daemon = reply.pointer("/daemon/processes").and_then(Value::as_array);
-    own.into_iter().chain(daemon).flatten().collect()
-}
-
-/// Copies each ring and the Chromium JSON the stop reply names into `out`.
-fn collect(stop: &Value, out: &Path) -> Collected {
-    let mut bundle = Bundle { dir: out.to_owned(), rings: Vec::new(), chromium: None };
-    let mut not_copied = Vec::new();
-    for entry in process_entries(stop) {
-        let role = entry.get("role").and_then(Value::as_str).unwrap_or("unknown").to_owned();
-        let pid = entry.get("pid").and_then(Value::as_u64);
-        let skipped = |reason: String| json!({ "role": role, "pid": pid, "reason": reason });
-        let Some(source) = entry.get("recording_path").and_then(Value::as_str).map(Path::new)
-        else {
-            let reason = ["reason", "error", "state"]
-                .iter()
-                .find_map(|key| entry.get(*key).and_then(Value::as_str))
-                .unwrap_or("no_ring");
-            not_copied.push(skipped(reason.to_owned()));
-            continue;
-        };
-        let Some(name) = source.file_name() else {
-            not_copied.push(skipped("bad_ring_path".to_owned()));
-            continue;
-        };
-        let target = unused(&out.join(RINGS_DIR), name);
-        match std::fs::copy(source, &target) {
-            Ok(_) => bundle.rings.push(RingFile { role, pid, path: target }),
-            Err(error) => not_copied.push(skipped(error.to_string())),
-        }
-    }
-    if let Some(source) = stop.pointer("/chromium_trace/path").and_then(Value::as_str) {
-        let target = out.join(CHROMIUM_FILE);
-        match std::fs::copy(source, &target) {
-            Ok(_) => bundle.chromium = Some(target),
-            Err(error) => not_copied
-                .push(json!({ "role": "chromium", "pid": null, "reason": error.to_string() })),
-        }
-    }
-    Collected { bundle, not_copied }
-}
-
-/// `dir/name`, or `dir/<n>-name` when two processes' rings share a name (two machines).
-fn unused(dir: &Path, name: &std::ffi::OsStr) -> PathBuf {
-    let plain = dir.join(name);
-    if !plain.exists() {
-        return plain;
-    }
-    (1..)
-        .map(|n| dir.join(format!("{n}-{}", name.to_string_lossy())))
-        .find(|path| !path.exists())
-        .unwrap_or(plain)
-}
-
 fn record_text(value: &Value, messages: &TraceMessages) -> String {
     let out = value.get("out").and_then(Value::as_str).unwrap_or_default();
     let rings = value.get("rings").and_then(Value::as_array).map_or(0, Vec::len);
     let mut lines =
         vec![messages.recorded.replace("{rings}", &rings.to_string()).replace("{path}", out)];
-    if let Some(chromium) = value.get("chromium").and_then(Value::as_str) {
+    if let Some(chromium) = value.pointer("/chromium/file").and_then(Value::as_str) {
         lines.push(messages.chromium_copied.replace("{path}", chromium));
     }
     for skipped in value.get("not_copied").and_then(Value::as_array).into_iter().flatten() {
@@ -679,15 +669,13 @@ pub(super) fn status_text(value: &Value, messages: &TraceMessages) -> String {
     } else {
         messages.summary_idle.to_owned()
     }];
-    for entry in process_entries(value) {
-        let field = |key: &str| entry.get(key).and_then(Value::as_str);
-        let detail = field("recording_path").or(field("reason")).or(field("error"));
+    for entry in process_entries(value).into_iter().chain(chromium_entry(value)) {
         let line = messages
             .process_line
-            .replace("{role}", field("role").unwrap_or("unknown"))
-            .replace("{pid}", &pid_text(&entry["pid"]))
-            .replace("{state}", field("state").unwrap_or("unknown"))
-            .replace("{detail}", detail.unwrap_or_default());
+            .replace("{role}", entry.role)
+            .replace("{pid}", &pid_text(&json!(entry.pid)))
+            .replace("{state}", entry.state.unwrap_or("unknown"))
+            .replace("{detail}", entry.ring.or(entry.reason).unwrap_or_default());
         lines.push(line.trim_end().to_owned());
     }
     lines.join("\n")
