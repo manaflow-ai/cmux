@@ -82,6 +82,9 @@ class FakeSource:
             raise OSError("tail did not end")
         self.path.write_text(self.text)
 
+    def kill(self):
+        self.log.append(f"kill {self.path.name}")
+
 
 def fake_sources(log, fail_stop=False):
     def factory(directory, rpc, spans_path):
@@ -167,6 +170,16 @@ class QuestTests(unittest.TestCase):
         self.assertEqual([line for line in log if line.startswith("stop")],
                          ["stop daemon-spans-stamped.jsonl", "stop hangs.json", "stop signposts.ndjson"])
 
+    def test_a_source_whose_stop_fails_is_killed(self):
+        log: list[str] = []
+        quest = tq.TraceQuest(self.root / "s", self.blobs, fake_sources(log, fail_stop=True))
+        with self.assertRaises(tq.TraceQuestError):
+            with quest.record(0, rpc=lambda *a, **k: None, spans_path=self.root / "spans.jsonl"):
+                pass
+        self.assertEqual([line for line in log if line.startswith(("stop", "kill"))],
+                         ["stop daemon-spans-stamped.jsonl", "kill daemon-spans-stamped.jsonl", "stop hangs.json",
+                          "stop signposts.ndjson"])
+
     def test_publish_refuses_values_that_do_not_match_the_attempts(self):
         quest = tq.TraceQuest(self.root / "s", self.blobs, fake_sources([]))
         with quest.record(0):
@@ -245,18 +258,72 @@ class StoreTests(unittest.TestCase):
     def test_index_links_a_point_to_its_traces_and_is_idempotent(self):
         self.add_run("p1", 1, attachments=[self.put_trace("a"), self.put_trace("b", "watchdog", 3),
                                        {"digest": "sha256:" + "0" * 64, "kind": "histogram"}])
-        self.assertEqual(tq.index_run(self.db, "p1", self.blobs), 0)
+        self.assertEqual(tq.index_run(self.db, "p1", self.blobs), tq.IndexReport(0, []))
         rows = tq.traces_for_point(self.db, "p1")
         self.assertEqual([(r["kind"], r["attempt"]) for r in rows], [("signpost", 0), ("watchdog", 3)])
         self.assertTrue(rows[0]["url"].startswith("https://lab.example/perf-lab/traces/sha256/"))
         stored = self.db.execute("SELECT bytes FROM traces ORDER BY attempt").fetchall()
         self.assertTrue(all(row[0] > 0 for row in stored))
 
-    def test_index_refuses_an_attachment_missing_from_r2(self):
-        self.add_run("p1", 1, attachments=[{"digest": "sha256:" + "1" * 64, "kind": "trace-daemon-0"}], index=False)
-        with self.assertRaises(tq.TraceQuestError):
-            tq.index_run(self.db, "p1", self.blobs)
-        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM traces").fetchone()[0], 0)
+    def test_index_reports_an_attachment_missing_from_r2_and_indexes_the_rest(self):
+        lost = {"digest": "sha256:" + "1" * 64, "kind": "trace-daemon-0"}
+        self.add_run("p1", 1, attachments=[lost, self.put_trace("kept", "watchdog", 0)], index=False)
+        report = tq.index_run(self.db, "p1", self.blobs)
+        self.assertEqual(report, tq.IndexReport(1, [f"trace-daemon-0 {lost['digest']}"]))
+        self.assertEqual([r["kind"] for r in tq.traces_for_point(self.db, "p1")], ["watchdog"])
+
+    def test_issue_links_list_bisect_changes_in_commit_order(self):
+        group = self.group()
+        bisect = self.job("bisect", group=group)
+        positions = [10, 11, 12, 13, 14, 15]
+        self.assertNotEqual(sorted(positions, key=sha), positions)  # the sha hex order is not the commit order
+        for pos in reversed(positions):
+            self.add_run(f"b{pos}", pos, kind="bisect", job=bisect, tier=None, attachments=[self.put_trace(f"b{pos}")])
+        lines = tq.issue_markdown(self.db, group).splitlines()[1:]
+        self.assertEqual(lines, [line for pos in positions for line in lines if f"`{sha(pos)[:12]}`" in line])
+        self.assertEqual(len(lines), len(positions))
+
+    def test_coverage_counts_an_ingested_trace_digest_before_index(self):
+        group = self.group(verified=True)
+        bisect = self.job("bisect", group=group)
+        verify = self.job("verify", group=group, base=sha(10), head=sha(11))
+        self.add_run("t0", 1, attachments=[self.put_trace("t0")], index=False)
+        self.add_run("b10", 10, kind="bisect", job=bisect, tier=None, attachments=[self.put_trace("b10")], index=False)
+        self.add_run("v10", 10, kind="verify", job=verify, tier=None, attachments=[self.put_trace("v10")], index=False)
+        self.add_run("v11", 11, kind="verify", job=verify, tier=None, attachments=[self.put_trace("v11")])
+        missing = tq.coverage(self.db, NOW - timedelta(hours=1))
+        self.assertEqual({name: missing[name] for name in tq.COVERAGE_MISSES},
+                         {"t0_points": [], "bisect_changes": [], "verified_culprits": []})
+        self.assertEqual(missing["not_indexed"], ["t0", "b10", "v10"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = tq.main(["coverage", "--db", str(self.path), "--since", "1h"], clock=lambda: NOW)
+        self.assertEqual(code, 0)
+
+    def test_expire_keeps_the_objects_of_a_referenced_run_that_was_never_indexed(self):
+        group = self.group()
+        verify = self.job("verify", group=group, base=sha(10), head=sha(11))
+        self.add_run("v10", 10, kind="verify", job=verify, tier=None, attachments=[self.put_trace("C^")], index=False)
+        self.add_run("p11", 11, attachments=[self.put_trace("alert point")], index=False)
+        self.add_run("plain", 3, attachments=[self.put_trace("plain")], index=False)
+        self.alert(group, 11, 11)
+        self.now = NOW + timedelta(days=29)
+        self.add_run("recent", 4, attachments=[self.put_trace("recent")], index=False)
+        self.now = NOW + timedelta(days=31)
+        report = tq.expire(self.db, self.blobs, now=self.now)
+        left = {gzip.decompress(data).decode() for data, _ in self.blobs.objects.values()}
+        self.assertEqual(left, {"C^", "alert point", "recent"})
+        self.assertEqual(len(report.blobs), 1)  # plain: an old run nothing references
+        self.assertEqual(tq.index_run(self.db, "v10", self.blobs).missing, [])
+
+    def test_expire_binds_no_variable_per_alert_point(self):
+        group = self.group()
+        for pos in range(10, 16):
+            self.add_run(f"p{pos}", pos, attachments=[self.put_trace(f"p{pos}")])
+        self.alert(group, 10, 15)
+        self.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 3)  # fewer than the 6 alert-point runs
+        self.now = NOW + timedelta(days=31)
+        self.assertEqual(tq.expire(self.db, self.blobs, now=self.now), tq.ExpireReport(0, []))
+        self.assertEqual(len(tq.traces_for_group(self.db, group)), 6)
 
     def test_coverage_names_untraced_points_changes_and_culprits(self):
         group = self.group(verified=True)
@@ -388,6 +455,47 @@ class SigV4Tests(unittest.TestCase):
         self.assertIsNone(tq.digest_of_key("perf-lab/traces/sha256/zz.gz"))
         with self.assertRaises(tq.TraceQuestError):
             tq.blob_key("sha1:abc")
+
+
+LIST_NS = "http://s3.amazonaws.com/doc/2006-03-01/"
+
+
+class R2ErrorTests(unittest.TestCase):
+    def test_list_page_reads_keys_and_the_continuation_token(self):
+        body = (f'<ListBucketResult xmlns="{LIST_NS}"><IsTruncated>true</IsTruncated>'
+                "<NextContinuationToken>next</NextContinuationToken><Contents><Key>perf-lab/traces/sha256/a.gz</Key>"
+                "<LastModified>2026-10-25T12:00:00.000Z</LastModified></Contents></ListBucketResult>").encode()
+        self.assertEqual(tq.parse_list_page(body), ([("perf-lab/traces/sha256/a.gz", NOW)], "next"))
+
+    def test_bad_list_bodies_are_trace_quest_errors(self):
+        for body in (b"<html>gateway", f'<ListBucketResult xmlns="{LIST_NS}"><Contents><Key>k</Key></Contents>'
+                     "</ListBucketResult>".encode(),
+                     b"<ListBucketResult><IsTruncated>true</IsTruncated></ListBucketResult>"):
+            with self.subTest(body=body), self.assertRaises(tq.TraceQuestError):
+                tq.parse_list_page(body)
+
+    def test_an_http_protocol_error_is_a_trace_quest_error(self):
+        blobs = tq.R2BlobStore("acct", "key", "secret", "bucket", clock=lambda: NOW)
+        connection = mock.Mock()
+        connection.getresponse.side_effect = tq.http.client.IncompleteRead(b"part")
+        with mock.patch.object(tq.http.client, "HTTPSConnection", return_value=connection), \
+                self.assertRaises(tq.TraceQuestError):
+            list(blobs.list(tq.PREFIX))
+        connection.close.assert_called_once()
+
+    def test_expire_exits_2_when_r2_breaks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lab.sqlite"
+            lab = store.Store(path, clock=lambda: NOW)
+            lab.migrate()
+            lab.close()
+            env = {"CMUX_PERF_LAB_R2_ACCOUNT_ID": "a", "CMUX_PERF_LAB_R2_ACCESS_KEY_ID": "k",
+                   "CMUX_PERF_LAB_R2_SECRET_ACCESS_KEY": "s"}
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(tq.R2BlobStore, "_request", return_value=(None, b"not xml")), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(tq.main(["expire", "--db", str(path)], clock=lambda: NOW), 2)
+            self.assertIn("not an XML list body", err.getvalue())
 
 
 class TracePySourcesTests(unittest.TestCase):
