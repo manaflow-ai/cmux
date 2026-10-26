@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Base Keymap… (`settings base-keymap`): switches cmux.json's shortcuts to
 /// a preset (cmux, iTerm2, Terminal.app, tmux with its `ctrl+b` chords), as
@@ -19,21 +20,39 @@ enum KeymapHandlers {
             }
             let window = context.activeWindow?.window
             let user = invocation.origin == .user
-            Task { // task-owner: one write, then the watcher applies it
+            let mainWork = context.services.mainWork, end = registry.completion(on: mainWork)
+            // One write off main, then the watcher applies it; the toast (a person's run) or the refusal is the run's
+            // completion on main (userBlocking for the person, automation for the CLI).
+            end.start {
                 do {
                     let plan = try await settings.keymapPlan(preset)
                     let undo = try await settings.applyUndoably(plan)
                     guard user else { return }
-                    toast(plan, registry: registry, in: window) {
-                        Task { // task-owner: one write back
-                            do { try await settings.restore(undo) } catch { registry.refuse(String(describing: error)) }
+                    end.post(owner: "KeymapHandlers.toast", answering: true) {
+                        toast(plan, registry: registry, in: window) {
+                            restore(undo, settings: settings, registry: registry, mainWork: mainWork)
                         }
                     }
                 } catch {
-                    registry.refuse(String(describing: error))
+                    let reason = String(describing: error)
+                    end.post(owner: "KeymapHandlers.refuse", answering: true) { registry.refuse(reason) }
                 }
             }
         })
+    }
+
+    /// The toast's Undo (the person's click): one write back off main; a failure is refused in the click's completion.
+    private static func restore(_ undo: ShortcutKeymapUndo, settings: SettingsController, registry: ActionRegistry,
+                                mainWork: MainWorkScheduler) {
+        let end = registry.completion(on: mainWork)
+        end.start {
+            do {
+                try await settings.restore(undo)
+            } catch {
+                let reason = String(describing: error)
+                end.post(owner: "KeymapHandlers.refuse", answering: true) { registry.refuse(reason) }
+            }
+        }
     }
 
     /// "Base Keymap: tmux" with Undo; an empty plan says nothing changed.

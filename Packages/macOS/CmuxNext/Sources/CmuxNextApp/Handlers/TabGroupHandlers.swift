@@ -19,6 +19,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
@@ -60,9 +61,13 @@ enum TabGroupHandlers {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
-        Task {
+        let services = ctx.services, end = ctx.registry.completion(on: services.mainWork)
+        // The command is awaited off main in the run's scopes (the CLI waits for its ticket); a rejection re-pushes
+        // the strip as the run's completion.
+        end.start {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
-            if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
+            guard !ok, let pane else { return }
+            end.post(owner: "TabGroupHandlers.resync", answering: true) { services.paneController(for: pane)?.resyncStrip() }
         }
     }
 
@@ -110,14 +115,18 @@ enum TabGroupHandlers {
             let controller = ctx.services.paneController(for: pane)
             let workspace = ctx.services.workspaceKey(of: pane)
             guard let connection = connection(for: pane, ctx) else { return }
-            let logger = ctx.services.daemon(for: pane).logger
-            Task {
+            let logger = ctx.services.daemon(for: pane).logger, end = ctx.registry.completion(on: ctx.services.mainWork)
+            let options = SpawnOptions(cwd: cwd, workspace: workspace)
+            // The create and the join are awaited off main in the run's scopes; selecting the new tab is the run's
+            // completion, which a CLI run without `focus` may not use to change the view.
+            end.start {
                 do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
-                    _ = try await connection.addTabs([created.surface], toGroup: group)
-                    if let controller {
-                        controller.selectWhenReported(surface: created.surface)
-                        controller.workspace?.expectFocus(on: created.surface)
+                    let surface = try await connection.newTab(in: handle, options: options).surface
+                    _ = try await connection.addTabs([surface], toGroup: group)
+                    guard let controller else { return }
+                    end.post(owner: "TabGroupHandlers.newTab", answering: true) {
+                        controller.selectWhenReported(surface: surface)
+                        controller.workspace?.expectFocus(on: surface)
                     }
                 } catch {
                     logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")
