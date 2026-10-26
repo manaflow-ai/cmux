@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import SwiftUI
 import CmuxNextTasks
 
@@ -14,7 +15,9 @@ extension InternalPageID {
 @MainActor
 final class WorkspaceTodoPageService: InternalPageProvider {
     private weak var services: AppServices?
-    private var models: [String: WorkspaceTodoPageModel] = [:]
+    /// Each tab's model, by key: kept from its first view until the tab closes, so a view made again
+    /// after a discard shows the same workspace and the unsent draft.
+    private(set) var models: [String: WorkspaceTodoPageModel] = [:]
     /// The workspace the next new tab shows (set by a show or a restore).
     private var pending: [String: String] = [:]
     private var next: String?
@@ -41,13 +44,17 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        NSHostingView(rootView: WorkspaceTodoPageView(model: models[key] ?? makeModel(for: key, in: window)))
+    }
+
+    private func makeModel(for key: String, in window: WindowController?) -> WorkspaceTodoPageModel {
         let id = pending.removeValue(forKey: key) ?? next ?? window?.state.workspaceID ?? ""
         let model = WorkspaceTodoPageModel(
             workspaceID: id,
             workspace: { [weak self] in self?.services?.workspace(id: $0) },
             perform: { [weak self] id, invocation in _ = self?.services?.registry.perform(id, invocation: invocation) })
         models[key] = model
-        return NSHostingView(rootView: WorkspaceTodoPageView(model: model))
+        return model
     }
 
     func tabClosed(_ key: String) {
@@ -58,4 +65,15 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     func route(for key: String) -> String? { models[key]?.workspaceID }
 
     func restore(_ route: String, for key: String) { pending[key] = route }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The model stays with the tab,
+    /// so the rebuilt view shows the same checklist and draft.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// An item whose text is being edited keeps the view: the edited text lives in its row.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        models[key]?.editing == nil ? [] : [.unsavedEdits]
+    }
 }

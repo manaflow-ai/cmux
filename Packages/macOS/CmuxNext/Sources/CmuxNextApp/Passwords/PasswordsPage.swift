@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -68,6 +69,20 @@ final class PasswordsPageService: InternalPageProvider {
         native?.anchor = { [weak page] in page }
         return page
     }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// One minute hidden. The page's renderer holds the listed sites and usernames, so it does not
+    /// outlive a short look away, as Chrome's password manager asks for the device owner again after
+    /// its 60 s auth validity (`PasswordAccessAuthenticator::kAuthValidityPeriod`,
+    /// password_access_authenticator.h). A revealed password is never in the renderer: it shows in
+    /// the native reveal sheet (``NativePasswordSecretSurface``).
+    static let hiddenPagePolicy = ContentDiscardPolicy.afterHidden(.seconds(60))
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPagePolicy }
+
+    /// Nothing: no search, row or scroll of a secrets page is kept while it is gone.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState { ContentViewState() }
 
     /// The browser profiles in sidebar order (the default profile first when it leads).
     static func profiles(_ services: AppServices?) -> [PasswordsPageProvider.Profile] {
