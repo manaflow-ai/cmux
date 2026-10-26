@@ -469,11 +469,10 @@ export function QuickModelMenu({
           (families?.list ?? [])
             .filter((family) => !family.starred && !family.note)
             .flatMap((family) => [...family.models, ...family.more])
+            .map((model) => (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1))
+            .sort((a, b) => b - a)
             .slice(0, FILTER_ROWS)
-            .reduce(
-              (rows, model) => rows + (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1),
-              0,
-            ),
+            .reduce((sum, rows) => sum + rows, 0),
         ) + (families ? 1 : 0),
       separators: 0,
     },

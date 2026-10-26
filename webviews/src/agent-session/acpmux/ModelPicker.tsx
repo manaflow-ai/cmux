@@ -109,7 +109,7 @@ function quickSections(
     if (visible.length === 0) return [];
     // Keep the running provider when present; otherwise land the first available provider.
     const landing = (
-      visible.find((offer) => offer.model.id === model) ??
+      visible.find((offer) => offer.model.id === model && !offer.model.unavailable) ??
       visible.find((offer) => offer.model.id === choice.id && !offer.model.unavailable) ??
       visible.find((offer) => !offer.model.unavailable) ??
       visible.find((offer) => offer.model.id === choice.id) ??
@@ -520,7 +520,7 @@ export function ModelPicker(props: ModelPickerProps) {
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor, props.model]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
