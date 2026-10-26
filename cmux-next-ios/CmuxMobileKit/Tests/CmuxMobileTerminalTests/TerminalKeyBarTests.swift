@@ -209,7 +209,7 @@ import Testing
         let line: CGFloat = 20.29
         // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
         #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 28 + 8 + 40)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == CGFloat(28 + 8 + 40))
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 28)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
