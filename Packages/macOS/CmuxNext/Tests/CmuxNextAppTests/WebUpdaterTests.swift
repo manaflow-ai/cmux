@@ -29,7 +29,7 @@ import Testing
 
     static func updater(_ server: Server, store: WebUpdateStore, app: WebUpdater.App = .init(abi: 2, webBuiltAt: 1_700_000_000)) -> WebUpdater {
         let updater = WebUpdater(
-            store: store, app: app, keys: WebUpdatePointerTests.keys,
+            store: store, app: app, keys: .keys(WebUpdatePointerTests.keys),
             fetch: { request in
                 server.pointerReads += 1
                 let url = try #require(request.url)

@@ -292,17 +292,14 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     }
 
     private func append(_ value: UInt16, to data: inout Data) {
-        let bigEndian = value.bigEndian
-        withUnsafeBytes(of: bigEndian) { data.append(contentsOf: $0) }
+        data.appendBigEndian(value)
     }
 
     private func append(_ value: UInt32, to data: inout Data) {
-        let bigEndian = value.bigEndian
-        withUnsafeBytes(of: bigEndian) { data.append(contentsOf: $0) }
+        data.appendBigEndian(value)
     }
 
     private func append(_ value: UInt64, to data: inout Data) {
-        let bigEndian = value.bigEndian
-        withUnsafeBytes(of: bigEndian) { data.append(contentsOf: $0) }
+        data.appendBigEndian(value)
     }
 }

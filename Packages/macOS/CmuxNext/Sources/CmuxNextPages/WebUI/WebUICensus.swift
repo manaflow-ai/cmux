@@ -31,7 +31,8 @@ public import WebKit
 ///   - `webkit_pid`: the WebContent pid (`_webProcessIdentifier`, when WebKit has it) of a WebKit page, else null.
 ///   - `deliveries_while_hidden`: router events delivered while hidden. `pushes_while_hidden`:
 ///     native script pushes (theme, glass, document attributes) while hidden. Both count from the
-///     page's start or the last `reset`.
+///     page's start or the last `reset`. `reloads`: the host's reloads after a crash (a page that
+///     crashed hidden reloads when it shows, ``PageCrashRecovery``).
 /// - `spares`: spares that are no page view, each `{spare, state, renderer_clients, renderer_pids,
 ///   webkit_pid}`: `cef_window` and `cef_pages_window`, the Chromium spare windows of the default
 ///   and the cmux pages profile (each `state` is `none`, `creating`, `live`, `taken` or `closed`;
@@ -176,7 +177,7 @@ nonisolated public struct WebUICensus: Sendable {
                 "renderer_clients": numbers(page.rendererClients), "renderer_pids": pids(page.rendererClients),
                 "webkit_pid": number(page.webKitPID),
                 "deliveries_while_hidden": number(page.census.deliveriesWhileHidden),
-                "pushes_while_hidden": number(page.census.pushesWhileHidden),
+                "pushes_while_hidden": number(page.census.pushesWhileHidden), "reloads": number(page.census.crashReloads),
             ]
         }
         let spareRows: [JSONValue] = spares.map { spare -> JSONValue in

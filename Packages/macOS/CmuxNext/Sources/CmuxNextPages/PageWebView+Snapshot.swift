@@ -186,9 +186,11 @@ package final class PageHideState {
     }
 }
 
-/// Encodes a page's hide-time frame as it comes, never on the main thread: on the app's `.cpu` lane at
-/// ``WorkPriority/bestEffort`` (QoS `.utility`), as Chrome compresses a captured tab bitmap on its
-/// thread pool (chrome/browser/ui/thumbnails/thumbnail_image.cc).
+/// Encodes a page's hide-time frame as it comes, and decodes it again when the page is discarded (its
+/// show draws the decoded picture in the key's turn), never on the main thread: on the app's `.cpu`
+/// lane at ``WorkPriority/bestEffort`` (QoS `.utility`), as Chrome compresses a captured tab bitmap on
+/// its thread pool (chrome/browser/ui/thumbnails/thumbnail_image.cc) and decodes images off its UI
+/// thread (services/data_decoder/public/cpp/decode_image.h).
 ///
 /// ```swift
 /// let encoder = PageSnapshotEncoder(work: services.work, mainWork: services.mainWork)
@@ -198,7 +200,11 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
     /// Gets the encoded picture, or nil when the frame could not be encoded, on the main actor.
     package typealias Done = @MainActor @Sendable (PageEncodedSnapshot?) -> Void
 
+    /// Gets the decoded picture, or nil when it could not be decoded, on the main actor.
+    package typealias Decoded = @MainActor @Sendable (CGImage?) -> Void
+
     private let start: @MainActor @Sendable (CGImage, @escaping Done) -> Void
+    private let startDecode: @MainActor @Sendable (PageEncodedSnapshot, @escaping Decoded) -> Void
 
     /// The app's encoder.
     ///
@@ -214,17 +220,32 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
             work.run(.bestEffort, mayBlock: .cpu) { encode(image) }
                 .reply(on: mainWork, class: .background, owner: "webui.snapshot.encode") { done($0) }
         }
+        startDecode = { snapshot, done in
+            // task-owner: BackgroundWork's `.cpu` lane runs the decode at .bestEffort; quit skips it (a
+            // discarded page needs no cover at quit) and its reply, a posted main task, then never runs.
+            work.run(.bestEffort, mayBlock: .cpu) { blockingImageDecode(snapshot.data) }
+                .reply(on: mainWork, class: .background, owner: "webui.snapshot.decode") { done($0) }
+        }
     }
 
-    /// An encoder that runs `start` (tests).
-    package init(start: @escaping @MainActor @Sendable (CGImage, @escaping Done) -> Void) {
+    /// An encoder that runs `start`, and `decode` for a discarded page's cover (tests). The default
+    /// decode gives no picture.
+    package init(start: @escaping @MainActor @Sendable (CGImage, @escaping Done) -> Void,
+                 decode: @escaping @MainActor @Sendable (PageEncodedSnapshot, @escaping Decoded) -> Void = { _, done in done(nil) }) {
         self.start = start
+        startDecode = decode
     }
 
     /// Encodes `image`; `done` gets the result on the main actor.
     @MainActor
     package func encode(_ image: CGImage, done: @escaping Done) {
         start(image, done)
+    }
+
+    /// Decodes `snapshot`; `done` gets the picture on the main actor.
+    @MainActor
+    package func decode(_ snapshot: PageEncodedSnapshot, done: @escaping Decoded) {
+        startDecode(snapshot, done)
     }
 
     /// `image` as PNG, alpha kept (a page is transparent over its pane's backdrop), encoded in memory

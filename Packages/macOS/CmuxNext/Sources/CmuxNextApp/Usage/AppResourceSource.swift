@@ -148,7 +148,7 @@ final class AppResourceSource: ResourceSampleSource {
         for (tab, daemon) in entries {
             switch tab.kind {
             case .pty:
-                let estimate = services.cache.existingTerminal(tab.id)?.session.surfaceView.memoryEstimateBytes ?? 0
+                let estimate = services.cache.existingTerminal(tab.id)?.session.memoryEstimateBytes ?? 0
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .terminal,
                                                         processes: [], estimatedAppBytes: estimate))
                 let key = ObjectIdentifier(daemon)

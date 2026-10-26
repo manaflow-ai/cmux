@@ -675,6 +675,30 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-015: ScreenDragSession ends a screen drag when the app goes inactive (the mouse-up then goes to another app, so the drag's tap intercept never hears it). It subscribes through the app's one AppEvents fan-out (AppServices.appEvents: one NotificationCenter observer for didResignActive for the whole app), only for the drag's life; the subscription is released when the drag ends. TabDragSession and LinkDragSession also end on resign. The fan-out registers no second NotificationCenter observer."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
     }
   ],
   "observer_wrappers": [

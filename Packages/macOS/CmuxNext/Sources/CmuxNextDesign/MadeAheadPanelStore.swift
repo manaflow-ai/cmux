@@ -102,7 +102,7 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     }
 
     private func check(after delay: Duration, triesLeft: Int) {
-        timer.schedule(after: delay) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: delay) { [weak self] in
             guard let self else { return }
             warmChecks += 1
             defer { checkRan.yield() }

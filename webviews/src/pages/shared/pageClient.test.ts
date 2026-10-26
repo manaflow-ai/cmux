@@ -7,6 +7,8 @@ import {
   KEEP_ALIVE_OP,
   PageKeepAlive,
   pageError,
+  RESTORE_NAME,
+  takePageRestore,
   type PageClient,
   type PageEventMeta,
   type ReplyHandler,
@@ -126,5 +128,41 @@ describe("PageKeepAlive", () => {
     const keep = new PageKeepAlive(null);
     keep.set("capture", true);
     expect(keep.has("capture")).toBe(true);
+  });
+});
+
+// A document that comes back after a discard (PageWebView+Discard.swift) reads the state its page
+// saved when it hid, once, before its first paint.
+describe("takePageRestore", () => {
+  test("a restored document gets its saved state once", () => {
+    const target: Record<string, unknown> = {
+      [RESTORE_NAME]: { wasDiscarded: true, state: { route: "#/a", scroll: 120 } },
+    };
+    expect(takePageRestore(target)).toEqual({ wasDiscarded: true, state: { route: "#/a", scroll: 120 } });
+    expect(takePageRestore(target)).toBeNull();
+    expect(RESTORE_NAME in target).toBe(false);
+  });
+
+  test("a restored page that saved nothing gets null state", () => {
+    expect(takePageRestore({ [RESTORE_NAME]: { wasDiscarded: true, state: null } })).toEqual({
+      wasDiscarded: true,
+      state: null,
+    });
+  });
+
+  test("the bridge client takes the restore when it is made, before the page renders", () => {
+    const handler: ReplyHandler = { postMessage: async () => ({ t: "ok", id: 1 }) };
+    const target: Record<string, unknown> = {
+      [RESTORE_NAME]: { wasDiscarded: true, state: { draft: "hello" } },
+    };
+    const client = new BridgePageClient(handler, target);
+    expect(client.restore).toEqual({ wasDiscarded: true, state: { draft: "hello" } });
+    expect(RESTORE_NAME in target).toBe(false);
+    expect(new BridgePageClient(handler, {}).restore).toBeNull();
+  });
+
+  test("a document that was not discarded gets nothing", () => {
+    expect(takePageRestore({})).toBeNull();
+    expect(takePageRestore({ [RESTORE_NAME]: { wasDiscarded: false, state: 1 } })).toBeNull();
   });
 });
