@@ -35,10 +35,10 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// else a Cloud machine id. Lets a window wait for its machine to
     /// reconnect after relaunch instead of falling back to a local workspace.
     public var machine: String?
-    /// The machine of each listed workspace that is not on this Mac (workspace key -> SSH, Cloud
-    /// or server machine id). After a relaunch a workspace whose machine has not reported its tree
-    /// (a Cloud machine the idle auto-pause parked, a link still connecting) stays in this window
-    /// until that machine answers, instead of reading as gone (`WindowManager.isDead`).
+    /// The machine of each listed workspace that is not on this Mac (workspace key -> machine id).
+    /// After a relaunch a workspace on a Cloud machine that has not reported its tree (the idle
+    /// auto-pause parked it, its link is still connecting) stays in this window until that machine
+    /// answers, instead of reading as gone (`WindowManager.isDead`).
     public var workspaceMachines: [String: String]
     /// Selected screen within that workspace (screen resource id).
     public var screenID: ResourceID?

@@ -28,6 +28,13 @@ struct CloudWorkspaceRestoreTests {
         #expect(older.workspaceMachines.isEmpty, "a record from an older build has no workspace machines")
     }
 
+    @Test func aRecordsOwnWorkspaceMachinesWinOverTheMachineOfItsShownWorkspace() {
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: Self.cloudWorkspace), machine: "vm-shown")
+        record.workspaceMachines = [Self.cloudWorkspace: "vm-1"]
+        let older = WindowRecord(id: "w2", workspaceKey: WorkspaceKey(rawValue: "ws-older"), machine: "vm-2")
+        #expect(WindowStateDocument(windows: [record, older]).workspaceMachines == [Self.cloudWorkspace: "vm-1", "ws-older": "vm-2"])
+    }
+
     @Test func pruneDropsTheMachineOfAPrunedWorkspace() {
         var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-a"),
                                   workspaceKeys: [WorkspaceKey(rawValue: "ws-a"), WorkspaceKey(rawValue: Self.cloudWorkspace)])
@@ -92,7 +99,7 @@ struct CloudWorkspaceRestoreTests {
         let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-restore-test")
         let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-restore-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Restore VM"), link: link, mainWork: services.mainWork)
+        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .paused, displayName: "Restore VM"), link: link, mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }

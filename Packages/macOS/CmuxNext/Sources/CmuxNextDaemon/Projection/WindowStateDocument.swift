@@ -39,13 +39,13 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     }
 
     /// The machine each saved workspace was last seen on, when not this Mac (workspace key ->
-    /// machine id): every record's `workspace_machines`, and `machine` for the workspace an older
-    /// record showed. The first record to name a workspace wins.
+    /// machine id): every record's `workspace_machines`, then `machine` for the workspace a record
+    /// from an older build showed. The first record to name a workspace wins.
     public var workspaceMachines: [String: String] {
         var machines: [String: String] = [:]
+        for window in windows { machines.merge(window.workspaceMachines) { kept, _ in kept } }
         for window in windows {
             if let shown = window.workspaceKey?.rawValue, let machine = window.machine, machines[shown] == nil { machines[shown] = machine }
-            machines.merge(window.workspaceMachines) { kept, _ in kept }
         }
         return machines
     }

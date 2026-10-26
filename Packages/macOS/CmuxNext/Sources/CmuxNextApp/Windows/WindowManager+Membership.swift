@@ -414,7 +414,7 @@ extension WindowManager {
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
-    /// for those this launch has not seen: a workspace on a paused or connecting machine keeps its window.
+    /// for those this launch has not seen: a workspace on a paused or connecting Cloud machine keeps its window.
     func rememberMachines(of document: WindowStateDocument) {
         seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
     }
