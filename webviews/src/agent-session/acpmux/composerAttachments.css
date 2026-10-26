@@ -364,13 +364,17 @@
   width: min(520px, calc(100vw - 32px));
   padding: 0 0 16px;
   overflow: hidden;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border-strong);
+  /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
+  border: var(--cmux-hairline, 0.5px) solid transparent;
   border-radius: 12px;
-  background: var(--agent-page-bg);
+  /* Glass, not the page color: a translucent window's page color is clear, so the chat read
+     through the viewer (as the Add project dialog, addProject.css). */
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--surface-popup);
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
-  box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-viewer-bar {
   display: flex;
@@ -455,6 +459,19 @@
 .acpmux-attachment-note {
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  white-space: nowrap;
+}
+/* Reorder instructions and status belong to the accessibility tree only. Keep this local to the
+   attachment strip so a missing or late global utility stylesheet can never expose them as UI. */
+.acpmux-attachment-voiceover-only {
+  position: absolute;
+  inline-size: var(--cmux-hairline);
+  block-size: var(--cmux-hairline);
+  margin: calc(-1 * var(--cmux-hairline));
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 /* The prompt's context menu host wraps the field without a box of its own. */

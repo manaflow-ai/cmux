@@ -324,6 +324,15 @@ Object.assign(variants, {
           collection_title: "Apple Wallpapers",
           downloaded: false,
         },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+          downloaded: false,
+        },
       ],
     },
     backdropImages: {
@@ -805,6 +814,12 @@ Object.assign(variants, {
   "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
+  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
+    focus: "home.chiefPetMascot",
+    options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
+    note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
   }),
   // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
   "chief-look-bubbles": variant("chief", {

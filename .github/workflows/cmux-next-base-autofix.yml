@@ -26,8 +26,7 @@ name: cmux-next base autofix
 # swift test: the action-exports job regenerates them on a Mac at the newest
 # tip (scripts/cmux-next/base-autofix-action-exports.sh) and autofix copies them in
 # before it rewrites the docs shortcuts from them. The settings exports
-# (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
-# schemas/settings-export/settings-schema.sources.sha256) need one too: the
+# (schemas/settings/settings-schema.json, docs/mdm) need one too: the
 # same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
 # when CmuxNextSettings or an export changed, again on the newest tip while a
 # push moves their inputs (scripts/cmux-next/base-autofix-settings-exports.sh,
@@ -69,6 +68,8 @@ on:
       - plans/cmux-next/links.json
       - scripts/cmux-next/regenerate-action-exports.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - schemas/settings-export/**
       - docs/mdm/**
       - scripts/ci/defaults_guard.py
@@ -142,8 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
-          # base-autofix-changed.sh: since..HEAD without grafting since into this depth-1 checkout, plus
-          # a stale settings stamp at HEAD.
+          # base-autofix-changed.sh: since..HEAD without grafting since into this depth-1 checkout.
           if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
@@ -287,7 +287,7 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The settings exports and their source stamp, into the same artifact. A push that
+      # The settings exports, into the same artifact. A push that
       # moves their inputs meanwhile would hold them at the push (base-autofix-push.sh), and one
       # nearly always does in a half-hour run, so they are made again on the newest tip (this
       # checks the tip out; the action exports above are already copied out) up to three
@@ -500,7 +500,6 @@ jobs:
           # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
           # base-autofix-changed.sh reads since..HEAD without grafting since into this depth-1 checkout:
           # a graft cut the tip's history off before HEAD, and every Mac export was held (run 39617667536).
-          # A stale settings stamp at HEAD counts as a settings change.
           if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             echo "No successful run to diff from; running every repair."
             scripts/cmux-next/autofix-areas.sh --all | tee -a "$GITHUB_OUTPUT"
@@ -643,9 +642,11 @@ jobs:
         if: success() && needs.action-exports.result == 'success' && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
         env:
           HEAD_SHA: ${{ github.sha }}
+          SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
+          EXPORTS_DIR: ${{ runner.temp }}/action-exports
         run: |
           set -euo pipefail
-          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
+          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$EXPORTS_DIR" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum

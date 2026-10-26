@@ -107,6 +107,26 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+/** The facts of a typed failure (`errorKind`); only the keys that apply are present. */
+export type ErrorDetails = {
+  /** The program that could not start. */
+  binary?: (string | null);
+  cwd?: (string | null);
+  exitCode?: (number | null);
+  freeBytes?: (number | null);
+  /** When the peer last answered (RFC 3339). */
+  lastSeenAt?: (string | null);
+  /** The folder whose disk is full or low. */
+  path?: (string | null);
+  /** The peer, by its name in `acpmux host ls`. */
+  peer?: (string | null);
+  /** The message is held in the durable outbox and goes when the peer or daemon is back. */
+  queued?: (boolean | null);
+  retryAfterMs?: (number | null);
+  signal?: (string | null);
+  totalBytes?: (number | null);
+} & Record<string, unknown>;
+
 /**
  * Which records a page or an event stream carries: one kind, or any of
  * several. Absent or null: every record.
@@ -186,10 +206,20 @@ export type LastMessage = {
 export type LastTurn = {
   /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
   detail?: (string | null);
+  details?: (ErrorDetails | null);
   endedAt: number;
+  /**
+   * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
+   * treats a kind it does not know as a plain error. The same key is on a request's error
+   * `data` and on the `turn_error` and `turn_result` records.
+   */
+  errorKind?: (string | null);
   errorSource?: (string | null);
   errorText?: (string | null);
   promptId?: (string | null);
+  /** One sentence saying what to do about the failure. */
+  recovery?: (string | null);
   /** `completed`, `failed` or `cancelled`. */
   status?: (string | null);
   stopReason?: (string | null);
@@ -398,6 +428,8 @@ export type PermissionPending = {
 
 export interface PermissionRespondParams {
   _meta?: (RequestMeta | null);
+  /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
+  annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
@@ -447,6 +479,13 @@ export type PurgedSession = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** The person who queued a prompt in a shared chat. */
+export type QueuedAuthor = {
+  /** `tailnet:<login>` or `user_…`. */
+  id: string;
+  name: string;
+} & Record<string, unknown>;
+
 /** An image a queued prompt sends. */
 export type QueuedImage = {
   /**
@@ -461,6 +500,13 @@ export type QueuedImage = {
 
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
+  /**
+   * The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
+   * `author.rs`), null for the owner's and for an agent's message: an app shows it under their
+   * name and offers none of its own actions on it (only they change it, `queue.not_author`).
+   * Kept across a restart and by their own edit.
+   */
+  author: (QueuedAuthor | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
@@ -497,8 +543,8 @@ export interface RetryParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /**
-   * One of the chat's failed subagents to resume instead. Refused for now
-   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   * One of the chat's failed subagents to resume instead, by its id or agent id
+   * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
    */
   subagentId?: (string | null);
 }
@@ -511,8 +557,9 @@ export interface RetryParams {
 export type RetryReason = "capacity" | "transport" | "agent_exited";
 
 /**
- * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
- * failed prompt) and the turn it started.
+ * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+ * attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+ * it started.
  */
 export type RetryResult = {
   kind: RetryKind;
@@ -631,6 +678,13 @@ export type SessionDetail = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -795,6 +849,13 @@ export type SessionSummary = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
@@ -932,6 +993,11 @@ export interface TypingParams {
 }
 
 export interface ViewParams {
+  /**
+   * An author changes only that person's presence (`hub/presence.rs`), not whether the
+   * chat counts as shown.
+   */
+  _meta?: (AuthorMeta | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;

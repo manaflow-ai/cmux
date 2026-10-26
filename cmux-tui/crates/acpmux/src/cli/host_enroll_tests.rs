@@ -818,9 +818,9 @@ fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
 #[test]
 fn enroll_never_relinks_the_daemon_binary_while_another_update_runs() {
     // Re-review of #24232: `enroll --fix` linked ~/.local/bin/acpmux to the
-    // app's cmux-tui while another update of the host was mid-way; that
-    // update then checked the wrong binary and rolled a healthy build back.
-    // The link now takes the host's update lock.
+    // app's cmux-tui while the host's timer was mid-update; the timer then
+    // checked the wrong binary, rolled back and marked its healthy build as
+    // rolled back for good. The link now takes the host's update lock.
     let linked = RefCell::new(false);
     let fake = tui_only_host(&linked);
     fake.locked.set(true);

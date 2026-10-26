@@ -3,6 +3,7 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::task::BriefsCmd;
 
 #[derive(Parser)]
@@ -314,6 +315,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Print the URL with its bearer token (`--json` always has it in `url`;
+        /// the browser this command opens always gets it).
+        #[arg(long)]
+        show_token: bool,
         /// Replace the dashboard token now: the old link, `ws://` peers that
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
@@ -348,7 +353,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
+    /// The daemon: run, status, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
@@ -374,6 +379,10 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
+    /// The agent's tools to message other sessions and read them (send, ls, last, info): an
+    /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    AcpmuxMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -421,6 +430,9 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -463,10 +475,13 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
-    Status,
+    Status {
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32> },
+    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -477,7 +492,10 @@ pub enum Command {
         end_agents: bool,
     },
     #[command(hide = true)]
-    Config,
+    Config {
+        #[arg(long)]
+        show_token: bool,
+    },
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -705,6 +723,9 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
@@ -833,8 +854,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         dev: bool,
     },
-    /// Daemon status, hosts, and the web URL.
-    Status,
+    /// Daemon status, hosts, and the web URL (without its token).
+    Status {
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start {
         /// Read this launch's person key (64 hex characters, one line) from
@@ -843,12 +868,15 @@ pub enum DaemonCmd {
         /// or VM provisioning passes it; refused while a daemon runs.
         #[arg(long)]
         person_key_fd: Option<i32>,
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
     },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
     /// exited, and fails naming any host left.
-    #[command(alias = "kill-server")]
+    #[command(visible_alias = "stop", alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds, where a plain shutdown ended
         /// the agents; hosted agents keep running anyway.
@@ -858,8 +886,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         end_agents: bool,
     },
-    /// Print the config path and contents.
-    Config,
+    /// Print the config path and contents (without its tokens).
+    Config {
+        /// Print the bearer tokens too (`--json` always has them).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
@@ -871,168 +903,6 @@ pub enum DaemonCmd {
         /// Forget the reported catalogs and probe every harness again now.
         #[arg(long)]
         refresh: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PeerCmd {
-    /// Add a peer. URL is ws://host:port, wss://…, or ssh://host (tunnel
-    /// opened by acpmux; token read from the remote config). Sessions appear
-    /// as NAME/session.
-    Add {
-        name: String,
-        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
-        url: Option<String>,
-        #[arg(long)]
-        token: Option<String>,
-    },
-    /// List peers and their connection state.
-    Ls,
-    /// Each peer's health, asked live: reachable, round trip, disk free,
-    /// load, live sessions and build, this machine first. Run it before
-    /// remote work and after a peer request fails, instead of retrying blind.
-    Status {
-        /// Only this peer.
-        name: Option<String>,
-    },
-    /// Where new work should go: this machine and each peer weighed by its
-    /// room (RAM, cores less load, disk, lane cap) and its role in
-    /// fleet-registry.json, from the readings the links already keep. The
-    /// pick `new --host auto` and `dispatch --host auto` make, with why.
-    Place {
-        /// For a build or test suite: only build hosts.
-        #[arg(long)]
-        build: bool,
-    },
-    /// Remove a peer.
-    Rm { name: String },
-    /// Pairing tickets for adding a machine with one pasted line: `new`
-    /// mints one, `ls` lists tickets and paired machines, `revoke` ends one.
-    #[command(subcommand)]
-    Ticket(TicketCmd),
-    /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
-    Join {
-        ticket: String,
-        /// This machine's name on the other one (default: the host name's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// The other machine's peer name here (default: its name in the ticket).
-        #[arg(long)]
-        peer_name: Option<String>,
-        /// A daemon-role ticket: the wss:// URL (or ws:// to a loopback host)
-        /// the other machine reaches this daemon at.
-        #[arg(long)]
-        advertise: Option<String>,
-    },
-    /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
-    Setup {
-        /// ssh target, e.g. cmux-lawrence or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// Port the remote daemon listens on (loopback; tunnelled over ssh).
-        #[arg(long, default_value_t = 47811)]
-        port: u16,
-    },
-    /// Copy this binary to an ssh peer (or every one with --all) and restart
-    /// its daemon. The previous binary is kept and put back when the
-    /// restarted daemon does not answer with the new build; a daemon under a
-    /// hand-written acpmux unit is moved to acpmux.service, agents kept.
-    Update {
-        name: Option<String>,
-        #[arg(long)]
-        all: bool,
-        /// Push DIR/acpmux-<target> instead, the target from the peer's
-        /// `uname -sm` (x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
-        /// aarch64-apple-darwin, x86_64-apple-darwin).
-        #[arg(long, value_name = "DIR")]
-        binary_dir: Option<PathBuf>,
-        /// Leave a peer alone while one of its sessions runs a turn or waits
-        /// on a permission (but the session this command runs in).
-        #[arg(long)]
-        if_idle: bool,
-    },
-    /// Add a machine in one go: check ssh, install this build, start the
-    /// daemon, copy harness profiles and peer to it (and, with --reverse,
-    /// back). One line per step.
-    Enroll {
-        /// ssh target, e.g. huge-blue or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// A harness profile to copy (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        /// The remote binary to install; another than ~/.local/bin/acpmux
-        /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also register this machine as a peer on the host (peer-back). Off
-        /// by default: two daemons that list each other relay one another's
-        /// sessions both ways.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// Check a machine (a peer name or an ssh host) step by step; --fix
-    /// repairs what fails. Without --fix nothing changes.
-    Doctor {
-        target: String,
-        #[arg(long)]
-        fix: bool,
-        /// A harness profile to check (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also check (and with --fix, add) this machine as a peer on the host.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// The tailnet's machines that could be added, marking those already peers.
-    Candidates {
-        /// Also try key-only ssh to each online machine.
-        #[arg(long)]
-        probe: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TicketCmd {
-    /// Mint a single-use ticket; prints the line to run on the new machine.
-    New {
-        /// daemon (this machine drives the new one), client (the new one
-        /// drives this one) or read-only (the new one only watches).
-        #[arg(long, default_value = "client")]
-        role: String,
-        /// How long the ticket lives: 900, 15m or 2h (at most 24h).
-        #[arg(long, default_value = "15m")]
-        ttl: String,
-        /// The wss:// URL the new machine dials (default: this daemon's
-        /// listener, when it listens on loopback).
-        #[arg(long)]
-        url: Option<String>,
-        /// A note shown in `ticket ls`.
-        #[arg(long)]
-        label: Option<String>,
-    },
-    /// Tickets and paired machines (no secrets).
-    #[command(alias = "list")]
-    Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open connections close at once.
-    Revoke { id: String },
-    /// Let a paired client machine run chats in Full access (on), or not
-    /// (off, the default): the agent edits files and runs commands on this
-    /// machine without asking. On needs the person (the cmux app's Settings);
-    /// off takes effect at once.
-    FullAccess {
-        /// The machine's id or name (`cmux host ticket ls`).
-        id: String,
-        /// on or off.
-        #[arg(value_parser = ["on", "off"])]
-        state: String,
     },
 }
 
@@ -1126,6 +996,10 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Create the session even when its host refuses new ones (disk under its
+    /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
+    #[arg(long)]
+    pub force_admit: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -1138,7 +1012,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session } => Command::ResumeQueue { session },
-            SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
+            SessionCmd::Fork { session, name, cwd, force_admit } => {
+                Command::Fork { session, name, cwd, force_admit }
+            }
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
@@ -1182,12 +1058,14 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
             },
-            DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
+            DaemonCmd::Status { show_token } => Command::Status { show_token },
+            DaemonCmd::Start { person_key_fd, show_token } => {
+                Command::DaemonStart { person_key_fd, show_token }
+            }
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
-            DaemonCmd::Config => Command::Config,
+            DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Schema => Command::Schema,
@@ -1435,6 +1313,31 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and
+    /// no hint, but the command is `daemon shutdown`. Anyone who knows `session stop` will guess
+    /// "stop"."
+    #[test]
+    fn daemon_stop_is_daemon_shutdown_and_help_says_so() {
+        use super::{Command, flatten};
+        for (argv, want_end_agents) in [
+            (&["acpmux", "daemon", "stop"][..], false),
+            (&["acpmux", "daemon", "stop", "--end-agents"][..], true),
+            (&["acpmux", "--json", "daemon", "stop", "--keep-agents"][..], false),
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            match cli.command.map(flatten) {
+                Some(Command::Shutdown { end_agents, .. }) => {
+                    assert_eq!(end_agents, want_end_agents, "{argv:?}")
+                }
+                _ => panic!("{argv:?} is not daemon shutdown"),
+            }
+        }
+        // `daemon --help` lists it on shutdown's line: `[aliases: stop]`.
+        let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
+        let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
+        assert!(line.contains("stop]"), "daemon --help does not list the stop alias:\n{help}");
     }
 
     #[test]
