@@ -141,8 +141,13 @@ public final class TerminalHostView: NSView {
     }
 
     /// The link status label over the terminal (hidden while connected).
-    var statusText: String? {
+    public var statusText: String? {
         banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+    }
+
+    /// The dead-tab overlay shows "Restart Shell Here" (`debug.surfaces`).
+    public var offersRestart: Bool {
+        restartButton.map { !$0.isHidden } ?? false
     }
 
     func showStatus(_ status: TerminalConnectionStatus) {

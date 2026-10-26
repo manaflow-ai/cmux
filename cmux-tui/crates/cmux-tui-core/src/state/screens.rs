@@ -100,6 +100,7 @@ impl StripRequest {
 }
 
 /// The in-transaction write of a screen edit: rows, restatements, result.
+#[track_caller]
 fn screen_rows_write(
     before: &ScreenPresentationState,
     edit: ScreenEdit,
@@ -192,6 +193,7 @@ impl Mux {
     /// workspaces. `mutate` edits a clone of the live state and the screen
     /// rows; both commit together, then the clone replaces the live state.
     /// Returns `mutate`'s output (`None` on a replay, which runs nothing).
+    #[track_caller]
     pub(crate) fn commit_screen_request<R>(
         self: &Arc<Self>,
         request: StripRequest,
@@ -298,6 +300,7 @@ impl Mux {
 
     /// Commit screen rows that leave screen order alone (color, icon, group
     /// name, color and collapsed state, ungroup, saved links).
+    #[track_caller]
     pub(crate) fn commit_screen_rows<R>(
         &self,
         request: StripRequest,
@@ -340,6 +343,7 @@ impl Mux {
 
     /// The v2 screen operations: `screen.update`, `screen.move`, and
     /// `screen_group.create|add_screens|remove_screens|update|ungroup`.
+    #[track_caller]
     pub(crate) fn state_screen_change(
         self: &Arc<Self>,
         request: StripRequest,
@@ -398,6 +402,7 @@ impl Mux {
 
     /// Set a screen's color, icon, and pin in one commit. Pinning reorders
     /// (pinned screens first) and leaves the screen's group.
+    #[track_caller]
     pub(crate) fn update_screen_presentation(
         self: &Arc<Self>,
         request: StripRequest,

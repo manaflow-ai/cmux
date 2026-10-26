@@ -9,6 +9,7 @@ import contextlib
 import ctypes
 import importlib.util
 import io
+import itertools
 import json
 import os
 import plistlib
@@ -396,7 +397,9 @@ class MainHiddenWakeTests(unittest.TestCase):
             self.measure = stack.enter_context(mock.patch.object(ib, "measure", return_value=measured))
             self.sample = stack.enter_context(mock.patch.object(ib, "run_sample", return_value=SAMPLE))
             self.count = stack.enter_context(mock.patch.object(ib, "count_main_callouts", return_value=trace()))
+            clock = itertools.count(step=1.0)  # minimize()'s bounded wait ends without real time passing
             stack.enter_context(mock.patch.object(ib.time, "sleep", lambda _s: None))
+            stack.enter_context(mock.patch.object(ib.time, "monotonic", lambda: next(clock)))
             stack.enter_context(contextlib.redirect_stdout(out))
             with self.assertRaises(SystemExit) as raised:
                 ib.main(["--app", self.app, "--out", os.path.join(self.folder, "out"), "--sessions", sessions,
@@ -411,7 +414,8 @@ class MainHiddenWakeTests(unittest.TestCase):
         app = FakeApp.instances[0]
         for key in ("CMUX_NEXT_BENCH_SHIPPING_DRAW", "CMUX_NEXT_DEV_SENTRY", "CMUX_NEXT_DEV_HANG_REPORTS"):
             self.assertEqual(app.env[key], "1")
-        self.assertIn(("action.run", {"action": "minimizeWindow", "focus": False, "origin": "script"}), app.calls)
+        self.assertIn(("action.run", {"action": "minimizeWindow", "args": {}, "focus": False, "origin": "script"}),
+                      app.calls)
         self.assertIsNone(self.measure.call_args.kwargs["ledger_limit"])  # every ledger owner in a hidden session
         self.assertEqual(self.sample.call_count, 3)  # 3 x 10 s
         self.assertEqual(self.count.call_count, 1)
@@ -438,7 +442,7 @@ class MainHiddenWakeTests(unittest.TestCase):
         self.assertEqual(report["session_exits"], {"light-hidden": 1, "minimized": 1})
         failed = [line for line in lines if line.startswith("IDLE-BUDGET-SESSION-FAILED")]
         self.assertIn("not hidden", failed[0])
-        self.assertIn("not miniaturized", failed[1])
+        self.assertIn("not minimized", failed[1])
         self.assertFalse(any(line.startswith("HIDDEN-WAKE") for line in lines))
         self.measure.assert_not_called()
 

@@ -167,7 +167,7 @@ impl Mux {
                     }
                     continue;
                 }
-                std::thread::sleep(cell_pixel_retry_delay(task.attempts));
+                crate::request_path::sleep(cell_pixel_retry_delay(task.attempts));
                 let Some(mux) = mux.upgrade() else { return };
                 let mut retries = mux.cell_pixel_retries.lock().unwrap();
                 if retries.pending.is_none() {

@@ -5,9 +5,9 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 model="${1:-hovercard}"
-version="1.8.0"
+version="1.7.4"  # the run-tlc.sh pin; v1.8.0 is a rolling prerelease whose jar changes
 url="https://github.com/tlaplus/tlaplus/releases/download/v${version}/tla2tools.jar"
-sha256="edee9330068fbb7be0bc9dc2bc928f5918a7635b5ee4da56dbb48556b7afa6a2"
+sha256="936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/tla2tools-${version}.jar"
 if [[ ! -f "$cache" ]]; then
   mkdir -p "$(dirname "$cache")"

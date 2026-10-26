@@ -92,7 +92,7 @@ import WebKit
     /// A page web view with `id`, not loaded.
     static func page(_ id: String) -> PageWebView {
         let configuration = WKWebViewConfiguration()
-        return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", namespaces: []), configuration: configuration,
+        return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", processGroup: .solo, namespaces: []), configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
     }

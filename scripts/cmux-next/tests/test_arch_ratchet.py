@@ -509,6 +509,21 @@ class SingletonTests(Repo):
                 rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Ui.swift": decl + f"enum Ui {{\n    {use}\n}}\n"})
                 self.assertEqual(rows, ["stateful_singletons"], use)
 
+    def test_a_nested_type_shadows_the_system_type_of_its_name_in_its_own_file(self):
+        # p06-scheduler-004 review: CmuxNextFeatures' value struct `Feature` holds a nested `enum Process`; Swift
+        # resolves `Process` inside `Feature` to that enum, so a generated `static let x = Feature(...)` holds no
+        # Foundation.Process. Another file of the package that says `Process()` still means Foundation's.
+        self.write(f"{SRC}/CmuxNextDomain/Feature.swift",
+                   "public struct Feature: Sendable {\n    public enum Process: String, Sendable {\n        case app\n    }\n"
+                   "    public let process: Process\n    public static let local = Feature(process: .app)\n}\n")
+        self.base = self.commit("a value struct with a nested Process")
+        rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Features.generated.swift":
+                                     "extension Feature {\n    public static let starvation = Feature(process: .app)\n}\n"})
+        self.assertEqual(rows, [])
+        self.git("reset", "--quiet", "--hard", self.base)
+        rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Helper.swift": "enum Helper {\n    static let tool = Process()\n}\n"})
+        self.assertEqual(rows, ["stateful_singletons"])
+
     def test_a_protocol_annotation_does_not_hide_a_stateful_initializer(self):
         rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Live.swift":
                                      "protocol Storing: AnyObject {}\nextension Store: Storing {}\n"

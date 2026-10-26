@@ -113,6 +113,19 @@ extension Motion {
         return animation
     }
 
+    /// `loop`, asking the render server for `rate` when `policy` paces loops
+    /// (``MotionPolicy/pacesLoops``): a spinner draws at 30 Hz, not at the display's 120, as the
+    /// display link runs at the rate its clients ask for (``DisplayClock/followsClientRates``;
+    /// Chrome's per-sink preferred frame interval, components/viz/service/display/frame_rate_decider.cc).
+    /// Never a timing change: the loop's period and curve stay as they are.
+    static func paced(_ loop: CAAnimation, _ policy: MotionPolicy, at rate: FrameRate = .ambient) -> CAAnimation {
+        guard policy.pacesLoops else { return loop }
+        loop.preferredFrameRateRange = rate.range
+        // A group's parts ask for the same rate, so none of them keeps the display's full rate.
+        for part in (loop as? CAAnimationGroup)?.animations ?? [] { part.preferredFrameRateRange = rate.range }
+        return loop
+    }
+
     /// Adds `animation`, closing a `MotionTrace` span when it ends.
     static func add(_ animation: CAAnimation, to layer: CALayer, keyPath: String, trace: String) {
         guard MotionTrace.isEnabled else { return layer.add(animation, forKey: keyPath) }
@@ -349,7 +362,7 @@ extension MotionGate {
         spin.duration = period
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false
-        return spin
+        return Motion.paced(spin, policy)
     }
 
     /// A rotation in `steps` discrete jumps per turn (the native spinner's
@@ -363,7 +376,7 @@ extension MotionGate {
         step.duration = period
         step.repeatCount = .infinity
         step.isRemovedOnCompletion = false
-        return step
+        return Motion.paced(step, policy, at: .stepping(steps, every: period))
     }
 
     /// Steps a layer's `contents` through `frames`, one cycle per `spinner`
@@ -377,7 +390,7 @@ extension MotionGate {
         step.duration = period
         step.repeatCount = .infinity
         step.isRemovedOnCompletion = false
-        return step
+        return Motion.paced(step, policy, at: .stepping(frames.count, every: period))
     }
 
     /// Unmeasured progress: a segment (anchored at its left edge) crosses a
@@ -386,7 +399,8 @@ extension MotionGate {
     /// clips it.
     /// - Parameter policy: The motion settings to follow (the host's injected policy; nil reads this gate's policy).
     public func sweepAnimation(segment: CGFloat, travel: CGFloat, policy: MotionPolicy? = nil) -> CAAnimation? {
-        guard let period = (policy ?? self.policy).period(.sweep), travel > 0 else { return nil }
+        let policy = policy ?? self.policy
+        guard let period = policy.period(.sweep), travel > 0 else { return nil }
         let sweep = CABasicAnimation(keyPath: "position.x")
         sweep.fromValue = -segment
         sweep.toValue = travel
@@ -394,7 +408,7 @@ extension MotionGate {
         sweep.repeatCount = .infinity
         sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
         sweep.isRemovedOnCompletion = false
-        return sweep
+        return Motion.paced(sweep, policy)
     }
 
     /// Agent work's breath (1 -> `low` -> 1 over one `breath` period, eased), or nil when loops
@@ -409,7 +423,7 @@ extension MotionGate {
         breath.repeatCount = .infinity
         breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         breath.isRemovedOnCompletion = false
-        return breath
+        return Motion.paced(breath, policy)
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
@@ -423,7 +437,7 @@ extension MotionGate {
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         pulse.isRemovedOnCompletion = false
-        return pulse
+        return Motion.paced(pulse, policy)
     }
 
     /// Attention flash: two blinks, one fade under Reduce Motion, nil when off.

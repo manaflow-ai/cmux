@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextEnergy
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
@@ -12,6 +13,8 @@ import Darwin
 ///   with a rate over the last 10 complete seconds.
 /// - `frame_schedulers`: each window's display link, its active clients and the links it made, and the app's
 ///   budgeted scheduler (``MainWorkScheduler``: the control queue, the daemon store drain).
+/// - `vsync` (feature `vsyncHub`, else null): the ``VSyncHub``'s live links (displays with an armed subscriber),
+///   paused links, threads and its main fan-out's hop (`main_hop_p99_ms`; threading-model.md's VSyncHub row).
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
 ///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
 ///   the main actor.
@@ -52,6 +55,8 @@ enum DebugWakeups {
                 ]
             }),
             "frame_schedulers": .array(schedulers),
+            "display_links": JSONValue(budgeted.displayClock.liveLinks),
+            "vsync": budgeted.displayClock.hub.map { hub in JSONValue.object(hub.debugCounts.mapValues { JSONValue.number($0) }) } ?? JSONValue.null,
             "active_frame_clients": .array(all.flatMap(\.activeClients).map { .string($0) }),
         ]
         if params["run_loop"]?.boolValue == true {
@@ -115,5 +120,32 @@ nonisolated enum AppProcesses {
             out.append(Sample(kind: isHost ? "terminal-host" : "daemon", usage: usage))
         }
         return out
+    }
+}
+
+extension EnergyReport {
+    /// `debug.energy` over the energy services AppServices builds once (p14-energy-024): the monitor's
+    /// inputs, the driver's resolver state and the scheduler's policy and wake queue; the app's ledger
+    /// (where the main wake queue counts its wakes); and one sample of the processes ``AppProcesses`` lists.
+    init(services: AppServices) {
+        self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
+            AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage) }
+        })
+    }
+
+    private static func state(_ services: AppServices) -> State {
+        let inputs = services.energyMonitor.inputs
+        let driver = services.energyDriver
+        let wakeUps = services.mainWork.wakeUps
+        return State(
+            policy: services.mainWork.energy.policy,
+            inputs: Inputs(featureEnabled: driver.isEnabled, lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery,
+                           hasBattery: inputs.hasBattery, batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
+                           setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
+                           sessionOverride: driver.isOffForSession),
+            wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
+            // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
+            cef: CEF(saver: .unsupported, earlyPasses: nil)
+        )
     }
 }

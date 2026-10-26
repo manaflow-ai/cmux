@@ -84,6 +84,7 @@ pub(crate) struct StripEdit {
 impl Mux {
     /// Commit a tab strip change. Returns `mutate`'s output (`None` on a
     /// replay, which runs nothing) and the commit.
+    #[track_caller]
     pub(crate) fn commit_tab_strip_change<R>(
         self: &Arc<Self>,
         request: StripRequest,
@@ -198,6 +199,7 @@ impl Mux {
 }
 
 /// The in-transaction write of a strip edit: rows, restatements, result.
+#[track_caller]
 fn strip_state_write(
     before: &crate::workspace_registry::PresentationSnapshot,
     edit: StripEdit,

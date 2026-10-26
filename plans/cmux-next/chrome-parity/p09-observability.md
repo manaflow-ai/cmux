@@ -1336,7 +1336,9 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Files: S/CmuxNextTerminal/GhosttyTraceHook.swift, S/CmuxNextTerminal/TerminalSurfaceView.swift.
 - Change: A `@convention(c)` hook writes ghostty.render begin and end, frame.gpu_done and the contents mark
   (IOSurface handoff) for the surface's open flow (019's table). It also gives 054 its sample end. It is
-  installed at start. When nothing uses it, the pointer is null.
+  installed at start. When nothing uses it, the pointer is null. At the IOSurface handoff it also calls
+  the surface's `TerminalEchoStage.contentsSet()` (p04-input-006), and `TerminalEchoStages.makeStage()`
+  then makes echo stages in Release too (today only DEBUG and bench builds, which have the swizzle).
 - Acceptance:
   - 0 allocations (synthetic call test).
   - In a STRESS trace, ghostty.render falls between app.output.parsed and frame.commit.

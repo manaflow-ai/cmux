@@ -1239,11 +1239,12 @@ def stale_baseline_paths(repo: Path, ranges: list, trusted_scripts: Path | None)
 
 
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
-# source lines unlike CI's check-app-size.sh. push_range.py decides which commits are the push's own, for the
+# source lines unlike CI's check-app-size.sh. Its wakeup-ext rule loads wakeup-audit.py and, through it,
+# check-concurrency.sh (the Swift wakeup rules). push_range.py decides which commits are the push's own, for the
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py", "follow-renames.py")
+                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh")
 RULES_SUBDIR = "arch_rules"
 
 

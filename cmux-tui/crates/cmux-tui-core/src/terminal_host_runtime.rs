@@ -372,6 +372,7 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
+    use cmux_process::Stdio;
     #[cfg(test)]
     use std::collections::HashMap;
     use std::fs::{self, File, OpenOptions};
@@ -384,8 +385,6 @@ mod unix {
     #[cfg(test)]
     use std::os::unix::net::UnixListener;
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
     #[cfg(test)]

@@ -173,16 +173,20 @@ public actor DaemonConnection {
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
+    /// `onTransport` runs on the actor with the transport that carries the request, after the
+    /// handoff wait and before the line is sent; it throws to cancel the request.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
-                                       as type: R.Type, timeout: Duration? = nil) async throws -> R {
+                                       as type: R.Type, timeout: Duration? = nil,
+                                       onTransport: (LineTransport) throws -> Void = { _ in }) async throws -> R {
         await waitOutHandoff()
         guard let ready else { throw DaemonError.notConnected }
+        try onTransport(ready.transport)
         requestStarted()
         defer { requestEnded() }
         let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
-        return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
+        return try ResourceRequestEnvelope.decodeResult(R.self, from: response)
     }
 
     /// Delivers an event the connection itself produced, after those routed so far.
@@ -210,17 +214,21 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge,
+                                              role: configuration.role == .pageRelay ? .pageRelay : .control,
+                                              stats: endpoint.wireStats, hangs: configuration.hangWatch)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
             let eventSourceID = eventSourceID
             let raw = configuration.role == .pageRelay
+            let decoder = transport.decoder
             transport.start(
                 onEvent: { [weak self] name, line, index in
+                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                        : DaemonEvent.decode(name: name, line: line, decoder: decoder)
                     let envelope = DaemonEventEnvelope(
-                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
-                        event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line), sourceID: eventSourceID)
+                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID)
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }

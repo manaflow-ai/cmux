@@ -21,12 +21,14 @@ pub(super) struct LedgerMaintenance {
 }
 
 impl Mux {
+    #[track_caller]
     pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) {
         if let Err(error) = self.try_ledger_maintenance(state) {
             eprintln!("cmux-tui: mutation ledger maintenance deferred: {error:#}");
         }
     }
 
+    #[track_caller]
     fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
         let mut drained = false;
         let mut corrupt = false;
@@ -51,6 +53,7 @@ impl Mux {
         if due { self.scan_and_quarantine_ledgers(state) } else { Ok(()) }
     }
 
+    #[track_caller]
     fn scan_and_quarantine_ledgers(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
         let Some(database) = self
             .workspace_registry

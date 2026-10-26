@@ -1536,6 +1536,44 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequestLatency:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestLatency'
+    agent: ServerStatsHistogram
+    browser: ServerStatsHistogram
+    cloud: ServerStatsHistogram
+    create: ServerStatsHistogram
+    other: ServerStatsHistogram
+    query: ServerStatsHistogram
+    terminal_io: ServerStatsHistogram
+    topology: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
+class ServerStatsRequestPathIo:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathIo'
+    child_process: int
+    fs_write: int
+    host_wait: int
+    journal_wait: int
+    network: int
+    proc_scan: int
+    process_spawn: int
+    recording: bool
+    scopes: int
+    sites: List[ServerStatsRequestPathSite]
+    sleep: int
+    sqlite: int
+    lock_hold_over_1ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsRequestPathSite:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathSite'
+    kind: str
+    site: str
+
+
+@dataclass(frozen=True)
 class ServerStatsResourceProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
     commit_apply_us: ServerStatsHistogram
@@ -1565,8 +1603,34 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
+    request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    slow_requests: Union[ServerStatsSlowRequests, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequest:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequest'
+    client: int
+    busy_ms: int
+    duration_ms: Union[int, None]
+    method: str
+    started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequests:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequests'
+    expected_waits: int
+    recent: List[ServerStatsSlowRequest]
+    spawn_failures: int
+    threshold_ms: int
+    total: int
+    unwatched: int
+    watchdog_wakeups: int
 
 
 @dataclass(frozen=True)
@@ -6109,8 +6173,13 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsRequestLatency',
+    'ServerStatsRequestPathIo',
+    'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsSlowRequest',
+    'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetHostSizePolicyResult',
