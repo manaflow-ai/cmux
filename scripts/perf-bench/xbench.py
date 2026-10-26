@@ -50,6 +50,8 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
 Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py run --out DIR --app NAME=BUNDLE ... [--browsers a,b] [--rounds 3]
       [--launches 2] [--idle 60] [--active 30] [--settle 30] [--max-load 4]
+      [--chrome-extension DIR]   (D6: the uBlock Origin cmux bundles, scripts/cmux-next/fetch-ublock.sh; MV2, so
+                                  --app chrome= must be a Chromium that runs MV2, such as ungoogled-chromium)
   xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
@@ -292,13 +294,28 @@ class ChromiumBrowser(Browser):
     can_link = True
     flags = ["--no-first-run", "--no-default-browser-check", "--password-store=basic", "--use-mock-keychain",
              "--mute-audio", "--window-size=1280,800", "--window-position=40,80", "--remote-allow-origins=*",
-             "--hide-crash-restore-bubble", "--disable-features=ChromeWhatsNewUI"]
+             "--hide-crash-restore-bubble"]
+    disabled_features = ["ChromeWhatsNewUI"]
+    # --load-extension: branded Google Chrome ignores it from 137 with no switch back from 142 (Chromium
+    # 04f6233ce5be), and Chromium runs no Manifest V2 extension from 139 (full uBlock Origin is MV2). Load
+    # extensions into a Chromium that runs them (ungoogled-chromium for MV2); extension_targets() reports
+    # what actually started.
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, extensions: list[str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.port = 0
+        self.extensions = [os.path.abspath(path) for path in extensions or []]  # unpacked extension folders
         if self.name == "ardia":
             self.can_link = False  # Ardia ignores URLs in argv (its own method says so)
+
+    def info(self) -> dict:
+        return {**super().info(), **({"extensions": self.extensions} if self.extensions else {})}
+
+    def switches(self) -> list[str]:
+        """The launch switches: the shared flags, the unpacked extensions, and one --disable-features
+        (Chromium reads only the last one on a command line)."""
+        loads = [f"--load-extension={','.join(self.extensions)}"] if self.extensions else []
+        return [*self.flags, *loads, f"--disable-features={','.join(self.disabled_features)}"]
 
     def launch(self, profile: str, url: str | None):
         self.port = free_port()
@@ -309,7 +326,7 @@ class ChromiumBrowser(Browser):
             env.update({"ARDIA_REMOTE_DEBUGGING_PORT": str(self.port), "ARDIA_DATA_DIR": os.path.join(profile, "data")})
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
         argv += ["-a", self.bundle, "--args", f"--user-data-dir={os.path.join(profile, 'data')}",
-                 f"--remote-debugging-port={self.port}", *self.flags]
+                 f"--remote-debugging-port={self.port}", *self.switches()]
         if url and self.can_link:
             argv.append(url)
         subprocess.run(argv, check=True, timeout=60)
@@ -338,6 +355,11 @@ class ChromiumBrowser(Browser):
 
     def pages(self) -> list[dict]:
         return [t for t in self.cdp("/json/list") if t.get("type") == "page"]
+
+    def extension_targets(self) -> list[dict]:
+        """The extension background pages and service workers DevTools lists: the extensions that run."""
+        return [t for t in self.cdp("/json/list") if t.get("type") in ("background_page", "service_worker")
+                and t.get("url", "").startswith("chrome-extension://")]
 
     def adopt_first(self, tab_id: str):
         """The launch URL's tab becomes tabs[0]; every other page closes."""
@@ -555,12 +577,13 @@ def window_rows(rows: dict) -> dict:
     return out
 
 
-def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconServer) -> Browser:
+def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconServer,
+                 extensions: list[str] | None = None) -> Browser:
     if name in CMUX:
         return CmuxBrowser(name, bundle, helper, server)
     if name == "safari":
         return SafariBrowser(name, bundle, helper, server)
-    return ChromiumBrowser(name, bundle, helper, server)
+    return ChromiumBrowser(name, bundle, helper, server, extensions=extensions)
 
 
 def can_launch_apps() -> bool:
@@ -684,6 +707,10 @@ class Run:
             browser.launch(profile, self.server.url("idle", first) if browser.can_link or browser.name == "safari" else None)
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
+            if isinstance(browser, ChromiumBrowser) and browser.extensions:
+                sleep(2)  # bench: the extensions' background pages start after the DevTools port
+                running = [t["url"] for t in browser.extension_targets()]
+                log(f"{browser.name}: extensions asked {browser.extensions}, running {running}")
             if browser.name == "cmux-terminal":
                 sleep(a.settle)
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
@@ -804,7 +831,8 @@ class Run:
             if not bundle or not os.path.isdir(bundle):
                 log(f"{name}: no bundle (--app {'cmux' if name in CMUX else name}=PATH), skipped")
                 continue
-            browsers.append(make_browser(name, bundle, self.helper, self.server))
+            browsers.append(make_browser(name, bundle, self.helper, self.server,
+                                         a.chrome_extension if name == "chrome" else None))
         meta_path = os.path.join(self.out, "meta.json")
         meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         meta.update({"machine": self.machine(), "cmux_ref": a.cmux_ref, "args": vars(a),
@@ -1126,6 +1154,10 @@ def main():
     run.add_argument("--template-settle", type=float, default=45)
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
+    run.add_argument("--chrome-extension", action="append", default=[], metavar="DIR",
+                     help="an unpacked extension Chrome loads (D6: the uBlock Origin cmux bundles, "
+                     "scripts/cmux-next/fetch-ublock.sh; branded Chrome 137+ ignores it, so --app chrome= a "
+                     "Chromium that runs MV2)")
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))

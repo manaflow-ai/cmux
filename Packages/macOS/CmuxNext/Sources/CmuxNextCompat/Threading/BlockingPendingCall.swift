@@ -8,6 +8,8 @@ struct BlockingPendingCall {
     static let depth = 8
 
     var kind: BlockingKind
+    /// What the seam itself waits on: ``kind``, except at a ``BlockingKind/wrongLane`` site.
+    var seamKind: BlockingKind
     var site: Int
     var fileID: StaticString
     var line: UInt
@@ -15,8 +17,9 @@ struct BlockingPendingCall {
     private var addresses: (UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt) = (0, 0, 0, 0, 0, 0, 0, 0)
     private var addressCount = 0
 
-    init(kind: BlockingKind, site: Int, fileID: StaticString, line: UInt) {
+    init(kind: BlockingKind, seamKind: BlockingKind? = nil, site: Int, fileID: StaticString, line: UInt) {
         self.kind = kind
+        self.seamKind = seamKind ?? kind
         self.site = site
         self.fileID = fileID
         self.line = line

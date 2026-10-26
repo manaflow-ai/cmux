@@ -40,6 +40,19 @@ Sessions (--sessions):
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
                 one fetch the server holds (no wake while held); the bench answers it and the page POSTs
                 its count, page clock and visibilityState (any build, Release + CMUX_BENCH_HOOKS included)
+  chrome-static the reference: a Chromium browser (--chrome-app) with tabs-static's 16 static pages as tabs in the
+                same order, the last shown, and the uBlock Origin --app bundles (--chrome-ublock), launched as xbench
+                launches Chrome (a template profile keyed on the browser build and uBlock Origin, its switches, CDP
+                /json/new), every page loaded, settled as long as tabs-static; kinds browser, renderer, extension,
+                gpu, utility, crashpad. The bundled uBlock Origin is Manifest V2: branded Google Chrome ignores
+                --load-extension from 137 and Chromium runs no MV2 from 139, so --chrome-app must be a Chromium with
+                the MV2 patch cmux's CEF carries (ungoogled-chromium of cmux's Chromium major: cmux's
+                cmux_extensions_manifestv2.patch comes from it). A browser known not to run it (branded Chrome 137+,
+                Chrome for Testing 139+) fails the session before it launches. The report gets a `chrome` block
+                and `ratio_to_chrome` rows (the budget's, judged once with the other cross-session rows; a Chrome
+                value under the field's noise floor counts as the floor, `:floor` on the field). A row whose two
+                sessions did not both run uBlock Origin, or whose Chrome pages are not tabs-static's shape, is
+                `unequal`: reported, not judged; --gate refuses a failed or unequal chrome-static run.
 
 Per window the report also has, per session: `energy_mw` (CPU and billed energy, summed per kind and over the
 tree), `assertions` (`pmset -g assertions` held by or created for a pid of the set), `saver` (asked by the
@@ -67,10 +80,11 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM lines, IDLE-BUDGET-REFUSED for a saver mismatch or an unread rAF rate and
-IDLE-BUDGET-THERMAL for a marked session, a Markdown table, and --json with every sample.
+kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, a Markdown table,
+and --json with every sample.
 """
-import argparse, ctypes, fnmatch, json, os, platform, re, shutil, subprocess, sys, threading, time
+import argparse, ctypes, fnmatch, hashlib, json, os, platform, plistlib, re, shutil, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -210,7 +224,7 @@ def measure(app, instance, seconds, read_anim=None):
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
     counters0 = app_counters(app)
-    first = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
     coalition0 = procs.coalition_of(instance.pid)
     began = time.monotonic()
@@ -219,27 +233,12 @@ def measure(app, instance, seconds, read_anim=None):
     coalition1 = procs.coalition_of(instance.pid)
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
-    last = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
+    last = snapshot(last_pids)
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
     end = window_end(app, last_pids, read_anim)
-    rows = []
-    for pid, cmd in sorted(last_pids.items()):
-        (c1, o1, t1) = last[pid]
-        if c1 is None or o1 is None:
-            continue
-        (c0, o0, t0) = first.get(pid, (None, None, {}))
-        partial = c0 is None
-        o0 = o0 or (0, 0, 0, 0, 0)
-        ran = []
-        for tid, (cpu, name) in t1.items():
-            before = t0.get(tid, (0, name))[0] if not partial else 0
-            if cpu > before:
-                ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
-        ran.sort(key=lambda t: -t["cpu_us"])
-        rows.append(process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
-                                threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran))
+    rows = process_rows(first, last, elapsed, gpu0, gpu1, kind)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
               "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
@@ -256,12 +255,38 @@ def measure(app, instance, seconds, read_anim=None):
     return result
 
 
-def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran):
+def snapshot(commands):
+    """{pid: (command, procs.Usage, task overhead, threads)} of `commands` ({pid: command}) now."""
+    return {pid: (cmd, procs.usage(pid), procs.overhead(pid), threads(pid)) for pid, cmd in commands.items()}
+
+
+def process_rows(first, last, elapsed, gpu0, gpu1, classify):
+    """One row per process alive at the window's end, from two snapshots and two GPU reads `elapsed` seconds
+    apart, its kind from `classify`; a process that started inside the window counts from its start (`partial`)."""
+    rows = []
+    for pid, (cmd, c1, o1, t1) in sorted(last.items()):
+        if c1 is None or o1 is None:
+            continue
+        (_, c0, o0, t0) = first.get(pid, (cmd, None, None, {}))
+        partial = c0 is None
+        o0 = o0 or (0, 0, 0, 0, 0)
+        ran = []
+        for tid, (cpu, name) in t1.items():
+            before = t0.get(tid, (0, name))[0] if not partial else 0
+            if cpu > before:
+                ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
+        ran.sort(key=lambda t: -t["cpu_us"])
+        rows.append(process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
+                                threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran, classify=classify))
+    return rows
+
+
+def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, classify=None):
     """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
-    window, `partial`)."""
+    window, `partial`); its kind from `classify` (default: the cmux kinds, `kind`)."""
     got = procs.rates(first, last, elapsed)
     return {
-        "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": first is None,
+        "pid": pid, "kind": (classify or kind)(cmd), "command": cmd[:160], "partial": first is None,
         "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
         "cpu_pct": round(got["cpu_pct"], 4),
         "wakeups_per_s": round(got["wakeups_per_s"], 3),
@@ -621,11 +646,12 @@ def assertion_overs(own, budget, facts):
     return out
 
 
-def cross_overs(budget, measured):
+def cross_overs(budget, measured, unequal=None):
     """The rows that compare sessions of one run, judged once after every session is measured, so the order of
-    --sessions does not matter: each session's `relative` rows and the ratio_to_chrome rows (against
-    chrome-static). `measured`: {session: kinds}. Returns ([(session, over)], [note]); a note names each row not
-    judged because its reference session was not measured or a sum is unknown."""
+    --sessions does not matter: each session's `relative` rows and the ratio_to_chrome rows (chrome_rows: the
+    one judgement of those). `measured`: {session: kinds}; `unequal`: {session: [reason]} why chrome-static is no
+    fair reference for that session (chrome_unequal). Returns ([(session, over)], [note]); a note names each row
+    not judged and why."""
     overs, notes = [], []
 
     def judge(session, of, field, vs, to, max_ratio, suffix):
@@ -643,11 +669,56 @@ def cross_overs(budget, measured):
     for session in measured:
         for rule in session_budget(budget, session).get("relative") or []:
             judge(session, rule["of"], rule["field"], rule["of"], rule["to"], rule["max_ratio"], f"/{rule['to']}")
-    for rule in budget.get("ratio_to_chrome") or []:
-        if rule["session"] in measured:
-            judge(rule["session"], rule["of"], rule["field"], rule["vs"], "chrome-static", rule["max_ratio"],
-                  f"/chrome:{rule['vs']}")
+    for row in chrome_rows(budget, measured, unequal):
+        if row["verdict"] == "over":
+            overs.append((row["session"], tuple(row["over"])))
+        elif row["verdict"] != "ok":
+            notes.append(row["note"])
     return overs, notes
+
+
+def chrome_rows(budget, measured, unequal=None):
+    """One row per ratio_to_chrome rule whose session was measured, against chrome-static: cmux and Chrome values,
+    the ratio, the noise floor it used, and a verdict: ok, over (`over`: the over tuple), or `not judged` with the
+    reason in `note`: chrome-static not measured, a side unknown or not run, Chrome's value 0 with no floor, or
+    `unequal` (the reasons, also in `unequal`). cross_overs takes its overs and notes from here, the report its rows."""
+    reference = measured.get(CHROME_SESSION)
+    rows = []
+    for rule in budget.get("ratio_to_chrome") or []:
+        session, of, vs, field = rule["session"], rule["of"], rule["vs"], rule["field"]
+        if session not in measured or session == CHROME_SESSION:
+            continue
+        kinds, suffix = measured[session], f"/chrome:{vs}"
+        row = {"session": session, "of": of, "vs": vs, "field": field, "max_ratio": rule["max_ratio"],
+               "cmux_value": selector_value(kinds, of, field),
+               "chrome_value": None if reference is None else selector_value(reference, vs, field),
+               "floor": None, "ratio": None, "verdict": "ok"}
+        why = None
+        if reference is None:
+            why = f"reference session {CHROME_SESSION} not measured"
+        else:
+            for selector, values, side in ((of, kinds, "cmux"), (vs, reference, "Chrome")):
+                if unknown_sum(values, selector, field):
+                    why = f"{selector} {field} unknown"
+                    break
+                if not selected(values, selector):
+                    why = f"{side} ran no {selector}"
+                    break
+        if why is None and (unequal or {}).get(session):
+            row["unequal"] = list(unequal[session])
+            why = "unequal: " + "; ".join(row["unequal"])
+        if why is None:
+            floor = RATIO_FLOORS.get(field)
+            row["ratio"], row["floor"] = ratio_of(row["cmux_value"], row["chrome_value"], floor)
+            over = ratio_over(of, field, kinds, vs, reference, rule["max_ratio"], suffix, floor)
+            if row["ratio"] is None:
+                why = f"Chrome's {vs} {field} is 0 and the field has no noise floor"
+            elif over:
+                row["verdict"], row["over"] = "over", list(over[0])
+        if why is not None:
+            row["verdict"], row["note"] = "not judged", f"{session} {of} {field}{suffix}: not judged: {why}"
+        rows.append(row)
+    return rows
 
 
 def sum_notes(session, kinds, budget):
@@ -681,14 +752,31 @@ def xbench_overs(budget, result):
     return overs, notes
 
 
-def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix):
+# The noise floors a Chrome reference value is raised to (the cron rows' floors, CRON_FLOORS and CRON_SUM_FLOORS):
+# Chrome's GPU process at 0 wakeups against cmux's at 1 in a minute is idle noise, not an infinite ratio, while
+# cmux at 3/s against it is 6 times the floor.
+RATIO_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "hidden_wakeups_max": 0.5, "main_wakes_per_s": 0.5,
+                "energy_mw_billed": 1.0, "energy_mw_cpu": 1.0, "gpu_ms_per_s": 1.0, "threads": 2, "threads_max": 2}
+
+
+def ratio_of(value, base, floor=None):
+    """(value / reference, the floor used or None). A reference below `floor` counts as the floor; a reference of
+    0 with no floor, or a side not measured, gives (None, None): no ratio."""
+    if value is None or base is None:
+        return None, None
+    used = floor if floor and base < floor else None
+    base = used or base
+    return (round(value / base, 3), used) if base else (None, None)
+
+
+def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
     """[(of, field + suffix, ratio, max)] when `of` in `kinds` over `vs` in `reference` is above `max_ratio`; a
-    reference of 0 or one that was not measured judges nothing."""
-    value, base = selector_value(kinds, of, field), selector_value(reference, vs, field)
-    if value is None or not base:
+    reference of 0 or one that was not measured judges nothing. With `floor`, a reference below it counts as the
+    floor and the field says so (`:floor`), so the printed ratio is the one compared."""
+    ratio, used = ratio_of(selector_value(kinds, of, field), selector_value(reference, vs, field), floor)
+    if ratio is None or ratio <= max_ratio:
         return []
-    ratio = round(value / base, 3)
-    return [(of, field + suffix, ratio, max_ratio)] if ratio > max_ratio else []
+    return [(of, field + suffix + (":floor" if used else ""), ratio, max_ratio)]
 
 
 def over_line(session, over):
@@ -746,6 +834,182 @@ def cron_rows(report, budget=None):
                     "p50": value, "p95": value, "unit": CRON_UNITS.get(field, "/s"),
                     "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The Chrome reference (chrome-static): a Chromium with the tabs-static pages and the uBlock Origin cmux bundles
+
+CHROME_SESSION = "chrome-static"
+CHROME_APP = "/Applications/Chromium.app"  # where ungoogled-chromium installs (the comment above BRANDED_CHROME_IDS)
+UBLOCK_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"  # fetch-ublock.sh keeps the Web Store key, so the id is stable
+UBLOCK_IN_APP = "Contents/Resources/Extensions/ublock-origin"  # bundle-ublock.sh
+# Google Chrome's kinds from tab_pages' --type classifier (the switches cmux's helpers carry too). Chrome's
+# helpers are not in a cmux Helper app, so chromium_kind does not apply; any other --type is `other`.
+CHROME_KINDS = {"cef-renderer": "renderer", "cef-extension": "extension", "cef-gpu": "gpu", "cef-utility": "utility",
+                "cef-helper": "other"}
+# Builds that cannot run the bundled uBlock Origin (Manifest V2, loaded with --load-extension): branded Google
+# Chrome ignores --load-extension from 137 and has no switch back from 142 (Chromium 04f6233ce5be: the
+# GOOGLE_CHROME_BRANDING check in extensions' command-line loader); Chromium runs no MV2 extension from 139, and
+# Chrome for Testing carries no patch for it. cmux's CEF runs MV2 through cmux_extensions_manifestv2.patch, from
+# ungoogled-chromium (plans/cmux-next/browser.md), so ungoogled-chromium of cmux's Chromium major is the reference.
+# A plain Chromium has the same bundle id as ungoogled-chromium, so only the run tells them apart: uBlock Origin
+# does not start, the rows are unequal and --gate refuses.
+BRANDED_CHROME_IDS = ("com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary")
+CHROME_FOR_TESTING_ID = "com.google.chrome.for.testing"
+LOAD_EXTENSION_GONE_MAJOR = 137
+MANIFEST_V2_GONE_MAJOR = 139
+
+
+def chrome_kind(cmd):
+    """The kind of a Chrome process: browser, renderer, extension, gpu, utility, crashpad, other (Chromium's
+    process types, content/public/common/content_switches.cc; an extension's renderer carries
+    --extension-process, extensions/common/switches.cc; Crashpad's handler runs with no --type)."""
+    typed = tab_pages.process_type_kind(cmd)
+    if typed:
+        return CHROME_KINDS[typed]
+    exe = cmd.split(" --", 1)[0].strip()
+    if os.path.basename(exe) == "chrome_crashpad_handler":
+        return "crashpad"
+    if exe.count(".app/") == 1 and "/Contents/MacOS/" in exe:
+        return "browser"
+    return "other:" + os.path.basename(exe)[:32]
+
+
+def read_manifest(folder):
+    """The manifest.json of an unpacked extension folder, or None when it has no readable one."""
+    try:
+        with open(os.path.join(folder, "manifest.json")) as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def manifest_version(folder):
+    """The `version` of an unpacked extension folder, or None when it has no readable manifest."""
+    return (read_manifest(folder) or {}).get("version")
+
+
+def major_version(version):
+    head = str(version or "").split(".", 1)[0]
+    return int(head) if head.isdigit() else None
+
+
+def reference_refusal(bundle_id, version, manifest):
+    """Why the browser `bundle_id` at `version` cannot run the extension of `manifest` loaded with
+    --load-extension, or None when it may (whether it did is checked when it runs)."""
+    major = major_version(version)
+    if major is None:
+        return None
+    if bundle_id in BRANDED_CHROME_IDS and major >= LOAD_EXTENSION_GONE_MAJOR:
+        return f"branded Google Chrome {version} ignores --load-extension (Chrome {LOAD_EXTENSION_GONE_MAJOR}+)"
+    if manifest.get("manifest_version") == 2 and bundle_id == CHROME_FOR_TESTING_ID and major >= MANIFEST_V2_GONE_MAJOR:
+        return (f"Chrome for Testing {version} runs no Manifest V2 extension (Chromium {MANIFEST_V2_GONE_MAJOR}+); "
+                f"uBlock Origin {manifest.get('version')} is MV2")
+    return None
+
+
+def ublock_parity(cmux_version, cmux_running, chrome_version, chrome_running):
+    """Whether both sides ran the same uBlock Origin: `*_version` the copy each side has (None: none), `*_running`
+    whether it ran in the measured session (chrome_unequal's rule). Without it one side does less work, so the
+    reference is unequal and its ratio rows are reported, not judged."""
+    unequal = []
+    if cmux_version is None:
+        unequal.append("the cmux app bundles no uBlock Origin")
+    elif not cmux_running:
+        unequal.append(f"uBlock Origin {cmux_version} did not run in the cmux session (no cef-extension process)")
+    if chrome_version is None:
+        unequal.append("no uBlock Origin was loaded into Chrome")
+    elif not chrome_running:
+        unequal.append(f"uBlock Origin {chrome_version} did not run in Chrome (no extension target or process)")
+    if cmux_version and chrome_version and cmux_version != chrome_version:
+        unequal.append(f"uBlock Origin {chrome_version} in Chrome, {cmux_version} in cmux")
+    return {"id": UBLOCK_ID, "cmux_version": cmux_version, "chrome_version": chrome_version,
+            "cmux_running": bool(cmux_running), "chrome_running": bool(chrome_running), "equal": not unequal,
+            "unequal": unequal}
+
+
+def kind_ran(kinds, name):
+    return bool((kinds.get(name) or {}).get("n"))
+
+
+def chrome_unequal(kinds, chrome):
+    """(parity, reasons) of chrome-static (its block `chrome`, with its `kinds`) as the reference of a cmux session
+    measured as `kinds`. The same rule on both sides: uBlock Origin ran when an extension renderer was measured in
+    the window (cmux: cef-extension; Chrome: extension, and DevTools listed uBlock Origin's own target, as Chrome
+    may run component extensions). The reasons add chrome's own shape reasons (chrome_shape_unequal)."""
+    ublock = chrome.get("ublock") or {}
+    parity = ublock_parity(ublock.get("cmux_version"), kind_ran(kinds, "cef-extension"), ublock.get("chrome_version"),
+                           bool(ublock.get("running")) and kind_ran(chrome.get("kinds") or {}, "extension"))
+    return parity, list(chrome.get("unequal") or []) + parity["unequal"]
+
+
+def chrome_shape_unequal(page_targets, visibility, keys):
+    """Why Chrome's pages at the window's end are not tabs-static's shape: one page target per key of `keys` (the
+    tab_plan's loaded keys in opening order, the last one shown), the last visible and every other hidden
+    (`visibility`: the static pages' last document.visibilityState reports)."""
+    reasons = []
+    if page_targets != len(keys):
+        reasons.append(f"Chrome had {page_targets} page targets, tabs-static has {len(keys)}")
+    want = {key: "visible" if index == len(keys) - 1 else "hidden" for index, key in enumerate(keys)}
+    wrong = [f"{key}={visibility.get(key)}" for key in want if visibility.get(key) != want[key]]
+    if wrong:
+        reasons.append(f"Chrome's tab visibility is not 1 shown, {len(keys) - 1} hidden: " + ", ".join(wrong))
+    return reasons
+
+
+def template_key(bundle, version, ublock, ublock_version):
+    """The template profile's key: a profile built by another browser build or with another uBlock Origin (or
+    none) is another template."""
+    text = json.dumps([os.path.realpath(bundle), version, ublock and os.path.realpath(ublock), ublock_version])
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def chrome_refusals(asked, entry, rows):
+    """Why --gate cannot pass on the Chrome ratios: chrome-static was asked (`asked`) and failed (`entry`), or a
+    ratio row of a measured session is unequal. A reference that can never judge must not pass in silence."""
+    if not asked:
+        return []
+    if not entry or entry.get("exit") or not entry.get("kinds"):
+        return [f"{CHROME_SESSION} not measured: {(entry or {}).get('error', 'no result')}"[:400]]
+    return list(dict.fromkeys(f"{row['session']}: {reason}" for row in rows for reason in row.get("unequal") or []))
+
+
+def judge_across(report, budget, chrome_asked=False):
+    """After every session ran: the cross-session rows (cross_overs) with each session's chrome-static parity,
+    so the --sessions order does not matter. Puts `not_judged`, and with chrome-static measured the `chrome` block
+    (with each session's uBlock Origin parity) and the `ratio_to_chrome` rows into `report`, each over into its
+    session's `over`. Returns (overs [(session, over)], notes, refused: chrome_refusals)."""
+    sessions = report["sessions"]
+    measured = {name: done["kinds"] for name, done in sessions.items() if done.get("kinds")}
+    chrome = chrome_reference(report)
+    unequal = {}
+    if chrome:
+        chrome["parity"] = {}
+        for name, kinds in measured.items():
+            if name != CHROME_SESSION:
+                chrome["parity"][name], unequal[name] = chrome_unequal(kinds, chrome)
+        report["chrome"] = chrome
+    overs, notes = cross_overs(budget, measured, unequal)
+    rows = chrome_rows(budget, measured, unequal)
+    if chrome:
+        report["ratio_to_chrome"] = rows
+    for name, over in overs:
+        sessions[name].setdefault("over", []).append(list(over))
+    report["not_judged"] = notes
+    return overs, notes, chrome_refusals(chrome_asked, sessions.get(CHROME_SESSION), rows)
+
+
+def ratio_table(rows):
+    lines = ["\n### ratio to Chrome (chrome-static)\n",
+             "| session | cmux | Chrome | field | cmux value | Chrome value | floor | ratio | max | verdict |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for row in rows:
+        verdict = ("**over**" if row["verdict"] == "over" else
+                   row["note"].split(": not judged: ", 1)[-1] if row["verdict"] != "ok" else "ok")
+        lines.append(f"| {row['session']} | {row['of']} | {row['vs']} | {row['field']} | {row['cmux_value']} | "
+                     f"{row['chrome_value']} | {row['floor'] or '-'} | {row['ratio']} | {row['max_ratio']} | {verdict} |")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -936,6 +1200,8 @@ SESSIONS = {
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
     "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
                      "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True},
+    # The reference (run_chrome_static): tabs-static's pages in a Chromium, settled as long as tabs-static.
+    CHROME_SESSION: {"chrome": True, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
 }
 
 
@@ -956,6 +1222,141 @@ def parse_sessions(text):
 def settle_seconds(session, asked):
     """The settle of `session`: the asked one, at least the session's settle_min (past the hidden-tab freeze)."""
     return max(asked, SESSIONS[session].get("settle_min", 0))
+
+
+def wait_for(check, seconds, what):
+    """Waits until `check()` is true; RuntimeError naming `what` after `seconds`."""
+    deadline = time.monotonic() + seconds
+    while not check():
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{CHROME_SESSION}: {what} after {seconds:g} s")
+        time.sleep(0.2)  # bench: bounded wait for the reference browser
+
+
+def build_template(browser, template, settle):
+    """The template profile at `template`: built in a sibling folder and renamed into place only after the
+    browser ran `settle` seconds (uBlock Origin compiles its filter lists into it), so an interrupted build
+    leaves no half-built template behind."""
+    if os.path.isdir(template):
+        return False
+    building = f"{template}.building-{os.getpid()}"
+    shutil.rmtree(building, ignore_errors=True)
+    os.makedirs(building)
+    try:
+        browser.launch(building, None)
+        try:
+            browser.ready()
+            time.sleep(settle)  # bench: uBlock Origin compiles its lists into the template profile
+        finally:
+            browser.quit()
+        os.replace(building, template)
+    finally:
+        shutil.rmtree(building, ignore_errors=True)
+    return True
+
+
+def run_chrome_static(opts, out):
+    """The chrome-static entry: the --chrome-app browser through xbench's launcher (an APFS clone of a template
+    profile keyed on the browser build and uBlock Origin, --user-data-dir, xbench's switches, tabs over CDP
+    /json/new) with tabs-static's tab_plan pages from the shared page server in its order, every page loaded, the
+    last shown, and the uBlock Origin the cmux app bundles; settled and measured as the cmux sessions are, its processes
+    classified by chrome_kind. Raises before launch when the browser cannot run that uBlock Origin."""
+    import xbench  # scripts/perf-bench (on sys.path): the Chrome launcher the cross-browser bench uses
+    bundle = os.path.abspath(opts.chrome_app)
+    if not os.path.isdir(bundle):
+        raise RuntimeError(f"{CHROME_SESSION}: no {bundle}")
+    if procs.main_pid(bundle):
+        raise RuntimeError(f"{CHROME_SESSION}: {bundle} is already running; its processes would be measured too")
+    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as handle:
+        info = plistlib.load(handle)
+    bundle_id, version = info.get("CFBundleIdentifier"), xbench.bundle_version(bundle)
+    cmux_ublock = os.path.join(os.path.realpath(opts.app), UBLOCK_IN_APP)
+    ublock = None if opts.chrome_ublock == "none" else opts.chrome_ublock or cmux_ublock
+    manifest = read_manifest(ublock) if ublock else None
+    if manifest:
+        refusal = reference_refusal(bundle_id, version, manifest)
+        if refusal:
+            raise RuntimeError(f"{CHROME_SESSION}: {refusal}; pass --chrome-app a Chromium that runs MV2 "
+                               "(ungoogled-chromium of cmux's Chromium major)")
+    chrome_version = (manifest or {}).get("version")
+    work = os.path.join(out, CHROME_SESSION)
+    helper = xbench.Helper(opts.chrome_helper_cache)
+    pages = IdlePages()
+    browser = xbench.ChromiumBrowser("chrome", bundle, helper, None, extensions=[ublock] if manifest else [])
+    profile = os.path.join(work, "run")
+    try:
+        template = os.path.join(work, "template-" + template_key(bundle, version, ublock if manifest else None,
+                                                                 chrome_version))
+        built = build_template(browser, template, opts.chrome_template_settle)
+        xbench.clone(template, profile)
+        browser.launch(profile, None)
+        browser.ready()
+        # DevTools answers before the startup browser opens its first tab (the handler starts in
+        # PreMainMessageLoopRun, StartupBrowserCreator opens the window after it): wait for that tab, then every
+        # page that is not one of tabs-static's closes, as xbench's adopt_first does.
+        wait_for(lambda: browser.pages(), 30, "no startup page target")
+        # tabs-static's own plan and pages, in its order; each new tab is selected, so the last one is shown.
+        plan = tab_plan(pages, TABS_STATIC)
+        urls = [url for _engine, url, _key in plan]
+        for _engine, url, key in plan:
+            browser.new_tab(url, key)
+            if not pages.wait_loaded(key, 90):
+                raise SessionShapeError(f"{CHROME_SESSION}: tab {url} did not load in 90 s")
+        for target in browser.pages():
+            if target.get("url") not in urls:
+                browser.close(target["id"])
+        browser.activate(browser.tabs[-1])
+        settle = settle_seconds(CHROME_SESSION, opts.settle)
+        time.sleep(settle)  # bench: the pages settle and hidden tabs pass Chrome's background throttling
+        first = snapshot(browser.instance.pids())
+        gpu0 = procs.gpu_ns_by_pid()
+        began = time.monotonic()
+        time.sleep(opts.measure)  # bench: the idle window itself (nothing is sent to Chrome in it)
+        elapsed = time.monotonic() - began
+        gpu1 = procs.gpu_ns_by_pid()
+        last = snapshot(browser.instance.pids())
+        targets = browser.extension_targets()
+        page_targets = len(browser.pages())
+        result = {"seconds": round(elapsed, 1), "processes": process_rows(first, last, elapsed, gpu0, gpu1, chrome_kind)}
+        visibility = dict(pages.visibility)
+        running = any(t.get("url", "").startswith(f"chrome-extension://{UBLOCK_ID}/") for t in targets)
+        chrome = {"app": bundle, "bundle_id": bundle_id, "version": version, "build": info.get("CFBundleVersion"),
+                  "switches": browser.switches(), "settle_s": settle, "template_built": built,
+                  "pages": {"tabs": len(urls), "page_targets": page_targets, "shown": 1, "set": "tabs-static",
+                            "loaded": len(pages.loaded), "visibility": visibility},
+                  "ublock": {"cmux_version": manifest_version(cmux_ublock), "chrome_version": chrome_version,
+                             "running": running},
+                  "unequal": chrome_shape_unequal(page_targets, visibility, [key for _engine, _url, key in plan]),
+                  "extension_targets": [target.get("url", "")[:120] for target in targets]}
+        return {"chrome": chrome, "result": result}
+    finally:
+        browser.quit()
+        pages.close()
+        shutil.rmtree(profile, ignore_errors=True)  # the keyed template stays for a rerun into `out`
+
+
+def chrome_static_entry(opts, out, session, markdown):
+    """Runs chrome-static and prints its rows; a failure is recorded as a cmux session's failure is."""
+    try:
+        entry = run_chrome_static(opts, out)
+        entry["kinds"] = aggregate(entry["result"])
+        entry["over"] = []
+        entry["exit"] = 0
+        for name, values in entry["kinds"].items():
+            print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
+        print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k != "switches"}), flush=True)
+        markdown.append(table(session, entry["kinds"], []))
+    except Exception as error:  # noqa: BLE001 - as a cmux session's failure: recorded, the others still run
+        entry = {"exit": 1, "error": f"{type(error).__name__}: {error}"[:500]}
+        print(f"IDLE-BUDGET-SESSION-FAILED {session} exit=1 {entry['error'][:300]}", flush=True)
+        markdown.append(f"\n### {session}\n\nnot measured: {entry['error'][:300]}")
+    return entry
+
+
+def chrome_reference(report):
+    """The chrome-static block with its kinds, or None when it was not measured."""
+    entry = report["sessions"].get(CHROME_SESSION) or {}
+    return {**entry["chrome"], "kinds": entry["kinds"]} if entry.get("kinds") and entry.get("chrome") else None
 
 
 def minimize(app):
@@ -1038,9 +1439,20 @@ def main():
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--budget", default=BUDGET_FILE)
     parser.add_argument("--gate", action="store_true",
-                        help="exit 1 when a value is over its budget or a session's saver state is not the one it asked for")
+                        help="exit 1 when a value is over its budget, a session's saver state is not the one it asked "
+                        "for, or chrome-static failed or is no equal reference")
     parser.add_argument("--sample", type=float, default=10,
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
+    parser.add_argument("--chrome-app", default=CHROME_APP,
+                        help="the chrome-static browser: a Chromium that runs Manifest V2 (ungoogled-chromium of "
+                        "cmux's Chromium major); branded Chrome 137+ and Chrome for Testing 139+ are refused")
+    parser.add_argument("--chrome-ublock", default=None,
+                        help="the unpacked uBlock Origin chrome-static loads (default: the copy in --app; "
+                        "`none`: without it, which marks the Chrome ratios unequal)")
+    parser.add_argument("--chrome-template-settle", type=float, default=45,
+                        help="seconds the reference browser's template profile runs before its first clone")
+    parser.add_argument("--chrome-helper-cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"),
+                        help="xbench's benchhelper cache")
     opts, _unknown = parser.parse_known_args()
     budget = load_budget(opts.budget)
     if opts.xbench:
@@ -1066,6 +1478,9 @@ def main():
     markdown = []
     for session in sessions:
         spec = SESSIONS[session]
+        if spec.get("chrome"):
+            report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
+            continue
         app = BenchApp(opts.app, out=os.path.join(out, session), config=session_config(session))
         pages = IdlePages() if spec.get("tabs") else None
         try:
@@ -1143,18 +1558,22 @@ def main():
             app.stop()
             if pages is not None:
                 pages.close()
-    measured = {name: done["kinds"] for name, done in report["sessions"].items() if done.get("kinds")}
-    cross, cross_notes = cross_overs(budget, measured)
+    cross, cross_notes, chrome_refused = judge_across(report, budget, CHROME_SESSION in sessions)
     for note in cross_notes:
         print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
     for session, over in cross:
         print(over_line(session, over), flush=True)
-        report["sessions"][session]["over"].append(list(over))
+    for why in chrome_refused:
+        print(f"IDLE-BUDGET-REFUSED {CHROME_SESSION} reference: {why}", flush=True)
+    if chrome_refused:
+        refused.append(CHROME_SESSION)
+        report["chrome_refused"] = chrome_refused
     all_overs += [(session, *over) for session, over in cross]
-    report["not_judged"] = cross_notes
     if cross or cross_notes:
         markdown.append("\n### across sessions\n\n" + "\n".join(
             [f"- {over_line(session, over)}" for session, over in cross] + [f"- {note}" for note in cross_notes]))
+    if report.get("ratio_to_chrome"):
+        markdown.append(ratio_table(report["ratio_to_chrome"]))
     report["over"] = [list(o) for o in all_overs]
     report["refused"] = refused
     report["session_exits"] = {name: entry.get("exit") for name, entry in report["sessions"].items()}

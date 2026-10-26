@@ -38,16 +38,16 @@ extension DaemonConnection {
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }
         var replies = await ready.transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
         let response = try replies.removeFirst().get()
-        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response)
         if savedGroups {
-            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get().line)
+            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get())
             if tree.savedTabGroups.isEmpty {
                 tree.savedTabGroups = saved.savedGroups
                 tree.linkSavedTabGroups()
             }
         }
         if personal {
-            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get().line)
+            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get())
         }
         return (tree, DaemonEventEnvelope.sequence(serial: ready.serial, index: response.eventBarrier))
     }

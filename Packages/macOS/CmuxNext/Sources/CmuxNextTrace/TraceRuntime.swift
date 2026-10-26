@@ -1,4 +1,5 @@
-import CmuxNextCompat
+// Public: the inlined category check reads the Compat `Atomic` from other modules.
+public import CmuxNextCompat
 
 /// The process's one trace runtime: the category flags every trace point reads, and (as the later
 /// p09-observability tasks land) the black-box and recording rings, the name and thread tables, the
@@ -13,9 +14,11 @@ import CmuxNextCompat
 /// single reviewed exception to the no-singleton rule (plans/cmux-next/arch-ratchet.json, 2026-10-25).
 /// Code that can take an injected runtime does (``init(role:)``; tests make their own).
 ///
-/// The write methods publish into the ring its owner attaches (``attach(_:)``; the black box of task 005):
-/// catalog names by id and interned names by their id in the active ring (tasks 003 and 004). The API is
-/// frozen (task 000); recording (020) and crash keys (078) are still stubs.
+/// The write methods publish into the ring its owner attaches (``attach(_:)``): the black box, which
+/// `TraceBlackBox` makes and attaches at launch (task 005), so the runtime holds it from then on. Catalog
+/// names go by id and interned names by their id in the active ring (tasks 003 and 004). The category
+/// defaults are ``TraceCategories`` (task 005). The API is frozen (task 000); recording (020) and crash keys
+/// (078) are still stubs.
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -30,8 +33,9 @@ public final class TraceRuntime: Sendable {
     public let role: Role
     /// The hang-watch slots of this process's watched threads and lanes.
     public let hangWatch: HangWatch
-    /// One bit per category (`SignpostCategory.traceBit`); a trace point records only while its bit is set.
-    private let categoryFlags = Atomic<UInt64>(0)
+    /// One bit per category (`SignpostCategory.traceBit`, ``TraceCategories``); a trace point records only
+    /// while its bit is set. Usable from inline code so a trace point in another module inlines the check.
+    @usableFromInline let categoryFlags = Atomic<UInt64>(0)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -80,7 +84,13 @@ public final class TraceRuntime: Sendable {
             retained.release()
             return false
         }
+        ring.mirrorCategories(categoryMask)
         return true
+    }
+
+    /// The attached ring (the black box), nil until ``attach(_:)``.
+    public var ring: TraceRing? {
+        attachedRing?.takeUnretainedValue()
     }
 
     /// The attached ring, read with no reference-count traffic on the write path.
@@ -92,15 +102,19 @@ public final class TraceRuntime: Sendable {
     // MARK: categories
 
     /// The category flags: bit `n` on means category bit `n` records.
+    @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
 
-    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
+    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate) and
+    /// mirrors them into the attached ring's header `categories` (trace.md "Header": mirrored on each change).
     public func setCategoryMask(_ mask: UInt64) {
         categoryFlags.store(mask, ordering: .relaxed)
+        attachedRing?._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
     }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
     /// that is off (Chrome's `category_group_enabled` read).
+    @inlinable @inline(__always)
     public func isEnabled(categoryBit bit: UInt8) -> Bool {
         categoryFlags.load(ordering: .relaxed) & (1 << UInt64(bit & 63)) != 0
     }

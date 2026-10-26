@@ -13,7 +13,7 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
 /// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -301,6 +301,14 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// ``webuiOpen`` are that open's requests, and all its slices sum the handler's main-thread time for it.
     case webuiScheme = 72
 
+    // MARK: stall, continued (emitter: CmuxNextWakeups `MainTurnMeter`, task p06-scheduler-008)
+    /// One busy main run-loop turn (the innermost nested loop's) ran past 4 ms. Ring only, no
+    /// `os_signpost` (it is written on the main thread inside the slow turn, with no allocation):
+    /// instant; arg0 the turn in us, bit 63 set for a nested turn; arg1 the scheduled tasks', render
+    /// (before-waiting phase), input (`sendEvent`) and unattributed time, 16 bits each from bit 0, in
+    /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
+    case stallMainTurn = 73
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -344,6 +352,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
+        case .stallMainTurn: "stall.main_turn"
         case .stallCreateSurface: "stall.create_surface"
         case .stallPaletteOpen: "stall.palette_open"
         case .stallIconPickerOpen: "stall.icon_picker_open"
@@ -397,7 +406,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
              .launchFirstTerminalOutput:
             .launch
-        case .stallMainTask, .stallOverBudget, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
+        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
         case .daemonRequest: .daemon
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
