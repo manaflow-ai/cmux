@@ -722,7 +722,7 @@ Socket `surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_i
 cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]
 ```
 
-Socket `surface.new_display {machine, open?, workspace_id?, focus?}` → the created display resource (`resource`, `id`, `machine`, `kind`, `title`, `url`, and related catalog fields), plus `workspace_id` / `surface_id` when opened. Creates a new VNC display on a cloud machine through the guest display helper. It opens the display in the selected workspace unless `--no-open`; `--focus` and `--no-focus` control whether that pane is focused. `local` is rejected because display creation is a cloud-machine operation. The method is available on the local cmux socket and is intentionally not relayed through a remote machine.
+Socket `surface.new_display {machine, open?, workspace_id?, focus?}` → the created display resource (`resource`, `id`, `machine`, `kind`, `title`, `url`, and related catalog fields), plus `workspace_id` / `surface_id` when opened. Creates a new VNC display on a cloud machine through the guest display helper. It opens the display in the selected workspace unless `--no-open`; `--focus` and `--no-focus` control whether that pane is focused. `local` is rejected because display creation is a cloud-machine operation. If the display is created but cannot be opened, the result has `projection_failed: true`, `open: false` and a `projection_error`; the exit status stays 0 and `cmux surface open <resource>` retries the open. A second creation on the same machine while one is running fails with code `busy`. The method is available on the local cmux socket and is intentionally not relayed through a remote machine.
 
 ## Checkpoints and forks
 

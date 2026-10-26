@@ -118969,183 +118969,6 @@
           }
         }
       },
-      "cli.surface.newDisplay.result.resource": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "OK resource=%@"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "OK Ressource=%@"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "OK ressource=%@"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "تم المورد=%@"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "OK recurso=%@"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "完成資源=%@"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "完成 资源=%@"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "완료 리소스=%@"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "OK リソース=%@"
-            }
-          }
-        }
-      },
-      "cli.surface.newDisplay.result.surface": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " surface=%@"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " Oberfläche=%@"
-            }
-          },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " écran=%@"
-          }
-        },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " السطح=%@"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " superficie=%@"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 介面=%@"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 表面=%@"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 표면=%@"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " サーフェス=%@"
-            }
-          }
-        }
-      },
-      "cli.surface.newDisplay.result.workspace": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " workspace=%@"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " Arbeitsbereich=%@"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " espace de travail=%@"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " مساحة العمل=%@"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " espacio de trabajo=%@"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 工作區=%@"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 工作区=%@"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " 작업 공간=%@"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": " ワークスペース=%@"
-            }
-          }
-        }
-      },
       "cli.surface.newDisplay.result.projectionFailed": {
         "extractionState": "manual",
         "localizations": {
@@ -434008,6 +433831,65 @@
             "stringUnit": {
               "state": "translated",
               "value": "ディスプレイは作成されましたが、選択したワークスペースで開けませんでした。`cmux surface open <resource>` で再試行してください。"
+            }
+          }
+        }
+      },
+      "socket.surface.newDisplay.busy": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Auf dieser Maschine wird bereits eine Anzeige erstellt, oder die Maschine hat sich geändert. Warte, bis der Vorgang abgeschlossen ist, und versuche es erneut."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Un écran est déjà en cours de création sur cette machine, ou la machine a changé. Attendez la fin de l’opération et réessayez."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يجري بالفعل إنشاء شاشة على هذا الجهاز، أو أن الجهاز تغيّر. انتظر حتى تنتهي العملية ثم أعد المحاولة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ya se está creando una pantalla en esta máquina, o la máquina cambió. Espere a que termine y vuelva a intentarlo."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "此機器上已有顯示器正在建立，或機器已變更。請等待完成後再重試。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "此机器上已有屏幕正在创建，或机器已更改。请等待完成后重试。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "이 머신에서 이미 디스플레이를 생성하는 중이거나 머신이 변경되었습니다. 완료될 때까지 기다린 후 다시 시도하십시오."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "このマシンではすでにディスプレイを作成中か、マシンが変更されました。完了するまで待ってから再試行してください。"
             }
           }
         }

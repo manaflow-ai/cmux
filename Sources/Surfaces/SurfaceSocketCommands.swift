@@ -222,7 +222,23 @@ extension TerminalController {
         if let error = cloudDisabledSocketError(id: id) { return error }
         let open = Self.surfaceBool(params["open"]) ?? true
         let focus = Self.surfaceBool(params["focus"]) ?? false
-        let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
+        // Workspace and destination resolution make blocking main-actor hops
+        // (`v2MainSync`); keep them on the blocking worker lane, not the
+        // cooperative pool this connection task runs on.
+        var workspaceID: UUID?
+        var resolvedDestination: SurfaceDestination?
+        if open {
+            let resolved = await runSocketWorkerBlockingBody { () -> (UUID?, SurfaceDestination?) in
+                let params = request.params.mapValues(\.foundationObject)
+                guard let workspaceID = self.surfaceTargetWorkspaceID(params, strictExplicit: true) else {
+                    return (nil, nil)
+                }
+                return (workspaceID, Self.surfaceDestination(self.surfaceResolvedParams(params), workspaceID: workspaceID))
+            }
+            workspaceID = resolved.0
+            resolvedDestination = resolved.1
+        }
+        let destination = resolvedDestination
         if open, workspaceID == nil {
             return v2Error(
                 id: id,
@@ -233,14 +249,22 @@ extension TerminalController {
                 )
             )
         }
-        let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
         do {
             return try await CloudRequestBudget.live.withBudget(seconds: 240) {
                 let catalog = await SurfaceCatalog.shared
                 guard try await Self.surfaceProvider(for: machine, catalog: catalog) != nil else {
                     throw SurfaceCatalogError.noProvider(machine)
                 }
-                let resource = try await catalog.createDisplay(on: machine)
+                let resource: SurfaceResource
+                do {
+                    resource = try await catalog.createDisplay(on: machine)
+                } catch is CancellationError where !Task.isCancelled {
+                    // The catalog cancels without the request being cancelled
+                    // when another creation is already running on this machine
+                    // or the machine's provider changed mid-flight: report
+                    // that as busy, not as a timeout.
+                    throw SurfaceDisplayCreationBusy()
+                }
                 var payload = Self.surfaceResourcePayload(resource, projections: [])
                 payload["resource"] = resource.id.rawValue
                 payload["open"] = open
@@ -267,6 +291,15 @@ extension TerminalController {
                 }
                 return v2Ok(id: id, result: await Self.markBackgroundOpen(payload, focus: focus))
             }
+        } catch is SurfaceDisplayCreationBusy {
+            return v2Error(
+                id: id,
+                code: "busy",
+                message: String(
+                    localized: "socket.surface.newDisplay.busy",
+                    defaultValue: "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
+                )
+            )
         } catch is CancellationError {
             return v2Error(
                 id: id,
@@ -294,6 +327,10 @@ extension TerminalController {
             )
         }
     }
+
+    /// Thrown inside the `surface.new_display` request when the catalog refuses
+    /// a concurrent creation, so the reply says "busy" instead of "timed out".
+    private struct SurfaceDisplayCreationBusy: Error {}
 
     private nonisolated static let surfaceDisplayProjectionFailureMessage = String(
         localized: "socket.surface.newDisplay.projectionFailed",

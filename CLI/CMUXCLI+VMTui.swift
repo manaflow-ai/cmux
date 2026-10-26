@@ -1805,22 +1805,10 @@ extension CMUXCLI {
             let resource = (response["resource"] as? String)
                 ?? (response["id"] as? String)
                 ?? "?"
-            var line = String(
-                format: String(localized: "cli.surface.newDisplay.result.resource", defaultValue: "OK resource=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
-                resource
-            )
-            if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty {
-                line += String(
-                    format: String(localized: "cli.surface.newDisplay.result.surface", defaultValue: " surface=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
-                    surfaceId
-                )
-            }
-            if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty {
-                line += String(
-                    format: String(localized: "cli.surface.newDisplay.result.workspace", defaultValue: " workspace=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
-                    workspaceId
-                )
-            }
+            // Machine-readable `key=value` tokens stay untranslated, like `surface new-terminal`.
+            var line = "OK resource=\(resource)"
+            if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty { line += " surface=\(surfaceId)" }
+            if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty { line += " workspace=\(workspaceId)" }
             if response["projection_failed"] as? Bool == true {
                 line += " " + String(
                     localized: "cli.surface.newDisplay.result.projectionFailed",
