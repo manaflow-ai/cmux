@@ -2,6 +2,8 @@ public import Foundation
 import Darwin
 import CmuxNextCompat
 import CmuxNextTrace
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A daemon connection through a child process instead of a socket
 /// (plans/cmux-next/server-reach.md 7 step 1): the app's own bundled `cmux`
@@ -54,19 +56,19 @@ public struct DaemonBridge: Hashable, Sendable {
     func open() async throws(DaemonError) -> Opened {
         let (bridge, launcher, dial) = (self, queues.launcher, queues.dial)
         let spawned = try await launcher.run { () throws(DaemonError) -> Spawned in try bridge.spawn(priority: launcher.priority) }
-        let dialed = await withCheckedContinuation { (continuation: CheckedContinuation<Result<Opened, DaemonError>, Never>) in
+        let dropped = DaemonError.launchFailed("the bridge's dial line was never read")
+        return try await withOnceContinuation(failingWith: { _ in dropped }) { (continuation: OnceContinuation<Opened, DaemonError>) in
             dial.async {
                 do throws(DaemonError) {
                     try DaemonBridge.check(try Self.readLine(spawned.stderr))
-                    continuation.resume(returning: .success(spawned.opened))
+                    continuation.resume(returning: spawned.opened)
                 } catch {
                     spawned.opened.child.terminate()
                     Darwin.close(spawned.opened.fd)
-                    continuation.resume(returning: .failure(error))
+                    continuation.resume(throwing: error)
                 }
             }
         }
-        return try dialed.get()
     }
 
     /// ``open()``'s spawn, on the launcher.
