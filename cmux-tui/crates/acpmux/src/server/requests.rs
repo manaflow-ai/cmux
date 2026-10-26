@@ -823,28 +823,30 @@ async fn dispatch_request(
             // attaches there and starts nothing, unless it may fork into a new chat.
             // Before the worktree, so a refusal makes none; counted until the create ends.
             let who = who(conn);
-            let _admitted = match &adopt {
-                Some(a) if a.if_live != crate::adopt::IfLive::Fork => {
-                    // Its id and the family `new_session` resolves (`adopted_in`).
-                    let conversation = hub
-                        .adopt_conversation(
-                            &a.agent_session_id,
-                            pick("harness").or_else(|| a.harness.clone()),
-                            &pick("preset"),
-                            pick("model").as_deref(),
-                            conn.origin.web_class(),
-                            cwd.as_deref(),
-                        )
-                        .await?;
-                    hub.admit_adopt(ask(conn, &params, &who), &conversation).await?
-                }
-                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            // An adopt's conversation: its id and the family `new_session` resolves (`adopted_in`).
+            let conversation = match &adopt {
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => Some(
+                    hub.adopt_conversation(
+                        &a.agent_session_id,
+                        pick("harness").or_else(|| a.harness.clone()),
+                        &pick("preset"),
+                        pick("model").as_deref(),
+                        conn.origin.web_class(),
+                        cwd.as_deref(),
+                    )
+                    .await?,
+                ),
+                _ => None,
+            };
+            let mut admitted = match &conversation {
+                Some(c) => hub.admit_adopt(ask(conn, &params, &who), c).await?,
+                None => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
             // Debug builds only: `ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS` holds an adopt that
             // found its conversation held, so a test can end the holder before the
             // create. Bounded; release builds have no seam.
             #[cfg(debug_assertions)]
-            if _admitted.is_none()
+            if admitted.is_none()
                 && let Some(ms) = std::env::var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS")
                     .ok()
                     .and_then(|v| v.parse::<u64>().ok())
@@ -872,10 +874,29 @@ async fn dispatch_request(
                 subsession: None,
                 disallowed_tools,
                 checked_cwd: None,
+                attach_only: false,
             };
-            let s = match &_admitted {
-                Some(admitted) => admitted.run(hub.new_session(req)).await?,
-                None => hub.new_session(req).await?,
+            // Admitted with no room taken (its conversation was held), the adopt only
+            // attaches: if the holder ended meanwhile it asks for room like a new
+            // session, and a refusal refuses it (`admission::holder_gone`).
+            let mut tries = 0;
+            let s = loop {
+                let Some(conversation) = conversation.as_ref().filter(|_| admitted.is_none())
+                else {
+                    break match &admitted {
+                        Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                        // Boxed: a create's future is large (`Admitted::run`).
+                        None => Box::pin(hub.new_session(req)).await?,
+                    };
+                };
+                let attach = crate::hub::NewRequest { attach_only: true, ..req.clone() };
+                match Box::pin(hub.new_session(attach)).await {
+                    Err(e) if crate::hub::admission::is_holder_gone(&e) && tries < 3 => {
+                        tries += 1;
+                        admitted = hub.admit_adopt(ask(conn, &params, &who), conversation).await?;
+                    }
+                    made => break made?,
+                }
             };
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()

@@ -545,6 +545,21 @@ impl Hub {
     }
 }
 
+/// `data.reason` of an attach-only adopt whose holder was gone by its insert.
+const HOLDER_GONE: &str = "adopt.holder_gone";
+
+/// The error `new_session` returns for an attach-only adopt (`NewRequest::attach_only`)
+/// whose conversation no session holds any more: nothing was made.
+pub(crate) fn holder_gone() -> RpcError {
+    RpcError::internal("the session holding this conversation ended before the adopt attached")
+        .with_data(json!({"reason": HOLDER_GONE}))
+}
+
+/// Whether `e` is `holder_gone`: the adopt asks for room again (`admit_adopt`).
+pub(crate) fn is_holder_gone(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!(HOLDER_GONE))
+}
+
 /// Who asks for a new session, for `Hub::admit_new`.
 pub(crate) struct Ask<'a> {
     /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged. Set only
