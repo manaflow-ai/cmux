@@ -145,6 +145,11 @@ pub struct SessionMeta {
     pub html_previews: bool,
     #[serde(default)]
     pub modes: Option<Value>,
+    /// The mode cmux itself last asked the harness for (its start default, the person's pick, a
+    /// policy's mode), never one the harness reported on its own: a chat in full access lends its
+    /// folder's trust only by this (`hub/trust_wait.rs`), so a harness that claims a mode gets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
     pub config_options: Option<Value>,
     #[serde(default)]
@@ -182,6 +187,15 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
+    /// sent after each turn; none from any other harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_breakdown: Option<Value>,
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest
+    /// per window, from Claude Code's `rate_limit_event`; none from any other
+    /// harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
     /// where an agent lists them once (perf100).
@@ -491,6 +505,13 @@ pub trait Store: Send + Sync {
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
+    /// Flush one session's event log and metadata to stable storage.
+    ///
+    /// The default is sufficient for memory stores and older implementations; local stores
+    /// override it to sync the segment and its containing directories.
+    fn flush_session(&self, _id: &str) -> Result<()> {
+        self.flush()
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -576,6 +597,12 @@ pub trait Store: Send + Sync {
     /// Where each peer's last-known sessions are saved: `peers/` beside
     /// `sessions/`, or none (in memory) for the memory store.
     fn peer_cache_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where the brief and task ledger is saved (`hub/dispatch.rs`): `briefs.json` beside
+    /// `sessions/`, or none (in memory) for the memory store, so a hub's tasks always name
+    /// sessions of its own store.
+    fn briefs_path(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -987,6 +1014,18 @@ impl Store for LocalStore {
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
+    fn flush_session(&self, id: &str) -> Result<()> {
+        let writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get(id) {
+            writer.file.sync_all()?;
+        }
+        let session = self.dir(id);
+        sync_directory(&session.join("events"))?;
+        sync_directory(&session)?;
+        sync_directory(&self.root)?;
+        Ok(())
+    }
+
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
@@ -1094,6 +1133,14 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
+        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
+        }
         let mut line = Vec::new();
         for (_, path) in self.segments(id)? {
             let mut reader =
@@ -1232,6 +1279,27 @@ impl Store for LocalStore {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
     }
+
+    fn briefs_path(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("briefs.json"))
+    }
+}
+
+/// Sync a directory entry after a file or subdirectory was created or replaced.
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    dir.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Open one event segment for append, owner-only from creation and after an

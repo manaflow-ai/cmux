@@ -6,7 +6,7 @@ User report: "the spacing between the Chief circular icon and the Done button is
 
 ## Sheet or push
 
-Messages pushes contact details from the conversation header. Its back chevron and the edge swipe return to the conversation. The Chief page was a page sheet with Done. It is now pushed on Home's navigation stack, which the app uses for every drill-down (memory: navigation stacks with swipe-back, no covers). `ChiefConversationScreen` owns the push (`navigationDestination(isPresented:)`). The header's avatar, name and trailing button and `ChiefDemoHook.openSettings` all open it.
+Messages pushes contact details from the conversation header. Its back chevron and the edge swipe return to the conversation. The Chief page was a page sheet with Done. It is now pushed on Home's navigation stack, which the app uses for every drill-down (memory: navigation stacks with swipe-back, no covers). `ChiefConversationScreen` owns the push (`navigationDestination(isPresented:)`). The header's avatar and name and `ChiefDemoHook.openSettings` open it. (Since `feat-cmux-next-ios-chief-invite`, the trailing button is Invite to cmux; see `chief-invite.md`.)
 
 Push details:
 - `ChiefConversationContainer` hands the back-swipe recognizers back to the navigation controller in `viewWillDisappear`, as before. While a page covers it, it no longer takes them again on layout (`isCovered`).

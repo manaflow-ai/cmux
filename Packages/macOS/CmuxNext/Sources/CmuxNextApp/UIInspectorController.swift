@@ -45,7 +45,7 @@ final class UIInspectorController {
     // cleanup only when the runtime is already on the main thread.
     nonisolated deinit {
         guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated {
+        MainActor.assumeIsolated { // main-proof: the guard above returns unless Thread.isMainThread.
             if let monitor { NSEvent.removeMonitor(monitor) }
             if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
             if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }

@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextPhone
+import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPhoneAccess
 import Observation
@@ -40,10 +42,13 @@ extension AppServices {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
         cloud.start()
+        // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
+        CloudMachineUpdates.start(self)
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
                     chief: { [weak self] in if let owner = self?.home.chief { IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath()) } else { nil } },
+                    surfaceHosts: phoneSurfaceHosts(),
                     settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
@@ -77,5 +82,20 @@ extension AppServices {
                 }
             }
         }
+    }
+}
+
+extension AppServices {
+    /// The phone tabs of this app's daemon as streamed simulators (``SimulatorSurfaceSources``); nil when none can stream.
+    func phoneSurfaceHosts() -> (any MobileHostSurfaceHosting)? {
+        guard SimulatorSurfaceSources.available(phones) else { return nil }
+        let sources = SimulatorSurfaceSources(phones: phones) { [weak self] raw in
+            guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
+                  tab.page == InternalPageID.phone.rawValue else { return nil }
+            let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
+            return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
+        }
+        return MobileHostSurfaceClosures(start: { tab, onExit in try await sources.start(tab: tab, onExit: onExit) },
+                                         stop: { tab in await sources.stop(tab: tab) }, stopAll: { await sources.stopAll() })
     }
 }

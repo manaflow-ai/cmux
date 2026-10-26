@@ -16,8 +16,16 @@ the panes rest:
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
 
+The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
+the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
+when it starts: a layout measured with a window that is not key is named `<layout>-inactive` (rows
+`panes.<action>.<layout>-inactive.*`), so it is never compared with rows of a key window. The window goes on the
+main screen at the STRESS size (perf-stress-session.py `place_window`). A layout asked for and not measured (a
+STRESS shape refused, a Chromium page that never ran) fails the run, --gate or not.
+
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
-work per frame (`debug.motion` clock), frames the springs moved, grids sent to the PTY owner
+work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
+pages it holds the resize wait of fork API 27), frames the springs moved, grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
 
@@ -65,10 +73,23 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+
+
+def load_stress():
+    """perf-stress-session.py as a module: the STRESS builder and the shared window placement."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                   "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+STRESS_MODULE = load_stress()
 # 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
 # ("not enough room to split this pane"), so the 30-pane split row measured nothing.
 CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
-WINDOW = (80, 80, 1600, 1000)
+WINDOW = STRESS_MODULE.WINDOW_SIZE  # every layout's window: the STRESS size, placed by `place_window`
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
 
@@ -92,6 +113,8 @@ def serve_page():
     return f"http://127.0.0.1:{server.server_address[1]}/"
 ROWS, LAUNCHED = [], []
 BENCH = None  # the BenchApp of this run
+MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
+UNMEASURED = []  # layouts asked for and not measured: any fails the run, --gate or not
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -280,24 +303,32 @@ STRESS = {}  # layout `stress`: the session's summary (perf-stress-session.py)
 
 def stress_layout():
     """The STRESS session (perf-stress-session.py), ending on its measured workspace's top-left pane."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                                                   "perf-stress-session.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = STRESS_MODULE
+    builder = module.Stress(rpc, selected=opts.stress_selected)
     try:
-        STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+        STRESS.update(builder.build())
     except module.StressShapeError as error:
         return str(error)  # a wrong shape is a failed row, never measured as STRESS
+    finally:
+        STRESS["chat_fallbacks"] = builder.chat_fallbacks
     print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
     return None
+
+
+def window_state():
+    """Whether the app is active with its window key now (`debug.window_list`: a main window's `key`; a key
+    window means an active app), and the frontmost app."""
+    reply = rpc("debug.window_list")
+    windows = (reply or {}).get("windows") if isinstance(reply, dict) else None
+    key = any(w.get("key") for w in windows if w.get("kind") == "main" and w.get("visible")) if isinstance(windows, list) else None
+    return {"window_key": key, "frontmost": frontmost_app()}
 
 
 def vertical_divider():
     """The leftmost vertical divider's middle, in the window's top-left points."""
     result = rpc("debug.layers")
     window = ((result or {}).get("windows") or [{}])[0] if isinstance(result, dict) else {}
-    height = (window.get("frame") or [0, 0, 0, WINDOW[3]])[3]
+    height = (window.get("frame") or [0, 0, 0, WINDOW[1]])[3]
     areas = sorted((x + w / 2, height - (y + h / 2)) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w)
     return areas[0] if areas else None
 
@@ -370,6 +401,9 @@ def measure(label, name):
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
+    # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
+    # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
+    commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
     moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
         if isinstance(motion, dict) else 0
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
@@ -379,6 +413,9 @@ def measure(label, name):
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
+        "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
+        "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
+        "commits": (commit or {}).get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
@@ -402,6 +439,7 @@ def measure(label, name):
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
     return result
 
@@ -550,11 +588,14 @@ def cleanup():
 
 
 def main():
-    global app, SOCKET, BENCH
+    global app, SOCKET, BENCH, MEASURED
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, window=WINDOW, screen=None, log_name=f"app-{TAG}.log")
+    # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
+    # no-activate the app reads no test window placement, so the window is placed through the socket below.
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
+                     log_name=f"app-{TAG}.log")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -566,8 +607,19 @@ def main():
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
-    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
+    placed, window_problem = STRESS_MODULE.place_window(rpc)
+    row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
+        window_problem is None)
+    # The bench conditions: the environment the app was really started with (mocked agent chats, the
+    # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
+    # was key when it started (`layouts`).
+    conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
+                  "layouts": {}}
+    print("CONDITIONS " + json.dumps(conditions), flush=True)
+    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
+              "conditions": conditions, "runs": []}
     sequence = steps()
+    labels = []  # each measured layout's name in the report: `<layout>-inactive` when its window was not key
     for name in opts.layouts.split(","):
         if name == "stress":
             problem = stress_layout()
@@ -579,21 +631,30 @@ def main():
         if problem:
             print(f"  {name}: {problem}", flush=True)
             row(f"{name}: the layout was built" if name == "stress" else f"{name}: the Chromium page runs (--browser)", "the STRESS shape" if name == "stress" else "window.__frames counting", problem, False)
+            UNMEASURED.append(name)
             continue
+        state = window_state()
+        if name == "stress":
+            # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
+            state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
+        label = name if state["window_key"] else f"{name}-inactive"
+        conditions["layouts"][label] = state
+        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {label})", flush=True)
+        labels.append(label)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
                 if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
-                run.update(layout=name, panes=panes, round=index)
+                run.update(layout=label, panes=panes, round=index)
                 report["runs"].append(run)
-                row(f"{name} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
+                row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
                 if step not in STILL:
-                    row(f"{name} {step} #{index}: animated (layout springs moved)", "> 0 frames",
+                    row(f"{label} {step} #{index}: animated (layout springs moved)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
                 missed = run["missed"]
-                row(f"{name} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+                row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
@@ -610,7 +671,7 @@ def main():
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
     print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} {'moved':>5} "
           f"{'tick95':>6} {'tickmx':>6} {'grids':>7}" + "".join(f" {h:>6}" for h in BROWSER_HEADS[:len(browser_keys)]))
-    for name in opts.layouts.split(","):
+    for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
 
@@ -619,7 +680,7 @@ def main():
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
-                                                 "resizes_sent"] + browser_keys}
+                                                 "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
 
             def f(v):
@@ -632,6 +693,20 @@ def main():
                   flush=True)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
+    MEASURED = bool(report["runs"])  # at least one action was measured
+    report["unmeasured"] = UNMEASURED
+    if opts.json:
+        json.dump(report, open(opts.json, "w"), indent=1)
+
+
+def frontmost_app():
+    """The frontmost app's bundle id now (`lsappinfo`)."""
+    try:
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", front], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"unknown ({error})"
+    return info.stdout.strip().partition("=")[2].strip('" ') or info.stdout.strip() or None
 
 
 try:
@@ -651,6 +726,9 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    # Without --gate a row is information: the run passes when it measured (its artifact comes back).
-    sys.exit(0 if ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
+    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL",
+          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else ""))
+    # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
+    # that measured nothing (the app never came up, an exception before the summary), or skipped a layout it
+    # was asked for (a refused STRESS shape, a Chromium page that never ran), fails either way.
+    sys.exit(0 if MEASURED and not UNMEASURED and ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)

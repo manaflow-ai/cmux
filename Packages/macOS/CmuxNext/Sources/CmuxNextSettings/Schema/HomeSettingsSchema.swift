@@ -74,6 +74,19 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
             ),
+            // Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).
+            SettingDescriptor(
+                HomeChiefEngineSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefEngine", "Engine"),
+                title: SettingsText.keyed("settings.home.chiefEngine", "Engine"),
+                help: SettingsText.keyed("settings.home.chiefEngine.help",
+                                         "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."),
+                kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.chiefEngine.auto", "Auto")),
+                    SettingChoice("local", SettingsText.keyed("settings.choice.chiefEngine.local", "This Mac")),
+                    SettingChoice("hosted", SettingsText.keyed("settings.choice.chiefEngine.hosted", "Hosted")),
+                ]),
+                default: .string(HomeChiefEngineSetting.defaultEngine), keywords: ["chief", "engine", "backend", "hosted", "cloud", "local", "optchat"]
+            ),
         ]
     }
 }

@@ -668,6 +668,8 @@ impl ClientRegistry {
                     || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY
+                    || agent_session_presence(capability)
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
@@ -1033,5 +1035,19 @@ impl ClientRegistry {
                 })
                 .collect::<Vec<_>>()
         )
+    }
+}
+
+/// An attached agent session's presence (`agent-session-presence`), which only a unix host serves,
+/// as it alone attaches agent sessions.
+fn agent_session_presence(capability: &str) -> bool {
+    #[cfg(unix)]
+    {
+        capability == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = capability;
+        false
     }
 }

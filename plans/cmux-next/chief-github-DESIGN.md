@@ -1,6 +1,9 @@
 # GitHub sign-in for every Chief
 
 Status: design and v1, 2026-10-24. Branch `feat-cmux-next`.
+Superseded for the local Chief by [chief-toolpacks-DESIGN.md](chief-toolpacks-DESIGN.md): section 4 is now
+the GitHub tool pack (`optchat-chief/toolpacks/github/pack.toml`) over `toolpacks.rs`; the verbs, keychain
+service and files below are unchanged. Section 3 (the Worker) still holds.
 User (Lawrence, 2026-10-23): GitHub sign-in is a default onboarding step for every Chief, not one.
 Default is the gh device flow, shown as a tappable card in chat (works from the iPhone), polled where
 it survives the turn, the token kept per Chief in a secret store and given to the Chief's `gh` and
@@ -89,6 +92,20 @@ The status, never the token, is what settings and the CLI show:
 
 Never: the token in a log, an error, a run step, a reply or the memory; a token file in a repo;
 another Chief's object (the object name comes from the running turn's own agent).
+
+## 3a. A fresh code until approved, and a self-wake (user, 2026-10-24)
+
+- A device code lasts about 15 minutes. When one ends unapproved, a new one is made at once
+  (the Worker: on the next poll or status read, `renewIfExpired`; the local poller: `next_step`
+  Renew), for 3 hours from the first code; then the sign-in ends with a last error.
+- The Chief wakes itself when the code ends and posts the new card. The local Chief already
+  had a self-wake (`sleep(seconds, note)`, a "[wake] note" turn). The Cloud Chief's Claude Code
+  route had none: `chief-wake SECONDS "note" | list | clear` (`chief-brain-cc/wake.ts`) keeps a
+  timer on the conversation's brain as a Lifecycle job; at its time "[wake] note" is queued in
+  the conversation's inbox and starts a turn. `chief-github login` sets it for the code's end.
+- The built-in skill `github-signin` (`Native/OptChat/optchat-chief/skills/github-signin/SKILL.md`,
+  shipped to every Chief's shared skills) says how: post the card, set the timer, on wake post
+  the new code or say signed in, stop after 3 hours; and the granular options.
 
 ## 4. Local Chief (`optchat-chief`)
 

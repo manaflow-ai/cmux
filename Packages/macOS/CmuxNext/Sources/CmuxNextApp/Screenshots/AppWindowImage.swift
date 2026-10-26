@@ -37,7 +37,7 @@ struct AppWindowImage {
             }
             if layers.isEmpty { return base }
             // A mask that cannot be painted never lets the unmasked image out.
-            guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
+            guard let image = await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) else {
                 throw WindowScreenshotFailure.blank
             }
             return image
@@ -54,10 +54,12 @@ struct AppWindowImage {
             guard let image = await page.chromiumImage() else { continue }
             layers.append(.page(image, rect))
         }
-        if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+        // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
+        if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
             layers.append(.window(panels))
         }
-        if let floating = window.floatingWindowsSnapshot() { layers.append(.window(floating.image)) }
-        return WindowImageLayer.composite(base: base, window: window, layers: layers) ?? base
+        if let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
+        // The full-resolution redraw runs off the main actor.
+        return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
     }
 }

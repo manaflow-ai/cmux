@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import itertools
+import re
 import sys
 import tempfile
 import unittest
@@ -184,6 +186,37 @@ class Place(unittest.TestCase):
         # One idle side mini takes the scheme compile, not the promoted Release compile's turn.
         self.assertEqual(cascade.place(env(CASCADE_RUNS=runs, PROMOTE_LABEL=PROMOTE), ("fast-tier",), free, free,
                                        promote_busy=False).jobs, none_placed())
+
+    def test_a_feat_push_release_compile_takes_the_runs_first_slot(self):
+        # Run 40298786351 (2026-10-26 09:21Z): 6 vCPU had room, but MAX_PER_RUN went to fast-tier and the
+        # scheme compile ahead of it in JOBS, and the Release compile queued on the owned label.
+        runs = " fast-tier cmux-scheme-compile release-compile "
+        live, waiting = {LARGE: 0, SMALL: 5}, {LARGE: 7, SMALL: 0}
+        stalled = cascade.Seen(waits={LARGE: 227.0}, age=1.0, hosted=18)
+        before = cascade.place(env(CASCADE_RUNS=runs), (), live, waiting, stalled)
+        self.assertEqual(before.jobs[SMALL], ("fast-tier", "cmux-scheme-compile"))
+        first = env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile")
+        self.assertEqual(cascade.place(first, (), live, waiting, stalled).jobs[SMALL], ("release-compile", "fast-tier"))
+        # The idle minis are spent on the run's other jobs first: one idle mini, and the Release compile still
+        # has its slot (fast-tier races for the mini); as many idle minis as side jobs, and nothing cascades.
+        one = cascade.place(first, ("fast-tier",), live, waiting, stalled)
+        self.assertEqual(one.jobs[SMALL], ("release-compile", "cmux-scheme-compile"))
+        three = cascade.place(first, ("fast-tier", "swift-canary", "cmux-scheme-compile"), live, waiting, stalled)
+        self.assertEqual(three.jobs, none_placed())
+        two = cascade.place(first, ("fast-tier", "swift-canary"), live, waiting, stalled)
+        self.assertEqual(two.jobs[SMALL], ("release-compile",))
+
+    def test_the_placement_names_the_first_jobs_only_on_a_feat_push_attempt_1(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["FIRST_JOBS"]
+        for event, ref, attempt, expected in (("push", "refs/heads/feat-cmux-next", "1", "release-compile"),
+                                              ("push", "refs/heads/feat-cmux-next", "2", ""),
+                                              ("push", "refs/heads/next-batch/abc", "1", ""),
+                                              ("pull_request", "refs/pull/1/merge", "1", "")):
+            with self.subTest(event=event, ref=ref, attempt=attempt):
+                context = {"github": {"event_name": event, "ref": ref, "run_attempt": attempt}}
+                self.assertEqual(evaluate(expression, context), expected)
 
     def test_a_busy_promotion_mini_sends_the_feat_push_release_compile_to_blacksmith_first(self):
         runs = " swift-canary cmux-scheme-compile release-compile "
@@ -506,8 +539,15 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
-                self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
+                if name == "release-compile":
+                    # A same-repository PR uses a free owned Mac first; Blacksmith is spillover.
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", small=f" {name} y ")), SMALL)
+                else:
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
                 # Whole keys only: another job's slot is not this job's.
                 self.assertEqual(evaluate(runs_on, self.context(large=f" {name}-x ", small=f" x{name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
@@ -517,6 +557,14 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
+
+    def test_release_compile_pr_is_owned_first_and_spills_to_blacksmith(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        owned = self.context(runner="glaeda-side-std-xcode-26.6", large=" release-compile ")
+        spill = self.context(runner="", large=" release-compile ")
+        self.assertEqual(evaluate(runs_on, owned), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, spill), LARGE)
 
     def test_attempt_1_takes_the_hosted_spill_the_placement_chose(self):
         for name in CASCADED:
@@ -532,7 +580,7 @@ class Wiring(unittest.TestCase):
                 # A fork keeps its own route.
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
-    def test_a_feat_push_release_compile_takes_the_promotion_mini_unless_the_placement_overflowed_it(self):
+    def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
 
         def push(**outputs: str) -> dict:
@@ -542,44 +590,123 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        self.assertEqual(evaluate(runs_on, push()), PROMOTE)
+        # An idle owned Mac wins: the cascade then gives the compile no Blacksmith slot and it takes the
+        # owned label. The cascade places it on Blacksmith only when no idle mini took it, so its slot comes
+        # before the owned label, which is then a queue (2026-10-26: 10-40 min on the std side label).
+        self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
+        self.assertEqual(evaluate(runs_on, push()), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), SMALL)
         self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
         self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
-        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), PROMOTE)
+        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
+        # A re-run of the push does not reuse attempt 1's slot.
+        rerun = push(large=" release-compile ")
+        rerun["github"]["run_attempt"] = "2"
+        self.assertEqual(evaluate(runs_on, rerun), SIDE)
+        # The job's own label variable agrees with its runs-on.
+        runner_env = self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
+            self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
         # Release compile never targets the dedicated nightly runner.
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
-    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
-        runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
-        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-            CI_NEXT_PROMOTE_POOL=PROMOTE,
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = "true"
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+    NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+    NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
+
+    # The events release-compile runs on: a push to either branch, a dispatch, and a same-repo or fork pull request.
+    EVENTS = (("push", "refs/heads/feat-cmux-next", False), ("push", "refs/heads/main", False),
+              ("workflow_dispatch", "refs/heads/feat-cmux-next", False), ("pull_request", "refs/pull/1/merge", False),
+              ("pull_request", "refs/pull/1/merge", True))
+
+    def nightly_push(self, ready: str, attempt: str = "1", fast: tuple[str, str] = ("skipped", ""),
+                     event: tuple[str, str, bool] = EVENTS[0], actor: str = "teamleaderleo", config: str = "owned",
+                     **outputs: str) -> dict:
+        name, ref, fork = event
+        context = self.context(attempt, actor, fork=fork, **outputs)
+        if config == "another owner":
+            context["github"]["repository_owner"] = "someone"
+        elif config == "pool not owned":
+            context["vars"].pop("CI_PR_POOL_OWNED")
+        elif config == "no side route":
+            context["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
+        # The fleet fast check: skipped (no idle gateway), no verdict, or an unavailable fleet.
+        context["needs"]["release-compile-fast"] = {"result": fast[0], "outputs": {"verdict": fast[1]}}
+        context["github"].update(event_name=name, ref=ref)
+        if name != "pull_request":
+            context["github"]["event"] = {}
+        context["vars"].update(CI_NIGHTLY_NEXT_TRUSTED_POOL=self.NIGHTLY_POOL,
+                               CI_NIGHTLY_NEXT_TRUSTED_RUNNER=self.NIGHTLY_RUNNER, CI_NEXT_PROMOTE_POOL=PROMOTE)
+        # The job sees placement's step outputs through the workflow's own `outputs:` mapping, evaluated here,
+        # so a mapping that names a nightly variable reaches the runs-on.
+        placed = dict(context["needs"]["macos-placement"]["outputs"], nightly_runner_ready=ready)
+        mapping = self.jobs["macos-placement"]["outputs"]
+        step = {}
+        for key, expression in mapping.items():
+            match = re.fullmatch(r"\$\{\{ steps\.place\.outputs\.(\w+) \}\}", expression)
+            if match:
+                step[match.group(1)] = placed.get(key, "")
+        scope = dict(context, steps={"place": {"outputs": step}})
+        context["needs"]["macos-placement"]["outputs"] = {key: evaluate(expression, scope)
+                                                          for key, expression in mapping.items()}
+        if config == "placement skipped":
+            context["needs"]["macos-placement"] = {"result": "skipped", "outputs": {}}
+        return context
+
+    def off_the_nightly_runner(self, label) -> bool:
+        """`label` (a runs-on value: one label, or a list every runner must carry) is set and names no nightly label."""
+        labels = label if isinstance(label, list) else [label]
+        return bool(labels) and all(isinstance(name, str) and name and name not in (self.NIGHTLY_POOL, self.NIGHTLY_RUNNER)
+                                    and "nightly" not in name for name in labels)
+
+    CONFIGS = ("owned", "another owner", "pool not owned", "no side route", "placement skipped")
+
+    def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
+        """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,
+        whatever placement read about it. The runs-on and the job's own label variable are evaluated, as a
+        single label or a label list, on every event the workflow runs on, for every attempt, owner and pool
+        configuration, fast-check state and placement output it can see."""
+        job = self.jobs["release-compile"]
+        seen = {event: set() for event in self.EVENTS}
+        failures = []
+        attempts = (("1", "teamleaderleo"), ("2", "teamleaderleo"), ("2", BOT), ("3", "teamleaderleo"), ("3", BOT),
+                    ("4", BOT))
+        # Every fast-check state release-compile runs after: skipped, no verdict (failed, or the
+        # continue-on-error step left success with none), or an unavailable fleet.
+        fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
+                 ("failure", "unavailable"))
+        placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
+                self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
+            context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
+            label = evaluate(job["runs-on"], context)
+            if config == "owned" and attempt in ("1", "2"):
+                seen[event].add(tuple(label) if isinstance(label, list) else label)
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(job["env"]["CMUX_NEXT_RUNNER"],
+                                                                                   context))):
+                if not self.off_the_nightly_runner(value):
+                    failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
+                                    f"fast={fast} outputs={outputs}")
+        self.assertEqual(failures[:10], [], f"{len(failures)} cases name the nightly runner")
+        # Every route each event can take was evaluated: the cascade's two slots and the owned side label
+        # (a feat push also takes 6 vCPU with no placement runner, or a fast check that died before its
+        # verdict); a fork pull request takes 6 vCPU only. side_lane_placement never writes a nightly label
+        # into the runner outputs (test_ci_side_lane_placement.NightlyRunnerStaysOffTheRoutes).
+        for event in self.EVENTS:
+            self.assertEqual(seen[event], {SMALL} if event[2] else {LARGE, SMALL, SIDE}, event)
+        self.assertEqual(evaluate(job["runs-on"], self.nightly_push("", fast=("failure", ""))), SMALL)
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
+        # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
         runs_on = self.jobs["release-compile"]["runs-on"]
-        context = self.context()
-        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
-        context["vars"].update(
-            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
-            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
-        )
-        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ""
-        self.assertNotEqual(evaluate(runs_on, context), [
-            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
-            "glaeda-trusted-next-nightly",
-        ])
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", runner="")), SMALL)
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
@@ -616,8 +743,9 @@ class Wiring(unittest.TestCase):
         # compiles need full-ci again, except a member's dev-build scheme compile (its dogfood app).
         self.assertEqual(runs(labels=()), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"),
-                         {"swift-canary", "cmux-scheme-compile", "release-compile"})
+        # The fast lane's label is a preference the placement takes only while it is idle
+        # (side_lane_placement.fast_route()), so the fast tier is always a cascade candidate.
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), set(CASCADED))
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
         self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "swift-canary", "cmux-scheme-compile"})
@@ -654,7 +782,8 @@ class Wiring(unittest.TestCase):
         job = self.jobs["macos-placement"]
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
+        # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
                        "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")

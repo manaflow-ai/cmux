@@ -194,6 +194,8 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.server.restart": () => ({}),
+      "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
         const iphone = this.host.iphone;
         if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
@@ -212,6 +214,20 @@ export class MockSettingsProvider {
         const devices = this.host.devices;
         if (devices)
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
+        return {};
+      },
+      "cmux.settings.devices.full_access": (params) => {
+        const devices = this.host.devices;
+        if (devices)
+          this.setHost({
+            ...this.host,
+            devices: {
+              ...devices,
+              rows: devices.rows.map((r) =>
+                r.id === params.id && r.full_access !== undefined ? { ...r, full_access: params.on === true } : r,
+              ),
+            },
+          });
         return {};
       },
       "cmux.settings.mobile.remove_phone": (params) => {
@@ -455,6 +471,7 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
+      "cmux.settings.devices.full_access",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
@@ -493,6 +510,8 @@ export class MockSettingsProvider {
       "cmux.settings.art.use",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
+      "cmux.settings.server.restart",
+      "cmux.settings.server.pair",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",
@@ -770,6 +789,7 @@ export class MockSettingsProvider {
       remove_title: "Remove",
       remove_confirm_title: "Remove for Good",
       remove_help: "It stops working with this computer at once. To use it again, add it again.",
+      full_access_title: "Full access",
       activity_title: "Recent activity",
       error: null,
       rows: [
@@ -782,12 +802,25 @@ export class MockSettingsProvider {
           removable: true,
         },
         {
+          id: "paired:dv_leo",
+          title: "leo-mbp",
+          subtitle: "Uses this computer · Offline",
+          detail: null,
+          state: "offline",
+          removable: true,
+          full_access: false,
+          full_access_help: "Its chats edit files and run commands here without asking",
+        },
+        {
           id: "phone:p1",
           title: "Lawrence's iPhone",
           subtitle: "Phone: approvals and terminals · Offline",
           detail: null,
           state: "offline",
           removable: true,
+          // A phone paired with this Mac has its own acpmux record (role phone), so the same switch.
+          full_access: false,
+          full_access_help: "Its chats edit files and run commands here without asking",
         },
       ],
       activity: [{ time: "2026-10-22T07:12:00Z", what: "Added", subject: "mini-7" }],

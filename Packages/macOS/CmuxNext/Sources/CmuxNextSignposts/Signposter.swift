@@ -87,6 +87,42 @@ public nonisolated struct Signposter: Sendable {
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
     }
 
+    /// Begins a ``SignpostName/scrollToFrame`` interval with a scroll event's fields, formatted by the log system
+    /// only when something reads them (`phase=<phase> age_ms=<age, 2 decimals>`): it runs on every scroll event
+    /// (about 120 a second on a trackpad, plus momentum), so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - scrollPhase: Which part of a scroll the event is.
+    ///   - ageMilliseconds: The event's age when its dispatch began, or -1 without a timestamp.
+    /// - Returns: The state to pass to ``end(_:_:_:scrollTarget:)``.
+    public func begin(_ name: SignpostName, scrollPhase: ScrollFramePhase, ageMilliseconds: Double) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            name.staticName, id: id,
+            "phase=\(scrollPhase.rawValue, privacy: .public) age_ms=\(ageMilliseconds, format: .fixed(precision: 2), privacy: .public)"
+        )
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
+    /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
+    /// with its class and owner formatted by the log system only when something reads them
+    /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
+    ///   - owner: The batch owner or control method that scheduled the task.
+    /// - Returns: The state to pass to ``end(_:_:)``.
+    public func begin(_ name: SignpostName, taskClass: String, owner: String) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(name.staticName, id: id,
+                                             "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public)")
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
@@ -104,6 +140,26 @@ public nonisolated struct Signposter: Sendable {
             if let id = interval.metricKitID { mirror.end(name, id: id) }
         case .missed:
             signposter.endInterval(name.staticName, interval.state, "commit=missed")
+        }
+    }
+
+    /// ``end(_:_:_:)`` for a ``SignpostName/scrollToFrame`` interval, with who took the event, formatted by the log
+    /// system only when something reads it: `target=<target>` on a committed end, `commit=missed target=<target>` on a
+    /// missed one.
+    ///
+    /// - Parameters:
+    ///   - name: The name the interval began with.
+    ///   - interval: The state ``begin(_:scrollPhase:ageMilliseconds:)`` returned.
+    ///   - outcome: How the ``CommitBoundary`` fired.
+    ///   - scrollTarget: Who took the scroll event.
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome,
+                    scrollTarget: ScrollFrameTarget) {
+        switch outcome {
+        case .committed:
+            signposter.endInterval(name.staticName, interval.state, "target=\(scrollTarget.rawValue, privacy: .public)")
+            if let id = interval.metricKitID { mirror.end(name, id: id) }
+        case .missed:
+            signposter.endInterval(name.staticName, interval.state, "commit=missed target=\(scrollTarget.rawValue, privacy: .public)")
         }
     }
 
@@ -136,5 +192,18 @@ public nonisolated struct Signposter: Sendable {
     /// Records a point event named `name`.
     public func event(_ name: SignpostName, _ message: String = "") {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
+    }
+
+    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
+    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`).
+    ///
+    /// - Parameters:
+    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...).
+    ///   - flow: The key press's flow id.
+    ///   - ageMicroseconds: The key event's age at this hop, or -1.
+    public func flowHop(_ hop: String, flow: UInt64, ageMicroseconds: Int64 = -1) {
+        assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
+        signposter.emitEvent(SignpostName.keyFlow.staticName,
+                             "hop=\(hop, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
     }
 }
