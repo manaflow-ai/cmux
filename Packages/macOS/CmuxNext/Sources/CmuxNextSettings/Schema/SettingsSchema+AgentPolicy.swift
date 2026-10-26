@@ -97,6 +97,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -301,6 +302,8 @@ extension SettingsSchema {
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
         "home.server": .privacy,
+        // Whether the person's Chief runs on this Mac or in the cloud: where their messages go.
+        "home.chiefEngine": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,

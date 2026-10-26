@@ -52,6 +52,10 @@ describe("cloud machine hourly rate", () => {
     expect(vmHourlyRateUsd("freestyle", { vcpus: 8, memoryMb: 16384 })).toBeCloseTo(expected, 4);
   });
 
+  test("a GCP machine gets an approximate shape rate", () => {
+    expect(vmHourlyRateUsd("gcp", { vcpus: 2, memoryMb: 8192 })).toBe(0.103);
+  });
+
   test("an unknown shape or provider has no rate", () => {
     expect(vmHourlyRateUsd("freestyle", null)).toBeNull();
     expect(vmHourlyRateUsd("freestyle", { vcpus: 0, memoryMb: 8192 })).toBeNull();

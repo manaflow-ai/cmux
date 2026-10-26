@@ -256,3 +256,43 @@ fn a_first_run_token_is_new_and_never_rotated_again() {
     assert_eq!(url_token(&first), url_token(&second));
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// `daemon status` and `daemon start` print the Web UI link without its bearer token: a
+/// terminal, a screen share or a pasted log is no place for it (ergo-walk2, 2026-10-25).
+/// `--show-token` prints it, and `--json` keeps `webUrl` whole for the app and the scripts
+/// that read it.
+#[test]
+fn daemon_status_prints_the_web_link_without_its_token_unless_asked() {
+    let home = std::env::temp_dir().join(format!("ats-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let (child, ready) = start(&home, &[]);
+    let token = url_token(&ready);
+    let cli = |args: &[&str]| {
+        let out = daemon_env::acpmux(&home)
+            .args(args)
+            .env("ACPMUX_HOME", &home)
+            .env("ACPMUX_SOCKET", home.join("s.sock"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    for args in [&["daemon", "status"][..], &["daemon", "start"]] {
+        let plain = cli(args);
+        let web =
+            plain.lines().find(|l| l.starts_with("web:")).unwrap_or_else(|| panic!("{plain}"));
+        assert!(!plain.contains(&token), "{args:?} printed the token: {plain}");
+        assert!(web.contains("http://127.0.0.1:"), "{web}");
+        assert!(web.contains("--show-token"), "{web}");
+    }
+    for args in [&["daemon", "status", "--show-token"][..], &["daemon", "start", "--show-token"]] {
+        let shown = cli(args);
+        assert!(shown.contains(&format!("/?token={token}")), "{args:?}: {shown}");
+    }
+    let json: Value = serde_json::from_str(&cli(&["--json", "daemon", "status"])).unwrap();
+    assert_eq!(url_token(&json), token, "--json keeps webUrl whole");
+    stop(child);
+    let _ = std::fs::remove_dir_all(&home);
+}

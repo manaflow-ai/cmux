@@ -198,8 +198,11 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        let stops = session.stops.load(Ordering::SeqCst);
         let control = opts.control;
         let trust_gate = opts.trust_gate;
+        let no_queue = opts.no_queue;
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
@@ -261,6 +264,7 @@ impl Hub {
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
+            no_queue: opts.no_queue,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -310,11 +314,14 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`).
-        self.hold_retry_start(session, &prompt_id).await;
+        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`); a person's
+        // never waits: `start_turn` refuses it then.
+        if !no_queue {
+            self.hold_retry_start(session, &prompt_id).await;
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -369,7 +376,7 @@ impl Hub {
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
-        let started = match self.child_for(session).await {
+        let started = match self.child_for_since(session, stops).await {
             Ok(child) => session
                 .meta()
                 .agent_session_id
@@ -427,7 +434,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
         let control = {
@@ -480,7 +487,9 @@ impl Hub {
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
+            // A stopped session's agent closed because of the stop: no failover starts it again.
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
+                && session.stops.load(Ordering::SeqCst) == stops
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -512,7 +521,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for(session).await;
+                let fallback = self.child_for_since(session, stops).await;
                 let refusal = match &fallback {
                     Ok(_) => self
                         .check_dispatch(
@@ -1177,11 +1186,22 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        // Counted first: a start for a request from before this stop ends (`ensure_child`).
+        session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
+        // The prompts queued behind its turn are answered withdrawn: run after the stop, the
+        // next one started the closed session again (ergo-walk2). A restart restores no closed
+        // session's queue either (`queue.rs` `restore_queue`). A chat an import replaces
+        // (`transfer_in.rs`) keeps its log as it was for the copy that takes its id.
+        if !session.replaced.load(Ordering::SeqCst) {
+            for queued in session.queue() {
+                self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
+            }
+        }
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
                 let _ = tokio::time::timeout(

@@ -741,8 +741,9 @@ impl Hub {
 
     /// `respond_permission` with a question's `annotations` (the chosen
     /// preview and notes, `questions::check_annotations`): only the person's
-    /// own answer carries them, never a phone's signed one (its signature
-    /// covers the answers alone) or a session's.
+    /// own answer carries them, or a relayed one under the person's decision
+    /// proof over them (`person/decision_answers.rs`); never a phone's signed
+    /// one (its signature covers the answers alone) or a session's.
     pub async fn respond_permission_annotated(
         &self,
         session: &Session,
@@ -770,8 +771,9 @@ impl Hub {
                 }
             })?;
             // A question's annotations, after the lookup so a losing answer still learns who
-            // won: only the person's own answer, and only beside its answers.
-            if annotations.is_some() && !answerer.person {
+            // won: only the person's own answer, or one with the person's decision proof (which
+            // must cover them, below), and only beside its answers.
+            if annotations.is_some() && !answerer.person && answerer.decision.is_none() {
                 return Err(super::person::person_required("annotations"));
             }
             if annotations.is_some() && answers.is_none() {
@@ -825,8 +827,8 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
-            let annotations = match annotations {
-                Some(a) => super::questions::check_annotations(&p.request, &a)?,
+            let checked_annotations = match &annotations {
+                Some(a) => super::questions::check_annotations(&p.request, a)?,
                 None => None,
             };
             // The authoritative person rule (`person.rs`), here under the
@@ -857,25 +859,33 @@ impl Hub {
                         option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
                             == Some("allow_once")
                     });
-                if (allows || answered_by.is_some()) && !ancestor_answers {
+                let needs_proof = (allows || answered_by.is_some()) && !ancestor_answers;
+                // Annotations from a connection that is not the person count only under the
+                // person's proof over them, so never on a reject or an ancestor's answer.
+                if annotations.is_some() && !needs_proof {
+                    return Err(super::person::person_required("annotations"));
+                }
+                if needs_proof {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
-                            answers.is_none()
-                                && cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                            cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
                                 && self.person.decision_proves(
                                     &session.id,
                                     permission_id,
                                     o,
                                     nonce,
+                                    answers.as_ref(),
+                                    annotations.as_ref(),
                                     proof,
                                 )
                         }
                         _ => false,
                     };
                     // A phone's signed allow or answer (`approvers.rs`): it
-                    // covers the answers, never `answeredBy`.
+                    // covers the answers, never `answeredBy` or annotations.
                     let signed = !proved
                         && answered_by.is_none()
+                        && annotations.is_none()
                         && match (&option_id, answerer.approver) {
                             (Some(o), Some((nonce, decision))) => {
                                 cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
@@ -915,7 +925,7 @@ impl Hub {
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            (p, answered_by, annotations)
+            (p, answered_by, checked_annotations)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),

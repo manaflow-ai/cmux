@@ -1257,6 +1257,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.wallpaperTint" : {
+      "default" : true,
+      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+      "title" : "Tint with Desktop Wallpaper",
+      "type" : "boolean"
+    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -2357,6 +2363,17 @@
         "theme"
       ],
       "title" : "Bubble Style",
+      "type" : "string"
+    },
+    "home.chiefEngine" : {
+      "default" : "auto",
+      "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+      "enum" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "title" : "Engine",
       "type" : "string"
     },
     "home.chiefPetEnabled" : {
@@ -4598,13 +4615,13 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: a found update waits, and one click downloads and installs it.",
-      "title" : "Download Updates Automatically",
+      "default" : false,
+      "description" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+      "title" : "Download and Install Updates Automatically",
       "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
-      "default" : 900,
+      "default" : 600,
       "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
       "maximum" : 7200,
       "minimum" : 60,

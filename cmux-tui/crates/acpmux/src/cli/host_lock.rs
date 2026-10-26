@@ -18,7 +18,7 @@
 //! another update runs between that check and the step's end. Its uploads
 //! go to names of its own and are moved in place by a fenced step.
 
-use super::{REMOTE_HOME, Remote, RemoteOut};
+use super::{REMOTE_HOME, Remote, RemoteOut, make_remote_home};
 use anyhow::{Context, Result, anyhow};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -47,10 +47,13 @@ command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 || { echo "t
 "#;
 
 /// Opens `update.lock` as descriptor 9 (held by a step, or while the lease
-/// is taken) and `update.lease` as 8 (held by the lease's process).
+/// is taken) and `update.lease` as 8 (held by the lease's process). The home
+/// and the two files are made owner-only whatever the host's umask; the
+/// script's later commands keep that umask.
 fn open_locks() -> String {
     format!(
-        "mkdir -p {REMOTE_HOME} && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease"
+        "{} && acpmux_um=$(umask) && umask 077 && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease && umask \"$acpmux_um\"",
+        make_remote_home()
     )
 }
 
@@ -64,7 +67,7 @@ fn hold_lease(token: &str) -> String {
     format!(
         r#"{open} || exit 1
 {LOCK_FN}acpmux_lk 0 9 && acpmux_lk 0 8 || {{ echo {UPDATE_RUNNING}; exit 0; }}
-printf '%s %s\n' {token} $$ > {REMOTE_HOME}/{OWNER}.$$ && mv -f {REMOTE_HOME}/{OWNER}.$$ {REMOTE_HOME}/{OWNER} || exit 1
+(umask 077 && printf '%s %s\n' {token} $$ > {REMOTE_HOME}/{OWNER}.$$) && mv -f {REMOTE_HOME}/{OWNER}.$$ {REMOTE_HOME}/{OWNER} || exit 1
 exec 9>&-
 echo {UPDATE_LOCKED}
 cat >/dev/null 8>&-
@@ -256,7 +259,12 @@ pub(crate) struct Lease {
 impl Lease {
     /// The lease, or None while another update holds it or is at a step.
     pub(crate) fn take(home: &Path) -> Result<Option<Lease>> {
-        std::fs::create_dir_all(home).with_context(|| format!("creating {}", home.display()))?;
+        // Owner-only whatever the umask, as the remote lock step makes it (`open_locks`).
+        let mut made = std::fs::DirBuilder::new();
+        made.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+        made.create(home).with_context(|| format!("creating {}", home.display()))?;
         let step = open_lock(&home.join("update.lock"))?;
         let held = open_lock(&home.join("update.lease"))?;
         if !try_flock(&step) || !try_flock(&held) {
@@ -265,7 +273,18 @@ impl Lease {
         let owner = home.join(OWNER);
         let token = new_token()?;
         let part = home.join(format!("{OWNER}.{}", std::process::id()));
-        std::fs::write(&part, format!("{token} {}\n", std::process::id()))
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        options
+            .open(&part)
+            .and_then(|mut f| {
+                std::io::Write::write_all(
+                    &mut f,
+                    format!("{token} {}\n", std::process::id()).as_bytes(),
+                )
+            })
             .with_context(|| format!("writing {}", part.display()))?;
         std::fs::rename(&part, &owner).with_context(|| format!("writing {}", owner.display()))?;
         drop(step);
@@ -293,11 +312,11 @@ impl Drop for Lease {
 /// `path` opened for a flock (created, never truncated); the descriptor is
 /// close-on-exec, so no script this process runs keeps the flock.
 fn open_lock(path: &Path) -> Result<File> {
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path).with_context(|| format!("opening {}", path.display()))
 }
 
 /// An exclusive flock on `file`, not waited for: false while another
@@ -313,5 +332,61 @@ fn try_flock(file: &File) -> bool {
     {
         let _ = file;
         false
+    }
+}
+
+#[cfg(all(test, unix))]
+mod umask_tests {
+    use super::*;
+
+    /// The update lock's first step on a host whose umask is 002 (`host setup`,
+    /// `host update`) makes `~/.acpmux` owner-only, never the group-writable
+    /// home a later daemon start refuses (ergo-walk2, 2026-10-25), and its lock
+    /// files too; the rest of the script keeps the host's own umask.
+    #[test]
+    fn the_lock_step_makes_an_owner_only_home_under_umask_002() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-lock-umask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let status = std::process::Command::new("sh")
+            .args(["-c", &format!("umask 002 && {} && : > \"$HOME/after\"", open_locks())])
+            .env("HOME", &home)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let mode = |p: &str| std::fs::metadata(home.join(p)).unwrap().permissions().mode() & 0o777;
+        let dir = REMOTE_HOME.trim_start_matches("~/");
+        assert_eq!(mode(dir), 0o700);
+        assert_eq!(mode(&format!("{dir}/update.lock")), 0o600);
+        assert_eq!(mode(&format!("{dir}/update.lease")), 0o600);
+        assert_eq!(mode("after"), 0o664, "the host's umask holds after the lock step");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The lease's owner file, written while the lease is held, is owner-only too.
+    #[test]
+    fn the_lease_owner_file_is_owner_only_under_umask_002() {
+        use std::io::BufRead;
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-lease-umask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", &format!("umask 002\n{}", hold_lease("0123abcd"))])
+            .env("HOME", &home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let said = lines.next().unwrap().unwrap();
+        assert_eq!(said, UPDATE_LOCKED);
+        let owner = home.join(REMOTE_HOME.trim_start_matches("~/")).join(OWNER);
+        assert_eq!(std::fs::metadata(&owner).unwrap().permissions().mode() & 0o777, 0o600);
+        // Closing its stdin ends the holder, which gives the lease back.
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
