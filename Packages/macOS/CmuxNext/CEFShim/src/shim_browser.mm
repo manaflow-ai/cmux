@@ -146,6 +146,10 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
   return count;
 }
 
+int cmux_shim_renderer_pid(int browser_id) {
+  return fork_api().browser_renderer_pid ? fork_api().browser_renderer_pid(browser_id) : 0;
+}
+
 void cmux_shim_stop(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->StopLoad();
 }
