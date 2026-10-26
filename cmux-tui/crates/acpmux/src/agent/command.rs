@@ -240,6 +240,10 @@ pub(crate) fn harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    #[cfg(target_os = "linux")]
+    if remote_environment {
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
+    }
     Ok(cmd)
 }
 

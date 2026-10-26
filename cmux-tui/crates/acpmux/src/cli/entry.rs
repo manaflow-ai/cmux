@@ -51,6 +51,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         return crate::agent_host::host::main();
     }
     #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
+        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
         crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
     }

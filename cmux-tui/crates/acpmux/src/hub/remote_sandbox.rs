@@ -53,6 +53,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
+/// Enables an incomplete Linux sandbox without persistence enforcement; tests only, until G1b.
 static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
 
 /// The checked-in Seatbelt profile.
@@ -64,13 +65,67 @@ pub(super) fn profile_id() -> String {
     platform_profile_id(cfg!(target_os = "linux"))
 }
 
-fn platform_profile_id(_linux: bool) -> String {
-    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint; linux-keeper-v1; bwrap namespace argv v1";
-    crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
+fn platform_profile_id(linux: bool) -> String {
+    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    let identity = format!("{PROFILE}\n{ENV_POLICY}");
+    #[cfg(target_os = "linux")]
+    let identity = if linux {
+        // Hash the implemented policy and protocol, including the bwrap argv shape.
+        format!(
+            "{identity}\nlinux-keeper-v1; loader-env-v1\n{}\n{}\n{}\n{}\n{}",
+            include_str!("../linux_sandbox/bwrap.rs"),
+            include_str!("../linux_sandbox/keeper.rs"),
+            include_str!("../linux_sandbox/init.rs"),
+            include_str!("../linux_sandbox/seccomp.rs"),
+            include_str!("../linux_sandbox/proxy.rs")
+        )
+    } else {
+        identity
+    };
+    let _ = linux;
+    crate::sha256::sha256_hex(identity.as_bytes())
 }
 
+/// Loader and glibc startup controls must never reach an unsandboxed Linux exec.
 #[cfg(target_os = "linux")]
-pub(crate) fn scrub_loader_env(_command: &mut tokio::process::Command) {}
+pub(crate) fn loader_env_key(key: &str) -> bool {
+    key.starts_with("LD_")
+        || matches!(
+            key,
+            "GCONV_PATH"
+                | "GETCONF_DIR"
+                | "GLIBC_TUNABLES"
+                | "HOSTALIASES"
+                | "LOCALDOMAIN"
+                | "LOCPATH"
+                | "MALLOC_ARENA_MAX"
+                | "MALLOC_ARENA_TEST"
+                | "MALLOC_PERTURB_"
+                | "MALLOC_TOP_PAD_"
+                | "MALLOC_TRACE"
+                | "MALLOC_MMAP_MAX_"
+                | "MALLOC_MMAP_THRESHOLD_"
+                | "MALLOC_TRIM_THRESHOLD_"
+                | "NIS_PATH"
+                | "NLSPATH"
+                | "RESOLV_HOST_CONF"
+                | "RES_OPTIONS"
+                | "TZDIR"
+        )
+}
+
+/// Finite scan of inherited and explicitly merged keys; never mutates the daemon env.
+#[cfg(target_os = "linux")]
+pub(crate) fn scrub_loader_env(command: &mut tokio::process::Command) {
+    let keys: Vec<_> = std::env::vars_os()
+        .map(|(k, _)| k)
+        .chain(command.as_std().get_envs().map(|(k, _)| k.to_owned()))
+        .filter(|k| crate::linux_sandbox::keeper::loader_env_key(&k.to_string_lossy()))
+        .collect();
+    for key in keys {
+        command.env_remove(key);
+    }
+}
 
 /// The system `sandbox-exec`.
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -643,6 +698,10 @@ fn claude_args(
     if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
+    #[cfg(target_os = "linux")]
+    if let Some(bad) = profile.env.keys().find(|k| loader_env_key(k)) {
+        return Err(format!("a remote chain never runs Claude Code with {bad} set"));
+    }
     if let Some(bad) = REFUSED_ENV.iter().find(|k| profile.env.contains_key(**k)) {
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
@@ -676,7 +735,9 @@ fn linux_keeper_args_with_exe(
     args: Vec<String>,
     exe: &Path,
 ) -> Result<(String, Vec<String>), String> {
-    let mut out = vec!["__remote-sandbox-keeper".into()];
+    let mut out: Vec<String> =
+        crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+    out.push("__remote-sandbox-keeper".into());
     for (key, value) in [
         ("--cwd", &bound.cwd),
         ("--tmpdir", &bound.tmp),
@@ -725,16 +786,20 @@ fn linux_wrap(
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
-/// port, $3 the temporary folder, $4 a ::1 port (0: none), $5 a Unix socket.
+/// port, $3 the temporary folder, $4 a ::1 port (0: none), $5 a Unix socket,
+/// $6 the pinned acpmux path, remaining arguments its multicall prefix.
 const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
-u=1
-if [ -n "$5" ] && command -v python3 >/dev/null 2>&1; then
-  python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])' "$5" 2>/dev/null; u=$?
-fi
-if [ -n "$5" ]; then echo "acpmux-canary outside=$o loopback=$l tmp=$i unix=$u"; else echo "acpmux-canary outside=$o loopback=$l tmp=$i"; fi"#;
+if [ -n "$5" ]; then
+  socket=$5; helper=$6; shift 6
+  u=unknown
+  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket" 2>/dev/null); then
+    case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
+  fi
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i unix=$u"
+else echo "acpmux-canary outside=$o loopback=$l tmp=$i"; fi"#;
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
 /// the sandbox held: the outside write failed and left no file, the loopback
@@ -783,7 +848,8 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             bound.tmp.to_string_lossy().into_owned(),
             port6.to_string(),
         ])
-        .chain(std::iter::once(socket_arg))
+        .chain([socket_arg, exec.to_string_lossy().into_owned()])
+        .chain(crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()))
         .collect::<Vec<_>>();
     #[cfg(target_os = "linux")]
     let (program, args) = if linux {
@@ -806,6 +872,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     );
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args).current_dir(&bound.cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    #[cfg(target_os = "linux")]
+    if linux {
+        scrub_loader_env(&mut cmd);
+    }
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
@@ -853,11 +923,12 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
 }
 
 fn canary_report_held(
-    _success: bool,
+    success: bool,
     (o, l, t, u): (Option<i32>, Option<i32>, Option<i32>, Option<i32>),
     linux: bool,
 ) -> bool {
-    matches!(o, Some(c) if c != 0)
+    success
+        && matches!(o, Some(c) if c != 0)
         && matches!(l, Some(c) if c != 0)
         && t == Some(0)
         && (!linux || matches!(u, Some(c) if c != 0))
@@ -884,8 +955,9 @@ impl Hub {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
     }
 
-    /// Test-only switch for the Linux implementation; production leaves the
-    /// platform refusal in place until G2 enables and canary-checks it.
+    /// Enables an incomplete Linux sandbox without persistence enforcement;
+    /// tests only, until G1b wires the supervisor and persistence canary checks.
+    /// Production remains refused until G2.
     #[doc(hidden)]
     pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
         #[cfg(target_os = "linux")]
@@ -893,8 +965,9 @@ impl Hub {
         let _ = enabled;
     }
 
-    /// Runs the Linux canary for the hosted integration test. Production
-    /// callers have no access to this path until G2 removes the refusal.
+    /// Integration-test hook: accepts the separately built acpmux test binary.
+    /// Never used by production spawns, which pin current_exe through the keeper.
+    /// Enables no spawn policy and does not replace the production executable.
     #[doc(hidden)]
     pub async fn linux_sandbox_canary_for_tests(
         &self,
@@ -908,7 +981,7 @@ impl Hub {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = cwd;
+            let _ = (cwd, exec);
             Err("Linux sandbox canary is unavailable on this platform".into())
         }
     }
@@ -1034,7 +1107,10 @@ impl Hub {
             };
             #[cfg(target_os = "linux")]
             let canary_exec = if linux {
-                std::env::current_exe().map_err(|e| e.to_string())?
+                // Never use the configurable sandbox-exec test hook on Linux.
+                std::env::current_exe()
+                    .and_then(std::fs::canonicalize)
+                    .map_err(|e| e.to_string())?
             } else {
                 exec.clone()
             };
@@ -1135,6 +1211,7 @@ mod vm_host_tests {
 mod endpoint_tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     const LOADER_KEYS: &str = "LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT LD_UNKNOWN GCONV_PATH GETCONF_DIR GLIBC_TUNABLES HOSTALIASES LOCALDOMAIN LOCPATH MALLOC_ARENA_MAX MALLOC_ARENA_TEST MALLOC_PERTURB_ MALLOC_TOP_PAD_ MALLOC_TRACE MALLOC_MMAP_MAX_ MALLOC_MMAP_THRESHOLD_ MALLOC_TRIM_THRESHOLD_ NIS_PATH NLSPATH RESOLV_HOST_CONF RES_OPTIONS TZDIR";
 
     #[test]

@@ -12,6 +12,8 @@
 //! staged helper lacks persistence supervision; G1b supplies the marked hook.
 //! Collection loops stop at finite input exhaustion. Service loops stop on child
 //! exit, cancellation, or runtime teardown. No daemon-owned threads are added.
+pub(crate) use crate::hub::remote_sandbox::loader_env_key;
+
 use super::{bwrap, proxy, rules};
 use bwrap::Paths;
 use std::collections::BTreeMap;
@@ -31,6 +33,20 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 type Result<T> = std::result::Result<T, String>;
+/// Hidden canary helper; the parent's 20-second canary deadline bounds connect.
+/// Only an explicit permission denial proves the Unix-socket boundary held.
+pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
+    let [path] = args else {
+        return Err("expected one Unix socket path".into());
+    };
+    match UnixStream::connect(path) {
+        Ok(_) => println!("unix=0"),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => println!("unix=1"),
+        Err(e) => return Err(format!("Unix canary could not run: {e}")),
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct Options {
     paths: Paths,
