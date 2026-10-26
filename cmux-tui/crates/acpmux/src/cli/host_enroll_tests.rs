@@ -639,8 +639,8 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     std::fs::create_dir_all(&home).unwrap();
     let sh = Sh(home.clone());
     let ids = vec!["pi".to_string()];
-    assert_eq!(harness(&sh, &ids, &local, false).state, StepState::Fail);
-    let fixed = harness(&sh, &ids, &local, true);
+    assert_eq!(harness(&sh, "box", &ids, &local, false).state, StepState::Fail);
+    let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing)");
     let dir = home.join(".config/cmux/harnesses");
@@ -652,12 +652,12 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     );
     assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(harness(&sh, &ids, &local, false).state, StepState::Ok);
+    assert_eq!(harness(&sh, "box", &ids, &local, false).state, StepState::Ok);
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).unwrap();
-    let writable = harness(&sh, &ids, &local, false);
+    let writable = harness(&sh, "box", &ids, &local, false);
     assert_eq!(writable.state, StepState::Fail);
     assert!(writable.detail.contains("group- or other-writable"), "{writable:?}");
-    assert_eq!(harness(&sh, &ids, &local, true).state, StepState::Fixed);
+    assert_eq!(harness(&sh, "box", &ids, &local, true).state, StepState::Fixed);
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let _ = std::fs::remove_dir_all(&home);
 }

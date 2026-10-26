@@ -11,6 +11,7 @@ use crate::cli::host_steps::{
 };
 use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
+use crate::harness_health::channel::quote as shell_quote;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -157,7 +158,7 @@ fn machine_steps(
             Step::Reach => reach(r),
             Step::Install => install(r, &plan.name, &plan.remote_binary, fix),
             Step::Daemon => daemon(r, &plan.name, plan.port, fix),
-            _ => harness(r, &plan.harnesses, local, fix),
+            _ => harness(r, &plan.name, &plan.harnesses, local, fix),
         });
         emit(&result);
         done.push(result);
@@ -957,9 +958,9 @@ fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
         .and_then(|p| p.in_use().map(|u| u.path))
         .unwrap_or_else(|| DAEMON_BIN.to_owned());
     let command = if command.rsplit('/').next() == Some("acpmux") {
-        format!("{command} --json daemon harnesses")
+        format!("{} --json daemon harnesses", shell_quote(&command))
     } else {
-        format!("{command} acp --json daemon harnesses")
+        format!("{} acp --json daemon harnesses", shell_quote(&command))
     };
     let Ok(out) = hosts::run(r, &command) else {
         return false;
@@ -971,7 +972,13 @@ fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
         .is_some_and(|profile| profile.get("unavailable").is_none())
 }
 
-fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResult {
+fn harness(
+    r: &dyn Remote,
+    peer_name: &str,
+    ids: &[String],
+    local: &Local,
+    fix: bool,
+) -> StepResult {
     if ids.is_empty() {
         return StepResult::new(Step::Harness, StepState::Skip, "no --harness given");
     }
@@ -995,8 +1002,7 @@ fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResu
             .unwrap_or(false);
         if !local_profile && remote_harness_discovered(r, id) {
             parts.push(format!(
-                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {} -m {id} -d`) ",
-                r.host()
+                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {peer_name} -m {id} -d`) ",
             ));
             continue;
         }
