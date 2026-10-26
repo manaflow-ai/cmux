@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Testing
 
 /// The chat header's toggle buttons light while the panel they opened is open (cx-00n1, Claude Code
@@ -26,14 +27,36 @@ struct HeaderLitTests {
         row.click("splitBrowserRight", toggles: toggles)
         var pushed: [AgentPaneHeaderState] = []
         let watch = AgentChatHeaderWatch(state: { toggles.headerState(chat: row.chat, store: row.store) },
-                                         push: { pushed.append($0) })
+                                         push: { pushed.append($0) }, on: Self.work())
         #expect(watch.read().lit == ["splitBrowserRight"])
         // The user closes the browser from its own tab, not from the header.
         let browser = row.tab(.browser)
         _ = row.registry.perform("closeTab", invocation: ActionInvocation(
             target: ActionTargetRef(kind: .tab, id: browser), origin: .user))
-        for _ in 0..<20 where pushed.isEmpty { await Task.yield() }
+        await drainMainTurns()
         #expect(pushed.map(\.lit) == [[]])
+    }
+
+    /// The header watch is one FrameObservation (p04-input-026): the changes of one turn reach the page as one push,
+    /// with no `Task` per change.
+    @Test func theChangesOfOneTurnArePushedOnce() async {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        var pushed: [AgentPaneHeaderState] = []
+        let watch = AgentChatHeaderWatch(state: { toggles.headerState(chat: row.chat, store: row.store) },
+                                         push: { pushed.append($0) }, on: Self.work())
+        #expect(watch.read().lit == [])
+        row.click("splitRight", toggles: toggles)
+        row.click("splitBrowserRight", toggles: toggles)
+        #expect(pushed.isEmpty, "a change pushed inside its will-set")
+        await drainMainTurns()
+        #expect(pushed.map(\.lit) == [["splitBrowserRight", "splitRight"]], "\(pushed.count) pushes for one turn's changes (want 1)")
+        await drainMainTurns()
+        #expect(pushed.count == 1, "a push with nothing changed")
+    }
+
+    /// A main-thread scheduler with no display link: a visible post runs on the next main run loop pass.
+    private static func work() -> MainWorkScheduler {
+        MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in nil }
     }
 }
 
