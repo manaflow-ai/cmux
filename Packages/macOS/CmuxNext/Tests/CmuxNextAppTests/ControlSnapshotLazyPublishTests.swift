@@ -10,10 +10,13 @@ import Testing
 /// The control snapshot off the visible path (plans/cmux-next/chrome-parity/p06-scheduler.md, task 039), on a test
 /// ``MainWorkScheduler`` whose frames the test fires by hand:
 /// - a change marks the snapshot dirty and queues one `background` publish: 50 changes before that task runs give one
-///   build, and none in the change's own turn;
-/// - the publish never runs while the person's input response is open (it waits for the frame they wait for);
-/// - a read that needs the snapshot fresh builds it in one `automation` task of its own, and the queued background
-///   publish then builds nothing;
+///   build, and none in the change's own turn; readers keep the last published value meanwhile;
+/// - the publish never runs while the person's input response is open (it waits for the frame they wait for), a
+///   person-caused daemon batch that only moves the sequences included;
+/// - a reader waiting on its write barrier raises the pending publish to `automation`, also when it started waiting
+///   after the change (`action.run` awaits the daemon's idle first, `after: "sync"` its round trip): during launch,
+///   which holds background work until reveal, the barrier still resolves, in an automation task;
+/// - a read after a CLI write builds the snapshot in one `automation` task;
 /// - a control work-queue frame (a script's CLI calls, 1000 a second under load) only marks the snapshot stale: each
 ///   drained frame mapped the topology and walked every mounted pane on the main thread, and the separate
 ///   `control.publish` task each frame paid is gone. The snapshot is built when a read needs it, once for any number
@@ -57,9 +60,13 @@ struct ControlSnapshotLazyPublishTests {
             work.frameDidFire(timestamp: clock.seconds, refreshInterval: 1.0 / 60)
         }
 
-        /// Runs the main-actor hops a change queued (the info cache's), with no frame.
+        /// Runs the main-actor hops a change queued (the info cache's) and the main run loop's blocks (a waiting
+        /// reader's post from its own thread reaches main as one), with no frame.
         func hops() async {
-            for _ in 0..<8 { await Task.yield() }
+            for _ in 0..<8 {
+                await Task.yield()
+                _ = RunLoop.main.run(mode: .default, before: Date())
+            }
         }
 
         func stop() {
@@ -68,11 +75,16 @@ struct ControlSnapshotLazyPublishTests {
         }
     }
 
-    /// One workspace with one tab, a started publisher, its first (background) publish done.
-    private static func rig() async -> Rig {
+    /// One workspace with one tab and a started publisher; its first (background) publish done unless `launching`,
+    /// which holds background work as the app's launch does until reveal.
+    private static func rig(launching: Bool = false) async -> Rig {
         _ = NSApplication.shared
         let clock = LazyPublishClock()
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in LazyPublishFakeLink() }
+        // The reveal deadline is out of the test's reach: only the test's own steps move the phase.
+        let startup = launching ? StartupPhase(ledger: WakeupLedger(), timing: .init(revealDeadline: .seconds(3_600),
+                                                                                       settleFailsafe: .seconds(7_200)))
+            : StartupPhase.settled()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), startup: startup) { _ in LazyPublishFakeLink() }
         // Keeps the fake link up, so a post waits for a frame the test fires instead of a run loop turn.
         let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         keeper.activate()
@@ -94,14 +106,36 @@ struct ControlSnapshotLazyPublishTests {
         rig.frame()
         await rig.hops()
         rig.frame()
-        #expect(publisher.builds >= 1, "the first background publish did not run")
-        #expect(!router.snapshots.isStale)
+        if launching {
+            #expect(publisher.builds == 0, "the first background publish ran during launch")
+        } else {
+            #expect(publisher.builds >= 1, "the first background publish did not run")
+            #expect(!router.snapshots.isStale)
+        }
         return rig
+    }
+
+    /// Waits in the store for a snapshot `isReady` accepts while the test fires frames, as the app's display link
+    /// would; nil when it never came in 200 frames.
+    private static func waitFor(_ rig: Rig, _ isReady: @escaping @Sendable (ControlSnapshot) -> Bool) async -> ControlSnapshot? {
+        let reply = LazyPublishSnapshot()
+        let store = rig.router.snapshots
+        let task = Task { @MainActor in
+            reply.value = await store.snapshot(where: isReady, deadline: .now + .seconds(30))
+            reply.done = true
+        }
+        for _ in 0..<200 where !reply.done {
+            await rig.hops()
+            rig.frame()
+        }
+        task.cancel()
+        await task.value
+        return reply.value
     }
 
     /// Reads `method` through the router while the test fires frames, as the app's display link would: the read's
     /// build waits for its automation task.
-    private static func read(_ rig: Rig, _ method: String = "system.ping") async -> Result<JSONValue, ControlError> {
+    private static func read(_ rig: Rig, _ method: String = "snapshot.get") async -> Result<JSONValue, ControlError> {
         let reply = LazyPublishReply()
         let router = rig.router
         let task = Task { @MainActor in reply.value = await router.handle(ControlRequest(method: method)) }
@@ -121,7 +155,10 @@ struct ControlSnapshotLazyPublishTests {
         for index in 0..<50 { rig.store.apply(.titleChanged(surface: 1, title: "t\(index)")) }
         await rig.hops()
         #expect(rig.builds == builds, "\(rig.builds - builds) builds in the changes' own turns (want 0)")
-        #expect(rig.router.snapshots.isStale, "the changes did not mark the snapshot dirty for readers")
+        // A plain read keeps the last published value: it does not wait for a main-thread build of a change it did
+        // not ask for (only a work-queue frame marks the store stale).
+        #expect(!rig.router.snapshots.isStale, "a model change made every read wait for a main-thread build")
+        #expect(rig.title != "t49")
         rig.frame()
         #expect(rig.builds - builds == 1, "\(rig.builds - builds) builds for 50 changes in one frame (want 1)")
         #expect(rig.title == "t49")
@@ -153,34 +190,95 @@ struct ControlSnapshotLazyPublishTests {
         #expect(rig.title == "typed49")
     }
 
-    /// A read that finds the snapshot dirty builds it in one automation task for its request; the queued background
-    /// publish then has nothing left to build.
-    @Test func aFreshReadPromotesThePublishToAutomation() async throws {
+    /// A person-caused daemon batch that only moves the sequences publishes after the person's frame, not in the
+    /// input-response pass before the commit.
+    @Test func aPersonCausedSequenceBatchNeverPublishesInsideAnInputResponse() async {
         let rig = await Self.rig()
         defer { rig.stop() }
+        let published = rig.publisher.sequencePublishes
+        let target = rig.store.appliedSequence + 3
+        rig.work.noteDiscreteInput(expectsFrame: true)
+        rig.work.causes.withCause(.person) { rig.store.advanceAppliedSequence(to: target) }
+        await rig.hops()
+        #expect(rig.work.budget.isInputResponseOpen)
+        rig.frame()
+        #expect(rig.publisher.sequencePublishes == published, "the sequence publish ran inside the input response")
+        #expect(rig.router.snapshots.current.topology.daemonSequence < target)
+        rig.work.renderPassEnded(nanos: 1_000_000)
+        rig.clock.advance(ms: 600)
+        rig.frame()
+        #expect(rig.publisher.sequencePublishes - published == 1, "the sequences were not published once the response closed")
+        #expect(rig.router.snapshots.current.topology.daemonSequence == target)
+    }
+
+    /// A read after a CLI write (a work-queue frame marks the store stale) waits as a reader: its build is one
+    /// automation task, and it runs during launch, while background work is held.
+    @Test func aReadAfterACLIWriteBuildsInOneAutomationTask() async throws {
+        let rig = await Self.rig(launching: true)
+        defer { rig.stop() }
+        try await rig.router.workQueue.run(method: "test.write", deadline: .now + .seconds(10)) {}
+        let (automation, background) = (rig.work.budget.stats.tasks[1], rig.work.budget.stats.tasks[2])
+        let reply = await Self.read(rig)
+        #expect((try? reply.get()) != nil, "the read failed: \(reply)")
+        #expect(rig.builds == 1, "\(rig.builds) builds for one read (want 1)")
+        #expect(rig.work.budget.stats.tasks[1] > automation, "the read's build was not an automation task")
+        #expect(rig.work.budget.stats.tasks[2] == background, "the read's build ran as background work")
+        #expect(!rig.router.snapshots.isStale)
+    }
+
+    /// `action.run`'s order: the daemon's echo is applied (its publish queued as background work), then the reader
+    /// starts waiting on its barrier. The wait raises the publish to automation: during launch, which holds
+    /// background work until reveal, the barrier still resolves.
+    @Test func aBarrierThatWaitsAfterTheEchoRaisesThePublishToAutomation() async {
+        let rig = await Self.rig(launching: true)
+        defer { rig.stop() }
+        _ = await Self.read(rig)
+        #expect(rig.builds == 1, "the first read did not build the snapshot")
+        rig.store.apply(.titleChanged(surface: 1, title: "echo"))
+        await rig.hops()
+        rig.frame()
+        #expect(rig.builds == 1, "the background publish ran during launch")
+        #expect(rig.title != "echo")
+        let (automation, background) = (rig.work.budget.stats.tasks[1], rig.work.budget.stats.tasks[2])
+        let snapshot = await Self.waitFor(rig) { $0.topology.workspaces.first?.panes.first?.tabs.first?.title == "echo" }
+        #expect(snapshot != nil, "the barrier never resolved: its publish stayed background work")
+        #expect(rig.builds == 2, "\(rig.builds - 1) builds for the barrier (want 1)")
+        #expect(rig.work.budget.stats.tasks[1] > automation, "the barrier's publish was not an automation task")
+        #expect(rig.work.budget.stats.tasks[2] == background, "the barrier's publish ran as background work")
+    }
+
+    /// The usual `after: "sync"` result: a daemon batch that only moves the sequence, then a reader waiting for that
+    /// sequence. Its sequence-only publish is raised to automation too (no topology build), during launch as well.
+    @Test func aSequenceOnlyBarrierRaisesItsPublishToAutomation() async {
+        let rig = await Self.rig(launching: true)
+        defer { rig.stop() }
+        _ = await Self.read(rig)
+        let published = rig.publisher.sequencePublishes
+        let target = rig.store.appliedSequence + 5
+        rig.store.advanceAppliedSequence(to: target)
+        await rig.hops()
+        rig.frame()
+        #expect(rig.router.snapshots.current.topology.daemonSequence < target, "the background publish ran during launch")
+        let automation = rig.work.budget.stats.tasks[1]
+        let snapshot = await Self.waitFor(rig) { $0.topology.daemonSequence >= target }
+        #expect(snapshot != nil, "the barrier never resolved: its sequence publish stayed background work")
+        #expect(rig.builds == 1, "\(rig.builds - 1) topology builds for a sequence-only barrier (want 0)")
+        #expect(rig.publisher.sequencePublishes - published == 1)
+        #expect(rig.work.budget.stats.tasks[1] > automation, "the barrier's sequence publish was not an automation task")
+    }
+
+    /// A liveness diagnostic answers from the last published snapshot: it never waits for a stale snapshot's build,
+    /// a main-thread task, so it answers while the main thread is stalled.
+    @Test func aPingDoesNotWaitForAStaleSnapshotsBuild() async throws {
+        let rig = await Self.rig()
+        defer { rig.stop() }
+        try await rig.router.workQueue.run(method: "test.write", deadline: .now + .seconds(10)) {}
         let builds = rig.builds
-        let automationTasks = rig.work.budget.stats.tasks[1]
-        rig.store.apply(.titleChanged(surface: 1, title: "read me"))
-        await rig.hops()
+        // No frame fires: a ping that waited for the build would never answer.
+        let reply = await rig.router.handle(ControlRequest(method: "system.ping"))
+        #expect((try? reply.get()) != nil, "the ping failed: \(reply)")
         #expect(rig.builds == builds)
-        let reply = LazyPublishReply()
-        let router = rig.router
-        let read = Task { @MainActor in reply.value = await router.handle(ControlRequest(method: "snapshot.get")) }
-        await rig.hops()
-        #expect(rig.builds == builds, "the read built the snapshot outside a scheduled task")
-        // One frame: the read's automation task builds, ahead of the background one queued before it.
-        rig.frame()
-        #expect(rig.builds - builds == 1, "\(rig.builds - builds) builds in the read's frame (want 1)")
-        #expect(rig.work.budget.stats.tasks[1] > automationTasks, "the read's build was not an automation task")
-        #expect(rig.title == "read me")
-        for _ in 0..<200 where reply.value == nil {
-            await rig.hops()
-            rig.frame()
-        }
-        await read.value
-        #expect((try? reply.value?.get()) != nil, "the read failed: \(String(describing: reply.value))")
-        rig.frame()
-        #expect(rig.builds - builds == 1, "the queued background publish built again after the read's build")
+        #expect(rig.router.snapshots.isStale)
     }
 
     /// On the app's budget, a burst of CLI writes with no reader builds no snapshot and charges one automation task
@@ -228,6 +326,13 @@ struct ControlSnapshotLazyPublishTests {
 @MainActor
 private final class LazyPublishReply {
     var value: Result<JSONValue, ControlError>?
+}
+
+/// A store wait's result, set on the main actor by the task that waits.
+@MainActor
+private final class LazyPublishSnapshot {
+    var value: ControlSnapshot?
+    var done = false
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).

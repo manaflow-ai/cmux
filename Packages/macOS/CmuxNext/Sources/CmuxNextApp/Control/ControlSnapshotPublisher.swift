@@ -7,44 +7,44 @@ import Observation
 import os
 
 /// Publishes the control snapshot (architecture.md 5a) off the visible path
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 039): a change marks it dirty, and one posted
-/// `background` task builds and publishes it, however many changes came before that task runs. A read
-/// that needs the snapshot fresh promotes the build to `automation` for its request (the CLI's class), so
-/// a publish never runs in the person's input response (``MainFrameBudget`` holds both classes while it
-/// is open) and nothing builds per change. Chrome's model: a best-effort task behind a dirty bit
-/// (`base/task/task_traits.h`, `TaskPriority::BEST_EFFORT`), raised when a caller waits on it
-/// (`content/browser/scheduler/browser_task_queues.h`, a queue's priority set by who needs it).
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 039): a change sets a dirty bit, and one posted
+/// `background` task publishes, however many changes came before that task runs. A reader waiting for a newer
+/// snapshot (a write barrier, ``ControlSnapshotStore/snapshot(where:deadline:)``, or a read after a control
+/// work-queue frame, ``ControlSnapshotStore/fresh(deadline:)``) raises the pending publish to `automation`, the
+/// CLI's class, whether it came before or after the change. So a publish never runs inside the person's input
+/// response (``MainFrameBudget`` holds both classes while it is open), and nothing builds per change. Chrome's
+/// model: a best-effort task behind a dirty bit (`base/task/task_traits.h`, `TaskPriority::BEST_EFFORT`), raised
+/// when a caller waits on it (`content/browser/scheduler/browser_task_queues.h`, a queue's priority set by who
+/// needs it).
 ///
-/// A publish maps only the workspaces whose entries went stale (``ControlWorkspaceInfoCache``). The build
-/// runs inside Observation tracking, so any daemon record, window state, focus, or settings property it read
-/// marks the snapshot dirty; key-window changes (not observable) and every main-actor work queue frame mark
-/// it explicitly. Readers never touch main-actor state: they get the last published value, built first when
-/// it is dirty (``ControlSnapshotStore/fresh()``).
+/// A publish maps only the workspaces whose entries went stale (``ControlWorkspaceInfoCache``). The build runs
+/// inside a ``DirtyTracking``, so any daemon record, window state, focus, or settings property it read sets
+/// the topology's dirty bit; key-window changes (not observable) set it explicitly. A model change leaves readers
+/// the last published value; only a work-queue frame (the CLI's own main-actor write) marks the store stale, so the
+/// next read builds first.
 ///
-/// The daemon sequences (read-your-writes barriers) are followed apart from the build, by a
-/// ``ServiceObservation`` in the background class: a daemon batch that changes nothing the topology shows
-/// (busy terminals' activity, a status tick elsewhere) only moves the published sequences, in O(sessions),
-/// instead of mapping the topology again (perf-lead.md issue 5, the main thread under load).
+/// The daemon sequences (read-your-writes barriers) have a ``DirtyTracking`` of their own: a daemon batch
+/// that changes nothing the topology shows (busy terminals' activity, a status tick elsewhere) only moves the
+/// published sequences, in O(sessions) per publish, instead of mapping the topology again (perf-lead.md issue 5).
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private var isStopped = false
     private var observers: [MainActorObservation] = []
-    private var sequenceObservation: ServiceObservation<ControlSequenceBarrier>?
-    /// The class of the publish task queued now, nil when none is: a change while one is queued adds nothing,
-    /// and only a waiting read adds a task of a higher class.
-    private var queuedClass: BudgetedWorkClass?
+    /// The classes of the publish tasks queued now: a change adds a task only when none of its class or a higher
+    /// one is queued.
+    private var queued: Set<BudgetedWorkClass> = []
     /// The sequences the published snapshot carries (a sequence-only publish skips equal ones).
     private var publishedSequences: ControlSequenceBarrier?
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
     private let publishOwner: MainTaskOwner
-    /// Something the last build read changed since it ran. Set in the tracking's callback, which runs
-    /// synchronously inside the mutation, so a sequence change that follows in the same batch sees it.
-    /// An atomic flag: the callback is not main-actor isolated.
-    nonisolated private let topologyDirty = Atomic<Bool>(false)
+    /// Something the last build read changed since it ran.
+    private let topologyTracking = DirtyTracking()
+    /// A daemon sequence moved since the last publish read them.
+    private let sequenceTracking = DirtyTracking()
     /// Topology builds and sequence-only publishes since start (tests, debug).
     private(set) var builds = 0
     private(set) var sequencePublishes = 0
@@ -59,15 +59,15 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
-        workspaceInfos.onStale = { [weak self] in self?.topologyChanged() }
+        workspaceInfos.onStale = { [weak self] in self?.invalidate() }
         // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot before
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
         router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
-        let work = services.mainWork
-        router.snapshots.setRefresher({ [weak self] in self?.publishIfStale() }, promoted: { [weak self] in
+        let (work, owner) = (services.mainWork, publishOwner)
+        router.snapshots.setRefresher({ [weak self] in self?.flush() }, waiterAdded: { [weak self] in
             // The reader's own request: one automation task, held while the person's input response is open.
-            _ = await work.apply(.automation, owner: "control.snapshot.read") { [weak self] in self?.publishIfStale() }
+            work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.waiterAdded() }
         })
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
@@ -76,14 +76,10 @@ final class ControlSnapshotPublisher {
                 self?.invalidate()
             })
         }
-        // The first snapshot is background work too: launch never waits for it, and a read before it builds it.
+        // The first snapshot is background work too, so launch never waits for it. Until it is published the store
+        // is stale: a read before it builds it in the reader's class.
+        router.snapshots.markStale()
         invalidate()
-        // The read holds the services while the observation lives; the AppDelegate keeps them longer than this publisher.
-        sequenceObservation = ServiceObservation(.background, owner: "control.snapshot.sequences", on: work) { [services = self.services] in
-            Self.sequences(services)
-        } apply: { [weak self] sequences in
-            self?.sequencesChanged(sequences)
-        }
     }
 
     func stop() {
@@ -91,38 +87,43 @@ final class ControlSnapshotPublisher {
         router.workQueue.setAfterFrame(nil)
         router.snapshots.setRefresher(nil)
         observers.removeAll()
-        sequenceObservation?.cancel()
-        sequenceObservation = nil
     }
 
-    /// Something the snapshot shows changed where no tracking sees it (a key window): mark it dirty and queue
-    /// its publish.
+    /// Something the snapshot shows changed where the build's tracking does not see it (a key window, a workspace
+    /// entry of the info cache): set it dirty and queue its publish.
     func invalidate() {
+        topologyTracking.markDirty()
         topologyChanged()
     }
 
-    /// A change the snapshot shows: dirty for readers (``ControlSnapshotStore/fresh()`` builds it first), and one
-    /// background publish queued, or an automation one when a read waits on its barrier.
+    /// A change the snapshot shows (its dirty bit is set): one background publish queued, or an automation one when
+    /// a reader waits. Readers keep the last published value: a read never waits for a change it did not ask for.
     private func topologyChanged() {
-        guard !isStopped else { return }
-        topologyDirty.store(true, ordering: .releasing)
-        router.snapshots.markStale()
         schedulePublish(router.snapshots.hasWaiters ? .automation : .background)
+    }
+
+    /// A daemon sequence moved (its dirty bit is set): the same queued publish as a topology change.
+    private func sequencesChanged() {
+        schedulePublish(router.snapshots.hasWaiters ? .automation : .background)
+    }
+
+    /// A reader started waiting for a newer snapshot (this is its automation task). The change it waits for usually
+    /// came first (`action.run` awaits the daemon's idle, `after: "sync"` its round trip), so its publish is queued
+    /// as background work: publish now instead. A change after this finds the reader itself (`hasWaiters` in
+    /// ``topologyChanged()``).
+    private func waiterAdded() {
+        if router.snapshots.hasWaiters { flush() }
     }
 
     /// Queues one publish in `workClass`, unless one of that class or a higher one is queued.
     private func schedulePublish(_ workClass: BudgetedWorkClass) {
-        guard !isStopped else { return }
-        if let queuedClass, queuedClass.workClass <= workClass.workClass { return }
-        queuedClass = workClass
+        guard !isStopped, !queued.contains(where: { $0.workClass <= workClass.workClass }) else { return }
+        queued.insert(workClass)
         // node-free: CLI reads and their write barriers need the snapshot whatever is on screen.
-        services.mainWork.post(workClass, owner: publishOwner) { [weak self] in self?.publishQueued(workClass) }
-    }
-
-    /// A queued publish: builds when a change is still unpublished (a read's build since may have published it).
-    private func publishQueued(_ workClass: BudgetedWorkClass) {
-        if queuedClass == workClass { queuedClass = nil }
-        publishIfStale()
+        services.mainWork.post(workClass, owner: publishOwner) { [weak self] in
+            self?.queued.remove(workClass)
+            self?.flush()
+        }
     }
 
     /// A control work-queue frame ran (a CLI call changed main-actor state): mark the snapshot stale; build it now
@@ -132,31 +133,30 @@ final class ControlSnapshotPublisher {
         if router.snapshots.hasWaiters { publishNow() }
     }
 
-    /// Builds and publishes when something changed since the last build: a read that found the snapshot stale,
-    /// or a queued publish.
-    private func publishIfStale() {
-        if router.snapshots.isStale || topologyDirty.load(ordering: .acquiring) { publishNow() }
+    /// Publishes what changed since the last publish: the topology (with the sequences), or the sequences alone.
+    /// A task that finds nothing pending (a higher-class one published first) does nothing.
+    private func flush() {
+        guard !isStopped else { return }
+        if router.snapshots.isStale || topologyTracking.isDirty {
+            publishNow()
+        } else if sequenceTracking.isDirty {
+            publishSequences()
+        }
     }
 
-    /// Builds and publishes now. It runs in a queued publish task, a read's automation task, or a work-queue frame
-    /// a read waits on: never in the turn of the change itself.
+    /// Builds and publishes now. It runs in a publish task or a work-queue frame a reader waits on: never in the
+    /// turn of the change itself.
     func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
         builds += 1
-        topologyDirty.store(false, ordering: .releasing)
-        let (built, settings, tabSearch) = withObservationTracking {
+        let (built, settings, tabSearch) = topologyTracking.read({
             (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
              TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
-        } onChange: { [weak self] in
-            // Runs synchronously inside the mutation: dirty at once, so a sequence change in the same batch waits
-            // for this publish; the stale mark and the queued task follow on the main actor.
-            self?.topologyDirty.store(true, ordering: .releasing)
-            MainDelivery().run { [weak self] in self?.topologyChanged() }
-        }
-        // Outside the tracking: a sequence alone never rebuilds (the sequence observation).
+        }, changed: { [weak self] in self?.topologyChanged() })
+        // Outside the build's tracking: a sequence alone never rebuilds.
         var topology = built
-        let sequences = Self.sequences(services)
+        let sequences = readSequences()
         Self.apply(sequences, to: &topology)
         publishedSequences = sequences
         router.snapshots.publish(rebuilt: true) { snapshot in
@@ -172,22 +172,22 @@ final class ControlSnapshotPublisher {
         }
     }
 
-    /// The daemon sequences moved (the sequence observation's flush): publish them alone while the topology is
-    /// clean; a pending topology publish carries them instead.
-    private func sequencesChanged(_ sequences: ControlSequenceBarrier) {
-        guard !isStopped, sequences != publishedSequences else { return }
-        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
-        // it would show the new sequences beside the old topology. Its publish reads the sequences as they are
-        // then; a read waiting on its write barrier raises it to automation.
-        if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
-            if router.snapshots.hasWaiters { schedulePublish(.automation) }
-            return
-        }
+    /// Publishes the daemon sequences alone: nothing the topology shows changed since its last build.
+    private func publishSequences() {
+        let sequences = readSequences()
+        guard sequences != publishedSequences else { return }
         sequencePublishes += 1
         publishedSequences = sequences
         router.snapshots.publish { snapshot in
             Self.apply(sequences, to: &snapshot.topology)
         }
+    }
+
+    /// The daemon sequences as of now. A clean bit means the tracking armed by the last read has not fired, so
+    /// only a dirty one arms the next.
+    private func readSequences() -> ControlSequenceBarrier {
+        guard sequenceTracking.isDirty else { return Self.sequences(services) }
+        return sequenceTracking.read({ Self.sequences(services) }, changed: { [weak self] in self?.sequencesChanged() })
     }
 
     /// The home daemon's and each loaded remote session's applied sequence.
@@ -272,5 +272,43 @@ final class ControlSnapshotPublisher {
                                           paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
         return topology
+    }
+}
+
+/// A one-shot Observation tracking behind a dirty bit, the control snapshot publisher's change follower
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 039). ``read(_:changed:)`` evaluates its read once per
+/// publish. The first change of anything it read sets the bit, inside the mutation, and calls `changed` on the main
+/// actor. Later changes cost nothing until the next read arms the next tracking, so nothing is read per change, and
+/// the caller picks the class of the work that follows, not the change's cause. (A `ServiceObservation` reads
+/// again on every flush and flushes a person-caused change inside the input-response pass. Here the read is the
+/// whole topology build, and the reader that waits for it sets its class.)
+///
+/// ```swift
+/// let topology = DirtyTracking()
+/// let built = topology.read({ buildTopology() }, changed: { schedulePublish() })
+/// // Later, in the publish task:
+/// if topology.isDirty { publish() }
+/// ```
+private final class DirtyTracking: Sendable {
+    /// Set until the first read, and from the first change after a read until the next one. Set inside the
+    /// mutation, which may be off the main actor.
+    private let dirty = Atomic<Bool>(true)
+
+    init() {}
+
+    /// Something the last read read changed (or nothing was read yet).
+    var isDirty: Bool { dirty.load(ordering: .acquiring) }
+
+    /// Sets the bit for a change no tracking sees.
+    func markDirty() { dirty.store(true, ordering: .releasing) }
+
+    /// Clears the bit and evaluates `body` with a fresh tracking; its first change sets the bit and calls `changed`.
+    @MainActor
+    func read<T>(_ body: () -> T, changed: @escaping @MainActor @Sendable () -> Void) -> T {
+        dirty.store(false, ordering: .releasing)
+        return withObservationTracking(body) { [self] in
+            markDirty()
+            MainDelivery().run(changed)
+        }
     }
 }
