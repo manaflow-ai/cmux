@@ -132,8 +132,8 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The preloaded New Tab page, for a first page that has no view yet (NewTabPreload).
     var takeSpare: (() -> AgentPaneView?)?
-    /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    /// Closed pages leave the view tree at once; the page host's one retirer ends them later (`AgentPaneView.retire(on:closed:)`).
+    var retirer: PageRetirer { webUI.retirer }
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]

@@ -2,6 +2,7 @@ public import Foundation
 import Darwin
 import os
 import CmuxNextCompat
+public import CmuxNextTrace
 
 /// A local shell on a PTY, exposed as a ``TerminalIO``. For development,
 /// demos, and tests only: production terminals come from the cmux-tui
@@ -25,20 +26,31 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     // qos-allow: key echo path: a typed key reaches the shell through this queue and its frame waits for the echo
     private let writeQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.write", qos: .userInteractive)
     private let writeSource: any DispatchSourceWrite
-    private let input = PendingInput()
+    private let input: PendingInput
     private let closed = Atomic<Bool>(false)
+    /// Watches each read chunk on the read queue (`localpty.read`), never the wait for readiness; nil watches nothing.
+    private let readWatched: HangWatchedLane?
+
+    /// One read chunk's budget (one `read(2)` of at most ``readChunkCapacity`` and its yield; a jank past it,
+    /// a hang dump 2 s later): the descriptor is nonblocking, so a chunk that takes this long means the read
+    /// queue is stuck.
+    static let readHangDeadline: Duration = .seconds(1)
+    /// One flush's budget (write until EAGAIN): the descriptor is nonblocking, so the same holds for writes.
+    static let writeHangDeadline: Duration = .seconds(2)
 
     /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
     /// ``GhosttyLaunchProbe/terminfoInstalled``: true makes the shell's `TERM`
     /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
-    /// unless `environment` sets it. The init reads no file for it.
+    /// unless `environment` sets it. The init reads no file for it. `hangs` watches each read chunk
+    /// (`localpty.read`) and each input flush (`localpty.write`); nil watches nothing.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
         environment extra: [String: String] = [:],
         installedTerminfo: Bool,
         columns: Int = 80,
-        rows: Int = 24
+        rows: Int = 24,
+        hangs: (any HangWatchScoping)? = nil
     ) throws {
         var environment = ProcessInfo.processInfo.environment
         for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
@@ -94,6 +106,10 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
         guard pid > 0 else { throw SpawnError.forkFailed(errno: errno) }
 
+        // After the last throw: an init that throws registers nothing (its deinit does not run).
+        let readWatched = hangs.map { HangWatchedLane("localpty.read", deadline: Self.readHangDeadline, on: $0) }
+        self.readWatched = readWatched
+        input = PendingInput(watched: hangs.map { HangWatchedLane("localpty.write", deadline: Self.writeHangDeadline, on: $0) })
         processID = pid
         masterFD = master
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
@@ -108,11 +124,11 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         writeSource = DispatchSource.makeWriteSource(fileDescriptor: master, queue: writeQueue)
         exitSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: readQueue)
 
-        readSource.setEventHandler { [continuation, master, readSource] in
+        readSource.setEventHandler { [continuation, master, readSource, readWatched] in
             // The slave side closed while the shell may live on: stop
             // reading, or the level-triggered source fires forever on the
             // hung-up master. The exit source still ends the stream.
-            if Self.drain(master, into: continuation) == .hangup { readSource.cancel() }
+            if Self.drain(master, into: continuation, watched: readWatched) == .hangup { readSource.cancel() }
         }
         exitSource.setEventHandler { [weak self] in
             self?.finish()
@@ -129,6 +145,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     deinit {
         terminate()
         finish()
+        readWatched?.unregister()
     }
 
     /// Queues `data` for the PTY. Writes are nonblocking: when the PTY is
@@ -188,7 +205,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         readSource.cancel()
 
         // Output written just before exit may still be buffered.
-        Self.drain(masterFD, into: continuation)
+        Self.drain(masterFD, into: continuation, watched: readWatched)
         var status: Int32 = 0
         // SAFETY: waitpid writes one Int32 into `status`, alive for the call.
         _ = unsafe waitpid(processID, &status, WNOHANG)
@@ -197,29 +214,6 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         writeQueue.async { [input, writeSource] in input.cancel(writeSource) }
         continuation.yield(.exited)
         continuation.finish()
-    }
-
-    enum DrainResult { case drained, hangup }
-
-    /// Reads until EAGAIN (drained: wait for readiness) or until the slave
-    /// side closed (0, EIO or another error: terminal). EINTR retries.
-    @discardableResult
-    private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
-        var buffer = [UInt8](repeating: 0, count: 65_536)
-        let capacity = buffer.count
-        // wakeup-allow: bounded: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
-        while true {
-            // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
-            // SAFETY: read writes at most `capacity` bytes, the array's count, into its storage,
-            // alive for the call.
-            let count = unsafe Darwin.read(fd, &buffer, capacity)
-            if count > 0 {
-                continuation.yield(.output(Data(buffer[0..<count])))
-                continue
-            }
-            if count < 0, errno == EINTR { continue }
-            return count < 0 && errno == EAGAIN ? .drained : .hangup
-        }
     }
 
     public static var defaultShell: String {
@@ -260,13 +254,25 @@ private nonisolated final class PendingInput: Sendable {
     // Lock carve-out: taken only on the PTY's serial write queue (append, flush and cancel all run there), so it
     // is never contended; it makes that confinement a checked Sendable instead of an unchecked promise.
     private let state = Mutex(State())
+    /// Watches each flush on the write queue (`localpty.write`), never input waiting its turn; nil watches nothing.
+    private let watched: HangWatchedLane?
+
+    init(watched: HangWatchedLane?) {
+        self.watched = watched
+    }
+
+    deinit {
+        watched?.unregister()
+    }
 
     func append(_ bytes: Data) {
         state.withLock { $0.append(bytes) }
     }
 
+    /// Writes the pending bytes until the PTY is full (EAGAIN), inside one scope when there is a watcher.
     func flush(to fd: Int32, source: any DispatchSourceWrite) {
-        state.withLock { $0.flush(to: fd, source: source) }
+        guard let watched else { return state.withLock { $0.flush(to: fd, source: source) } }
+        watched.run { state.withLock { $0.flush(to: fd, source: source) } }
     }
 
     func cancel(_ source: any DispatchSourceWrite) {
