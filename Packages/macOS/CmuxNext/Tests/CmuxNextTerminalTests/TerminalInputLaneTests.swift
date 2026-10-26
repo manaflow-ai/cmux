@@ -5,8 +5,9 @@ import Foundation
 import Testing
 
 /// A session's input lane (p04-input-058): records reach the IO's queue in the order each thread pushed
-/// them, through the main thread's ring and the overflow alike; a push never waits for the drain; a held
-/// record keeps later ones; the local PTY drains on its own write queue (one hop from the key).
+/// them, through the main thread's ring and the overflow alike; a push never waits for the drain, and the
+/// main thread's wait for the overflow lock stays under 2 ms while the consumer takes a large overflow; a
+/// held record keeps later ones; the local PTY drains on its own write queue (one hop from the key).
 @Suite(.serialized, .timeLimit(.minutes(1))) struct TerminalInputLaneTests {
     @MainActor @Test func tenThousandInterleavedRecordsDrainInOrder() async {
         let drained = DrainRecorder()
@@ -79,6 +80,66 @@ import Testing
 
         #expect(await drained.wait(for: 3) == [.bytes(eight), .bytes(eight), .focusGained])
         #expect(lane.droppedRecords == 1)
+    }
+
+    @MainActor @Test func overflowPastItsRecordLimitDropsAnyRecord() async {
+        let drained = DrainRecorder()
+        let lane = TerminalInputLane(drain: drained.drain(), ringCapacity: 1, overflowRecordLimit: 2)
+        drained.queue.suspend()
+        #expect(lane.push(.reconnect))    // the ring
+        #expect(lane.push(.focusGained))  // the overflow: 1 record
+        #expect(lane.push(.resync))       // 2 records
+        #expect(!lane.push(.focusGained)) // a third would pass the limit
+        drained.queue.resume()
+
+        #expect(await drained.wait(for: 3) == [.reconnect, .focusGained, .resync])
+        #expect(lane.droppedRecords == 1)
+    }
+
+    /// Acceptance of p04-input-058: the main thread's push never waits long for the overflow lock. The
+    /// consumer takes a 500 000-record overflow (it held the lock for the whole move before, O(records))
+    /// while another thread keeps pushing; every main-thread push stays under 2 ms.
+    @MainActor @Test func mainPushesStayUnderTwoMillisecondsWhileTheConsumerTakesALargeOverflow() async {
+        let drained = DrainRecorder()
+        let backlog = 500_000
+        let lane = TerminalInputLane(drain: drained.drain(), ringCapacity: 16, overflowRecordLimit: 1 << 21)
+        let key = Data("k".utf8)
+        drained.queue.suspend()
+        let other = DispatchQueue(label: "com.cmuxterm.next.test.input-producer", qos: .userInitiated)
+        await withCheckedContinuation { continuation in
+            other.async {
+                for _ in 0..<backlog { lane.push(.bytes(key)) }
+                continuation.resume()
+            }
+        }
+
+        // The consumer starts on the large overflow; the other thread pushes while main does.
+        let racing = 20_000, mainPushes = 5_000
+        let group = DispatchGroup()
+        group.enter()
+        other.async {
+            for _ in 0..<racing { lane.push(.bytes(key)) }
+            group.leave()
+        }
+        drained.queue.resume()
+        let clock = ContinuousClock()
+        var waits: [Duration] = []
+        waits.reserveCapacity(mainPushes)
+        for _ in 0..<mainPushes {
+            let start = clock.now
+            lane.push(.focusGained)
+            waits.append(clock.now - start)
+        }
+        await withCheckedContinuation { continuation in group.notify(queue: other) { continuation.resume() } }
+
+        let total = backlog + racing + mainPushes
+        let records = await drained.wait(for: total)
+        #expect(records.count == total)
+        #expect(lane.droppedRecords == 0)
+        let sorted = waits.sorted()
+        let p50 = sorted[sorted.count / 2], p95 = sorted[sorted.count * 95 / 100], worst = sorted[sorted.count - 1]
+        print("TerminalInputLane main push wait: p50 \(p50) p95 \(p95) max \(worst) (\(mainPushes) pushes)")
+        #expect(worst < .milliseconds(2), "a main-thread push waited \(worst) (p50 \(p50), p95 \(p95))")
     }
 
     @MainActor @Test func aClosedLaneDropsLaterPushes() async {

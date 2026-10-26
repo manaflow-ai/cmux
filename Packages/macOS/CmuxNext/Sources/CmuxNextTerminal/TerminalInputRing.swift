@@ -43,12 +43,17 @@ nonisolated final class TerminalInputRing: Sendable {
         return record
     }
 
-    /// Consumer only: moves every ring record, then `later`, to the end of the backlog.
-    func moveToBacklog(then later: [TerminalInputRecord]) {
-        var moved: [TerminalInputRecord] = []
-        while let record = pop() { moved.append(record) }
-        moved.append(contentsOf: later)
-        backlog.withLock { $0.append(moved) }
+    /// Consumer only: moves every ring record to the end of the backlog.
+    func moveToBacklog() {
+        backlog.withLock { backlog in
+            while let record = pop() { backlog.append(record) }
+        }
+    }
+
+    /// Consumer only: puts `later` after every record in the backlog.
+    func appendToBacklog(_ later: [TerminalInputRecord]) {
+        guard !later.isEmpty else { return }
+        backlog.withLock { $0.append(contentsOf: later) }
     }
 
     /// Consumer only: the backlog's oldest record, nil when it is empty.
@@ -67,8 +72,18 @@ private nonisolated struct TerminalInputBacklog {
     private var records: [TerminalInputRecord] = []
     private var start = 0
 
-    mutating func append(_ more: [TerminalInputRecord]) {
-        records.append(contentsOf: more)
+    mutating func append(_ record: TerminalInputRecord) {
+        records.append(record)
+    }
+
+    /// Takes `more`'s storage when the backlog is empty (no copy), else appends it.
+    mutating func append(contentsOf more: [TerminalInputRecord]) {
+        if start == records.count {
+            records = more
+            start = 0
+        } else {
+            records.append(contentsOf: more)
+        }
     }
 
     mutating func take() -> TerminalInputRecord? {

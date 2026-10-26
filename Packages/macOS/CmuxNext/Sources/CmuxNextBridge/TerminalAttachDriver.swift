@@ -62,11 +62,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
     private let onGridSent: GridSent?
-    /// The serial queue the view's input reaches the driver on (the app's terminal input lane drains here):
-    /// ``input(_:)`` reduces and appends to the attach socket's outbox in that turn, so a key is one thread
-    /// hop from the thread that typed it to the socket's writer, with no task between.
-    // qos-allow: key echo path: a typed key reaches the attach socket through this queue and its frame waits for the echo
-    public let inputQueue = DispatchQueue(label: "com.cmuxterm.next.terminal.attach-input", qos: .userInteractive)
 
     /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
     /// the one the stream last announced, or one sent while an earlier echo is still due).

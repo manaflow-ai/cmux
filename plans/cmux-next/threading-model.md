@@ -168,10 +168,10 @@ the app, not only CmuxNext: check it with
 | `cmux-next main-thread watchdog` | app | Samples a wedged main thread; the app hang watch | yes |
 | `cmux-next quit deadline`, `cmux-next crash deadline` | app | Must run while main is wedged | yes |
 | `cmux-tui reader <path>` | app | Daemon output to the terminal | yes |
-| `com.cmuxterm.next.daemon.write` of the `control` and `terminal_attach` connections | app | Keys to the daemon | yes (p02-threads-030, `DaemonWireStats.Role.writerQoS`, SocketWriterQoSTests); every other role's writer runs below it |
+| `com.cmuxterm.next.daemon.write` of the `control` and `terminal_attach` connections | app | Keys to the daemon | yes (p02-threads-030, `DaemonWireStats.Role.writerQoS`, SocketWriterQoSTests); every other role's writer runs below it. A `terminal_attach` writer targets its view's `terminal.attach-input` queue (p04-input-058), so it drains on that serial queue |
 | `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write` | app | Local PTY echo | yes, both (the write since p02-threads-030, LocalPTYQoSTests) |
 | `com.cmuxterm.next.terminal.output` | app | Feeds the terminal surface | yes |
-| `com.cmuxterm.next.terminal.attach-input` (one per `TerminalAttachDriver`) | app | A terminal's input lane drains here: a key goes from the main thread to the attach socket's outbox in one hop (p04-input-058, `TerminalInputLane`) | yes |
+| `com.cmuxterm.next.terminal.attach-input` (one per `DaemonTerminalIO`) | app | A terminal's input lane drains here, and the attach connection's `daemon.write` writer targets it: a key goes from the main thread to the attach socket's `write(2)` in one thread hop (p04-input-058, `TerminalInputLane`, `DaemonTerminalIO.inputDrain`) | yes |
 | `cmux.remote-view.render` | app | Remote desktop frames (compositor class, task 131); a hidden view: p03-rendering-114 | yes |
 | Ghostty renderer of the focused surface | app | Declared by library (ghostty-next `setQosClass`) | yes |
 | `cmux.screen.capture` (`ScreenCaptureBackend`, CmuxVNCWebRTC, Mac Screen sharing) | app | Known exception: no local frame waits on it; it captures this Mac's display for a viewer on another device | yes; target user-initiated, no task yet |
@@ -537,7 +537,7 @@ its QoS and its target.
   disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>` (utility)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.terminal.attach-input` (user-interactive, one per
-  attach driver; the session's input lane drains on it, p04-input-058), `com.cmuxterm.next.terminal.input-await`
+  daemon terminal view; the session's input lane drains on it and the attach socket's writer targets it, p04-input-058), `com.cmuxterm.next.terminal.input-await`
   (user-initiated, one per session whose IO has no input drain of its own: demos and tests), `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`,
   `com.cmuxterm.next.terminal.link-check` (user-initiated, concurrent, one per surface; `TerminalLinkFilter`'s file check of a
   Cmd-hovered text: a check stalled on a slow volume holds no later check; a concurrent queue targets GCD's width-limited

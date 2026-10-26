@@ -112,11 +112,11 @@ final class LineTransport: Sendable {
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
-    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:trace:)``); nil connects to `path`.
+    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
-    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
+    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing. `writerTarget`: see `open`.
+    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
+         hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
@@ -134,7 +134,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }

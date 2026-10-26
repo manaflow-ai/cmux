@@ -11,21 +11,28 @@ import Darwin
 /// Producers: ``push(_:)`` from any thread. The main thread (keys, pastes, grid reports) writes the
 /// single-producer ring; another thread (Ghostty's replies to queries on the output lane), or the
 /// main thread while the ring is full or while records wait in the overflow, appends to the ordered
-/// overflow under a lock held only for that append. Records from one thread drain in the order that
-/// thread pushed them; the consumer takes the ring's records before the overflow's.
+/// overflow under a lock held only for that append; the consumer holds it only to swap the overflow's
+/// array out, O(1). Records from one thread drain in the order that thread pushed them; the consumer
+/// takes the ring's records before the overflow's.
 public nonisolated final class TerminalInputLane: Sendable {
     /// Records the ring holds before pushes spill to the overflow.
     public static let ringCapacity = 256
-    /// Overflow bytes past which a pushed `.bytes` record is dropped (the IO stopped draining). Other
-    /// records are always kept: they come at the rate of a person's clicks and focus changes.
+    /// Overflow bytes past which a pushed `.bytes` record is dropped (the IO stopped draining).
     public static let overflowByteLimit = 16 << 20
+    /// Overflow records past which any pushed record is dropped. It bounds a producer's append under the
+    /// overflow lock (an array growth moves at most this many records), so the main thread's wait for
+    /// that lock is bounded too.
+    public static let overflowRecordLimit = 1 << 15
 
     private let drain: TerminalInputDrain
     private let ring: TerminalInputRing
     private let overflowByteLimit: Int
+    private let overflowRecordLimit: Int
     // Lock carve-out: held only to append one record (a producer that is not the main thread, or the main
-    // thread while the ring is full or spilled) or to move the overflow into the backlog (the drain queue),
-    // never across a call out; the main thread's common path, a free ring, never waits (``TerminalInputRing/push(_:)``).
+    // thread while the ring is full or spilled; an array growth moves at most ``overflowRecordLimit``
+    // records) or to swap the overflow's array out (the drain queue, O(1)), never across a call out; the
+    // main thread's common path, a free ring, never waits (``TerminalInputRing/push(_:)``).
+    // TerminalInputLaneTests measures the main thread's push while the consumer takes a large overflow.
     private let overflow = Mutex(TerminalInputOverflow())
     /// True while records wait in the overflow: the main thread appends there too, so it never passes them.
     private let overflowing = Atomic<Bool>(false)
@@ -34,9 +41,11 @@ public nonisolated final class TerminalInputLane: Sendable {
     private let wake: any DispatchSourceUserDataAdd
 
     public init(drain: TerminalInputDrain, ringCapacity: Int = TerminalInputLane.ringCapacity,
-                overflowByteLimit: Int = TerminalInputLane.overflowByteLimit) {
+                overflowByteLimit: Int = TerminalInputLane.overflowByteLimit,
+                overflowRecordLimit: Int = TerminalInputLane.overflowRecordLimit) {
         self.drain = drain
         self.overflowByteLimit = overflowByteLimit
+        self.overflowRecordLimit = overflowRecordLimit
         ring = TerminalInputRing(capacity: ringCapacity)
         wake = DispatchSource.makeUserDataAddSource(queue: drain.queue)
         // Strong: records pushed before ``close()`` still drain after their session is gone; the drain
@@ -47,7 +56,7 @@ public nonisolated final class TerminalInputLane: Sendable {
 
     /// Adds `record` after every record this thread pushed before, and wakes the drain. Never waits for
     /// the drain. Returns false when it dropped the record: the lane is closed, or the overflow holds
-    /// ``overflowByteLimit`` bytes.
+    /// ``overflowByteLimit`` bytes (a `.bytes` record) or ``overflowRecordLimit`` records.
     @discardableResult
     public func push(_ record: TerminalInputRecord) -> Bool {
         guard !closed.load(ordering: .acquiring) else { return false }
@@ -55,9 +64,9 @@ public nonisolated final class TerminalInputLane: Sendable {
             wake.add(data: 1)
             return true
         }
-        let limit = overflowByteLimit
+        let (byteLimit, recordLimit) = (overflowByteLimit, overflowRecordLimit)
         let kept = overflow.withLock { overflow -> Bool in
-            guard overflow.append(record, byteLimit: limit) else { return false }
+            guard overflow.append(record, byteLimit: byteLimit, recordLimit: recordLimit) else { return false }
             overflowing.store(true, ordering: .releasing)
             return true
         }
@@ -95,16 +104,18 @@ public nonisolated final class TerminalInputLane: Sendable {
     }
 
     /// The oldest record: the backlog's, then, while the overflow holds records, every ring record
-    /// followed by the overflow's (moved to the backlog together), otherwise the ring's.
+    /// followed by the overflow's (moved to the backlog), otherwise the ring's.
     private func next() -> TerminalInputRecord? {
         if let record = ring.takeBacklog() { return record }
         guard overflowing.load(ordering: .acquiring) else { return ring.pop() }
-        overflow.withLock { overflow in
-            // The main thread pushes no ring record while the overflow holds records, so every ring
-            // record now came before them.
-            ring.moveToBacklog(then: overflow.take())
+        // The main thread pushes no ring record until `overflowing` is cleared below, so every ring
+        // record now came before the overflow's. Only the swap runs under the overflow lock.
+        ring.moveToBacklog()
+        let later = overflow.withLock { overflow -> [TerminalInputRecord] in
             overflowing.store(false, ordering: .releasing)
+            return overflow.take()
         }
+        ring.appendToBacklog(later)
         return ring.takeBacklog()
     }
 }
@@ -114,8 +125,10 @@ private nonisolated struct TerminalInputOverflow {
     var records: [TerminalInputRecord] = []
     var bytes = 0
 
-    /// Appends `record`; false when it is `.bytes` that would pass `byteLimit`.
-    mutating func append(_ record: TerminalInputRecord, byteLimit: Int) -> Bool {
+    /// Appends `record`; false when the overflow holds `recordLimit` records, or `record` is `.bytes`
+    /// that would pass `byteLimit`.
+    mutating func append(_ record: TerminalInputRecord, byteLimit: Int, recordLimit: Int) -> Bool {
+        guard records.count < recordLimit else { return false }
         if case .bytes(let data) = record {
             guard bytes + data.count <= byteLimit else { return false }
             bytes += data.count
@@ -124,11 +137,11 @@ private nonisolated struct TerminalInputOverflow {
         return true
     }
 
+    /// Moves the records out, O(1): their storage goes to the caller, the overflow starts empty.
     mutating func take() -> [TerminalInputRecord] {
-        defer {
-            records = []
-            bytes = 0
-        }
-        return records
+        var taken: [TerminalInputRecord] = []
+        Swift.swap(&taken, &records)
+        bytes = 0
+        return taken
     }
 }

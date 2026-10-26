@@ -32,7 +32,7 @@ public nonisolated enum TerminalInputRecord: Sendable, Equatable {
 
 /// Where a session's ``TerminalInputLane`` drains (``TerminalIO/inputDrain()``): a serial queue, and the
 /// handler that takes each record on it in order. The handler must not block: it is the one thread hop
-/// from Ghostty's write to the owner (the attach socket's outbox, the PTY's write queue).
+/// from Ghostty's write to the owner (the attach socket's writer, which drains on the same queue; the PTY's write queue).
 public nonisolated struct TerminalInputDrain: Sendable {
     /// What the lane does after ``handle`` returned.
     public nonisolated enum Next: Sendable {
