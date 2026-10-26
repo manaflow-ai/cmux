@@ -16,12 +16,11 @@ CefRefPtr<CefBrowserHost> HostOf(int browser_id) {
   return browser ? browser->GetHost() : nullptr;
 }
 
-}  // namespace
-
-extern "C" {
-
-int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
-                            const char* profile_cache_path) {
+// The one way the shim builds a Chromium window: a pane's (cmux_shim_create_window) and a spare's
+// renderer-less placeholder window (cmux_shim_create_placeholder_window) differ only in `url` and
+// `extra_info`.
+int CreateWindowWith(int request, void* parent_view, int width, int height, const char* url,
+                     const char* profile_cache_path, CefRefPtr<CefDictionaryValue> extra_info) {
   if (!parent_view || stopping()) {
     return 0;
   }
@@ -31,7 +30,31 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   CefBrowserSettings settings;
   settings.background_color = BackgroundColor();
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
-  return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
+  return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, extra_info, context) ? 1 : 0;
+}
+
+}  // namespace
+
+extern "C" {
+
+int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
+                            const char* profile_cache_path) {
+  return CreateWindowWith(request, parent_view, width, height, url, profile_cache_path, nullptr);
+}
+
+int cmux_shim_placeholder_supported(void) {
+  return fork_api().tab_renderer_state ? 1 : 0;
+}
+
+int cmux_shim_create_placeholder_window(int request, void* parent_view, int width, int height,
+                                        const char* profile_cache_path) {
+  if (!cmux_shim_placeholder_supported()) {
+    return 0;
+  }
+  // CMUX_EXTRA_INFO_NO_RENDERER (include/cef_cmux.h): honored with an empty URL only.
+  CefRefPtr<CefDictionaryValue> extra_info = CefDictionaryValue::Create();
+  extra_info->SetBool("cmux_no_renderer", true);
+  return CreateWindowWith(request, parent_view, width, height, "", profile_cache_path, extra_info);
 }
 
 int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {

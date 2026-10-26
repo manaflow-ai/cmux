@@ -11,6 +11,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextIcons
@@ -198,5 +199,16 @@ final class DebugSettingsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
         dropModelWhenUnused()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: a tunable is written as it changes, and the search and selection live in
+    /// the shared model, which stays while the tab does, so the next page opens where it was.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The tab's page went (the tab store closed it); the model stays with the tab.
+    func viewDiscarded(_ key: String) {
+        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
     }
 }

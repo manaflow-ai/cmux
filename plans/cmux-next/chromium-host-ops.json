@@ -742,6 +742,58 @@
       "reason": "The header's contract stays: 1 when the op is sent, 0 when the client cannot send it; the caller gives the request token, and AFTER_CREATED(request) carries the browser id the client minted (from 1 << 20, task 014). CEFPaneHost.ensureCreated checks started != 1, so returning the id would fail every window. The host maps the id to Chromium's for every op and event (task 019). parent_view stays in the client: the page shows in a ChromiumHostPageView. Chrome's browser mints widget ids before the app shim makes the window (ui/views/cocoa/native_widget_mac_ns_window_host.mm)."
     },
     {
+      "name": "cmux_shim_create_placeholder_window",
+      "class": "mint",
+      "args": [
+        {
+          "name": "request",
+          "type": "int"
+        },
+        {
+          "name": "parent_view",
+          "type": "void*"
+        },
+        {
+          "name": "width",
+          "type": "int"
+        },
+        {
+          "name": "height",
+          "type": "int"
+        },
+        {
+          "name": "profile_cache_path",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFPaneHost.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "mint_returns": "sent",
+      "reply_event": "CMUX_SHIM_AFTER_CREATED",
+      "reason": "As cmux_shim_create_window: 1 when sent, and AFTER_CREATED(request) carries the minted browser id. The caller asks only after cmux_shim_placeholder_supported() said 1, so the host's create never meets a fork without the placeholder (p13-webui-019)."
+    },
+    {
+      "name": "cmux_shim_placeholder_supported",
+      "class": "mirror",
+      "args": [],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFPaneHost.swift"
+      ],
+      "mirror_key": "host.placeholder_supported",
+      "refresh_events": [
+        "attach"
+      ],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A fork capability, fixed for the host's life. Feature detection is mirror, never post (task 017)."
+    },
+    {
       "name": "cmux_shim_tab_add",
       "class": "mint",
       "args": [
