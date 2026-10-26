@@ -154,8 +154,8 @@ extension SidebarListViewComponents {
         let clock = springLoadClock
         let delay = springLoadDelay
         external.springTask = Task { [weak self] in
-            // wakeup-allow: deadline of the spring-load hover on a row, cancelled when the tab leaves it;
-            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+            // wakeup-allow: deadline of the spring-load hover on a row, cancelled when the tab leaves it
+            // timer-class-allow: the person waits on it while holding a tab over the row (rule 6: the window's leeway, never hidden); its clock is SidebarView's springLoadClock seam
             do { try await clock.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance) } catch { return }
             guard let self, self.external === external,
                   external.springTarget == target, external.springGroupTarget == groupTarget else { return }
