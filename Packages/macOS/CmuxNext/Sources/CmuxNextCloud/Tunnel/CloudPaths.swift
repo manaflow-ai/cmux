@@ -39,6 +39,13 @@ public struct CloudPaths: Sendable {
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash).sock")
     }
 
+    /// Present once `cloud enroll-machine` wrote an ssh route through ``hubLink``: the app then
+    /// starts the hub at sign-in, so the route works after a relaunch.
+    public var sshRoutesMarker: URL { root.appendingPathComponent("ssh-routes") }
+
+    /// Whether ``sshRoutesMarker`` exists (a file check: call it off the main thread).
+    public func hasSSHRoutes() -> Bool { FileManager.checked.fileExists(atPath: sshRoutesMarker.path) }
+
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
         let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()

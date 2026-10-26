@@ -201,15 +201,18 @@ where
     let stream =
         SocksDialer::new(hub).dial(host, port).await.map_err(|error| anyhow!("{error}"))?;
     let (mut from_peer, mut to_peer) = split(stream);
+    // The end of the input half-closes the stream and the peer's answer still drains: the
+    // bridge ends when the peer closes (or output fails, e.g. ssh stopped reading), or on an
+    // upload error.
     let upload = async {
         copy(&mut input, &mut to_peer).await?;
-        to_peer.shutdown().await
+        to_peer.shutdown().await?;
+        std::future::pending::<std::io::Result<()>>().await
     };
     let download = async {
         copy(&mut from_peer, &mut output).await?;
         output.shutdown().await
     };
-    // ssh ends the stream from either side; the bridge ends with it.
     tokio::select! {
         result = upload => result?,
         result = download => result?,
@@ -352,8 +355,9 @@ mod tests {
             assert_eq!(&request[..4], &[5, 1, 0, 1], "CONNECT to an IPv4 literal");
             assert_eq!(&request[4..], &[10, 0, 0, 7, 0, 22]);
             stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
-            let mut line = [0u8; 5];
-            stream.read_exact(&mut line).await.unwrap();
+            // Read to the client's half-close, then answer: the bridge must still be listening.
+            let mut line = Vec::new();
+            stream.read_to_end(&mut line).await.unwrap();
             stream.write_all(&line).await.unwrap();
         });
         let mut output = Vec::new();

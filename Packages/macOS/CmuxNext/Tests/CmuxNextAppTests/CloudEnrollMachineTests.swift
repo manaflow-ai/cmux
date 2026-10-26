@@ -34,7 +34,8 @@ struct CloudEnrollMachineTests {
 
     @Test func theMachineSideAuthorizesTheKeyOnceAndPrintsTheHostKey() {
         let command = Self.enrollment.authorizeCommand
-        #expect(command.contains("grep -qF '\(Self.key)'"), "a rerun does not add the key again")
+        #expect(command.contains("awk -v k='AAAAC3NzaC1lZDI1NTE5AAAAIE37Tl/9rijUPR8Dvy6OrvbHfOcb5zbYWEs2QJqEehL2'"), "a rerun matches the whole key, not a substring")
+        #expect(command.contains(#"[ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f""#), "a file without a final newline gets one first")
         #expect(command.contains("'\(Self.key) cmux-enroll:lane-vm-1'"))
         #expect(command.hasSuffix("cat /etc/ssh/ssh_host_ed25519_key.pub"))
     }
@@ -44,7 +45,7 @@ struct CloudEnrollMachineTests {
                                               hubLink: "/tmp/cmux-wg-ab.sock", knownHosts: "/Users/me/.ssh/cmux-cloud/known_hosts",
                                               identityFile: "/Users/me/.ssh/id_ed25519")
         #expect(block.contains("Host lane-vm-1\n  HostName 10.0.0.7\n  User cmux\n"))
-        #expect(block.contains(#"  ProxyCommand "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui" wg dial --hub /tmp/cmux-wg-ab.sock %h %p"#))
+        #expect(block.contains("  ProxyCommand '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui' wg dial --hub '/tmp/cmux-wg-ab.sock' %h %p"))
         #expect(block.contains("  StrictHostKeyChecking yes\n"))
         #expect(block.contains("  IdentityFile /Users/me/.ssh/id_ed25519\n"))
     }
@@ -56,6 +57,33 @@ struct CloudEnrollMachineTests {
         #expect(second == other + "# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n")
         let known = Self.enrollment.pinning(Self.hostKey, into: "10.0.0.7 ssh-ed25519 OLD\n10.0.0.8 ssh-ed25519 KEEP\n")
         #expect(known == "10.0.0.8 ssh-ed25519 KEEP\n10.0.0.7 \(Self.hostKey)\n")
+    }
+
+    @Test func onlyAPlainPathGoesIntoTheConfig() {
+        #expect(CloudMachineEnrollment.isPlainPath("/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui"))
+        for bad in ["relative/key", "/a\"b", "/a$(touch x)", "/a`x`", "/a%h", "/a\nMatch exec x", "/a\tb", "/a\\b", "~/key"] {
+            #expect(!CloudMachineEnrollment.isPlainPath(bad), "\(bad)")
+        }
+    }
+
+    @Test func anIncludeUnderAHostIsNotFirst() {
+        let config = "Host a\n  Include /Users/me/.ssh/cmux-cloud/config\n"
+        let fixed = CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: config)
+        #expect(fixed.hasPrefix("# cmux Cloud machines"), "the Include under Host a applies only to a")
+        #expect(fixed.hasSuffix(config))
+    }
+
+    @Test func anUnreadableConfigIsNeverReplaced() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
+        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        let bytes = Data([0x48, 0x6f, 0x73, 0x74, 0x20, 0x78, 0x0a, 0x23, 0xff, 0xfe, 0x0a]) // "Host x\n#" then not UTF-8
+        try bytes.write(to: ssh.appendingPathComponent("config"))
+        #expect(throws: (any Error).self) {
+            _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
+        }
+        #expect(try Data(contentsOf: ssh.appendingPathComponent("config")) == bytes)
     }
 
     @Test func theIncludeGoesFirstOnce() throws {

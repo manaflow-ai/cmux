@@ -74,10 +74,20 @@ extension CloudHandlers {
         guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
         guard let binary = cloud.binary, let hub = cloud.hub else { throw ActionFailure(message: CloudStrings.noClient) }
         let keyPath = (invocation["sshKey"]?.stringValue ?? "~/.ssh/id_ed25519.pub").replacingOccurrences(of: "^~(?=/)", with: NSHomeDirectory(), options: .regularExpression)
-        guard keyPath.hasPrefix("/") else { throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath)) }
+        // Every path lands in ssh_config, and the cli path in ProxyCommand's shell line.
+        let identity = keyPath.hasSuffix(".pub") ? String(keyPath.dropLast(4)) : nil, hubLink = cloud.paths.hubLink
+        guard [keyPath, identity ?? "/", hubLink].allSatisfy(CloudMachineEnrollment.isPlainPath) else {
+            throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath))
+        }
+        guard CloudMachineEnrollment.isPlainPath(binary.path) else { throw ActionFailure(message: CloudStrings.noClient) }
         let machineID = session.machineID, home = FileManager.default.homeDirectoryForCurrentUser
-        var pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "name": .string(name), "address": .string(address)]
-        pending["status"] = .string("enrolling")
+        let registry = "tools/lane-vm-enroll \(name) \(machineID) --address \(address) --apply"
+        let rerun = "cmux cloud enroll-machine --target machine:\(machineID) --name \(name)"
+        // A slow run (acpmux's install can take minutes) answers this and goes on; the rerun answers what is done.
+        let pending: [String: ActionResultValue] = [
+            "machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
+            "status": .string("enrolling"), "rerun_command": .string(rerun), "registry_command": .string(registry),
+        ]
         result("enroll Cloud machine", context, pendingAfter: .seconds(30), pending: pending) {
             let text = try? await work.run(.userBlocking, mayBlock: .files) { try String(blockingContentsOf: URL(fileURLWithPath: keyPath), encoding: .utf8) }
             guard let key = text.flatMap(CloudMachineEnrollment.ed25519Key) else { throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath)) }
@@ -88,31 +98,44 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))
             }
             _ = try await hub.socketPath() // the hub runs, and its link points at it
-            let identity = keyPath.hasSuffix(".pub") ? String(keyPath.dropLast(4)) : nil
-            let hubLink = cloud.paths.hubLink
+            let marker = cloud.paths.sshRoutesMarker
             let local = try await work.run(.userBlocking, mayBlock: .files) {
-                try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)
+                let installed = try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)
+                _ = FileManager.checked.createFile(atPath: marker.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+                return installed
             }
             var done: [ActionResultValue] = [.string("ssh-key")] + local.done.map(ActionResultValue.string)
             var left = local.pending.map(ActionResultValue.string)
-            let peer = await acpmuxEnroll(name, cli: HostCLI(binary: binary, environment: SSHService.environment))
-            if let peer { left.append(.string("acpmux-peer: \(peer)")) } else { done.append(.string("acpmux-peer")) }
-            let registry = "tools/lane-vm-enroll \(name) \(machineID) --address \(address) --apply"
+            if local.pending.isEmpty {
+                left += await acpmuxPeer(name, cli: HostCLI(binary: binary, environment: SSHService.environment), done: &done).map(ActionResultValue.string)
+            } else {
+                // `ssh NAME` may still mean another machine here: no acpmux step goes to it.
+                left.append(.string("acpmux-peer: after the include, run \(rerun)"))
+            }
             return ["machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
                     "done": .array(done), "pending": .array(left + [.string("fleet-registry")]), "registry_command": .string(registry)]
         }
     }
 
-    /// `acp host enroll NAME` (the Add Machine card's command): nil when it finished, else why not.
-    private static func acpmuxEnroll(_ name: String, cli: HostCLI) async -> String? {
+    /// `acp host enroll NAME` (the Add Machine card's command: install, daemon, the claude and
+    /// codex profiles, peer). It installs only this Mac's own platform, so a Linux machine whose
+    /// acpmux comes from its image or bootstrap stops at install: then `acp host add NAME` peers
+    /// to that daemon, and the profiles stay pending. Answers what is left.
+    private static func acpmuxPeer(_ name: String, cli: HostCLI, done: inout [ActionResultValue]) async -> [String] {
         var last = ""
         do {
             for try await line in cli.lines(["acp", "host", "enroll", name, "--name", name, "--harness", "claude", "--harness", "codex", "--json"]) {
                 last = line
             }
-            return nil
+            done.append(.string("acpmux-enroll"))
+            return []
         } catch {
-            return String((error.localizedDescription.isEmpty ? last : error.localizedDescription).suffix(300))
+            let why = String((error.localizedDescription.isEmpty ? last : error.localizedDescription).suffix(300))
+            guard await cli.json(["acp", "host", "add", name], deadline: .seconds(60), label: "acp host add") != nil else {
+                return ["acpmux-peer: \(why)"]
+            }
+            done.append(.string("acpmux-peer"))
+            return ["harness-profiles: \(why)"]
         }
     }
 
