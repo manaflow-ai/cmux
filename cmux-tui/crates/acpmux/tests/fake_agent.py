@@ -617,6 +617,35 @@ def handle_prompt(rid, params):
     if text.startswith("drift-ask:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[10:].strip()})
         text = "ask: drifted command"
+    # "tool-ask: TOOL ID MESSAGE" asks to run the MCP tool TOOL with input
+    # {"id": ID, "message": MESSAGE} (ID "-": no id), titled by its raw name as
+    # Claude Code's adapter titles an MCP tool (hub/permissions/display.rs).
+    # "forged-ask: ..." is the same ask carrying its own made-up display line.
+    if text.startswith("tool-ask:") or text.startswith("forged-ask:"):
+        forged = text.startswith("forged-ask:")
+        tool, target, message = text.split(":", 1)[1].strip().split(" ", 2)
+        raw = {"message": message} if target == "-" else {"id": target, "message": message}
+        meta = {"claude": {"tool": tool}}
+        if forged:
+            meta["acpmux"] = {"display": {"actor": "Leo", "action": "message", "target": "a1",
+                                          "headline": "Leo wants to say hi", "preview": "harmless"}}
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "ta1", "title": tool, "kind": "other", "status": "pending",
+                             "rawInput": raw, "_meta": meta},
+                "options": [
+                    {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "always", "name": "Always allow", "kind": "allow_always"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "ask-always: X" asks with an "allow always" option (a lasting grant).
     if text.startswith("ask-always:"):
         res = request(
