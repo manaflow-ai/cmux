@@ -151,8 +151,9 @@ CHROME_CATEGORIES = [
 CHROME_BUFFER_KB = 128 * 1024
 # The catalog spans that name a main-thread stall that happened inside one (a top stall's `actions`): the actions,
 # the main-thread opens the stall bench measures (Signposter.stall thread slices; debug.timings rows), and the tab
-# and pane switches (Signposter.switch; debug.tab_switch, debug.pane_focus). A switch that missed its commit
-# (`commit=missed`) showed nothing, so it names no stall.
+# and pane switches (Signposter.switch; debug.tab_switch, debug.pane_focus). One rule for every one: a span that
+# ended `commit=missed` (a switch superseded in a Cmd-] burst, a refused action) still did its main-thread work, so it
+# names the stall too, labeled `missed`.
 STALL_DURING_SPANS = ("action.perform", "action.commit", "stall.create_surface", "stall.palette_open",
                       "stall.icon_picker_open", "switch.tab", "switch.pane_focus")
 ROLE_ORDER = ["app", "daemon", "holder", "terminal-host", "acpmux", "cef-gpu", "cef-utility", "cef-renderer",
@@ -3720,15 +3721,15 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
         return [{"event": k[:160], "ms": round(v / 1000, 1)} for k, v in overlap.most_common(limit)]
 
     actions = [i for i in signposts["intervals"] if i["pid"] == app_pid and i["name"] in ("action.perform", "action.commit")]
-    spans = [i for i in signposts["intervals"] if i["pid"] == app_pid and i["name"] in STALL_DURING_SPANS
-             and not (i["category"] == "switch" and i["missed"])]
+    spans = [i for i in signposts["intervals"] if i["pid"] == app_pid and i["name"] in STALL_DURING_SPANS]
 
     def actions_during(a, b):
         found = []
         for i in spans:
             if i["start_us"] < b and i["end_us"] > a:
                 detail = i["fields"].get("id") or i["fields"].get("kind") or ""
-                found.append(f"{i['name']} {detail}".strip() + f" ({i['ms']:.1f} ms)")
+                label = " ".join(part for part in (i["name"], detail, "missed" if i["missed"] else "") if part)
+                found.append(f"{label} ({i['ms']:.1f} ms)")
         return sorted(set(found))[:6]
 
     # Main-thread stalls: the watchdog's records, else busy runs of the main thread's samples.
@@ -4148,7 +4149,7 @@ def catalog_span_lines(spans):
 
 
 # Inside the fixture's 40 ms stall at 1.0 s: a palette open's main-thread slice, a warm tab switch, and a cold one
-# that missed its commit (it names no stall).
+# that a later switch superseded (`commit=missed`): it still names the stall, labeled missed.
 FIXTURE_CATALOG_SPANS = [
     ("stall", "stall.palette_open", 30, 1_000_000_000, 1_012_000_000, "", ""),
     ("switch", "switch.tab", 31, 1_000_500_000, 1_020_000_000, "kind=warm", ""),
@@ -4244,10 +4245,11 @@ def check_parsers_and_merge():
         assert any(str(n).startswith("stall 40 ms") for n in names), names
         assert summary["top_stalls"][0]["ms"] == 40.0 and summary["top_stalls"][0]["waiting"], summary["top_stalls"]
         assert summary["top_stalls"][0]["wait_class"] == "lock", summary["top_stalls"]
-        # The catalog spans the stall happened inside name it; a switch that missed its commit does not.
+        # The catalog spans the stall happened inside name it; a superseded switch (commit=missed) did its
+        # main-thread work too, so it names it, labeled missed.
         during = summary["top_stalls"][0]["actions"]
         assert "stall.palette_open (12.0 ms)" in during and "switch.tab warm (19.5 ms)" in during, during
-        assert "action.commit tab.new (6.0 ms)" in during and not any("cold" in d for d in during), during
+        assert "action.commit tab.new (6.0 ms)" in during and "switch.tab cold missed (29.0 ms)" in during, during
         # On their category's lanes of the app.
         lanes = {e.get("name"): e.get("cat") for e in trace["traceEvents"]}
         assert lanes.get("stall.palette_open") == "signpost.stall" and lanes.get("switch.tab warm") == "signpost.switch", lanes

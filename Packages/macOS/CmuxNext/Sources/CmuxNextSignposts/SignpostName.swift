@@ -14,7 +14,8 @@
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
-/// ``launchStartupTask``, ``launchStartupComplete``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The
+/// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
+/// ``webuiOpen`` and ``webuiScheme`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -200,9 +201,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case stallOverBudget = 17
     /// Reserved (task 035, PL-ghostty). Creating a terminal surface on main (`TerminalTimings`). Ring: B/E.
     case stallCreateSurface = 41
-    /// Reserved (task 036, Performance Lead). Opening the command palette on main (`DebugTimings`). Ring: B/E.
+    /// A command palette open's main-thread work (task 036, `PaletteController.open(relativeTo:anchor:when:buildModel:)`
+    /// and the re-show after a refused command): the scopes configured, the start mark, the page's model built and the
+    /// panel shown, in one synchronous call. The first frame's commit runs in a later turn, outside it (debug.timings'
+    /// `palette_opens` row has it). Ring: B/E; arg0 0.
     case stallPaletteOpen = 42
-    /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
+    /// An icon picker open's main-thread work (task 036, `IconPickerService.pick`): the catalog in hand to the panel
+    /// shown, in one synchronous call. A first open's catalog load runs off the main actor before it. Ring: B/E; arg0 0.
     case stallIconPickerOpen = 43
     /// A point event: rendering starved (Chrome's `kRenderingStarved`). A display link that paces
     /// active frame clients and whose frames show went over 100 ms and a frame without a tick
@@ -348,6 +353,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Message: `reason=<reason>`. Ring: instant; arg0 the reason's position + 1, arg1 the afterStartup tasks
     /// held until then.
     case launchStartupComplete = 76
+    /// A launch read is done (CmuxNextLaunch `LaunchReadEvent.signal()`, task p08-startup-028; Chromium's
+    /// `base::OneShotEvent::Signal`): the steps that waited for it run next. Message: `read=<Domain.read>
+    /// waiting=<steps released>`. Ring: instant; arg0 the steps released. Once per read per launch.
+    case launchReadDone = 77
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -392,6 +401,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
         case .launchStartupTask: "launch.startup_task"
         case .launchStartupComplete: "launch.startup_complete"
+        case .launchReadDone: "launch.read_done"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
         case .stallMainTurn: "stall.main_turn"
@@ -430,48 +440,4 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .webuiScheme: "webui.scheme"
         }
     }
-
-    /// The category whose ``Signposter`` emits this name and whose flag gates its ring records: the
-    /// part of the name before the first dot (the catalog test checks the two agree). An inlinable switch,
-    /// so a disabled trace point folds it to a constant and reads no `String`.
-    @inlinable public var traceCategory: SignpostCategory {
-        switch self {
-        case .actionPerform, .actionCommit, .actionGate: .action
-        case .motionFrame, .motionRun, .motionDragFrame: .motion
-        case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
-             .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
-             .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,
-             .keyEchoContents:
-            .key
-        case .switchWorkspace, .switchTab, .switchPaneFocus, .switchAppActivation: .switch
-        case .createTab, .createWorkspace: .create
-        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
-        case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete:
-            .launch
-        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
-             .stallRenderStarved:
-            .stall
-        case .daemonRequest: .daemon
-        case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
-        case .taskPost, .taskRun: .task
-        case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
-        case .inputFrame: .input
-        case .webviewINP, .webviewLoAF: .webview
-        case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
-        case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
-             .crashDumpWithoutCrashing:
-            .crash
-        case .controlRequest: .control
-        case .ghosttyRender: .ghostty
-        case .resizeFrame: .resize
-        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme: .webui
-        }
-    }
-
-    /// ``traceCategory``, as the optional the callers written before it read. Never nil.
-    public var category: SignpostCategory? { traceCategory }
-
-    /// The name as a `String`.
-    public var description: String { staticName.withUTF8Buffer { String(decoding: $0, as: UTF8.self) } }
 }

@@ -91,13 +91,11 @@ public final class PaletteController {
     ///   control's, inside the screen. Nil centers it over the window.
     @discardableResult
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
-        configureScopes()
-        guard model.navigation.graph.contains(scope) else { return false }
-        open(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:))) {
+        open(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)),
+             when: { model.navigation.graph.contains(scope) }) {
             captureContext()
             model.open(scope: scope, query: query)
         }
-        return true
     }
 
     /// `view`'s frame on the screen, or nil when it is in no window.
@@ -164,7 +162,6 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
-        configureScopes()
         open(relativeTo: window) {
             captureContext()
             model.reset(to: page(for: mode))
@@ -174,7 +171,6 @@ public final class PaletteController {
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
-        configureScopes()
         open(relativeTo: window) {
             captureContext()
             model.reset(to: page)
@@ -201,7 +197,6 @@ public final class PaletteController {
             handler()
             return
         }
-        configureScopes()
         open(relativeTo: window) { model.reset(to: effect, fallback: commandsPage()) }
     }
 
@@ -213,16 +208,21 @@ public final class PaletteController {
     }
 
     /// One open's main-thread work, inside one `stall.palette_open` thread slice (B/E, Chrome's scoped
-    /// `TRACE_EVENT0`, base/trace_event/common/trace_event_common.h): the start mark, `buildModel` (the page's
-    /// items and first results), then the panel shown. The first frame's commit (``PaletteOpenTiming/commit``)
-    /// runs in a later turn, outside the slice.
-    private func open(relativeTo window: NSWindow?, anchor: NSRect? = nil, buildModel: () -> Void) {
+    /// `TRACE_EVENT0`, base/trace_event/common/trace_event_common.h): the scopes configured, `accepts` (false
+    /// opens nothing), the start mark, `buildModel` (the page's items and first results), then the panel shown.
+    /// The first frame's commit (``PaletteOpenTiming/commit``) runs in a later turn, outside the slice.
+    @discardableResult
+    private func open(relativeTo window: NSWindow?, anchor: NSRect? = nil, when accepts: () -> Bool = { true },
+                      buildModel: () -> Void) -> Bool {
         let slice = stallSignposter.begin(.stallPaletteOpen)
         defer { stallSignposter.end(.stallPaletteOpen, slice) }
+        configureScopes()
+        guard accepts() else { return false }
         markOpenStarted()
         buildModel()
         modelReady = .now
         present(relativeTo: window, anchor: anchor)
+        return true
     }
 
     private func markOpenStarted() {
@@ -292,6 +292,9 @@ public final class PaletteController {
     /// page it closed on (a refused command's notice).
     private func presentAgain() {
         guard !isVisible else { return }
+        // An open too (`onPresented` reports it): its main-thread work is one `stall.palette_open` slice.
+        let slice = stallSignposter.begin(.stallPaletteOpen)
+        defer { stallSignposter.end(.stallPaletteOpen, slice) }
         // Without a parent (opened while no window was key or main, as in a
         // no-activate run) `present` picks the key or main window again.
         present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })

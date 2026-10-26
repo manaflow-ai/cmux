@@ -48,6 +48,23 @@ struct PaletteOpenSignpostTests {
         #expect(log.phases == [.begin, .end, .begin, .end, .begin, .end])
     }
 
+    /// A refused command closes the palette and shows it again with its notice (`model.onRefusal`): that re-show
+    /// reports an open to `onPresented`, so it is one slice too.
+    @Test func theReShowAfterARefusedCommandIsOneSlice() {
+        let log = RecordLog()
+        let palette = Self.palette()
+        defer { palette.hide() }
+        palette.stallSignposter = log.signposter(recording: true)
+        palette.show(.commands)
+        palette.hide()
+        palette.model.onRefusal?("refused")
+        #expect(palette.isVisible)
+        #expect(log.phases == [.begin, .end, .begin, .end])
+        // Already open: a second refusal shows nothing new and writes no slice.
+        palette.model.onRefusal?("refused")
+        #expect(log.phases == [.begin, .end, .begin, .end])
+    }
+
     @Test func nothingWhileTheStallCategoryIsOff() {
         let log = RecordLog()
         let palette = Self.palette()
