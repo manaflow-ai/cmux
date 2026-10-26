@@ -28,8 +28,9 @@ All six are `planned`: their sources and checkpoint digests are `null` until the
 (task 116) records them. `dev-loop` is scripted instead, as Chromium's system_health stories are
 (`tools/perf/page_sets/system_health/`): `dev_loop.py --write` makes its layout, build-log PTY
 track and input track in `perf-corpus/dev-loop/`, `dev_loop.py --check` proves the committed files
-are what it makes, and a lab host adds only its Web Page Replay archive (from
-`perf-corpus/dev-loop/docs.urls`) and checkpoint digests. A `planned` story must say what records it in `planned`. A
+are what it makes, and a lab host adds only its checkpoint digests. Its docs tab scrolls the
+generated local page the layout import gives it (`web_archive` is null: no player step loads an
+archived URL into a layout tab yet). A `planned` story must say what records it in `planned`. A
 `recorded` story must have every source and both digests of every checkpoint.
 
 ## Fields

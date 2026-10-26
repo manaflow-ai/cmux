@@ -5,24 +5,28 @@
     python3 -I scripts/perf-lab/corpus/dev_loop.py --write   # makes them again
 
 dev-loop is a scripted story, as Chromium's system_health stories are: code says what the session does
-(tools/perf/page_sets/system_health/browsing_stories.py and its action_runner scrolls), Web Page Replay serves
-the pages, and nothing comes from a person's session. This script makes, deterministically (a seeded
-random.Random, read only through random()):
+(tools/perf/page_sets/system_health/browsing_stories.py and its action_runner scrolls), and nothing comes from a
+person's session. This script makes, deterministically (a seeded random.Random, read only through random()):
 
   perf-corpus/dev-loop/layout.json       the layout snapshot (session_io.py, task 111): 4 workspaces, w0 the
-                                         editor (left) and build log (right), w1 the docs tab, w2 and w3 shells
+                                         editor (left) and build log (right), w1 the docs tab (a Chromium tab;
+                                         the layout import gives it a long generated local page), w2 and w3 shells
   perf-corpus/dev-loop/build-log.ttyrec  the build log PTY track (pty_replay.py, task 112): synthetic cargo and
                                          swiftc output, bursts at BURST_RATE bytes/s (4000-byte writes every 2 ms)
                                          separated by progress lines, PASS_MS per pass, looped
   perf-corpus/dev-loop.json              layout, PTY tracks, input track and checkpoints. The input track runs
                                          ROUNDS rounds of: typing in the alt-screen editor, Cmd-Shift-P palette
                                          queries, scrolling the docs tab, Cmd-D split and closePane, Cmd-T and
-                                         Cmd-W, Cmd-N (a new workspace, at the bottom since w3 is shown) and
-                                         closeWorkspace, then the editor again
+                                         Cmd-W, Cmd-N (a new workspace, shown) and Cmd-Shift-W, then the editor
 
 Keys go only where their text is harmless: the editor and build-log terminals run pty_replay.py, which drops its
-input, the palette query is closed with Escape, and the split and new-workspace shells get no Return.
-The fields a lab host records (web_archive, checkpoint digests, status) are kept from the committed manifest.
+input, the palette is closed with two Escapes (the first clears the query, the second closes it:
+PaletteNavReducer.escape), and the split and new-workspace shells get no Return. Objects the story creates are
+closed through focus or by a ref that does not depend on placement settings: Cmd-Shift-W closes the workspace
+Cmd-N showed wherever `workspaces.newPlacement` put it, so every @wN ref names a layout workspace.
+The docs tab has no Web Page Replay archive (web_archive is null): no player step can load an archived URL into a
+layout tab yet, and the input vocabulary carries no URLs. The fields a lab host records (checkpoint digests,
+status) are kept from the committed manifest.
 
 Stdlib only; runs under python3 -I. Tests: python3 -m unittest scripts/perf-lab/tests/test_corpus_dev_loop.py
 """
@@ -69,18 +73,16 @@ ARROWS = (123, 124, KEY_DOWN, 126)
 
 EDITOR, BUILD_LOG, DOCS, SHELL_A, SHELL_B = "@w0.p0", "@w0.p1", "@w1.p0", "@w2.p0", "@w3.p0"
 SPLIT_PANE = "@w0.p2"  # Cmd-D on the build log's pane puts the new pane right of it
-NEW_WORKSPACE = "@w4"  # Cmd-N from the last workspace
 
 METRICS = ("key_to_frame", "action_to_frame", "switch_to_frame", "palette_key_to_frame", "dropped_frames",
            "main_turn")
 METRIC_UNITS = {"dropped_frames": "count"}
 
-PLANNED = ("Scripted by scripts/perf-lab/corpus/dev_loop.py (task 118). A lab host adds the Web Page Replay archive "
-           "and spki (wpr.py record --urls perf-corpus/dev-loop/docs.urls, task 113) and the checkpoint digests of "
-           "a recording replay (task 116).")
-DESCRIPTION = ("An alt-screen editor next to 2 MB/s build-log bursts, a docs tab from Web Page Replay scrolled "
-               "with a trackpad, Cmd-D split and close, Cmd-T/N/W and Cmd-Shift-P palette queries, in 3 rounds "
-               "of 50 s.")
+PLANNED = ("Scripted by scripts/perf-lab/corpus/dev_loop.py (task 118). A lab host adds the checkpoint digests of a "
+           "recording replay (task 116).")
+DESCRIPTION = ("An alt-screen editor next to 2 MB/s build-log bursts, a Chromium docs tab (a generated local page) "
+               "scrolled with a trackpad, Cmd-D split and close, Cmd-T/W, Cmd-N and Cmd-Shift-W, and Cmd-Shift-P "
+               "palette queries, in 3 rounds of 50 s.")
 
 
 def _load(name: str, path: Path):
@@ -267,7 +269,8 @@ class _Track:
         self.chord(at(13_000), KEY_P, "shift")  # the command palette
         self.type_words(at(13_400), at(14_600), editor=False)
         self.key(at(14_800), "named", key_code=KEY_DOWN)  # the next match
-        self.key(at(15_400), "named", key_code=KEY_ESCAPE)
+        self.key(at(15_400), "named", key_code=KEY_ESCAPE)  # clears the query
+        self.key(at(15_600), "named", key_code=KEY_ESCAPE)  # closes the palette
         self.checkpoint(at(16_000), f"palette-closed-{number}")
 
         self.action(at(16_500), "pane.focus", DOCS)
@@ -287,9 +290,9 @@ class _Track:
         self.checkpoint(at(35_000), f"tab-closed-{number}")
 
         self.action(at(35_500), "pane.focus", SHELL_B)
-        self.chord(at(36_000), KEY_N)  # a new workspace, after the last one
+        self.chord(at(36_000), KEY_N)  # a new workspace, shown and focused
         self.type_words(at(37_000), at(39_000), editor=False)
-        self.action(at(39_500), "closeWorkspace", NEW_WORKSPACE)
+        self.chord(at(39_500), KEY_W, "shift")  # closeWorkspace: the shown one, the workspace Cmd-N made
         self.checkpoint(at(40_500), f"workspace-closed-{number}")
 
         self.action(at(41_000), "pane.focus", EDITOR)
@@ -315,7 +318,7 @@ def file_ref(path: str, data: bytes) -> dict[str, Any]:
 
 def outputs(root: Path = REPO_ROOT, current: dict[str, Any] | None = None) -> dict[str, bytes]:
     """{repository path: bytes} of every file this script makes. CURRENT (the committed manifest, if any) gives
-    the recorded fields to keep: web_archive, status and each checkpoint's digests by name."""
+    the recorded fields to keep: status and each checkpoint's digests by name."""
     layout_bytes = session_io().canonical_bytes(session_io().check(layout()))
     log_bytes = build_log()
     editor = (root / EDITOR_PATH).read_bytes()
@@ -337,7 +340,7 @@ def outputs(root: Path = REPO_ROOT, current: dict[str, Any] | None = None) -> di
             {"surface": f"{EDITOR}.t0", "source": file_ref(EDITOR_PATH, editor), "speed": 1, "loop": True},
             {"surface": f"{BUILD_LOG}.t0", "source": file_ref(BUILD_LOG_PATH, log_bytes), "speed": 1, "loop": True},
         ],
-        "web_archive": current.get("web_archive") or {"wprgo": None, "spki": None},
+        "web_archive": None,
         "agents": [],
         "checkpoints": [{**c, "focus": digests.get(c["name"], (None, None))[0],
                          "surfaces": digests.get(c["name"], (None, None))[1]} for c in checkpoints],

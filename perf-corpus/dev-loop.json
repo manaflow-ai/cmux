@@ -3,8 +3,8 @@
   "id": "dev-loop",
   "tier": "T1",
   "status": "planned",
-  "planned": "Scripted by scripts/perf-lab/corpus/dev_loop.py (task 118). A lab host adds the Web Page Replay archive and spki (wpr.py record --urls perf-corpus/dev-loop/docs.urls, task 113) and the checkpoint digests of a recording replay (task 116).",
-  "description": "An alt-screen editor next to 2 MB/s build-log bursts, a docs tab from Web Page Replay scrolled with a trackpad, Cmd-D split and close, Cmd-T/N/W and Cmd-Shift-P palette queries, in 3 rounds of 50 s.",
+  "planned": "Scripted by scripts/perf-lab/corpus/dev_loop.py (task 118). A lab host adds the checkpoint digests of a recording replay (task 116).",
+  "description": "An alt-screen editor next to 2 MB/s build-log bursts, a Chromium docs tab (a generated local page) scrolled with a trackpad, Cmd-D split and close, Cmd-T/W, Cmd-N and Cmd-Shift-W, and Cmd-Shift-P palette queries, in 3 rounds of 50 s.",
   "owner": "PL-perf-lab",
   "duration_ms": 150000,
   "layout": {
@@ -121,6 +121,7 @@
       {"t_ms":14541,"kind":"key","payload":{"phase":"down","class":"space","modifiers":[]}},
       {"t_ms":14800,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":125}},
       {"t_ms":15400,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
+      {"t_ms":15600,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
       {"t_ms":16500,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w1.p0"}}},
       {"t_ms":17000,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-64.0}},
       {"t_ms":17017,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-57.6}},
@@ -344,7 +345,7 @@
       {"t_ms":38570,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":38714,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":38875,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
-      {"t_ms":39500,"kind":"action","payload":{"id":"closeWorkspace","args":{"target":"@w4"}}},
+      {"t_ms":39500,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":["cmd","shift"],"key_code":13}},
       {"t_ms":41000,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w0.p0"}}},
       {"t_ms":41300,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":41463,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
@@ -511,6 +512,7 @@
       {"t_ms":64570,"kind":"key","payload":{"phase":"down","class":"space","modifiers":[]}},
       {"t_ms":64800,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":125}},
       {"t_ms":65400,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
+      {"t_ms":65600,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
       {"t_ms":66500,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w1.p0"}}},
       {"t_ms":67000,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-64.0}},
       {"t_ms":67017,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-57.6}},
@@ -734,7 +736,7 @@
       {"t_ms":88599,"kind":"key","payload":{"phase":"down","class":"space","modifiers":[]}},
       {"t_ms":88756,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":88875,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
-      {"t_ms":89500,"kind":"action","payload":{"id":"closeWorkspace","args":{"target":"@w4"}}},
+      {"t_ms":89500,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":["cmd","shift"],"key_code":13}},
       {"t_ms":91000,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w0.p0"}}},
       {"t_ms":91300,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":91426,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
@@ -900,6 +902,7 @@
       {"t_ms":114563,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":114800,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":125}},
       {"t_ms":115400,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
+      {"t_ms":115600,"kind":"key","payload":{"phase":"down","class":"named","modifiers":[],"key_code":53}},
       {"t_ms":116500,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w1.p0"}}},
       {"t_ms":117000,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-64.0}},
       {"t_ms":117017,"kind":"mouse","payload":{"phase":"scroll","button":0,"x":860,"y":480,"dy":-57.6}},
@@ -1123,7 +1126,7 @@
       {"t_ms":138620,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":138773,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":138900,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
-      {"t_ms":139500,"kind":"action","payload":{"id":"closeWorkspace","args":{"target":"@w4"}}},
+      {"t_ms":139500,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":["cmd","shift"],"key_code":13}},
       {"t_ms":141000,"kind":"action","payload":{"id":"pane.focus","args":{"target":"@w0.p0"}}},
       {"t_ms":141300,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
       {"t_ms":141463,"kind":"key","payload":{"phase":"down","class":"letter","modifiers":[]}},
@@ -1212,10 +1215,7 @@
       "loop": true
     }
   ],
-  "web_archive": {
-    "wprgo": null,
-    "spki": null
-  },
+  "web_archive": null,
   "agents": [],
   "checkpoints": [
     {

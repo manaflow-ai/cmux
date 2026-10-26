@@ -1,4 +1,0 @@
-# The dev-loop story's docs tab (p12-perf-process-118), recorded on a lab host:
-#   python3 -I scripts/perf-lab/corpus/wpr.py record --app BUNDLE --urls perf-corpus/dev-loop/docs.urls --archive dev-loop.wprgo
-# A long public reference page, so the story's trackpad flicks scroll real content.
-https://doc.rust-lang.org/std/vec/struct.Vec.html
