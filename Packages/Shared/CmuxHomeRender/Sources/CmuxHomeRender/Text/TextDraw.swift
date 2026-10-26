@@ -24,8 +24,9 @@ enum Fonts {
 }
 
 /// A font made once and read by every render thread (the measure and row
-/// bitmap queues draw off the main actor). The SDK does not mark `CTFont`
-/// Sendable; this is the module's one place a font crosses threads.
+/// bitmap queues draw off the main actor). The SDK marks `CGImage`, `CGColor`
+/// and `CGColorSpace` Sendable but not `CTFont`, so this is the module's one
+/// reviewed unchecked conformance (a waived crash-ratchet row, not a removed one).
 // crash-allow: `font` is a let, a CTFont is immutable once made, and Core Text fonts are thread-safe (Core Text Programming Guide, "Thread Safety")
 struct SharedFont: @unchecked Sendable {
     let font: CTFont

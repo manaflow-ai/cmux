@@ -4,7 +4,7 @@ import CoreText
 
 /// What a row or tile bitmap depends on. Everything here is a value read on the main thread,
 /// so a background queue can render from it.
-struct SidebarRenderContext {
+struct SidebarRenderContext: Sendable { // cmux: checked Sendable (Swift 6), it crosses to every render thread
     var metrics: SidebarMetrics
     var palette: SidebarPalette
     var scale: CGFloat
@@ -21,7 +21,7 @@ struct SidebarRenderContext {
 }
 
 /// One bitmap's identity.
-struct SidebarBitmapKey: Hashable {
+struct SidebarBitmapKey: Hashable, Sendable { // cmux: Sendable (Swift 6)
     /// `tile`: a pinned tile's name; `tileBubble`: its newest-message bubble.
     enum Kind: Hashable { case row, time, tile, tileBubble }
     var kind: Kind
@@ -77,18 +77,17 @@ final class SidebarBitmapCache {
 /// header. Locked (the render queue reads it).
 final class SidebarAvatarCache: Sendable { // cmux: checked Sendable (Swift 6), the map under its lock
     private struct Key: Hashable { var spec: AvatarSpec; var d: CGFloat; var scale: CGFloat; var dark: Bool }
-    private let images = OSAllocatedUnfairLock<[Key: SidebarShared<CGImage>]>(initialState: [:])
+    private let images = OSAllocatedUnfairLock<[Key: CGImage]>(initialState: [:])
 
     func image(_ spec: AvatarSpec, diameter d: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let k = Key(spec: spec, d: d, scale: ctx.scale, dark: ctx.palette.dark)
-        if let held = images.withLock({ $0.value(for: k) }) { return held.value }
+        if let held = images.withLock({ $0.value(for: k) }) { return held }
         guard let img = SidebarDraw.bitmap(size: CGSize(width: d, height: d), ctx: ctx, { g in
             SidebarDraw.avatar(spec, in: CGRect(x: 0, y: 0, width: d, height: d), g, ctx.palette)
         }) else { return nil }
-        let held = SidebarShared(img)
         images.withLock { m in
             if m.count > 4000 { m.removeAll() }
-            _ = m.updateValue(held, forKey: k) // dictionary write
+            _ = m.updateValue(img, forKey: k) // dictionary write
         }
         return img
     }
@@ -97,9 +96,7 @@ final class SidebarAvatarCache: Sendable { // cmux: checked Sendable (Swift 6), 
 
 /// The drawing: pure functions of a summary and a render context (any thread).
 enum SidebarDraw {
-    // cmux: made once and shared by every render thread (SidebarShared, Swift 6; no lookup per read).
-    private static let p3Space = SidebarShared(CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()) // no force unwrap
-    static var p3: CGColorSpace { p3Space.value }
+    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // no force unwrap
     /// Where `AvatarSpec.image` paths resolve: the app bundle's "assets" folder (cmux: a
     /// constant, the renderers read it on every core; cmux's avatars are `file:` URLs).
     static let assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
@@ -107,27 +104,26 @@ enum SidebarDraw {
     /// has dropped its references in the current turn.
     static func release(_ images: [CGImage]) {
         guard !images.isEmpty else { return }
-        let images = SidebarShared(images) // cmux: Swift 6, the images cross to the freeing thread
         DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
     }
     // no force unwrap: Core Text's UI font lookup returns an optional.
-    // cmux: the fixed fonts are made once and shared by every render thread (SidebarShared, Swift 6),
+    // cmux: the fixed fonts are made once and shared by every render thread (SidebarFont, Swift 6),
     // read with no lock; only the monogram and emoji sizes use the held store below.
-    private struct FixedFonts: SidebarShareable {
-        let name = SidebarDraw.uiFont(.emphasizedSystem, SidebarMetrics.nameSize)
-        let preview = SidebarDraw.uiFont(.system, SidebarMetrics.previewSize)
-        let time = SidebarDraw.uiFont(.system, SidebarMetrics.timeSize)
-        let pinName = SidebarDraw.uiFont(.system, SidebarMetrics.pinNameSize)
-        let bubble = SidebarDraw.uiFont(.system, 11)
-        let section = SidebarDraw.uiFont(.emphasizedSystem, 11)
+    private struct FixedFonts: Sendable {
+        let name = SidebarFont(SidebarDraw.uiFont(.emphasizedSystem, SidebarMetrics.nameSize))
+        let preview = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.previewSize))
+        let time = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.timeSize))
+        let pinName = SidebarFont(SidebarDraw.uiFont(.system, SidebarMetrics.pinNameSize))
+        let bubble = SidebarFont(SidebarDraw.uiFont(.system, 11))
+        let section = SidebarFont(SidebarDraw.uiFont(.emphasizedSystem, 11))
     }
-    private static let fixedFonts = SidebarShared(FixedFonts())
-    static var nameFont: CTFont { fixedFonts.value.name }
-    static var previewFont: CTFont { fixedFonts.value.preview }
-    static var timeFont: CTFont { fixedFonts.value.time }
-    static var pinNameFont: CTFont { fixedFonts.value.pinName }
-    static var bubbleFont: CTFont { fixedFonts.value.bubble }
-    static var sectionFont: CTFont { fixedFonts.value.section }
+    private static let fixedFonts = FixedFonts()
+    static var nameFont: CTFont { fixedFonts.name.font }
+    static var previewFont: CTFont { fixedFonts.preview.font }
+    static var timeFont: CTFont { fixedFonts.time.font }
+    static var pinNameFont: CTFont { fixedFonts.pinName.font }
+    static var bubbleFont: CTFont { fixedFonts.bubble.font }
+    static var sectionFont: CTFont { fixedFonts.section.font }
 
     // the UI font, or Helvetica at that size when Core Text returns none; held for the process.
     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
@@ -142,16 +138,16 @@ enum SidebarDraw {
     // (cx-qpqs). The sizes are a few fixed ones (monograms and emoji per half point).
     private enum HeldFace: Hashable { case ui(UInt32), emoji }
     private struct HeldFont: Hashable { var face: HeldFace; var size: CGFloat }
-    private static let fonts = OSAllocatedUnfairLock<[HeldFont: SidebarShared<CTFont>]>(initialState: [:])
+    private static let fonts = OSAllocatedUnfairLock<[HeldFont: SidebarFont]>(initialState: [:])
     /// The held font for `key`, made by `make` on a miss; a font two threads made at once is held once.
     private static func held(_ key: HeldFont, _ make: () -> CTFont) -> CTFont {
-        if let font = fonts.withLock({ $0.value(for: key) }) { return font.value }
-        let made = SidebarShared(make())
+        if let held = fonts.withLock({ $0.value(for: key) }) { return held.font }
+        let made = SidebarFont(make())
         return fonts.withLock { store in
-            if let font = store.value(for: key) { return font }
+            if let held = store.value(for: key) { return held }
             store.updateValue(made, forKey: key) // dictionary write
             return made
-        }.value
+        }.font
     }
     // emoji avatar fonts held per exact size, like the monogram fonts (avatar diameters are a few
     // fixed sizes, so the store stays small).
@@ -348,7 +344,7 @@ enum SidebarDraw {
     /// truncated (nil: not truncated). The lines are drawn left-aligned at x 0, so two text widths
     /// with the same layout draw the same pixels (the wider bitmap's extra columns are empty; the
     /// layer's contents gravity is top-left, nothing is scaled).
-    struct RowTextLayout: Equatable {
+    struct RowTextLayout: Equatable, Sendable { // cmux: Sendable (Swift 6), it comes back from the render threads
         var name: CGFloat?
         var breaks: [Int]
         var lastLine: Bool

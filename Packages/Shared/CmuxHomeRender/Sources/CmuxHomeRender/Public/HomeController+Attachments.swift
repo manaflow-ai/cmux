@@ -2,10 +2,9 @@ public import CmuxHomeCore
 public import CoreGraphics
 public import Foundation
 
-/// One attachment of a send from the host's composer. Not Sendable: the host
-/// makes it on the main actor and hands it to `sendHosted`, and `CGImage`
-/// is not Sendable.
-public struct HomeOutgoingAttachment {
+/// One attachment of a send from the host's composer. Checked Sendable: every
+/// field is (the Core Graphics overlay makes `CGImage` Sendable).
+public struct HomeOutgoingAttachment: Sendable {
     public var ref: AttachmentRef
     /// The prepared local files (`HomeStore.prepareAttachment`): the bubble
     /// shows them before the upload ends, and the send uploads them.
