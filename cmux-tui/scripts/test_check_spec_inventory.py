@@ -45,6 +45,29 @@ enum Command {
                     {"ping", "tuple-value", "struct-value", "bare-final"},
                 )
 
+    def test_sniffed_command_names_come_from_handler_modules_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tui = Path(temporary) / "cmux-tui"
+            server = tui / "crates/cmux-tui-core/src/server"
+            server.mkdir(parents=True)
+            (server / "handler.rs").write_text(
+                'pub(super) fn try_handle() { let _ = "served-cmd"; }\n'
+                '// "commented-cmd"\n'
+                '#[cfg(test)]\nmod tests { const T: &str = "test-cmd"; }\n'
+            )
+            (server / "helper.rs").write_text('const NAME: &str = "helper-cmd";\n')
+            (server / "handler_tests.rs").write_text(
+                'fn try_handle() { let _ = "tests-file-cmd"; }\n'
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.sniffed_command_names(
+                        {"served-cmd", "commented-cmd", "test-cmd", "helper-cmd", "tests-file-cmd"}
+                    ),
+                    {"served-cmd"},
+                )
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

@@ -44,6 +44,12 @@ public:
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsAttachResult> agent_cli_intents_attach(const AgentCliIntentsAttachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsListResult> agent_cli_intents_list(const AgentCliIntentsListRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsRecordResult> agent_cli_intents_record(const AgentCliIntentsRecordRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsSettleResult> agent_cli_intents_settle(const AgentCliIntentsSettleRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliJobReceipt> agent_cli_update_job(const AgentCliUpdateJobRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliJobResolution> agent_cli_update_job_resolve(const AgentCliUpdateJobResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});

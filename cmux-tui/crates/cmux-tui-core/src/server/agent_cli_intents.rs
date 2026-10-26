@@ -1,7 +1,7 @@
 //! Verified native UI intent persistence. Stored identities are not execution grants.
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 use super::{MessageWriter, Response, apps, origin_gate, responses::send_response};
@@ -10,6 +10,15 @@ use crate::resource::{MachinePublicId, SessionPublicId};
 use crate::workspace_registry::agent_cli_intents::AgentCLIIntent;
 
 pub(super) const CAPABILITY: &str = "agent-cli-intents-v1";
+
+/// The owner every agent-cli-intents-* request names, checked before its body.
+/// spec/sdk-schema.json gives each command these fields plus its body's.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Owner {
+    expected_machine_id: String,
+    expected_session_id: String,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,13 +70,17 @@ pub(super) fn try_handle(
     {
         return Some(reply(writer, id, Err("agent_cli_intents.not_trusted")));
     }
-    let machine = fields.remove("expected_machine_id").and_then(|v| v.as_str().map(str::to_owned));
-    let session = fields.remove("expected_session_id").and_then(|v| v.as_str().map(str::to_owned));
-    let (Some(machine), Some(session)) = (machine, session) else {
+    let owner: Map<String, Value> = ["expected_machine_id", "expected_session_id"]
+        .into_iter()
+        .filter_map(|key| fields.remove_entry(key))
+        .collect();
+    let Ok(Owner { expected_machine_id, expected_session_id }) =
+        serde_json::from_value(Value::Object(owner))
+    else {
         return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
     };
     let (Ok(machine), Ok(session)) =
-        (MachinePublicId::parse(machine), SessionPublicId::parse(session))
+        (MachinePublicId::parse(expected_machine_id), SessionPublicId::parse(expected_session_id))
     else {
         return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
     };

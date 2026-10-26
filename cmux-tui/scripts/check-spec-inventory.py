@@ -159,6 +159,35 @@ def command_names() -> set[str]:
     return {camel_to_kebab(variant) for variant in variants}
 
 
+def sniffed_command_names(candidates: set[str]) -> set[str]:
+    """The candidates a server handler module serves before the Command enum
+    (server/connection_frame.rs): a production module with a `try_handle`
+    spells the name as a string literal. check-sdk-schema.py checks their
+    request fields."""
+    root = TUI / "crates/cmux-tui-core/src/server"
+    if not root.is_dir():
+        return set()
+    literals: set[str] = set()
+    for path in sorted(root.rglob("*.rs")):
+        if path.name.endswith("_tests.rs") or "tests" in path.relative_to(root).parts[:-1]:
+            continue
+        production = strip_rust_comments(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
+        if "fn try_handle(" not in production:
+            continue
+        for token in rust_tokens(production):
+            value = rust_string_value(token)
+            if value is not None:
+                literals.add(value)
+    return candidates & literals
+
+
+def served_command_names(sdk_commands: set[str]) -> set[str]:
+    """Every command the daemon serves: the Command enum plus the SDK
+    commands a handler module serves before it."""
+    enum_commands = command_names()
+    return enum_commands | sniffed_command_names(sdk_commands - enum_commands)
+
+
 def rust_function_body(source: str, name: str) -> str:
     match = re.search(
         rf"\bfn\s+{re.escape(name)}(?:\s*<[^>]*>)?\s*\([^)]*\)[^{{]*\{{",
@@ -255,10 +284,10 @@ def guarded_command_profiles(source: str) -> dict[str, str]:
 def command_profiles() -> dict[str, set[str]]:
     # The Command router lives in server/command_dispatch.rs (cx-6so.3).
     source = (TUI / "crates/cmux-tui-core/src/server/command_dispatch.rs").read_text()
-    runtime_commands = command_names()
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):
         fail("raw SDK catalog commands must be an object")
+    runtime_commands = served_command_names(set(sdk_commands))
     stale_sdk_commands = sorted(set(sdk_commands) - runtime_commands)
     if stale_sdk_commands:
         fail(
@@ -1224,7 +1253,7 @@ def validate_commands(inventory: dict) -> set[str]:
     compare_mapping(actual_profiles, runtime_profiles, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
-    runtime_commands = command_names()
+    runtime_commands = served_command_names(set(load_sdk_catalog().get("commands", {})))
     profile_commands = set().union(*runtime_profiles.values())
     compare(runtime_commands, profile_commands, "command profile metadata")
     compare(runtime_commands, inventory_commands, "command")

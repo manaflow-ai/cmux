@@ -36,6 +36,111 @@
       "size": 8714
     },
     {
+      "path": "AgentCliIntentsAttachRequest.java",
+      "sha256": "0e07e52ae2c45f9ed87d0940c5cc27d7a9a7eaf1c57ea90054d623eba2af4e7c",
+      "size": 4676
+    },
+    {
+      "path": "AgentCliIntentsAttachResult.java",
+      "sha256": "71511e1e29b039d14e5cdbcda88b073c2f3912da8221a6c986d65480baf3713f",
+      "size": 2741
+    },
+    {
+      "path": "AgentCliIntentsListRequest.java",
+      "sha256": "29bedbff137afaf5d376627eefd8ae6f0682bbd51da419e3e0131037945091d6",
+      "size": 3308
+    },
+    {
+      "path": "AgentCliIntentsListResult.java",
+      "sha256": "319d9e629ea26e20aa26a357683879469459cf2b0770229cec94fbeab116791d",
+      "size": 2164
+    },
+    {
+      "path": "AgentCliIntentsRecordRequest.java",
+      "sha256": "e5590e7f8ab538bd7467d1cb8a22d4e0d62b3d99f6c7a30045206b2fdb3442c8",
+      "size": 4144
+    },
+    {
+      "path": "AgentCliIntentsRecordResult.java",
+      "sha256": "9e1241e615de846b587ef14820d2eff2185a40029bf0fa627b2fc0c8149330f1",
+      "size": 2865
+    },
+    {
+      "path": "AgentCliIntentsSettleRequest.java",
+      "sha256": "902017bf65a04bd6854d6112fbbe5d72db89294d50933d0d8627bf76aab98322",
+      "size": 4073
+    },
+    {
+      "path": "AgentCliIntentsSettleResult.java",
+      "sha256": "56f71cfc60087a1c75162046457aa7504ea121853440c7a05d7d927f346939f7",
+      "size": 2865
+    },
+    {
+      "path": "AgentCliUpdateJobRequest.java",
+      "sha256": "fe12d505c374426a63bc507ebe4547c1426a0b22cb733d3f05a7358f05ef593e",
+      "size": 4766
+    },
+    {
+      "path": "AgentCliUpdateJobResolveRequest.java",
+      "sha256": "94a72b4508492b1b2a53ca98128951e261c81dc8a55dee0b2aaf28670f0a0c19",
+      "size": 4858
+    },
+    {
+      "path": "AgentCliintent.java",
+      "sha256": "3fcd16ad52d74daca3105655435e398559544f899cc29eb7a02e75a0ea0487b6",
+      "size": 5332
+    },
+    {
+      "path": "AgentClijobPath.java",
+      "sha256": "4a13f4392114aa92bde87429d13d9ad6d3710fee7c36dd572369b850f9db3b1e",
+      "size": 5081
+    },
+    {
+      "path": "AgentClijobReceipt.java",
+      "sha256": "e4fc35e450de775a806e1172d0f1472a250d91251fde900fbecec6abf4b2871b",
+      "size": 5332
+    },
+    {
+      "path": "AgentClijobResolution.java",
+      "sha256": "53f5a778edca16af856f90b18087e23a0cbeff76fdb0afe32bec388d5b919d60",
+      "size": 1030
+    },
+    {
+      "path": "AgentClijobResolutionCreated.java",
+      "sha256": "19e01bd0e30fc5832f6c2fcfb4621a3a66af72735a93463e97aa2c52693cbb8f",
+      "size": 2345
+    },
+    {
+      "path": "AgentClijobResolutionFailed.java",
+      "sha256": "0cc028f7539fb40b6985a1e26d2cbf565bb5543fa7803227d817513c14533fa5",
+      "size": 2239
+    },
+    {
+      "path": "AgentClijobResolutionIndeterminate.java",
+      "sha256": "8d96367c9aef5f2e80f7211603640eccfaf07a10440703d52bf14cace2189d16",
+      "size": 1696
+    },
+    {
+      "path": "AgentClijobResolutionNotFound.java",
+      "sha256": "0b83c18b121e160811aaa31a21ca4687fa1f8f0375c8f2d5efa481b5f70b2289",
+      "size": 1639
+    },
+    {
+      "path": "AgentClijobResolutionPending.java",
+      "sha256": "fbb441115a91f37af32d79cc02e4f624a953c57672799c988ca1bfa3a13113e8",
+      "size": 1624
+    },
+    {
+      "path": "AgentClijobResolutionPrepared.java",
+      "sha256": "36e00de1ff263df6f3ef836769a001c312c8b408906f6d756acbef4fca798903",
+      "size": 1636
+    },
+    {
+      "path": "AgentClistoredIntent.java",
+      "sha256": "98c223b8e6f0eea0bb3c3386b09a1dbfea27cb942957eaf7820446d2683acb3a",
+      "size": 6156
+    },
+    {
       "path": "AgentInventoryChangedEvent.java",
       "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
       "size": 3827
@@ -707,8 +812,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "2472922908d2ea0616f93c094a0421cb8bff39775c1c008cbfed48c0a5021a1e",
-      "size": 78355
+      "sha256": "433d91bc25e571b8cbc6c0ba0cf6a3e588b8bd3a6e5ef0a9741019a118350d8e",
+      "size": 80029
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1357,8 +1462,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "056a742a2329974123b008a6a79431edec0af1a2ef4c740ff56b064e1808f0ea",
-      "size": 67823
+      "sha256": "9a01e1e99e81bfebc0f82c596cf5089ba6e89a440393eac3e67cef1f8ed0abaf",
+      "size": 69473
     },
     {
       "path": "GetBlobRequest.java",
@@ -2112,7 +2217,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "83332fde6a8f10f5714033f94aa6e2ee56e5229db250fddbeee0ae2e3b7a88ea",
+      "sha256": "c5c35f3c61be7873c7ec68bbf47dbdb4337296c5e54d835613a1566aef2c7313",
       "size": 7486
     },
     {
@@ -3437,7 +3542,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333",
+  "ir_sha256": "a4a1de8770e467bae3e46f89f79b4799e5721819f3fd6d9b4418c6ce381a8f9c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

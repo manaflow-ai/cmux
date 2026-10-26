@@ -8,6 +8,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("check-sdk-schema.py")
@@ -110,6 +111,49 @@ class LiveSchemaTests(unittest.TestCase):
         self.assertEqual(
             set(fields), {"origin", "mutation_id", "bookmark", "parent", "index"}
         )
+
+    def test_sniffed_command_request_joins_its_owner_and_body_structs(self) -> None:
+        commands = CHECKER.runtime_command_fields()
+        self.assertEqual(
+            set(commands["agent-cli-intents-attach"]),
+            {"expected_machine_id", "expected_session_id", "key", "receipt"},
+        )
+        self.assertEqual(
+            set(commands["agent-cli-intents-list"]),
+            {"expected_machine_id", "expected_session_id"},
+        )
+        self.assertEqual(
+            set(commands["agent-cli-update-job-resolve"]),
+            {"expected_machine_id", "expected_session_id", "cli", "idempotency_key"},
+        )
+
+    def test_sniffed_command_its_module_does_not_serve_is_rejected(self) -> None:
+        table = {"agent-cli-intents-forget": ("agent_cli_intents", ("Owner",))}
+        with patch.dict(CHECKER.SNIFFED_COMMAND_REQUESTS, table):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "not served by"):
+                CHECKER.sniffed_command_fields()
+
+    def test_missing_sniffed_request_field_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-cli-intents-record"]["request"]["fields"].pop(
+            "expected_session_id"
+        )
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field"):
+            self.validate(document, self.inventory)
+
+    def test_decoded_receipt_is_not_nullable(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-cli-intents-attach"]["request"]["fields"]["receipt"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
+
+    def test_named_request_struct_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["types"]["AgentCLIIntent"]["fields"].pop("root_key")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for AgentCLIIntent"):
+            self.validate(document, self.inventory)
 
     def test_missing_command_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)

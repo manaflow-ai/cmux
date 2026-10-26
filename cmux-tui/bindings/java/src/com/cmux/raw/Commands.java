@@ -13,6 +13,12 @@ public final class Commands {
     public static final CommandMetadata ACK_TAB_NOTIFICATIONS = new CommandMetadata("ack-tab-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_INTENTS_ATTACH = new CommandMetadata("agent-cli-intents-attach", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_INTENTS_LIST = new CommandMetadata("agent-cli-intents-list", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_INTENTS_RECORD = new CommandMetadata("agent-cli-intents-record", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_INTENTS_SETTLE = new CommandMetadata("agent-cli-intents-settle", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_UPDATE_JOB = new CommandMetadata("agent-cli-update-job", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_CLI_UPDATE_JOB_RESOLVE = new CommandMetadata("agent-cli-update-job-resolve", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-resolve-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -302,6 +308,12 @@ public final class Commands {
         values.put("ack-tab-notifications", ACK_TAB_NOTIFICATIONS);
         values.put("add-screens-to-screen-group", ADD_SCREENS_TO_SCREEN_GROUP);
         values.put("add-tabs-to-tab-group", ADD_TABS_TO_TAB_GROUP);
+        values.put("agent-cli-intents-attach", AGENT_CLI_INTENTS_ATTACH);
+        values.put("agent-cli-intents-list", AGENT_CLI_INTENTS_LIST);
+        values.put("agent-cli-intents-record", AGENT_CLI_INTENTS_RECORD);
+        values.put("agent-cli-intents-settle", AGENT_CLI_INTENTS_SETTLE);
+        values.put("agent-cli-update-job", AGENT_CLI_UPDATE_JOB);
+        values.put("agent-cli-update-job-resolve", AGENT_CLI_UPDATE_JOB_RESOLVE);
         values.put("apply-layout", APPLY_LAYOUT);
         values.put("attach-surface", ATTACH_SURFACE);
         values.put("bind-conversation-tab-session", BIND_CONVERSATION_TAB_SESSION);

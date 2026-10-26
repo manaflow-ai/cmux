@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333'
+IR_SHA256 = 'a4a1de8770e467bae3e46f89f79b4799e5721819f3fd6d9b4418c6ce381a8f9c'
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,86 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'surfaces': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-attach': CommandMetadata(
+        'agent-cli-intents-attach',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-list': CommandMetadata(
+        'agent-cli-intents-list',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-record': CommandMetadata(
+        'agent-cli-intents-record',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'intents': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-settle': CommandMetadata(
+        'agent-cli-intents-settle',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'keys': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job': CommandMetadata(
+        'agent-cli-update-job',
+        'local-admin',
+        12,
+        'agent-cli-update-job-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job-resolve': CommandMetadata(
+        'agent-cli-update-job-resolve',
+        'local-admin',
+        12,
+        'agent-cli-update-job-resolve-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
         },
     ),
     'apply-layout': CommandMetadata(

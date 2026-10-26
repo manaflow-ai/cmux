@@ -23,6 +23,8 @@ const COMMAND: &str = "agent-cli-update-job";
 const RESOLVE_COMMAND: &str = "agent-cli-update-job-resolve";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The request of both agent-cli-update-job and agent-cli-update-job-resolve
+/// (spec/sdk-schema.json).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {

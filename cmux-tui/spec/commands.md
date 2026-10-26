@@ -9776,6 +9776,32 @@ an automatic new-key run. An unexecuted reservation can resume only when fresh
 preparation still matches its exact persisted argv. Worker admission shares
 the bounded inventory budget; concurrent job preparation may refuse busy.
 
+`agent-cli-update-job-resolve-v1` adds `agent-cli-update-job-resolve` with the
+same params and admission. It reads the original key's creation journal and
+answers `{state}`: `not_found`, `prepared`, `pending`, `indeterminate`,
+`failed` (with `code`) or `created` (with the job `receipt`). It never
+prepares, reconciles or starts a job, so a client that lost a job reply reads
+its state here instead of sending the job again. No state authorizes execution.
+
+### Update intent ledger
+
+`agent-cli-intents-v1` adds `agent-cli-intents-record`, `-list`, `-settle`
+and `-attach`. The app records each update intent `{key, root_key, machine,
+session, cli, profiles}` before it contacts an owner, attaches the job
+receipt once the owner answers, and settles the intent when the update ends,
+so a restarted app resumes or blocks the same update. An intent is
+non-secret identity, never an execution grant: it holds no argv or
+credentials. Admission is the update job's (a proved main-app Unix connection
+without an agent binding, else `agent_cli_intents.not_trusted`), and every
+request names this daemon's `expected_machine_id` and `expected_session_id`
+(`agent_cli_intents.owner_mismatch` otherwise). Rows are per actor, at most
+256, and expire after seven days. Record and settle take 1-64 entries and
+answer `{intents, changed}`; list answers `{intents}`; attach answers
+`{intent, changed}` and refuses a receipt that differs from one already
+attached. A malformed request is `agent_cli_intents.bad_request` and a
+refused change `agent_cli_intents.refused`. spec/sdk-schema.json types the
+params and results of all six agent CLI commands.
+
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the
 SSH or Cloud carrier, update this machine's agent CLIs and move its chats
