@@ -19,11 +19,11 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
+        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.receive(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
         return
     }
     MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        CEFRuntime.from(address)?.handle(event)
+        CEFRuntime.from(address)?.receive(event)
     }
 }
 
@@ -88,7 +88,7 @@ extension CEFRuntime {
         UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
     }
 
-    func handle(_ event: CEFShimEvent) {
+    func dispatch(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
