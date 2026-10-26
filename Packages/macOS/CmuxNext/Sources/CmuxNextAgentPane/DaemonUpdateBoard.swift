@@ -26,10 +26,10 @@ public final class DaemonUpdateBoard {
     public init() {}
 
     /// The window a notice goes to: the key window, else the main one, else the frontmost shown
-    /// window that can be main. An update fails in the background, often while the app is not
-    /// active, and AppKit then has no key or main window.
+    /// app window (not a panel: a tooltip, a toast, a palette). An update fails in the background,
+    /// often while the app is not active, and AppKit then has no key or main window.
     static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], visible: (NSWindow) -> Bool) -> NSWindow? {
-        key ?? main ?? ordered.first { $0.canBecomeMain && visible($0) }
+        key ?? main ?? ordered.first { !($0 is NSPanel) && visible($0) }
     }
 
     public func apply(_ event: DaemonUpdateEvent) {
