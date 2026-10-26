@@ -46,8 +46,14 @@ import CmuxNextWakeups
         while !condition(), tries < 400 {
             tries += 1
             await Task.yield()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+            Self.runLoopPass()
         }
+    }
+
+    /// One main run loop pass of at most 5 ms. A synchronous function: `RunLoop.run(mode:before:)` is unavailable
+    /// from async contexts.
+    private static func runLoopPass() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
     }
 
     private func subviews(of view: NSView) -> [NSView] {
