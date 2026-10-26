@@ -198,3 +198,49 @@ test("a delivery change rebuilds a waiting prompt's row and keeps its author", a
     close();
   }
 });
+
+test("a switch back to a chat whose kept tail lost the authored record keeps the teammate's name", async () => {
+  const { client, socket, daemon, view, until, id, close } = await pane();
+  const mock = socket as unknown as {
+    sessions: Array<Record<string, unknown>>;
+    record: (target: string, step: unknown) => void;
+  };
+  try {
+    const shared = "acp_shared";
+    mock.record(shared, { mux: "queued", msg: { promptId: "p-ana", text: "Rebase first", _meta: fromAna } });
+    mock.record(shared, { mux: "queued", msg: { promptId: "p-me", text: "Then run the tests" } });
+    const session = {
+      ...mock.sessions[0],
+      sessionId: shared,
+      name: "shared",
+      queue: [
+        { promptId: "p-ana", prompt: "Rebase first", fromAgent: null },
+        { promptId: "p-me", prompt: "Then run the tests", fromAgent: null },
+      ],
+    };
+    mock.sessions.push(session);
+    daemon.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session } });
+    await client.select(shared);
+    await until(() => view.shown.queue?.length === 2);
+    expect(authors(view.shown)).toEqual([
+      ["p-ana", "Ana"],
+      ["p-me", null],
+    ]);
+    // More records than a kept tail holds (400) arrive while the chat is shown, so neither the tail
+    // kept on the switch away nor the attach page on the way back holds Ana's `queued` record.
+    for (let n = 0; n < 450; n += 1) daemon.emit(shared, { mux: "mock_filler", msg: { n } });
+    // The last of them is read before the switch away (live records arrive asynchronously).
+    daemon.emit(shared, { mux: "queue_updated", msg: { promptId: "p-me", text: "Then run the tests twice" } });
+    await until(() => view.shown.queue?.[1]?.prompt === "Then run the tests twice");
+    await client.select(id);
+    await until(() => (view.shown.queue ?? []).length === 0);
+    await client.select(shared);
+    await until(() => view.shown.queue?.length === 2);
+    expect(authors(view.shown)).toEqual([
+      ["p-ana", "Ana"],
+      ["p-me", null],
+    ]);
+  } finally {
+    close();
+  }
+});
