@@ -192,9 +192,10 @@ fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
         assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
         assert!(output.status.success(), "{output:?}");
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        // libtest prints the test's name on the same line first.
         stdout
             .lines()
-            .find_map(|line| line.strip_prefix("cmux-qos="))
+            .find_map(|line| line.split_once("cmux-qos=").map(|(_, class)| class))
             .unwrap_or_else(|| panic!("no class report: {stdout}"))
             .to_owned()
     };
