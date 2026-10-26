@@ -1660,6 +1660,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextHibernationTests",
+            dependencies: ["CmuxNextHibernation", "CmuxNextCompat", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
         // and page-info models; no views, no engine (plans/cmux-next/architecture-refactor-DESIGN.md
         // section 8). CmuxNextBrowser depends on it and re-exports it.
