@@ -85,6 +85,13 @@ import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
+import {
+  EarlierPrompts,
+  PROMPT_PAGE_BYTES,
+  PROMPT_PAGE_LIMIT,
+  TURN_KINDS,
+  type EarlierPromptsStore,
+} from "./threadMinimap/earlierPrompts";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1121,6 +1128,8 @@ export class AcpmuxDirectClient {
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
   /// none), kept while it waits, so acpmux's list (which names none) keeps it (mergeQueue).
   private queueAuthors = new Map<string, Participant | null>();
+  /// The same, for the rail's prompts older than the transcript (earlierPrompts.ts).
+  private earlierSenders = new Set<string>();
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
@@ -1412,6 +1421,37 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The chat's prompts older than the held transcript, read in the page's idle time for the rail
+  /// (threadMinimap/earlierPrompts.ts). Stops once read to the start, on a chat switch or a close.
+  private earlierPrompts = new EarlierPrompts(
+    async (sessionId, beforeSeq) => {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        beforeSeq,
+        limit: PROMPT_PAGE_LIMIT,
+        maxBytes: PROMPT_PAGE_BYTES,
+        kinds: TURN_KINDS,
+      });
+      return { events: records(result?.events), hasMore: result?.hasMore === true };
+    },
+    (record) => this.earlierPromptRow(record as EventRecord),
+    () => {
+      if (!this.closed) for (const listener of this.earlierListeners) listener();
+    },
+  );
+  private earlierListeners = new Set<() => void>();
+  /// The rail's earlier prompts, as their own store (earlierPrompts.ts): a page that lands renders the
+  /// rail alone, not the pane. They are the prompts above the first one drawn (the open turn's opener,
+  /// when the held events start mid-turn); a snapshot that moves that bound renders the rail anyway.
+  readonly earlier: EarlierPromptsStore = {
+    subscribe: (listener) => {
+      this.earlierListeners.add(listener);
+      return () => {
+        this.earlierListeners.delete(listener);
+      };
+    },
+    get: () => this.earlierPrompts.shown(this.turnOpener?.seq ?? this.firstSeq),
+  };
   /// Bumped when the held transcript's older end moves on its own: a kept tail dropped because the
   /// attach page did not continue it. An older page in flight from before belongs to a transcript
   /// the chat no longer holds, so it is dropped instead of merged above the new one.
@@ -1814,6 +1854,8 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.turnOpener = undefined;
     this.historyExhausted = false;
+    this.earlierPrompts.stop();
+    this.earlierSenders.clear();
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
@@ -3039,6 +3081,8 @@ export class AcpmuxDirectClient {
     this.queue = mergeQueue(this.queue, detail.queue ?? [], this.queueAuthors);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
+    // The rail shows every prompt of the chat: the ones older than the page come in the background.
+    else if (this.firstSeq !== undefined && this.firstSeq > 1) this.earlierPrompts.start(sessionId, this.firstSeq);
     this.attachedGeneration = generation;
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
@@ -3262,7 +3306,58 @@ export class AcpmuxDirectClient {
   /// `sender -> receiver: …` from the person's words (conversation/incomingMessage.ts). This chat
   /// is the summary, or its listed entry while the summary is not in yet (a kept tail's replay).
   /// A sender no listed chat names is kept, so a list that names it later reads the rows again.
-  private incomingContext(): IncomingContext {
+  /// What a `user_message` record's row shows: the transcript's prompt rows, and the rail's prompts
+  /// older than the transcript (earlierPrompts.ts), which must read the same.
+  private promptShown(msg: any, unknown = this.unknownSenders) {
+    // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+    const taskResult = offerResult(msg);
+    const received = offersShown() ? taskResult : undefined;
+    // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+    // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+    // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+    // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+    // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
+    const raw = String(msg.text ?? "");
+    // A prompt with nothing to read and no image draws nothing, never an empty bubble: a blank
+    // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
+    // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
+    // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
+    const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+    const incoming = received
+      ? undefined
+      : blank
+        ? ({ kind: "hidden" } as const)
+        : incomingPrompt(raw, msg, this.incomingContext(unknown));
+    const shown =
+      incoming?.kind === "message"
+        ? { text: incoming.message.text, incoming, resend: raw }
+        : incoming?.kind === "notice"
+          ? { text: incoming.text, incoming }
+          : incoming?.kind === "hidden"
+            ? { text: "", incoming }
+            : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+    const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
+    return { taskResult, received, incoming, raw, shown, untyped };
+  }
+
+  /// A prompt older than the transcript that opens a turn (earlierPrompts.ts TurnStarts), as the rail
+  /// shows it: the row its turn's prompt will be, with the promptId the rail keys it on (turnKey).
+  private earlierPromptRow(record: EventRecord): AcpmuxRow | undefined {
+    if (record.kind !== "user_message") return undefined;
+    const msg = (record.msg ?? {}) as any;
+    const { shown } = this.promptShown(msg, this.earlierSenders);
+    const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
+    return {
+      id: `user-${record.seq}`,
+      version: 1,
+      at: record.at,
+      kind: "user",
+      text: shown.text,
+      ...(promptId ? { promptId } : {}),
+    };
+  }
+
+  private incomingContext(unknown = this.unknownSenders): IncomingContext {
     return {
       isThisChat: (name) => {
         const listed = this.sessions.find((session) => session.sessionId === this.selectedSessionId);
@@ -3273,7 +3368,7 @@ export class AcpmuxDirectClient {
       },
       isChat: (name) => {
         const known = this.sessions.some((session) => namesChat(session, name));
-        if (!known) this.unknownSenders.add(name);
+        if (!known) unknown.add(name);
         return known;
       },
     };
@@ -3284,8 +3379,15 @@ export class AcpmuxDirectClient {
   /// queue keeps its live order and text; a prompt waiting in it whose `queued` record still holds
   /// that text is read again too, unless the person edited it since (an edit makes it theirs).
   private recheckSenders(added: readonly Session[]): void {
+    // The rail's prompts older than the transcript are read again on their own senders, so they show
+    // what their rows will once loaded.
+    const named = (names: Set<string>) => [...names].some((name) => added.some((session) => namesChat(session, name)));
+    if (this.earlierSenders.size > 0 && named(this.earlierSenders)) {
+      this.earlierSenders.clear();
+      this.earlierPrompts.refresh();
+    }
     if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
-    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
+    if (!named(this.unknownSenders)) return;
     this.rebuildKeepingLiveState();
     const queued = new Map<string, any>();
     for (const event of [...this.events].sort((a, b) => a.seq - b.seq)) {
@@ -3875,36 +3977,7 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
-        const taskResult = offerResult(msg);
-        const received = offersShown() ? taskResult : undefined;
-        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
-        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
-        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
-        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
-        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
-        const raw = String(msg.text ?? "");
-        // A prompt with nothing to read and no image draws nothing, never an empty bubble: a blank
-        // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
-        // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
-        // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
-        // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
-        // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
-        const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
-        const incoming = received
-          ? undefined
-          : blank
-            ? ({ kind: "hidden" } as const)
-            : incomingPrompt(raw, msg, this.incomingContext());
-        const shown =
-          incoming?.kind === "message"
-            ? { text: incoming.message.text, incoming, resend: raw }
-            : incoming?.kind === "notice"
-              ? { text: incoming.text, incoming }
-              : incoming?.kind === "hidden"
-                ? { text: "", incoming }
-                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
-        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
+        const { received, raw, shown, untyped } = this.promptShown(msg);
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -6552,6 +6625,7 @@ export class AcpmuxDirectClient {
     this.snapshotHold = undefined;
     hold?.release();
     this.sessionPages.stop();
+    this.earlierPrompts.stop();
     clearTimeout(this.readAheadTimer);
     this.readAheadTimer = undefined;
     this.readAheadQueue = [];
