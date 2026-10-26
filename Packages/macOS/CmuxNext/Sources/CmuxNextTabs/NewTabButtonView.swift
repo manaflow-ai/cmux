@@ -86,7 +86,7 @@ final class NewTabButtonView: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: a new backing scale redraws the glyph path at its pixels
     }
 
     override func viewDidChangeEffectiveAppearance() {

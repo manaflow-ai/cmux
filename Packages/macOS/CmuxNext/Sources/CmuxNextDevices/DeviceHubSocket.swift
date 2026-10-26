@@ -67,6 +67,13 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
 /// The device's socket to its User DO: pushes in, `{type:'ping'}` out after an
 /// interval of silence, and a reconnect with jittered backoff whenever it drops.
 /// While a socket is open nothing else wakes it but frames and the ping.
+///
+/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) the ping holds only while the
+/// Mac sleeps (``KeepaliveGate/Hold/systemSleep``): a Mac whose displays sleep is still the Mac Screen
+/// host a phone reaches, and without the ping a dropped stream goes unseen. A wake that finds the
+/// network closes the socket once and opens a new one within ``EnergyPolicy/reconnectJitter`` (a
+/// backoff wait in progress ends early): the socket that slept is a dead TCP stream the OS has not
+/// reported yet.
 public final class DeviceHubSocket: Sendable {
     public enum State: Sendable, Equatable {
         case disconnected
@@ -95,19 +102,35 @@ public final class DeviceHubSocket: Sendable {
     let pingInterval: Duration
     let backoff: Backoff
     let clock: any Clock<Duration>
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil pings and reconnects as if always awake.
+    let energy: EnergyPolicySource?
+    /// A value in 0..<1 that spreads the reconnect after a wake (tests pass a constant).
+    let wakeJitter: @Sendable () -> Double
 
     public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(30),
-                backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)), clock: any Clock<Duration> = ContinuousClock()) {
+                backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)), clock: any Clock<Duration> = ContinuousClock(),
+                energy: EnergyPolicySource? = nil, wakeJitter: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
         self.connector = connector
         self.pingInterval = pingInterval
         self.backoff = backoff
         self.clock = clock
+        self.energy = energy
+        self.wakeJitter = wakeJitter
     }
 
     /// Connects and keeps connecting until the calling task is cancelled.
     /// `handler` gets every state change and push, in order.
     public func run(_ handler: @escaping @Sendable (Event) async -> Void) async {
         var backoff = self.backoff
+        let gate = KeepaliveGate(energy, hold: .systemSleep, random: wakeJitter)
+        let keepalive = DemandTimer(owner: "DeviceHubSocket.ping", clock: clock)
+        let retry = DemandTimer(owner: "device-hub.socket", clock: clock)
+        gate.follow { edge in if edge == .pause { keepalive.cancel() } }
+        defer {
+            gate.stop()
+            keepalive.cancel()
+            retry.cancel()
+        }
         // wakeup-allow: the reconnect loop; each pass waits on a connect, the socket's frames, or Backoff after a failure.
         while !Task.isCancelled {
             await handler(.state(.connecting))
@@ -115,12 +138,15 @@ public final class DeviceHubSocket: Sendable {
             var closeCode: Int?
             do {
                 let connection = try await connector.connect()
+                gate.opened(close: { connection.close() }, resume: { [self] in armPing(keepalive, connection, gate: gate) })
                 await handler(.state(.connected))
                 backoff.reset()
-                do { try await serve(connection, handler) } catch {
+                do { try await serve(connection, handler, gate: gate, keepalive: keepalive) } catch {
                     failure = "\(error)"
                     closeCode = (error as? Closed)?.code
                 }
+                gate.closed()
+                keepalive.cancel()
                 connection.close()
             } catch {
                 failure = "\(error)"
@@ -131,22 +157,22 @@ public final class DeviceHubSocket: Sendable {
                 return
             }
             await handler(.state(.reconnecting(failure)))
-            // concurrency-allow: Backoff.wait is an async sleep on the injected clock, not a blocking wait.
-            do { try await backoff.wait(owner: "device-hub.socket", clock: clock) } catch { break }
+            // concurrency-allow: the gate's retry wait is a one-shot DemandTimer on the injected clock (Backoff's step, or the short wait after a wake), not a blocking wait.
+            do { try await gate.retryWait(&backoff, timer: retry) } catch { break }
         }
         await handler(.state(.disconnected))
     }
 
-    /// Reads frames until the socket fails or the task is cancelled, with the keepalive armed.
-    private func serve(_ connection: any DeviceHubSocketConnection, _ handler: @escaping @Sendable (Event) async -> Void) async throws {
-        let keepalive = DemandTimer(owner: "DeviceHubSocket.ping", clock: clock)
-        defer { keepalive.cancel() }
+    /// Reads frames until the socket fails or the task is cancelled, with the keepalive armed while
+    /// `gate` does not hold it.
+    private func serve(_ connection: any DeviceHubSocketConnection, _ handler: @escaping @Sendable (Event) async -> Void,
+                       gate: KeepaliveGate, keepalive: DemandTimer) async throws {
         try await withTaskCancellationHandler {
-            armPing(keepalive, connection)
+            armPing(keepalive, connection, gate: gate)
             // wakeup-allow: bounded by the socket: each pass waits for the next frame, and a closed socket throws.
             while !Task.isCancelled {
                 let text = try await connection.receive()
-                armPing(keepalive, connection)
+                armPing(keepalive, connection, gate: gate)
                 if let push = DeviceHubPush(text: text) { await handler(.push(push)) }
             }
         } onCancel: {
@@ -158,15 +184,17 @@ public final class DeviceHubSocket: Sendable {
     /// PROTOCOL.md's keepalive, sent only after ``pingInterval`` with no frame from the server (any
     /// frame, the pong too, re-arms it), as Chromium sends its HTTP/2 connection-check PING only
     /// after a read silence (net/spdy/spdy_session.cc, `SendPrefacePingIfNoneInFlight`). A failed
-    /// send closes the socket, which ends the read.
-    private func armPing(_ keepalive: DemandTimer, _ connection: any DeviceHubSocketConnection) {
-        // wakeup-allow: periodic DeviceHubSocket.ping (only after an interval of silence; the server answers without waking its object)
-        keepalive.schedule(after: pingInterval) { [weak keepalive, self] in
-            do { try await connection.send(#"{"type":"ping"}"#) } catch {
-                connection.close()
-                return
+    /// send closes the socket, which ends the read. Nothing is armed while `gate` holds the keepalive.
+    private func armPing(_ keepalive: DemandTimer, _ connection: any DeviceHubSocketConnection, gate: KeepaliveGate) {
+        gate.whileAwake {
+            // wakeup-allow: periodic DeviceHubSocket.ping (only after an interval of silence; the server answers without waking its object)
+            keepalive.schedule(after: pingInterval) { [weak keepalive, self] in
+                do { try await connection.send(#"{"type":"ping"}"#) } catch {
+                    connection.close()
+                    return
+                }
+                if let keepalive { armPing(keepalive, connection, gate: gate) }
             }
-            if let keepalive { armPing(keepalive, connection) }
         }
     }
 }

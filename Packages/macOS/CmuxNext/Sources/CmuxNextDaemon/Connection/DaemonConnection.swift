@@ -63,7 +63,7 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    private let heartbeat = ConnectionHeartbeat()
+    public nonisolated let heartbeat = ConnectionHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?

@@ -68,6 +68,8 @@ cmux-tui-core.workspace = true
 cmux-ipc = { workspace = true, features = ["client"] }
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
+# The owner's main thread is a registry row at UserInitiated (owner_start).
+cmux-threads.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
 # The daemon's feature snapshot (feature_flags::daemon_features) and the
@@ -155,7 +157,6 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true
-cmux-threads.workspace = true
 cmux-trace.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"

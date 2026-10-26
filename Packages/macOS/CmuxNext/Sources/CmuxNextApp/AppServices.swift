@@ -874,7 +874,7 @@ final class AppServices {
     /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
-        energy.start(inputs: energyMonitor)
+        energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
@@ -886,15 +886,17 @@ final class AppServices {
     /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
     /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
     /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
-    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing.
-    func startIdleWakeups(watchdog: MainThreadWatchdog) {
+    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing. The same resign-active notice
+    /// takes a `hiddenWorkspaceMemory` sample (p09-observability-061).
+    func startIdleWakeups(watchdog: MainThreadWatchdog, hiddenWorkspaceMemory: HiddenWorkspaceMemory?) {
         guard idleWakeups == nil else { return }
         let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
                                                        daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
         idleWakeups = sampler
         idleWakeupEvents = [
-            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler, weak hiddenWorkspaceMemory] in
                 sampler?.appResignedActive()
+                hiddenWorkspaceMemory?.appDidResignActive()
             },
             appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
                 sampler?.appBecameActive()

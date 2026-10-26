@@ -68,6 +68,11 @@ final class PaletteActionsMenuView: NSView {
     }
 
     func update(_ state: PaletteActionsMenuState, alternateID: String?) {
+        // The palette renders the open menu on every model change (a hover in the list, a ranked
+        // result); only a change of what the menu shows rebuilds its rows.
+        let next = Shown(state, alternateID: alternateID)
+        guard next != shown else { return }
+        shown = next
         title.stringValue = state.itemTitle
         filter.stringValue = state.filter.isEmpty ? PaletteStrings.searchActionsPlaceholder : state.filter
         filter.tone = state.filter.isEmpty ? .tertiary : .primary
@@ -82,7 +87,35 @@ final class PaletteActionsMenuView: NSView {
             content.addSubview(row)
             return row
         }
-        needsLayout = true
+        needsLayout = true // invalidate: new rows (the guard above)
+    }
+
+    /// What the menu shows of its state, as last applied.
+    private var shown: Shown?
+
+    private struct Shown: Equatable {
+        struct Row: Equatable {
+            var id: String
+            var title: String
+            var symbol: String?
+            var isDestructive: Bool
+        }
+
+        var itemID: String
+        var itemTitle: String
+        var filter: String
+        var selectedIndex: Int
+        var rows: [Row]
+        var alternateID: String?
+
+        init(_ state: PaletteActionsMenuState, alternateID: String?) {
+            itemID = state.itemID
+            itemTitle = state.itemTitle
+            filter = state.filter
+            selectedIndex = state.selectedIndex
+            rows = state.visibleCommands.map { Row(id: $0.id, title: $0.title, symbol: $0.symbol, isDestructive: $0.isDestructive) }
+            self.alternateID = alternateID
+        }
     }
 
     override func layout() {

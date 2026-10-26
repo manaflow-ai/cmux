@@ -22,10 +22,12 @@ public final class EnergyServices {
         self.idle = idle
     }
 
-    /// Starts the power inputs the driver follows and the idle histogram. Only `AppServices.startEnergy`
-    /// calls it, so a test's services read no IOKit and add no run loop observer.
-    public func start(inputs: EnergyMonitor) {
+    /// Starts the power inputs the driver follows, with `suspend`'s sleep, wake and display sleep
+    /// (p14-energy-120; nil while the `sleepWakeKeepalives` feature is off), and the idle histogram.
+    /// Only `AppServices.startEnergy` calls it, so a test's services read no IOKit and add no run loop observer.
+    public func start(inputs: EnergyMonitor, suspend: SuspendWatch? = nil) {
         inputs.start()
+        if let suspend { inputs.follow(suspend: suspend) }
         idle.start()
     }
 }

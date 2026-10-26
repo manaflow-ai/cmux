@@ -61,7 +61,13 @@ final class PaletteShortcutRecorderView: NSView {
             + messageHeight + Metrics.space2 + CGFloat(state.options.count) * PaletteLayout.actionsMenuRowHeight + Metrics.space4
     }
 
+    /// The state shown now: the palette renders the open recorder on every model change, and only a
+    /// new state rebuilds it.
+    private var shown: PaletteShortcutRecorderState?
+
     func update(_ state: PaletteShortcutRecorderState) {
+        guard state != shown else { return }
+        shown = state
         action.stringValue = state.actionTitle
         current.keycaps = state.currentKeycaps ?? []
         current.isHidden = state.currentKeycaps == nil
@@ -85,7 +91,7 @@ final class PaletteShortcutRecorderView: NSView {
             content.addSubview(row)
             return row
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new state (the guard above)
     }
 
     private static func command(_ option: PaletteShortcutOption) -> PaletteCommand {
