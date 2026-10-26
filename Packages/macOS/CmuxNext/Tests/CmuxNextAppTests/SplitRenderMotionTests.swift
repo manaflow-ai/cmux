@@ -19,6 +19,13 @@ struct SplitRenderMotionTests {
     final class Content: NSView, PaneMotionTargeting, PaneMotionSettling {
         var willRest: [CGSize] = []
         var settled = 0
+        /// Every size the pane's layout gave the content.
+        var sizes: [CGSize] = []
+
+        override func setFrameSize(_ newSize: NSSize) {
+            if newSize != frame.size { sizes.append(newSize) }
+            super.setFrameSize(newSize)
+        }
 
         func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
             willRest.append(sizeChange)
@@ -147,6 +154,17 @@ struct SplitRenderMotionTests {
         return time
     }
 
+    /// Waits until `condition` holds, checking every 10 ms (the render server's landings come on the run
+    /// loop, with no observer to await); false after `timeout`.
+    static func until(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock(), deadline = clock.now + timeout
+        while !condition() {
+            guard clock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return true
+    }
+
     /// The largest gap between two rects' edges and sizes.
     static func gap(_ a: CGRect, _ b: CGRect) -> CGFloat {
         max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
@@ -212,6 +230,48 @@ struct SplitRenderMotionTests {
             #expect(Self.gap(before, after) <= 0.5, "b jumped from \(before) to \(after) when the split retargeted")
             let added = try split.host("c")
             #expect(added.isOnRenderSpring, "the second split's new pane is not on the render server")
+        }
+    }
+
+    /// The frame is set once, to rest: the content resizes once, to its rest size, never to where the pane
+    /// starts (a split's new pane starts as a sliver).
+    @Test func eachContentResizesOnceToItsRest() async throws {
+        try await Self.withMotion {
+            let split = Split(renderServer: true)
+            defer { split.close() }
+            try #require(split.window.screen != nil, "the window is on no screen: nothing animates")
+            Self.freeze(try #require(split.root.layer))
+            let before = split.panes.contents["a"]?.sizes.count ?? 0
+            split.split()
+            for pane: PaneID in ["a", "b"] {
+                let content = try #require(split.panes.contents[pane])
+                let sizes = pane == "a" ? Array(content.sizes.dropFirst(before)) : content.sizes
+                let host = try split.host(pane)
+                #expect(sizes == [host.contentRect.size], "\(pane)'s content took \(sizes) in the key's turn, not its rest once")
+            }
+        }
+    }
+
+    /// A zoom (on the CPU) before the split lands: the split's render-server springs come back to the CPU
+    /// frames and end, and the zooming pane's content hears one landing, when the zoom lands.
+    @Test func aZoomBeforeTheSplitLandsSettlesOnceWhenTheZoomLands() async throws {
+        try await Self.withMotion {
+            let split = Split(renderServer: true)
+            defer { split.close() }
+            try #require(split.window.screen != nil, "the window is on no screen: nothing animates")
+            split.root.driver.isManual = true
+            split.split()
+            try #require(split.screen.renderSpringsInFlight > 0, "the split is not on the render server")
+            split.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("b")), zoomed: true)])
+            split.root.syncWithModel()
+            try #require(split.screen.hasMotion, "the zoom does not step on the CPU")
+            #expect(await Self.until { split.screen.renderSpringsInFlight == 0 }, "the split's springs did not end")
+            let content = try #require(split.panes.contents["b"])
+            #expect(content.settled == 0, "b heard a landing while its zoom still moves")
+            #expect(try split.host("b").isOnLayoutSpring, "b left its layout spring mid-zoom")
+            for _ in 0..<480 where !split.root.advanceFrame(1.0 / 120) { break }
+            #expect(!split.screen.hasMotion, "the zoom did not land")
+            #expect(content.settled == 1, "b heard \(content.settled) landings")
         }
     }
 

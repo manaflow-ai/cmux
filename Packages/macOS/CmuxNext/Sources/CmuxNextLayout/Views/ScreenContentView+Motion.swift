@@ -34,6 +34,7 @@ extension ScreenContentView {
         let held = heldPresentation
         heldPresentation = nil
         let taken = motionBackends.begin(on: self, policy: policy)
+        renderTracks.tookBack = false
         // The render server runs the close: it has no first frame on the CPU.
         if taken.contains(.splitClose) { leadsFrame = false }
         let led = leadIfPending(policy: policy)
@@ -61,7 +62,8 @@ extension ScreenContentView {
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
         guard hasMotion || reportScrollOnSettle else {
-            scrollRidesFrames = false
+            // A close on the render server keeps the camera on its spring until it lands (`renderSpringLanded`).
+            if renderClose == nil { scrollRidesFrames = false }
             return false
         }
         var moving = false

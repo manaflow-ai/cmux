@@ -42,6 +42,7 @@ extension ScreenContentView {
         let target = ColumnStripGeometry.clamp(scroll.target + speed * CGFloat(dt), contentWidth: geometry.contentWidth,
                                                viewportWidth: geometry.stripWidth)
         guard abs(target - scroll.target) > 0.01 else { return false }
+        cpuTakesCamera()
         scroll.target = target
         scroll.snap()
         reportScrollOnSettle = true

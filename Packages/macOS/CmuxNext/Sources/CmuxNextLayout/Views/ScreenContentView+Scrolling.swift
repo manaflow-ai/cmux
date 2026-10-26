@@ -45,7 +45,7 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -60,13 +60,13 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         motionTurn { apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion))) }
     }
 
     func beginUserScroll() {
         // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
-        scrollRidesFrames = false
+        cpuTakesCamera()
         scrollState.reduce(.gestureBegan)
     }
 
@@ -87,7 +87,7 @@ extension ScreenContentView {
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         motionTurn { apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion))) }
     }
 
