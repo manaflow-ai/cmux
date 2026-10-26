@@ -19,6 +19,9 @@ public import CmuxNextWakeups
     public private(set) var isAppHidden: Bool
     /// The displays sleep (`NSWorkspace.screensDidSleepNotification` came last).
     public private(set) var screensAsleep = false
+    /// The notices it follows; kept here, as a subscription holds its fan-out only weakly.
+    private let appEvents: AppEvents
+    private let workspaceEvents: AppEvents
     private var subscriptions: [EventSubscription] = []
 
     /// - Parameters:
@@ -30,6 +33,8 @@ public import CmuxNextWakeups
     public init(appEvents: AppEvents, workspaceEvents: AppEvents, isAppHidden: Bool,
                 uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime) {
         self.isAppHidden = isAppHidden
+        self.appEvents = appEvents
+        self.workspaceEvents = workspaceEvents
         node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime)
         let owner = "AppVisibilitySource"
         subscriptions = [

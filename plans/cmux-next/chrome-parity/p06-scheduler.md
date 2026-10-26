@@ -1128,6 +1128,15 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: one source of window visibility; miniaturize then deminiaturize flips the node
   twice.
 - Test phase: fleet WindowEventsTests, Tabs tests.
+- Decision (review of the first pass; pending PL-switch's OK): WindowDrawPolicy.onScreen does
+  not read the node. It applies the node's own rule (`WindowVisibilitySource.appKitState(of:)`)
+  to AppKit's live state. The draw readers (TerminalSurfaceView, SurfaceInvariantMonitor) observe
+  `didChangeOcclusionState` themselves, and Foundation does not document observer order, so a
+  cached node can be stale in their handler and no second notice corrects it. The app node adds
+  nothing for drawing: AppKit already leaves every window occluded while the app is hidden or
+  the displays sleep. The node's effective state serves the flip subscribers (tab strip,
+  sidebar, workspace nodes). Draw readers can read the node once they subscribe to it instead
+  of the notice (follow-up with PL-ghostty).
 
 **p06-scheduler-023: Workspace nodes.**
 - Files: `CmuxNextApp/WorkspaceContentController.swift`, `Windows/WindowController.swift`.

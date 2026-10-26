@@ -99,7 +99,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Before any view reaches the window, so its occlusion observer runs before theirs.
+        // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         visibility = WindowVisibilitySource.of(window, name: "window:\(state.id)", app: services.appVisibility.node).node
         super.init(window: window)
         installHistoryButtons()

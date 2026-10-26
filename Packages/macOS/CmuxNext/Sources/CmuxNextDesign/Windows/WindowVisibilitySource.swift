@@ -13,11 +13,15 @@ import ObjectiveC
 /// on `windowDidChangeOcclusionState:` and miniaturize).
 ///
 /// It observes the occlusion and miniaturize notices once, through the window's ``WindowEvents``.
-/// ``WindowDrawPolicy/isOnScreen(_:)`` reads ``isOnScreen``; views and controllers that only need
-/// the flips subscribe to ``node`` instead of observing the window themselves.
+/// Views and controllers that need the flips subscribe to ``node`` instead of observing the window
+/// themselves. Drawing does not read the node: ``WindowDrawPolicy/isOnScreen(_:)`` applies the same
+/// rule (``appKitState(of:)``) to AppKit's live state, so a reader that observes the window's
+/// notice directly never sees an answer older than AppKit's.
 ///
-/// The window's owner makes it with the window (``of(_:name:app:events:read:)``), before any view
-/// reaches the window, so its observer runs before the views' own occlusion handlers.
+/// The window's owner makes it with the window (``of(_:name:app:events:read:)``), under the app's
+/// node, before any view reaches the window. A window with no owner (a demo or test window) gets a
+/// root source from the first view that asks; its own state is AppKit's, which already leaves the
+/// window occluded while the app is hidden or the displays sleep.
 @MainActor public final class WindowVisibilitySource {
     /// Reads a window's own state (tests drive transitions without a screen).
     public typealias Read = @MainActor (NSWindow) -> Visibility
@@ -26,6 +30,8 @@ import ObjectiveC
     public let node: VisibilityNode
     private weak var window: NSWindow?
     private let read: Read
+    /// The notices it follows; kept here, as a subscription holds its fan-out only weakly.
+    private let events: WindowEvents
     private var subscriptions: [EventSubscription] = []
 
     private static var associationKey: UInt8 = 0
@@ -56,6 +62,7 @@ import ObjectiveC
                 read: @escaping Read = WindowVisibilitySource.appKitState(of:)) {
         self.window = window
         self.read = read
+        self.events = events
         let own = read(window)
         node = app.map { VisibilityNode(name, own: own, parent: $0) } ?? VisibilityNode(root: name, own: own)
         subscriptions = Self.notices.map { notice in
@@ -78,11 +85,6 @@ import ObjectiveC
     public static func installed(on window: NSWindow) -> WindowVisibilitySource? {
         objc_getAssociatedObject(window, &associationKey) as? WindowVisibilitySource
     }
-
-    /// Whether the window itself is at least partly on screen: its own state, as AppKit reports
-    /// it. A hidden app and sleeping displays already leave every window occluded in AppKit, so
-    /// drawing never waits for the app's notice; work gated on the node reads ``node`` instead.
-    public var isOnScreen: Bool { node.own == .visible }
 
     /// Reads the window's state again (the owner calls it after showing the window).
     public func refresh() {

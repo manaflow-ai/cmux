@@ -5,7 +5,7 @@ import Testing
 
 /// The one source of window visibility (p06-scheduler-022): the window node follows occlusion and
 /// miniaturize through WindowEvents, under the app node that follows a hidden app and sleeping
-/// displays through AppEvents; WindowDrawPolicy reads the window's source.
+/// displays through AppEvents; WindowDrawPolicy applies the same rule to AppKit's live state.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct WindowVisibilitySourceTests {
     private final class FakeWindowState {
         var value: Visibility = .visible
@@ -19,13 +19,14 @@ import Testing
         return window
     }
 
+    /// The notice wiring (a fake read; the real AppKit mapping is
+    /// ``realMiniaturizeThenDeminiaturizeFlipsTheNodeTwice()``).
     @Test func miniaturizeThenDeminiaturizeFlipsTheNodeTwice() {
         let center = NotificationCenter()
         let window = Self.window()
         let state = FakeWindowState()
-        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: WindowEvents(window: window, center: center)) { _ in
-            state.value
-        }
+        let events = WindowEvents(window: window, center: center)
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events) { _ in state.value }
         var flips: [Visibility] = []
         let token = source.node.subscribe(owner: "test") { flips.append($0) }
         state.value = .hidden
@@ -39,18 +40,16 @@ import Testing
         _ = token
     }
 
-    @Test func occlusionMakesTheNodeOccludedAndTheWindowNotOnScreen() {
+    @Test func occlusionMakesTheNodeOccluded() {
         let center = NotificationCenter()
         let window = Self.window()
         let state = FakeWindowState()
-        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: WindowEvents(window: window, center: center)) { _ in
-            state.value
-        }
-        #expect(source.isOnScreen)
+        let events = WindowEvents(window: window, center: center)
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events) { _ in state.value }
+        #expect(source.node.isVisible)
         state.value = .occluded
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         #expect(source.node.effective == .occluded)
-        #expect(!source.isOnScreen)
         // Another window's notice does not reach it.
         state.value = .visible
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: Self.window())
@@ -60,13 +59,13 @@ import Testing
     @Test func aHiddenAppHidesEveryWindowAndSleepingDisplaysOccludeThem() {
         let appCenter = NotificationCenter()
         let workspaceCenter = NotificationCenter()
-        let app = AppVisibilitySource(appEvents: AppEvents(center: appCenter), workspaceEvents: AppEvents(center: workspaceCenter),
-                                      isAppHidden: false)
+        let appEvents = AppEvents(center: appCenter)
+        let workspaceEvents = AppEvents(center: workspaceCenter)
+        let app = AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: false)
         let windows = (0..<3).map { _ in Self.window() }
-        let sources = windows.map { window in
-            WindowVisibilitySource(window: window, name: "window", app: app.node, events: WindowEvents(window: window, center: appCenter)) { _ in
-                .visible
-            }
+        let windowEvents = windows.map { WindowEvents(window: $0, center: appCenter) }
+        let sources = zip(windows, windowEvents).map { window, events in
+            WindowVisibilitySource(window: window, name: "window", app: app.node, events: events) { _ in .visible }
         }
         #expect(sources.allSatisfy(\.node.isVisible))
         appCenter.post(name: NSApplication.didHideNotification, object: nil)
@@ -85,25 +84,99 @@ import Testing
         #expect(AppVisibilitySource.visibility(appHidden: false, screensAsleep: false) == .visible)
     }
 
-    @Test func theDrawPolicyReadsTheWindowsSource() {
+    /// Review of p06-scheduler-022: the sources keep their events. A subscription holds its fan-out
+    /// weakly, so events nobody else kept (the app's workspace center) were released at once and
+    /// display sleep never reached the app node.
+    @Test func theSourcesKeepTheEventsTheyFollow() {
+        let appCenter = NotificationCenter()
+        let workspaceCenter = NotificationCenter()
+        let app = AppVisibilitySource(appEvents: AppEvents(center: appCenter), workspaceEvents: AppEvents(center: workspaceCenter),
+                                      isAppHidden: false)
+        workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        #expect(app.node.effective == .occluded)
+        appCenter.post(name: NSApplication.didHideNotification, object: nil)
+        #expect(app.node.effective == .hidden)
+
         let center = NotificationCenter()
         let window = Self.window()
         let state = FakeWindowState()
-        let source = WindowVisibilitySource.of(window, events: WindowEvents(window: window, center: center)) { _ in state.value }
-        #expect(WindowVisibilitySource.of(window) === source)
-        #expect(WindowVisibilitySource.installed(on: window) === source)
-        #expect(WindowDrawPolicy.isOnScreen(window))
-        state.value = .occluded
-        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        #expect(!WindowDrawPolicy.isOnScreen(window))
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: WindowEvents(window: window, center: center)) { _ in
+            state.value
+        }
         state.value = .hidden
         center.post(name: NSWindow.didMiniaturizeNotification, object: window)
+        #expect(source.node.effective == .hidden)
+    }
+
+    /// Review of p06-scheduler-022: drawing reads AppKit live, not the node, so a reader whose own
+    /// occlusion observer runs before the source's never gets a stale answer.
+    @Test func theDrawPolicyReadsAppKitLiveNotTheNode() {
+        let window = Self.window()
+        let events = WindowEvents(window: window, center: NotificationCenter())
+        // A node that says visible about a window that was never shown (AppKit: not on screen).
+        let source = WindowVisibilitySource.of(window, events: events) { _ in .visible }
+        #expect(WindowVisibilitySource.of(window) === source)
+        #expect(WindowVisibilitySource.installed(on: window) === source)
+        #expect(source.node.isVisible)
+        #expect(WindowDrawPolicy.isOnScreen(window) == WindowVisibilitySource.appKitState(of: window).isVisible)
         #expect(!WindowDrawPolicy.isOnScreen(window))
+    }
+
+    /// The real AppKit mapping: a window never ordered in is not on screen.
+    @Test func aWindowNeverShownIsOccluded() {
+        let window = Self.window()
+        #expect(WindowVisibilitySource.appKitState(of: window) == .occluded)
+        let events = WindowEvents(window: window, center: NotificationCenter())
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events)
+        #expect(source.node.effective == .occluded)
+    }
+
+    /// The real AppKit mapping and the real notices (the default read, the default center, a
+    /// window server): miniaturize makes the node hidden, deminiaturize brings it back.
+    @Test func realMiniaturizeThenDeminiaturizeFlipsTheNodeTwice() async {
+        let window = Self.window()
+        let events = WindowEvents(window: window)
+        let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events)
+        window.orderFrontRegardless()
+        source.refresh()
+        #expect(source.node.own != .hidden)
+        let down = await Self.flips(of: source.node, until: { $0 == .hidden }) { window.miniaturize(nil) }
+        #expect(down.last == .hidden)
+        #expect(window.isMiniaturized)
+        #expect(WindowVisibilitySource.appKitState(of: window) == .hidden)
+        let back = await Self.flips(of: source.node, until: { $0 != .hidden }) { window.deminiaturize(nil) }
+        #expect(back.count == 1)
+        #expect(!window.isMiniaturized)
+        #expect(source.node.own == WindowVisibilitySource.appKitState(of: window))
+        window.close()
     }
 
     @Test func aWindowWithNoSourceIsNotGivenOne() {
         let window = Self.window()
         _ = WindowDrawPolicy.isOnScreen(window)
         #expect(WindowVisibilitySource.installed(on: window) == nil)
+    }
+
+    private final class FlipLog {
+        var flips: [Visibility] = []
+        var continuation: CheckedContinuation<Void, Never>?
+    }
+
+    /// The node's flips from `action` until one satisfies `done` (the suite's time limit bounds the wait).
+    private static func flips(of node: VisibilityNode, until done: @escaping @MainActor (Visibility) -> Bool,
+                              after action: () -> Void) async -> [Visibility] {
+        let log = FlipLog()
+        let token = node.subscribe(owner: "test") { visibility in
+            log.flips.append(visibility)
+            guard done(visibility) else { return }
+            log.continuation?.resume()
+            log.continuation = nil
+        }
+        await withCheckedContinuation { continuation in
+            log.continuation = continuation
+            action()
+        }
+        _ = token
+        return log.flips
     }
 }
