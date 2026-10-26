@@ -17,8 +17,24 @@ Usage:
     switches.py --check [--registry DIR]      exit 0: every switch passes; 1: findings; 2: bad usage
     switches.py --expired [--today YYYY-MM-DD] one deletion task per switch whose `expires` day has come
                                                (exit 0: none, 1: some, 2: a file whose day is unreadable)
+    switches.py --hits FILE --switch NAME --arm old|new
+                                               the verdict of one debug.oracle.switch_hits result
+                                               (exit 0: exercised, 1: arm-not-exercised or arm-mixed, 2: bad input)
     switches.py --selftest                    the refusal table below, on temporary registries
 `oracle.py switches ARGS` runs this script with ARGS.
+
+`--hits` (task p15-oracle-027) reads the per-site hit counters the app reports through
+`debug.oracle.switch_hits` (`SwitchHits.swift`): `{"switches": {KEY: {"old": N, "new": N, "sites":
+{SITE: {"old": N, "new": N}}}}}`, KEY the registry entry's `app_key` (the golden reply both sides test
+is schemas/oracle/fixtures/switch-hits-reply.json). It prints one line
+    NAME arm=ARM verdict=VERDICT key=app:KEY old=N new=N sites=SITE:old=N/new=N,...
+A daemon switch (`daemon_key`) is refused as bad input: only app sites count hits; the daemon has no
+hit source yet, so every daemon run would read as arm-not-exercised.
+`exercised` needs hits on the requested arm and none on the other. 0 hits on the requested arm (or no
+entry) is `arm-not-exercised`: the run never reached a guarded site on that arm, so its diff proves
+nothing. Hits on the other arm too are `arm-mixed`: a site does not read the frozen value. Chrome
+reports a field trial only once `FeatureList::IsEnabled` activated it (base/feature_list.cc), so a
+configured trial that no code queried reports nothing; here the site counts the branch it took.
 
 `--check` refuses, per file:
 - a file that does not parse or does not match the schema (normalize.py's validator, task 013):
@@ -65,6 +81,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 TASK = "p15-oracle-018"
 REGISTRY = REPO / "plans" / "cmux-next" / "refactor-switches"
+# The `debug.oracle.switch_hits` reply SwitchHitsTests encodes; --selftest reads the same file.
+GOLDEN_HITS = REPO / "schemas" / "oracle" / "fixtures" / "switch-hits-reply.json"
 SCHEMA = REPO / "schemas" / "oracle" / "refactor-switches.schema.json"
 APP_CATALOG = REPO / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextCompat" / "RefactorSwitches.swift"
 DAEMON_CATALOG = REPO / "cmux-tui" / "crates" / "cmux-tui-core" / "src" / "switches.rs"
@@ -413,6 +431,113 @@ def expired(roots: Roots, today: dt.date) -> Tuple[List[DeletionTask], List[Find
 
 
 # ---------------------------------------------------------------------------------------------------------
+# --hits (p15-oracle-027)
+
+
+ARMS = ("old", "new")
+EXERCISED = "exercised"
+NOT_EXERCISED = "arm-not-exercised"
+MIXED = "arm-mixed"
+
+
+@dataclass(frozen=True)
+class HitVerdict:
+    """What the hit counters say about one arm of one switch. `exercised`: a guarded site ran the
+    requested arm and none ran the other. `arm-not-exercised`: no site ran the requested arm, so the
+    run proves nothing about it (a missing entry counts as 0 hits). `arm-mixed`: a site ran the other
+    arm too, so the switch is not frozen at that site (the per-call read of p15-oracle.md 2.6)."""
+
+    name: str
+    key: str
+    arm: str
+    verdict: str
+    hits: Dict[str, int]
+    sites: Tuple[Tuple[str, int, int], ...]
+
+    @property
+    def ok(self) -> bool:
+        return self.verdict == EXERCISED
+
+    def line(self) -> str:
+        """`NAME arm=A verdict=V key=app:K old=N new=N sites=SITE:old=N/new=N,...`, shell-quoted values."""
+        sites = ",".join(f"{site}:old={old}/new={new}" for site, old, new in self.sites) or "-"
+        fields = (("arm", self.arm), ("verdict", self.verdict), ("key", self.key), ("old", str(self.hits["old"])),
+                  ("new", str(self.hits["new"])), ("sites", sites))
+        return " ".join([shlex.quote(self.name)] + [f"{label}={shlex.quote(value)}" for label, value in fields])
+
+
+def hit_count(value: Any, where: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value != int(value):
+        raise UsageError(f"{where}: a hit count is a whole number >= 0, got {value!r}")
+    return int(value)
+
+
+def hit_verdict(report: Any, name: str, key: str, arm: str) -> HitVerdict:
+    """The verdict on `arm` of the switch `key` from one `debug.oracle.switch_hits` result:
+    `{"switches": {KEY: {"old": N, "new": N, "sites": {SITE: {"old": N, "new": N}}}}}`.
+    `key` is the registry entry's `app:KEY`; the report, made by the app, is keyed by the bare KEY.
+    A `daemon:KEY` is refused: the daemon has no hit source, so the app report says nothing about it."""
+    if key.startswith("daemon:"):
+        raise UsageError(f"{name}: {key} is a daemon switch; only app sites report switch hits "
+                         "(the daemon has no hit source), so --hits cannot judge it")
+    if arm not in ARMS:
+        raise UsageError(f"arm {arm!r} is not one of {', '.join(ARMS)}")
+    switches = report.get("switches") if isinstance(report, dict) else None
+    if not isinstance(switches, dict):
+        raise UsageError('a switch_hits report is an object with a "switches" object')
+    bare = key.partition(":")[2] or key
+    entry = switches.get(bare, {})
+    if not isinstance(entry, dict):
+        raise UsageError(f"switches[{bare!r}] is not an object")
+    counts = {side: hit_count(entry.get(side, 0), f"{bare} {side}") for side in ARMS}
+    raw_sites = entry.get("sites", {})
+    if not isinstance(raw_sites, dict):
+        raise UsageError(f"{bare} sites is not an object")
+    sites: List[Tuple[str, int, int]] = []
+    for site in sorted(raw_sites):
+        arms = raw_sites[site]
+        if not isinstance(arms, dict):
+            raise UsageError(f"{bare} site {site!r} is not an object")
+        sites.append((site, hit_count(arms.get("old", 0), f"{site} old"), hit_count(arms.get("new", 0), f"{site} new")))
+    other = "new" if arm == "old" else "old"
+    if counts[arm] == 0:
+        verdict = NOT_EXERCISED
+    elif counts[other] > 0:
+        verdict = MIXED
+    else:
+        verdict = EXERCISED
+    return HitVerdict(name=name, key=key, arm=arm, verdict=verdict, hits=counts, sites=tuple(sites))
+
+
+def switch_key(roots: Roots, name: str) -> str:
+    """`app:KEY` or `daemon:KEY` of the registry entry `name` (hit_verdict refuses a daemon key)."""
+    path = roots.registry / f"{name}.json"
+    where = relative(path, roots.repo)
+    if not path.is_file():
+        raise UsageError(f"{where}: no such switch")
+    data, error = load_entry(path)
+    if data is None:
+        raise UsageError(f"{where}: {error}")
+    if isinstance(data.get("app_key"), str):
+        return f"app:{data['app_key']}"
+    if isinstance(data.get("daemon_key"), str):
+        return f"daemon:{data['daemon_key']}"
+    raise UsageError(f"{where}: no app_key or daemon_key (run --check)")
+
+
+def hits(roots: Roots, report_path: Path, name: str, arm: str) -> HitVerdict:
+    """`--hits FILE --switch NAME --arm ARM`: FILE holds one `debug.oracle.switch_hits` result."""
+    normalize = load_sibling("normalize", "p15-oracle-013")
+    try:
+        report = normalize.parse_json(report_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise UsageError(f"{report_path}: {error.strerror or error}") from error
+    except normalize.OracleError as error:
+        raise UsageError(f"{report_path}: {error}") from error
+    return hit_verdict(report, name, switch_key(roots, name), arm)
+
+
+# ---------------------------------------------------------------------------------------------------------
 # --selftest
 
 
@@ -658,6 +783,91 @@ def selftest_expired(tmp: Path) -> List[str]:
     return failures
 
 
+def hit_report(old: int, new: int, key: str = "browser.layer-hosting", **sites: Tuple[int, int]) -> Dict[str, Any]:
+    return {"switches": {key: {"old": old, "new": new, "sites": {
+        site.replace("_", "."): {"old": arms[0], "new": arms[1]} for site, arms in sites.items()}}}}
+
+
+# (label, report, requested arm, verdict; "" = refused as bad input)
+SELFTEST_HITS: Sequence[Tuple[str, Any, str, str]] = (
+    ("hits only on the requested arm", hit_report(0, 12, CEFLayerHosting_pageShown=(0, 12)), "new", EXERCISED),
+    ("old arm requested and run", hit_report(4, 0, CEFLayerHosting_pageShown=(4, 0)), "old", EXERCISED),
+    ("0 hits on the requested arm", hit_report(0, 0, CEFLayerHosting_pageShown=(0, 0)), "new", NOT_EXERCISED),
+    ("hits only on the other arm", hit_report(3, 0, CEFLayerHosting_pageShown=(3, 0)), "new", NOT_EXERCISED),
+    ("no entry for the switch is 0 hits", {"switches": {}}, "new", NOT_EXERCISED),
+    ("another switch's hits do not count", hit_report(0, 5, key="browser.cef-helper"), "new", NOT_EXERCISED),
+    ("a site ran both arms", hit_report(1, 9, CEFLayerHosting_pageShown=(0, 9), CEFLayerHosting_created=(1, 0)),
+     "new", MIXED),
+    ("no switches object is refused", {"hits": {}}, "new", ""),
+    ("a negative count is refused", hit_report(-1, 2), "new", ""),
+    ("a fractional count is refused", hit_report(0, 1.5), "new", ""),
+    ("a bool count is refused", hit_report(0, True), "new", ""),
+    ("an arm outside old/new is refused", hit_report(0, 1), "launch", ""),
+)
+
+# (label, registry key, arm, verdict; "" = refused) on the golden reply both sides test.
+SELFTEST_HITS_GOLDEN: Sequence[Tuple[str, str, str, str]] = (
+    ("golden: layer hosting ran new", "app:browser.layer-hosting", "new", EXERCISED),
+    ("golden: layer hosting never ran old", "app:browser.layer-hosting", "old", NOT_EXERCISED),
+    ("golden: cef helper ran old", "app:browser.cef-helper", "old", EXERCISED),
+    ("golden: a switch with no entry", "app:browser.discard", "new", NOT_EXERCISED),
+    ("golden: a daemon key is refused", "daemon:browser.layer-hosting", "new", ""),
+)
+
+# (CLI arguments after --hits FILE, the report, exit code, the verdict on stdout or None)
+SELFTEST_HITS_CLI: Sequence[Tuple[Tuple[str, ...], Any, int, Optional[str]]] = (
+    (("--switch", "layer-hosting", "--arm", "new"), hit_report(0, 2, CEFLayerHosting_pageShown=(0, 2)), 0, EXERCISED),
+    (("--switch", "layer-hosting", "--arm", "old"), hit_report(0, 2, CEFLayerHosting_pageShown=(0, 2)), 1, NOT_EXERCISED),
+    (("--switch", "holder", "--arm", "new"), hit_report(0, 1, key="holder"), 2, None),  # a daemon switch is refused
+    (("--switch", "ghost", "--arm", "new"), hit_report(0, 1), 2, None),
+    (("--switch", "layer-hosting"), hit_report(0, 1), 2, None),
+    (("--switch", "layer-hosting", "--arm", "new"), "{", 2, None),
+)
+
+
+def selftest_hits(tmp: Path) -> List[str]:
+    """hit_verdict on the table above, its line round trip through shlex, and the --hits CLI."""
+    failures: List[str] = []
+    for label, report, arm, want in SELFTEST_HITS:
+        try:
+            got = hit_verdict(report, "layer-hosting", "app:browser.layer-hosting", arm).verdict
+        except UsageError:
+            got = ""
+        if got != want:
+            failures.append(f"--hits {label}: got {got or 'refused'!r}, want {want or 'refused'!r}")
+    golden = json.loads(GOLDEN_HITS.read_text(encoding="utf-8"))
+    for label, key, arm, want in SELFTEST_HITS_GOLDEN:
+        try:
+            got = hit_verdict(golden, "golden", key, arm).verdict
+        except UsageError:
+            got = ""
+        if got != want:
+            failures.append(f"--hits {label}: got {got or 'refused'!r}, want {want or 'refused'!r}")
+    golden_sites = hit_verdict(golden, "golden", "app:browser.layer-hosting", "new").sites
+    if golden_sites != (("CEFLayerHosting.pageShown", 0, 2), ("CEFLayerHosting.pageWindowCreated", 0, 1)):
+        failures.append(f"--hits golden: layer hosting sites read as {golden_sites}")
+    verdict = hit_verdict(hit_report(0, 3, CEFLayerHosting_pageShown=(0, 3)), "layer hosting", "app:browser.layer-hosting", "new")
+    fields = shlex.split(verdict.line())
+    if fields[0] != "layer hosting" or "sites=CEFLayerHosting.pageShown:old=0/new=3" not in fields:
+        failures.append(f"--hits line {verdict.line()!r} does not split back into its fields")
+    for extra, report, want_code, want_verdict in SELFTEST_HITS_CLI:
+        roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
+        report_path = tmp / "hits.json"
+        report_path.write_text(report if isinstance(report, str) else json.dumps(report), encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            try:
+                code = main(["--hits", str(report_path), "--registry", str(roots.registry), *extra])
+            except SystemExit as error:  # argparse refuses a missing --arm
+                code = int(error.code or 0)
+        printed = out.getvalue().splitlines()
+        seen = next((field.partition("=")[2] for field in shlex.split(printed[0]) if field.startswith("verdict=")),
+                    None) if printed else None
+        if code != want_code or seen != want_verdict:
+            failures.append(f"--hits {list(extra)}: exit {code}, stdout {printed}, stderr {err.getvalue()!r}")
+    return failures
+
+
 def selftest() -> int:
     failures = selftest_closures()
     with tempfile.TemporaryDirectory(prefix="oracle-switches-") as name:
@@ -672,14 +882,17 @@ def selftest() -> int:
             if not ok:
                 failures.append(f"{label}: want {'pass' if not want else repr(want)}, got {messages}")
         failures.extend(selftest_expired(tmp))
+        failures.extend(selftest_hits(tmp))
         missing = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
         missing.app_catalog.unlink()
         missing.daemon_catalog.unlink()
         messages = [str(f) for f in check(missing)[0]]
         if not (len(messages) == 2 and APP_CATALOG_TASK in messages[1] and DAEMON_CATALOG_TASK in messages[0]):
             failures.append(f"missing catalogs: got {messages}")
-    # The closure, refusal, --expired and --expired CLI tables, the missing registry and the missing catalogs.
-    total = len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI) + 2
+    # The closure, refusal, --expired, --expired CLI, --hits, --hits golden and --hits CLI tables, the missing registry,
+    # the missing catalogs, the golden sites and the --hits line round trip.
+    total = (len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI)
+             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + 4)
     for failure in failures:
         print(f"FAIL {failure}")
     print(f"selftest: {total - len(failures)}/{total} pass")
@@ -696,12 +909,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     mode.add_argument("--check", action="store_true", help="refuse a malformed switch file")
     mode.add_argument("--expired", action="store_true", help="one deletion line per expired switch")
     mode.add_argument("--selftest", action="store_true", help="run the refusal table on temporary registries")
+    mode.add_argument("--hits", type=Path, metavar="FILE",
+                      help="the verdict of one debug.oracle.switch_hits result on --switch at --arm")
     parser.add_argument("--registry", type=Path, default=REGISTRY, help="registry directory (default: this checkout's)")
     parser.add_argument("--today", type=dt.date.fromisoformat, help="the day for --expired (default: today, UTC)")
+    parser.add_argument("--switch", metavar="NAME", help="--hits: the registry switch the run requested")
+    parser.add_argument("--arm", choices=ARMS, help="--hits: the arm the run requested")
     args = parser.parse_args(argv)
+    if args.hits is not None and (args.switch is None or args.arm is None):
+        parser.error("--hits needs --switch NAME and --arm old|new")
     try:
         if args.selftest:
             return selftest()
+        if args.hits is not None:
+            verdict = hits(Roots(registry=args.registry.resolve()), args.hits, args.switch, args.arm)
+            print(verdict.line())
+            return 0 if verdict.ok else 1
         if args.expired:
             today = args.today or dt.datetime.now(dt.timezone.utc).date()
             tasks, unread = expired(Roots(registry=args.registry.resolve()), today)

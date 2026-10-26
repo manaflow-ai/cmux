@@ -125,6 +125,7 @@ public struct CmuxNextApp {
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
         DebugTimings.markLaunch("main.run")
+        DebugTimings.armRunLoopStartMark()
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
