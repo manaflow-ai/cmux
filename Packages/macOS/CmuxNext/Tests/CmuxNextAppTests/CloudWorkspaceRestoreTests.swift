@@ -66,7 +66,7 @@ struct CloudWorkspaceRestoreTests {
         var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: Self.cloudWorkspace),
                                   workspaceKeys: [WorkspaceKey(rawValue: Self.cloudWorkspace)], machine: machine.machineID)
         record.workspaceMachines = [Self.cloudWorkspace: machine.machineID]
-        windows.rememberMachines(of: [record])
+        windows.rememberMachines(of: WindowStateDocument(windows: [record]))
         #expect(!windows.isDead(Self.cloudWorkspace), "its machine is paused, not gone: the workspace waits for it")
 
         // A machine that left the account takes its workspaces with it.
@@ -81,7 +81,7 @@ struct CloudWorkspaceRestoreTests {
         let machine = Self.pausedMachine(services, id: "vm-older")
         let older = try JSONDecoder().decode(WindowRecord.self, from: Data(
             #"{"id":"w1","workspace_key":"\#(Self.cloudWorkspace)","machine":"\#(machine.machineID)"}"#.utf8))
-        services.windows.rememberMachines(of: [older])
+        services.windows.rememberMachines(of: WindowStateDocument(windows: [older]))
         #expect(services.windows.seenMachine[Self.cloudWorkspace] == machine.machineID)
         #expect(!services.windows.isDead(Self.cloudWorkspace))
     }
