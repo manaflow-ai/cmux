@@ -1,11 +1,11 @@
-#if DEBUG
-// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 public import CmuxNextDesign
 import Observation
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
-/// (DEBUG builds, `browserHost.helper` on): one
+/// (Debug and bench builds, `browserHost.helper` on): one
 /// ``ChromiumHostSession`` shown over a pane's content view.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 ///
@@ -74,7 +74,7 @@ public final class ChromiumHostPrototype {
             session = existing
         } else {
             guard let configuration = makeConfiguration() else {
-                return ["error": "this build has no Chromium host app (Debug builds with CEF only)"]
+                return ["error": "this build has no Chromium host app (Debug and bench builds with CEF only)"]
             }
             session = ChromiumHostSession(configuration: configuration)
             session.view.onLeftWindow = { [weak self, weak session] in

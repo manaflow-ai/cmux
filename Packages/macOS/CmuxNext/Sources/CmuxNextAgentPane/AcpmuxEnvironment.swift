@@ -82,8 +82,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
-    /// app's `Contents/Resources/bin`. A Debug compile takes a test root for
-    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests only).
+    /// app's `Contents/Resources/bin`. A Debug or bench compile takes a test root for
+    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests and bench stories only).
     public static func resolve(
         build: BuildIdentity?,
         bundledBinDirectory: URL?,
@@ -153,9 +153,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a
-    /// Debug compile (live per-build tests); nil in Release.
+    /// Debug compile (live per-build tests) and a bench compile (the acpmux fake-agent
+    /// tracks of the perf lab's corpus stories, p12-perf-process.md); nil in Release.
     static func testRoot(_ environment: [String: String]) -> URL? {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard let root = environment["CMUX_NEXT_ACPMUX_ROOT"], !root.isEmpty else { return nil }
         return URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL
         #else

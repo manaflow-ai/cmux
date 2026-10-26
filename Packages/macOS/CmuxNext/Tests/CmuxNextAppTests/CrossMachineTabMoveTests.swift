@@ -82,13 +82,44 @@ struct CrossMachineTabMoveTests {
         let macConnection: DaemonConnection
         let macPane: PaneModel
         let target: WorkspaceModel
+        /// The other machine's link socket, to connect its daemon again after a drop.
+        let machineSocket: String
+        /// A new connection to this Mac's daemon, for an app launched again (``relaunch()``).
+        private let makeMacConnection: @Sendable () -> DaemonConnection
+        private let root: URL
+        /// The apps ``relaunch()`` made with the other machine each connects; the harness ends them.
+        private(set) var relaunched: [(services: AppServices, machine: CloudMachineSession)] = []
 
-        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel) {
+        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel,
+             machineSocket: String, makeMacConnection: @escaping @Sendable () -> DaemonConnection, root: URL) {
             self.services = services
             self.machine = machine
             self.macConnection = macConnection
             self.macPane = macPane
             self.target = target
+            self.machineSocket = machineSocket
+            self.makeMacConnection = makeMacConnection
+            self.root = root
+        }
+
+        /// The app quits and launches again on the same two daemons: this app's windows close and
+        /// its connections end (the daemons keep running, as after a quit), then a new app restores
+        /// this Mac's windows and connects the other machine, as launch does.
+        func relaunch() -> (services: AppServices, machine: CloudMachineSession) {
+            for controller in services.windows.controllers { controller.window?.close() }
+            services.daemon.shutdownConnection()
+            machine.daemon.shutdownConnection()
+            let next = AppServices(environment: AppEnvironment.current([:]))
+            AppActions.bind(next)
+            next.windows.ordersWindowsIn = false
+            next.daemon.start(makeConnection: makeMacConnection)
+            next.windows.restoreWhenLoaded()
+            let again = CloudMoveTests.machine(next, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
+            next.machines.add(again)
+            let socket = machineSocket
+            again.daemon.start(remote: { socket })
+            relaunched.append((next, again))
+            return (next, again)
         }
 
         /// Moves `tab` to the other machine's workspace as the tab menu and a drag do; whether it moved.
@@ -153,6 +184,7 @@ struct CrossMachineTabMoveTests {
         machine.daemon.start(remote: { vmSocket })
 
         let result: Result<Void, any Error>
+        var world: World?
         do {
             let deadline = ContinuousClock.now + .seconds(60)
             func macPane() -> PaneModel? { services.daemon.store.workspaces.first?.screens.first?.panes.first }
@@ -167,10 +199,21 @@ struct CrossMachineTabMoveTests {
             }
             while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
-            try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
+            let made = World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace,
+                             machineSocket: vmSocket, makeMacConnection: {
+                                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
+                             }, root: root)
+            world = made
+            try await body(made)
             result = .success(())
         } catch {
             result = .failure(error)
+        }
+        // A relaunched app holds the daemons' live connections: ending them ends the daemons.
+        for app in world?.relaunched ?? [] {
+            await CloudMoveTests.end(app.services.daemon)
+            await CloudMoveTests.end(app.machine.daemon)
+            for controller in app.services.windows.controllers { controller.window?.close() }
         }
         await CloudMoveTests.end(services.daemon)
         await CloudMoveTests.end(machine.daemon)

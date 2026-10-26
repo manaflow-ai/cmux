@@ -1,5 +1,5 @@
-#if DEBUG
-// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import Foundation
 
 /// How cmux starts its Chromium host app: the executable and its arguments
@@ -14,7 +14,7 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     }
 
     /// The host embed-cef.sh puts into the app's own `Contents/MacOS` in Debug
-    /// builds (`<Product> Chromium Host`), or nil when this build has none.
+    /// and bench builds (`<Product> Chromium Host`), or nil when this build has none.
     ///
     /// A second executable of the app, not an app of its own: Chromium gives
     /// its sandboxed helpers read access to the browser process's main bundle
@@ -51,9 +51,7 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             // Chromium's code-sign clone copies the main bundle (here the small host app)
             // and starts helpers from the copy, but the helpers live outside it.
             + ["disable-features=MacAppCodeSignClone"]
-            // Development override (Debug only, like the host): more host switches, comma-separated, for
-            // diagnosis on a measure host (chromium-host-bench.py --host-switches: child logging, no-sandbox).
-            + (environment["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
+            + diagnosisSwitches(environment)
         // The main bundle is the app's (as in process), never the host's own small bundle: it holds the
         // framework and the helpers Chromium starts and sandboxes (browser_host_main.mm).
         return ["--framework=\(layout.frameworkDirectory.path)",
@@ -62,6 +60,17 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
                 "--root-cache=\(rootCache.path)",
                 "--log-file=\(logFile(rootCache: rootCache).path)"]
             + switches.map { "--cef-switch=\($0)" }
+    }
+
+    /// Development override (Debug only; a bench build measures the host as it ships, with only the
+    /// bench switches of ``CEFSwitches``): more host switches, comma-separated, for diagnosis on a
+    /// measure host (chromium-host-bench.py --host-switches: child logging, no-sandbox).
+    static func diagnosisSwitches(_ environment: [String: String]) -> [String] {
+        #if DEBUG
+        return (environment["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        #else
+        return []
+        #endif
     }
 
     /// Chromium's log of a host whose data folder is `rootCache` (warnings and

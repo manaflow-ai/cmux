@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
@@ -376,7 +376,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
-        services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
@@ -408,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
                 // Socket focus policy: `open` makes the page first responder only with focus: true.
                 let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
@@ -518,7 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         services?.stopCloud()
-        services?.ssh.stop()
+        services?.madeSSH?.stop()
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()

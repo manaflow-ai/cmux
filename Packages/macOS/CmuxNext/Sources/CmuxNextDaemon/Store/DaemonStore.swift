@@ -17,13 +17,13 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
-    /// count when one changes and assigned only when the sum changes: an observer of the badge
-    /// observes this one value, never the tabs.
+    /// count when one changes, joins or leaves (``UnreadLedger``) and assigned only when the sum
+    /// changes: an observer of the badge observes this one value, never the tabs.
     public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
@@ -100,14 +100,14 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
-    /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace set is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
-    /// build (status ticks apply batches several hundred times a second).
-    @ObservationIgnored var listGeneration: UInt64 = 0
-    @ObservationIgnored var checkedListGeneration: UInt64?
+    /// The digest of the workspace set (`listID`s, ``StoreIndex/workspaceListDigest``) last
+    /// reported to `onWorkspaceListChanged`: the check is one compare, whatever the batch held.
+    @ObservationIgnored var notifiedWorkspaceList: Int?
+    /// What the drains of the event inbox cost (``DrainCost``): their histogram and the
+    /// whole-list passes the applies ran.
+    @ObservationIgnored public internal(set) var drainCost = DrainCost()
+    /// Clock of the drain histogram (tests inject one).
+    @ObservationIgnored public var drainClock: any Clock<Duration> = ContinuousClock()
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -143,13 +143,15 @@ public final class DaemonStore: StateResourceQueries {
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
-    /// The overlay moved a workspace or changed its group since the last
-    /// sidebar flattening.
-    @ObservationIgnored var sidebarNeedsRecompute = false
+    /// The overlay moved a workspace or changed its group since the last sidebar flattening (with its cause).
+    var sidebarNeedsRecompute: Bool {
+        get { causes.sidebar != nil }
+        set { causes.noteSidebar(newValue) }
+    }
     /// How the intents left the log since this store was made (``IntentTotals``), counted once the visible state is complete again; observed.
     public internal(set) var intentTotals = IntentTotals()
-    /// Settlements of the current lift with their intents, counted in `intentTotals` when it ends.
-    @ObservationIgnored var intentSettlements: [(IntentSettlement, Intent)] = []
+    /// Settlements of the current lift with their intents and causes, counted in `intentTotals` when it ends.
+    @ObservationIgnored var intentSettlements: [(settlement: IntentSettlement, intent: Intent, cause: ObservationCause)] = []
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.
@@ -172,6 +174,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// Who made each change, and what the store publishes later with (``StoreCauses``).
+    @ObservationIgnored let causes: StoreCauses
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
@@ -202,12 +206,17 @@ public final class DaemonStore: StateResourceQueries {
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
-    /// - Parameter waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
-    ///   StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
-    ///   (tests, fixtures): a queue of the store's own.
-    public init(waitDeadlines: MainWakeUpQueue? = nil) {
+    /// - Parameters:
+    ///   - waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
+    ///     StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`).
+    ///     nil (tests, fixtures): a queue of the store's own.
+    ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
+    ///     event with its cause, and an action run's intent with its origin's. nil (tests, fixtures): none.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
+        self.causes = StoreCauses(causes)
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
+        index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
     }
 
     // MARK: Lookup (O(1))
@@ -387,9 +396,10 @@ public final class DaemonStore: StateResourceQueries {
 
     // MARK: Derived state
 
-    /// Indexes the whole tree again, primes every record and flattens the
-    /// sidebar: a snapshot only. Events change the index per record
-    /// (`indexed(_:)`), and the sidebar once per batch (`sidebarNeedsRecompute`).
+    /// Indexes the whole tree again, primes every record and flags the sidebar
+    /// for its flattening once the overlay is back (`withOverlayLifted`): a
+    /// snapshot only. Events change the index per record (`indexed(_:)`), and
+    /// the sidebar once per batch (`sidebarNeedsRecompute`).
     func rebuildIndex() {
         index.rebuild(workspaces)
         for workspace in workspaces {
@@ -397,7 +407,7 @@ public final class DaemonStore: StateResourceQueries {
                 for pane in screen.panes { prime(pane) }
             }
         }
-        recomputeSidebar()
+        sidebarNeedsRecompute = true
         session.overlay(workspaces)
     }
 
@@ -447,44 +457,5 @@ public final class DaemonStore: StateResourceQueries {
     private func prime(_ tab: TabModel) {
         if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
-    }
-
-    /// Publishes a tab list change once the visible state is complete, and resumes the keyed
-    /// waiters whose keys the apply changed (StoreWaiters).
-    func publishTabListChange() {
-        if index.takeTabListChange() { tabListRevision &+= 1 }
-        waiters.settleTouched(in: self)
-    }
-
-    /// Runs `onWorkspaceListChanged` when the workspace set differs from
-    /// the last one reported (outside a batch, once loaded). Order is not
-    /// membership: a move or a group change leaves the set as it was.
-    func workspaceListMayHaveChanged() {
-        // Tracked without a hook too: a hook installed later runs for the next change, not for
-        // a set its installer (`reconcileMembership`) has just read.
-        guard applyDepth == 0, isLoaded else { return }
-        guard checkedListGeneration != listGeneration else { return }
-        checkedListGeneration = listGeneration
-        if let notified = notifiedWorkspaceList, notified.count == workspaces.count,
-           workspaces.allSatisfy({ notified.contains($0.listID) }) { return }
-        let list = Set(workspaces.map(\.listID))
-        guard list != notifiedWorkspaceList else { return }
-        notifiedWorkspaceList = list
-        workspaceSetRevision &+= 1
-        onWorkspaceListChanged?()
-    }
-
-    func recomputeSidebar() {
-        listGeneration &+= 1
-        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
-        var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
-        for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
-        }
-        let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
-            new.group === old.group && new.workspaces.count == old.workspaces.count
-                && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
-        }
-        if !unchanged { sidebarSections = sections }
     }
 }

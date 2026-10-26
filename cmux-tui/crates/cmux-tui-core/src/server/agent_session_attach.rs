@@ -306,12 +306,12 @@ struct PermissionParams {
     /// Which device the person answered on: acpmux records it only with a
     /// proof that counts.
     #[serde(default)]
-    answered_by: Option<AnsweredBy>,
+    answered_by: Option<AgentSessionAnsweredBy>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AnsweredBy {
+struct AgentSessionAnsweredBy {
     device: String,
     feed_item: String,
 }
@@ -505,7 +505,9 @@ fn start(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_start::StartParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -525,7 +527,9 @@ fn trust(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_trust::TrustParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {

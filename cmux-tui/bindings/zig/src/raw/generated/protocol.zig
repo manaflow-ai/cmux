@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675";
+pub const ir_sha256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -189,6 +189,19 @@ pub const AgentReportSource = enum {
     }
 };
 
+/// The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape.
+pub const AgentSessionAcpmuxReply = wire.Value;
+
+pub const AgentSessionAnsweredBy = struct {
+    /// The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-].
+    device: []const u8,
+    /// The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-].
+    feed_item: []const u8,
+};
+
+/// acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape.
+pub const AgentSessionPage = wire.Value;
+
 pub const AgentSessionSource = struct {
     /// The agent kind the chat was started with.
     harness: wire.Field([]const u8) = .absent,
@@ -199,6 +212,9 @@ pub const AgentSessionSource = struct {
     /// The acpmux session id; null for a new chat until bind-conversation-tab-session.
     session: wire.Field([]const u8) = .absent,
 };
+
+/// One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape.
+pub const AgentSessionSummary = wire.Value;
 
 pub const AgentSource = enum {
     plugin,
@@ -1087,6 +1103,24 @@ pub const DetachReason = enum {
 };
 
 pub const EmptyResult = struct {};
+
+pub const EventCause = enum {
+    frontend,
+    automation,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "frontend")) return .frontend;
+        if (std.mem.eql(u8, value, "automation")) return .automation;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .frontend => "frontend",
+            .automation => "automation",
+        };
+    }
+};
 
 pub const ExportLayoutResult = struct {
     layout: Layout,
@@ -3728,6 +3762,330 @@ pub fn agentCliUpdateJobResolve(client: anytype, request: AgentCliUpdateJobResol
             .authority = "local-admin",
             .since = 12,
             .capability = "agent-cli-update-job-resolve-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionAttachRequest = struct {
+    /// Records after this seq (oldest first).
+    after_seq: wire.Field(u64) = .absent,
+    /// Records before this seq (newest first).
+    before_seq: wire.Field(u64) = .absent,
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.].
+    kinds: wire.Field([]const []const u8) = .absent,
+    /// Records per page, clamped to 1..500 (default 200).
+    limit: wire.Field(u64) = .absent,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionAttachResult = AgentSessionPage;
+
+pub fn agentSessionAttach(client: anytype, request: AgentSessionAttachRequest) !wire.Decoded(AgentSessionAttachResult) {
+    return client.callTyped(
+        AgentSessionAttachResult,
+        .{
+            .name = "agent-session-attach",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionCancelRequest = struct {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionCancelResult = struct {};
+
+pub fn agentSessionCancel(client: anytype, request: AgentSessionCancelRequest) !wire.Decoded(AgentSessionCancelResult) {
+    return client.callTyped(
+        AgentSessionCancelResult,
+        .{
+            .name = "agent-session-cancel",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionChildrenRequest = struct {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionChildrenResult = struct {
+    /// At most 256 summaries and 8 MiB, in acpmux's order.
+    sessions: []const AgentSessionSummary,
+};
+
+pub fn agentSessionChildren(client: anytype, request: AgentSessionChildrenRequest) !wire.Decoded(AgentSessionChildrenResult) {
+    return client.callTyped(
+        AgentSessionChildrenResult,
+        .{
+            .name = "agent-session-children",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-children-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionDetachRequest = struct {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionDetachResult = struct {};
+
+pub fn agentSessionDetach(client: anytype, request: AgentSessionDetachRequest) !wire.Decoded(AgentSessionDetachResult) {
+    return client.callTyped(
+        AgentSessionDetachResult,
+        .{
+            .name = "agent-session-detach",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionEventsRequest = struct {
+    /// Records after this seq (oldest first).
+    after_seq: wire.Field(u64) = .absent,
+    /// Records before this seq (newest first).
+    before_seq: wire.Field(u64) = .absent,
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.].
+    kinds: wire.Field([]const []const u8) = .absent,
+    /// Records per page, clamped to 1..500 (default 200).
+    limit: wire.Field(u64) = .absent,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionEventsResult = AgentSessionPage;
+
+pub fn agentSessionEvents(client: anytype, request: AgentSessionEventsRequest) !wire.Decoded(AgentSessionEventsResult) {
+    return client.callTyped(
+        AgentSessionEventsResult,
+        .{
+            .name = "agent-session-events",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionMediaRequest = struct {
+    /// An image the session wrote: png, jpg, jpeg, gif or webp, at most 4096 bytes.
+    path: []const u8,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionMediaResult = struct {
+    /// The image bytes in standard base64, at most 10 MiB decoded.
+    data: []const u8,
+    /// The image type acpmux reported.
+    mime_type: wire.Nullable([]const u8),
+};
+
+pub fn agentSessionMedia(client: anytype, request: AgentSessionMediaRequest) !wire.Decoded(AgentSessionMediaResult) {
+    return client.callTyped(
+        AgentSessionMediaResult,
+        .{
+            .name = "agent-session-media",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionObserveRequest = struct {
+    /// Records after this seq (oldest first).
+    after_seq: wire.Field(u64) = .absent,
+    /// Records before this seq (newest first).
+    before_seq: wire.Field(u64) = .absent,
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.].
+    kinds: wire.Field([]const []const u8) = .absent,
+    /// Records per page, clamped to 1..500 (default 200).
+    limit: wire.Field(u64) = .absent,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionObserveResult = AgentSessionPage;
+
+pub fn agentSessionObserve(client: anytype, request: AgentSessionObserveRequest) !wire.Decoded(AgentSessionObserveResult) {
+    return client.callTyped(
+        AgentSessionObserveResult,
+        .{
+            .name = "agent-session-observe",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-observe-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionPermissionRequest = struct {
+    answered_by: wire.Field(AgentSessionAnsweredBy) = .absent,
+    /// 64 lowercase hex characters.
+    decision_nonce: wire.Field([]const u8) = .absent,
+    /// The chosen option, 1 to 256 bytes.
+    option_id: []const u8,
+    /// A request acpmux announced on this attachment.
+    permission_id: []const u8,
+    /// 64 lowercase hex characters: the person's decision proof.
+    person_decision: wire.Field([]const u8) = .absent,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+};
+
+pub const AgentSessionPermissionResult = AgentSessionAcpmuxReply;
+
+pub fn agentSessionPermission(client: anytype, request: AgentSessionPermissionRequest) !wire.Decoded(AgentSessionPermissionResult) {
+    return client.callTyped(
+        AgentSessionPermissionResult,
+        .{
+            .name = "agent-session-permission",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionPromptRequest = struct {
+    /// 1 to 128 letters, digits, '-' or '_'.
+    prompt_id: []const u8,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+    /// One text prompt, at most 64 KiB.
+    text: []const u8,
+};
+
+pub const AgentSessionPromptResult = struct {
+    prompt_id: []const u8,
+    /// acpmux queued the prompt behind a running turn.
+    queued: bool,
+    /// The turn acpmux started or queued, as it answered.
+    turn_id: wire.Nullable([]const u8),
+};
+
+pub fn agentSessionPrompt(client: anytype, request: AgentSessionPromptRequest) !wire.Decoded(AgentSessionPromptResult) {
+    return client.callTyped(
+        AgentSessionPromptResult,
+        .{
+            .name = "agent-session-prompt",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-attach-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionStartRequest = struct {
+    /// An absolute folder of this machine, at most 4096 bytes.
+    cwd: []const u8,
+    /// The agent kind acpmux resolves from its config: 1 to 64 letters, digits, '_', '.' or '-'.
+    harness: wire.Field([]const u8) = .absent,
+    /// The person chose the home folder as the chat's folder.
+    home_confirmed: ?bool = null,
+    /// The acpmux run the caller holds a person key for: 1 to 128 of [A-Za-z0-9_.:-].
+    person_instance: wire.Field([]const u8) = .absent,
+    /// Start only when acpmux holds a person key for person_instance (agent-session-start-keyed-reason-v1).
+    require_person_key: ?bool = null,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "home_confirmed",
+        "require_person_key",
+    };
+};
+
+pub const AgentSessionStartResult = struct {
+    conversation: ConversationTabRecord,
+    /// The new acpmux session, bound to the tab.
+    session: []const u8,
+    surface: Id,
+};
+
+pub fn agentSessionStart(client: anytype, request: AgentSessionStartRequest) !wire.Decoded(AgentSessionStartResult) {
+    return client.callTyped(
+        AgentSessionStartResult,
+        .{
+            .name = "agent-session-start",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-start-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentSessionTrustRequestLevel = enum {
+    trusted,
+    untrusted,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "trusted")) return .trusted;
+        if (std.mem.eql(u8, value, "untrusted")) return .untrusted;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .trusted => "trusted",
+            .untrusted => "untrusted",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const AgentSessionTrustRequest = struct {
+    /// An absolute folder of this machine, at most 4096 bytes, no control characters.
+    cwd: []const u8,
+    /// The person chose the home folder as the chat's folder.
+    home_confirmed: ?bool = null,
+    /// The person's answer; absent reads the folder's trust. unknown forgets the answer.
+    level: wire.Field(AgentSessionTrustRequestLevel) = .absent,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "home_confirmed",
+    };
+};
+
+pub const AgentSessionTrustResult = AgentSessionAcpmuxReply;
+
+pub fn agentSessionTrust(client: anytype, request: AgentSessionTrustRequest) !wire.Decoded(AgentSessionTrustResult) {
+    return client.callTyped(
+        AgentSessionTrustResult,
+        .{
+            .name = "agent-session-trust",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-session-trust-v1",
         },
         request,
     );
@@ -10854,6 +11212,8 @@ pub const AgentChangedEvent = struct {
     agent: wire.Field([]const u8) = .absent,
     /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
     agent_session_id: wire.Field([]const u8) = .absent,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
@@ -10866,6 +11226,7 @@ pub const AgentChangedEvent = struct {
     updated_at_ms: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
         "since_ms",
     };
 };
@@ -10889,6 +11250,8 @@ pub const AgentPresenceChangedEvent = struct {
     activity: wire.Nullable(AgentPresenceActivity),
     /// Adapter identity (claude, codex, ...).
     agent: wire.Nullable([]const u8),
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     /// The 1-based line the tool call targets, when the tool input names one.
     line: wire.Nullable(u64),
@@ -10901,17 +11264,33 @@ pub const AgentPresenceChangedEvent = struct {
     tool: wire.Nullable([]const u8),
     /// When the hook observed the event; null on clear.
     updated_at_ms: wire.Nullable(u64),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const BellEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const BookmarksChangedEvent = struct {
     bookmarks_revision: u64,
     browser_profile_id: []const u8,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const BrowserStateEventStatus = enum {
@@ -10971,9 +11350,15 @@ pub const ChiefChangedEventChange = enum {
 };
 
 pub const ChiefChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     change: ChiefChangedEventChange,
     chief: []const u8,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ClientAttachedEventTransport = enum {
@@ -10995,31 +11380,57 @@ pub const ClientAttachedEventTransport = enum {
 };
 
 pub const ClientAttachedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     client: u64,
     event: []const u8,
     kind: wire.Nullable([]const u8),
     name: wire.Nullable([]const u8),
     transport: ClientAttachedEventTransport,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ClientChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     client: u64,
     event: []const u8,
     kind: wire.Nullable([]const u8),
     name: wire.Nullable([]const u8),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ClientDetachedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     client: u64,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ClientListInvalidatedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const CloudConversationChangedEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     change: wire.Nullable(JsonValue),
     conversation: []const u8,
     event: []const u8,
@@ -11029,22 +11440,28 @@ pub const CloudConversationChangedEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudConversationLiveEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     frame: wire.Nullable(JsonValue),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudConversationResyncedEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     messages: wire.Nullable(JsonValue),
@@ -11054,11 +11471,14 @@ pub const CloudConversationResyncedEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudConversationRunChangedEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     run: wire.Nullable(JsonValue),
@@ -11066,11 +11486,14 @@ pub const CloudConversationRunChangedEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudConversationTypingEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     on: bool,
@@ -11078,17 +11501,26 @@ pub const CloudConversationTypingEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudHostReplicaNeededEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     expires_at: wire.Field(u64) = .absent,
     reason: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const CloudInboxChangedEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     entries: wire.Nullable(JsonValue),
     event: []const u8,
     seq: u64,
@@ -11096,49 +11528,67 @@ pub const CloudInboxChangedEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudInboxResetEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     seq: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudMuxResyncedEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     pending: wire.Nullable(JsonValue),
     seq: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudMuxWakeEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     seq: u64,
     wakes: wire.Nullable(JsonValue),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
 pub const CloudSessionNeededEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     expires_at: wire.Field(u64) = .absent,
     reason: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const CloudSubscriptionStateEvent = struct {
     account: ?[]const u8 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: wire.Field([]const u8) = .absent,
     event: []const u8,
     reason: wire.Field([]const u8) = .absent,
@@ -11147,6 +11597,7 @@ pub const CloudSubscriptionStateEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "account",
+        "cause",
     };
 };
 
@@ -11171,25 +11622,45 @@ pub const ColorsChangedEvent = struct {
 };
 
 pub const ConfigReloadRequestedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ConversationChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     change: wire.Nullable(JsonValue),
     conversation: []const u8,
     event: []const u8,
     rev: u64,
     transaction: wire.Nullable([]const u8),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ConversationDraftEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     item: JsonValue,
     participant: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ConversationInboxChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     marked_unread: bool,
@@ -11198,28 +11669,47 @@ pub const ConversationInboxChangedEvent = struct {
     pinned: bool,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
         "pin_position",
     };
 };
 
 pub const ConversationLiveEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     frame: wire.Nullable(JsonValue),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ConversationRunChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     run: wire.Nullable(JsonValue),
     steps: []const JsonValue,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ConversationTypingEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     conversation: []const u8,
     event: []const u8,
     on: bool,
     participant: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const DaemonShutdownEvent = struct {
@@ -11243,7 +11733,13 @@ pub const DetachedEvent = struct {
 };
 
 pub const EmptyEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const FrameEvent = struct {
@@ -11256,6 +11752,8 @@ pub const FrameEvent = struct {
 };
 
 pub const FrontendProjectionChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     frontend: []const u8,
     mutation_id: []const u8,
@@ -11263,6 +11761,10 @@ pub const FrontendProjectionChangedEvent = struct {
     projection_revision: u64,
     scope: []const u8,
     subject_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const GraphicsStatusEventKind = enum {
@@ -11288,6 +11790,8 @@ pub const GraphicsStatusEventKind = enum {
 
 pub const GraphicsStatusEvent = struct {
     attempts: ?u16 = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     cell_height: ?u16 = null,
     cell_width: ?u16 = null,
     @"error": ?[]const u8 = null,
@@ -11299,6 +11803,7 @@ pub const GraphicsStatusEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "attempts",
+        "cause",
         "cell_height",
         "cell_width",
         "error",
@@ -11309,9 +11814,15 @@ pub const GraphicsStatusEvent = struct {
 };
 
 pub const HistoryChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     kinds: []const []const u8,
     revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const KeybindingsChangedEventOrigin = enum {
@@ -11348,13 +11859,21 @@ pub const KeybindingsChangedEventOrigin = enum {
 };
 
 pub const KeybindingsChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     origin: KeybindingsChangedEventOrigin,
     revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const LayoutChangedEvent = struct {
     active_pane: ?Id = null,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     layout: ?Layout = null,
     screen: Id,
@@ -11364,6 +11883,7 @@ pub const LayoutChangedEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "active_pane",
+        "cause",
         "layout",
         "transaction",
         "workspace",
@@ -11371,12 +11891,20 @@ pub const LayoutChangedEvent = struct {
 };
 
 pub const MachineUsageChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     usage: wire.Nullable(MachineUsage),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const NotificationEvent = struct {
     body: []const u8,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     desktop: ?bool = null,
     event: []const u8,
     level: NotificationLevel,
@@ -11387,6 +11915,7 @@ pub const NotificationEvent = struct {
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
         "desktop",
         "reply",
         "source",
@@ -11417,16 +11946,28 @@ pub const OverflowEvent = struct {
 };
 
 pub const PairingRequestedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     code: []const u8,
     event: []const u8,
     expires_in: u64,
     peer: []const u8,
     request: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const PairingResolvedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     request: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const PaneAddedEvent = struct {
@@ -11449,19 +11990,37 @@ pub const PaneClosedEvent = struct {
 
 pub const ParticipantAvatarChangedEvent = struct {
     avatar: wire.Nullable(JsonValue),
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     participant: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const PersonalChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     personal_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const ProgramStatusChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     program_status: wire.Nullable(ShownProgramStatus),
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const RenderDeltaEvent = struct {
@@ -11558,9 +12117,15 @@ pub const ScreenRenamedEvent = struct {
 
 pub const ScrollChangedEvent = struct {
     at_bottom: bool,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     offset: u64,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SettingsChangedEventOrigin = enum {
@@ -11597,39 +12162,68 @@ pub const SettingsChangedEventOrigin = enum {
 };
 
 pub const SettingsChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     keys: []const []const u8,
     origin: SettingsChangedEventOrigin,
     revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SizeStateEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     self_participant: ?[]const u8 = null,
     state: SizeState,
     surface: Id,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
         "self_participant",
     };
 };
 
 pub const StatusEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     message: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SurfaceExitedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SurfaceOutputEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SurfaceResizeFailedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     cols: u16,
     @"error": []const u8,
     event: []const u8,
@@ -11637,14 +12231,24 @@ pub const SurfaceResizeFailedEvent = struct {
     retry_after_ms: wire.Nullable(u64),
     rows: u16,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const SurfaceResizedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     cols: u16,
     event: []const u8,
     reservation_id: wire.Nullable(u64),
     rows: u16,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const TabAddedEvent = struct {
@@ -11708,32 +12312,53 @@ pub const TerminalInputUnclaimedEvent = struct {
 };
 
 pub const TerminalReapedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     grace_ms: u64,
     terminal: wire.Nullable([]const u8),
     terminal_id: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const TerminalRegistryChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     generation: []const u8,
     refetch: []const u8,
     registry_id: []const u8,
     terminal_revision: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const TitleChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     surface: Id,
     title: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
         "title",
     };
 };
 
 pub const TreeChangedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const UrlOpenEvent = struct {
@@ -11761,8 +12386,14 @@ pub const VtStateEvent = struct {
 };
 
 pub const WindowTitleRequestedEvent = struct {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    cause: ?EventCause = null,
     event: []const u8,
     title: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "cause",
+    };
 };
 
 pub const WorkspaceAddedEvent = struct {
@@ -12425,7 +13056,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 308;
+pub const command_count: usize = 319;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12436,6 +13067,17 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "agent-cli-intents-settle", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
     .{ .name = "agent-cli-update-job", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-v1", .stream = null },
     .{ .name = "agent-cli-update-job-resolve", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-resolve-v1", .stream = null },
+    .{ .name = "agent-session-attach", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-cancel", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-children", .authority = "local-admin", .since = 12, .capability = "agent-session-children-v1", .stream = null },
+    .{ .name = "agent-session-detach", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-events", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-media", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-observe", .authority = "local-admin", .since = 12, .capability = "agent-session-observe-v1", .stream = null },
+    .{ .name = "agent-session-permission", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-prompt", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
+    .{ .name = "agent-session-start", .authority = "local-admin", .since = 12, .capability = "agent-session-start-v1", .stream = null },
+    .{ .name = "agent-session-trust", .authority = "local-admin", .since = 12, .capability = "agent-session-trust-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "apps-agent-inventory-changed", .authority = "local-admin", .since = 12, .capability = "agent-cli-app-invalidation-v1", .stream = null },
     .{ .name = "apps-dispatch", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
+/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
 
 
 import type * as T from "./types.js";
@@ -114,6 +114,170 @@ export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
   "idempotency_key": string;
 }
 export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionAttachRequest extends CmuxRequestBase {
+  cmd: "agent-session-attach";
+  /** Records after this seq (oldest first). */
+  "after_seq"?: (bigint) | null;
+  /** Records before this seq (newest first). */
+  "before_seq"?: (bigint) | null;
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
+  "kinds"?: (Array<string>) | null;
+  /** Records per page, clamped to 1..500 (default 200). */
+  "limit"?: (bigint) | null;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionAttachResult = T.AgentSessionPage;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionCancelRequest extends CmuxRequestBase {
+  cmd: "agent-session-cancel";
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionCancelResult = {
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionChildrenRequest extends CmuxRequestBase {
+  cmd: "agent-session-children";
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionChildrenResult = {
+  /** At most 256 summaries and 8 MiB, in acpmux's order. */
+  "sessions": Array<T.AgentSessionSummary>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionDetachRequest extends CmuxRequestBase {
+  cmd: "agent-session-detach";
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionDetachResult = {
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionEventsRequest extends CmuxRequestBase {
+  cmd: "agent-session-events";
+  /** Records after this seq (oldest first). */
+  "after_seq"?: (bigint) | null;
+  /** Records before this seq (newest first). */
+  "before_seq"?: (bigint) | null;
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
+  "kinds"?: (Array<string>) | null;
+  /** Records per page, clamped to 1..500 (default 200). */
+  "limit"?: (bigint) | null;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionEventsResult = T.AgentSessionPage;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionMediaRequest extends CmuxRequestBase {
+  cmd: "agent-session-media";
+  /** An image the session wrote: png, jpg, jpeg, gif or webp, at most 4096 bytes. */
+  "path": string;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionMediaResult = {
+  /** The image bytes in standard base64, at most 10 MiB decoded. */
+  "data": string;
+  /** The image type acpmux reported. */
+  "mimeType": (string) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionObserveRequest extends CmuxRequestBase {
+  cmd: "agent-session-observe";
+  /** Records after this seq (oldest first). */
+  "after_seq"?: (bigint) | null;
+  /** Records before this seq (newest first). */
+  "before_seq"?: (bigint) | null;
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
+  "kinds"?: (Array<string>) | null;
+  /** Records per page, clamped to 1..500 (default 200). */
+  "limit"?: (bigint) | null;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionObserveResult = T.AgentSessionPage;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionPermissionRequest extends CmuxRequestBase {
+  cmd: "agent-session-permission";
+  "answered_by"?: (T.AgentSessionAnsweredBy) | null;
+  /** 64 lowercase hex characters. */
+  "decision_nonce"?: (string) | null;
+  /** The chosen option, 1 to 256 bytes. */
+  "option_id": string;
+  /** A request acpmux announced on this attachment. */
+  "permission_id": string;
+  /** 64 lowercase hex characters: the person's decision proof. */
+  "person_decision"?: (string) | null;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionPermissionResult = T.AgentSessionAcpmuxReply;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionPromptRequest extends CmuxRequestBase {
+  cmd: "agent-session-prompt";
+  /** 1 to 128 letters, digits, '-' or '_'. */
+  "prompt_id": string;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+  /** One text prompt, at most 64 KiB. */
+  "text": string;
+}
+export type AgentSessionPromptResult = {
+  "prompt_id": string;
+  /** acpmux queued the prompt behind a running turn. */
+  "queued": boolean;
+  /** The turn acpmux started or queued, as it answered. */
+  "turn_id": (string) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionStartRequest extends CmuxRequestBase {
+  cmd: "agent-session-start";
+  /** An absolute folder of this machine, at most 4096 bytes. */
+  "cwd": string;
+  /** The agent kind acpmux resolves from its config: 1 to 64 letters, digits, '_', '.' or '-'. */
+  "harness"?: (string) | null;
+  /** The person chose the home folder as the chat's folder. */
+  "home_confirmed"?: boolean;
+  /** The acpmux run the caller holds a person key for: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "person_instance"?: (string) | null;
+  /** Start only when acpmux holds a person key for person_instance (agent-session-start-keyed-reason-v1). */
+  "require_person_key"?: boolean;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionStartResult = {
+  "conversation": T.ConversationTabRecord;
+  /** The new acpmux session, bound to the tab. */
+  "session": string;
+  "surface": T.Id;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentSessionTrustRequest extends CmuxRequestBase {
+  cmd: "agent-session-trust";
+  /** An absolute folder of this machine, at most 4096 bytes, no control characters. */
+  "cwd": string;
+  /** The person chose the home folder as the chat's folder. */
+  "home_confirmed"?: boolean;
+  /** The person's answer; absent reads the folder's trust. unknown forgets the answer. */
+  "level"?: ("trusted" | "untrusted" | "unknown") | null;
+  /** The agent chat tab: an agent_session tab of this daemon's store. */
+  "surface": T.Id;
+}
+export type AgentSessionTrustResult = T.AgentSessionAcpmuxReply;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -3098,6 +3262,17 @@ export type CmuxRequest =
   | AgentCliIntentsSettleRequest
   | AgentCliUpdateJobRequest
   | AgentCliUpdateJobResolveRequest
+  | AgentSessionAttachRequest
+  | AgentSessionCancelRequest
+  | AgentSessionChildrenRequest
+  | AgentSessionDetachRequest
+  | AgentSessionEventsRequest
+  | AgentSessionMediaRequest
+  | AgentSessionObserveRequest
+  | AgentSessionPermissionRequest
+  | AgentSessionPromptRequest
+  | AgentSessionStartRequest
+  | AgentSessionTrustRequest
   | ApplyLayoutRequest
   | AppsAgentInventoryChangedRequest
   | AppsDispatchRequest
@@ -3470,6 +3645,94 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "agent-cli-update-job-resolve-v1";
+    stream: null;
+  };
+  "agent-session-attach": {
+    request: AgentSessionAttachRequest;
+    result: AgentSessionAttachResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-cancel": {
+    request: AgentSessionCancelRequest;
+    result: AgentSessionCancelResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-children": {
+    request: AgentSessionChildrenRequest;
+    result: AgentSessionChildrenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-children-v1";
+    stream: null;
+  };
+  "agent-session-detach": {
+    request: AgentSessionDetachRequest;
+    result: AgentSessionDetachResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-events": {
+    request: AgentSessionEventsRequest;
+    result: AgentSessionEventsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-media": {
+    request: AgentSessionMediaRequest;
+    result: AgentSessionMediaResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-observe": {
+    request: AgentSessionObserveRequest;
+    result: AgentSessionObserveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-observe-v1";
+    stream: null;
+  };
+  "agent-session-permission": {
+    request: AgentSessionPermissionRequest;
+    result: AgentSessionPermissionResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-prompt": {
+    request: AgentSessionPromptRequest;
+    result: AgentSessionPromptResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-attach-v1";
+    stream: null;
+  };
+  "agent-session-start": {
+    request: AgentSessionStartRequest;
+    result: AgentSessionStartResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-start-v1";
+    stream: null;
+  };
+  "agent-session-trust": {
+    request: AgentSessionTrustRequest;
+    result: AgentSessionTrustResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-session-trust-v1";
     stream: null;
   };
   "apply-layout": {

@@ -191,6 +191,8 @@ use deadline_fanout::{
 };
 mod column_move;
 mod dock_columns;
+#[cfg(test)]
+mod event_cause_tests;
 mod event_emit;
 mod exit_settle;
 pub(crate) mod feed_local;

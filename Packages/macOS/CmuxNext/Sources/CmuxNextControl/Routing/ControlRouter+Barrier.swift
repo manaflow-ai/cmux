@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+import enum CmuxNextDaemon.DaemonSettleWait // scoped: CmuxNextDaemon also has a JSONValue, which would make this file's ambiguous
 public import CmuxNextSettings
 
 /// The read barrier every method accepts (plans/cmux-next/state-ownership.md 4.3).

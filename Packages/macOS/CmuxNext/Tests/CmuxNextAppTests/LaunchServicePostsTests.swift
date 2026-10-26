@@ -13,20 +13,22 @@ import Testing
             freeTierAttest: { ran.names.append("FreeTierAttest.start") },
             ssh: { ran.names.append("SSH.start") },
             serverReach: { ran.names.append("ServerReach.start") },
-            updater: { ran.names.append("Updater.start") }
+            updater: { ran.names.append("Updater.start") },
+            emptyWorkspaceRepair: { ran.names.append("EmptyWorkspaceRepair.observe") }
         ).post(on: f.order.startup)
         LaunchServicePosts.laterTabs(
             chromiumWarmup: { ran.names.append("ChromiumWarmup.start") },
             spareHooks: { ran.names.append("NewTabSpares.hooks") },
             spareWarming: { ran.names.append("NewTabSpares.warm") },
             pageHostPool: { ran.names.append("PageHostPool.start") },
-            agentTabImport: { ran.names.append("AgentTabImport.start") }
+            agentTabImport: { ran.names.append("AgentTabImport.start") },
+            rightSidebarIcons: { ran.names.append("RightSidebar.prewarm") }
         ).post(on: f.order.startup)
         f.hand.drain()
         let posted = f.order.startup.log.records.map { ($0.name.description, $0.priority) }
         #expect(posted.map(\.0) == ["SSH.start", "FreeTierAttest.start", "ServerReach.start", "Updater.start",
-                                    "ChromiumWarmup.start", "NewTabSpares.hooks", "NewTabSpares.warm", "PageHostPool.start",
-                                    "AgentTabImport.start"])
+                                    "EmptyWorkspaceRepair.observe", "ChromiumWarmup.start", "NewTabSpares.hooks",
+                                    "NewTabSpares.warm", "PageHostPool.start", "AgentTabImport.start", "RightSidebar.prewarm"])
         let firstFrame: Set<String> = ["SSH.start", "ChromiumWarmup.start", "NewTabSpares.hooks"]
         for (name, priority) in posted {
             #expect(priority == (firstFrame.contains(name) ? StartupPriority.afterFirstFrame : StartupPriority.afterStartup), "\(name)")
@@ -37,10 +39,10 @@ import Testing
         #expect(ran.names == ["SSH.start", "ChromiumWarmup.start", "NewTabSpares.hooks"],
                 "what the person sees soon runs after the first frame, before startup completes")
         f.complete()
-        for _ in 0..<10 { f.fire() }
+        for _ in 0..<12 { f.fire() }
         #expect(ran.names == ["SSH.start", "ChromiumWarmup.start", "NewTabSpares.hooks", "FreeTierAttest.start",
-                              "ServerReach.start", "Updater.start", "NewTabSpares.warm",
-                              "PageHostPool.start", "AgentTabImport.start"],
+                              "ServerReach.start", "Updater.start", "EmptyWorkspaceRepair.observe", "NewTabSpares.warm",
+                              "PageHostPool.start", "AgentTabImport.start", "RightSidebar.prewarm"],
                 "each post ran its one service once, in post order within its priority")
         #expect(f.order.startup.log.records.allSatisfy { $0.durationNanos != nil }, "one record per task, each with its run")
     }

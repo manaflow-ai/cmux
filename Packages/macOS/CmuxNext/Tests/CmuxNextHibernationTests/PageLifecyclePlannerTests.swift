@@ -279,6 +279,19 @@ import Testing
         #expect(checked > Self.corpusSize / 8, "the corpus has too few deadlines to test")
     }
 
+    /// Only a freeze blocker that an event or a setting sets thaws a frozen page; time and the order of
+    /// hides never do (p13-webui-022: the controller reads this, it keeps no list of its own).
+    @Test func onlyEventAndSettingFreezeBlockersThawAFrozenPage() {
+        let thawing = Set(Reason.allCases.filter(\.thawsFrozenPage))
+        #expect(!thawing.contains(.recentlyVisible))
+        #expect(!thawing.contains(.mostRecentlyUsed))
+        #expect(thawing.contains(.loading))
+        #expect(thawing.contains(.audible))
+        #expect(thawing.contains(.freezeOff))
+        #expect(thawing.allSatisfy(\.blocksFreeze))
+        #expect(thawing.isDisjoint(with: Reason.derived.subtracting(Reason.fromSettings)))
+    }
+
     // MARK: Corpus
 
     /// Performs every discard the planner asks for until it asks for none.

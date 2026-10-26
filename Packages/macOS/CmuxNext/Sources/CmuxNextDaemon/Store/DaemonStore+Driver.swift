@@ -181,6 +181,14 @@ struct StoreDriver {
     let connection: DaemonConnection
     let inbox: EventInbox
     let scheduler: any FrameBatchScheduler
+    /// The resync's snapshot read: the connection's, or a test's.
+    let snapshot: @MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64)
+
+    init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler,
+         snapshot: (@MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64))? = nil) {
+        (self.connection, self.inbox, self.scheduler) = (connection, inbox, scheduler)
+        self.snapshot = snapshot ?? { try await connection.snapshot() }
+    }
 }
 
 extension DaemonStore {
@@ -219,6 +227,7 @@ extension DaemonStore {
         resyncRetry?.cancel()
         resyncRetry = nil
         needsResync = false
+        causes.resync = .program
         resyncPacer.reset()
         personalRefetch = PersonalRefetch()
         self.driver = nil
@@ -229,7 +238,10 @@ extension DaemonStore {
     /// and the echo of a person's action with no intent (close other tabs, close a workspace from
     /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
     /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
-    /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
+    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), the unread sum and the
+    /// workspace-list check cost the workspaces that joined, left or changed their own count, and
+    /// the sidebar is flattened only by a batch that changed the order, the membership or a group.
+    /// Each batch is one sample of ``drainCost``.
     func drain() {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
@@ -237,12 +249,19 @@ extension DaemonStore {
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
-        let followup = apply(batch: batch)
+        let (followup, cost) = DrainCost.measured(on: drainClock) { apply(batch: batch) }
+        drainCost.record(cost, events: batch.count)
         if followup == .resync || needsResync {
+            causes.resync = max(causes.resync, batch.lazy.map(\.cause).max() ?? .program)
             resync(seedAgents: connected)
         } else if followup == .personal {
             refetchPersonal()
         }
+    }
+
+    /// Clears ``drainCost`` (`debug.drain_cost` with `reset`).
+    public func resetDrainCost() {
+        drainCost = DrainCost()
     }
 
     /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room
@@ -291,16 +310,19 @@ extension DaemonStore {
         needsResync = false
         resyncRetry?.cancel()
         resyncRetry = nil
+        // Batches that ask for a resync while this one is in flight raise the next one's cause.
+        let cause = causes.resync
+        causes.resync = .program
         driver.inbox.hold()
         // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
             var failed = false
             do {
-                let (tree, barrier) = try await driver.connection.snapshot()
+                let (tree, barrier) = try await driver.snapshot()
                 // The comparison with the last applied snapshot reads the whole tree: off the main
                 // thread. Main applies only what differs (or everything, when the memo cannot vouch).
                 let diff = await snapshotDiff(of: tree)
-                apply(snapshot: tree, diff: diff)
+                withCause(cause) { apply(snapshot: tree, diff: diff) }
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 snapshotCoveredPersonal(through: barrier)
                 advanceAppliedSequence(to: barrier)
@@ -313,6 +335,9 @@ extension DaemonStore {
             isResyncing = false
             if failed {
                 scheduleResyncRetry(seedAgents: seedAgents)
+                // A retry applies what this one would have, with its cause; without one, the batch
+                // that resyncs next names its own.
+                if resyncRetry != nil { causes.resync = max(causes.resync, cause) }
                 // The retry serves them; without one (disconnected or
                 // budget spent) they return now with what the store has.
                 refreshWaiters.insert(contentsOf: refreshing, at: 0)

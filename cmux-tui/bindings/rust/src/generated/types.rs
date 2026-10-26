@@ -1,11 +1,17 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675.
+// cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[rustfmt::skip]
+pub type AgentSessionAcpmuxReply = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionPage = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionSummary = serde_json::Value;
 #[rustfmt::skip]
 pub type Base64 = String;
 #[rustfmt::skip]
@@ -151,6 +157,15 @@ pub enum AgentReportSource {
     Socket,
     #[serde(rename = "hook")]
     Hook,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionAnsweredBy {
+    /// The device the person answered on: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub device: String,
+    /// The feed item the person answered: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub feed_item: String,
 }
 
 #[rustfmt::skip]
@@ -945,6 +960,15 @@ pub enum DetachReason {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventCause {
+    #[serde(rename = "frontend")]
+    Frontend,
+    #[serde(rename = "automation")]
+    Automation,
 }
 
 #[rustfmt::skip]
