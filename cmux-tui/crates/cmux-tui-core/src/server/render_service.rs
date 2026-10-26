@@ -11,7 +11,7 @@ use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
 use super::attach_frames::{
-    AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame,
+    AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame, RefusedAttachFrame,
 };
 use super::terminal_colors_json;
 use super::{write_output_flow_json, write_pending_sequence_json};
@@ -391,7 +391,7 @@ impl RenderService {
         &self,
         encoder: &mut AttachFrameEncoder,
         frame: AttachFrame,
-    ) -> Result<EncodedAttachFrame, AttachFrameError> {
+    ) -> Result<EncodedAttachFrame, RefusedAttachFrame> {
         encoder.encode(frame, &self.outbound_budget)
     }
 

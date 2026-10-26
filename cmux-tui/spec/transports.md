@@ -504,7 +504,9 @@ attach starts at the offset the attach's replay was taken at.
 
 `OUTPUT` offsets are contiguous: each one starts where the previous one
 ended, also across the chunks of a long payload. A reader that sees a gap
-lost bytes and resyncs. A `GRID` meta has `pending_len`, the byte count of
+lost bytes and resyncs. The server does not skip bytes when its outbound
+byte budget is full: it waits and sends the same frame at the same offset,
+as it does for a JSON line. A `GRID` meta has `pending_len`, the byte count of
 the pending sequence at the end of the payload, only for a viewer that
 advertised `terminal-pending-sequence-v1` and only when the sequence is not
 empty. For any other viewer, the pending bytes end the replay, as in its

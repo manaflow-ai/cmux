@@ -9,7 +9,9 @@ use cmux_ipc::{Aux, FrameKind, FrameReader, Message, ReaderLimits};
 use ghostty_vt::{KittyReplayState, Rgb};
 use serde_json::{Value, json};
 
-use super::{AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame};
+use super::{
+    AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame, RefusedAttachFrame,
+};
 use crate::server::render_service::OutboundByteBudget;
 use crate::server::{AttachWireShape, RenderService};
 use crate::{AttachFrame, Mux, Surface, SurfaceOptions, TerminalColors};
@@ -206,25 +208,96 @@ fn the_control_stream_takes_no_attach_frames() {
     ));
 }
 
+fn retained(budget: &OutboundByteBudget) -> usize {
+    budget.retained_bytes.load(std::sync::atomic::Ordering::Acquire)
+}
+
+fn expect_refused(
+    encoded: Result<EncodedAttachFrame, RefusedAttachFrame>,
+    why: &str,
+) -> RefusedAttachFrame {
+    match encoded {
+        Ok(encoded) => panic!("{why}: encoded a {:?} frame", encoded.frame.header().kind()),
+        Err(refused) => refused,
+    }
+}
+
+fn would_block(error: &AttachFrameError) -> bool {
+    matches!(error, AttachFrameError::Write(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+}
+
+/// A frame the budget refuses comes back whole with the offset unchanged;
+/// encoded again once the budget has room, it keeps its own offset, so the
+/// OUTPUT after it starts where its bytes end.
 #[test]
-fn frames_hold_their_budget_and_a_refused_frame_leaves_no_gap() {
+fn frames_hold_their_budget_and_a_refused_frame_comes_back_at_its_offset() {
     let budget = Arc::new(OutboundByteBudget::new(64));
     let mut encoder =
         AttachFrameEncoder::new(STREAM, SURFACE, AttachWireShape::default(), 0).unwrap();
     let held = encoder.encode(AttachFrame::Output(vec![b'a'; 40]), &budget).unwrap();
-    assert_eq!(budget.retained_bytes.load(std::sync::atomic::Ordering::Acquire), 40);
-    let refused = encoder.encode(AttachFrame::Output(vec![b'b'; 40]), &budget);
-    assert!(matches!(&refused, Err(AttachFrameError::Write(error))
-        if error.kind() == std::io::ErrorKind::WouldBlock));
+    assert_eq!(retained(&budget), 40);
+    let refused = expect_refused(
+        encoder.encode(AttachFrame::Output(vec![b'b'; 40]), &budget),
+        "40 more bytes overflow a 64 byte budget",
+    );
+    assert!(would_block(&refused.error), "{:?}", refused.error);
+    assert_eq!(*refused.frame, AttachFrame::Output(vec![b'b'; 40]), "the refused bytes come back");
     assert_eq!(encoder.offset(), 40, "a refused output must not move the offset");
+    assert_eq!(retained(&budget), 40, "a refused frame holds no budget");
     drop(held);
-    assert_eq!(budget.retained_bytes.load(std::sync::atomic::Ordering::Acquire), 0);
+    assert_eq!(retained(&budget), 0);
+
+    let retried = encoder.encode(*refused.frame, &budget).unwrap();
+    assert_eq!(retried.frame.offset(), Some(40));
+    assert_eq!(&retried.frame.payload()[..], &[b'b'; 40][..]);
+    drop(retried);
     let next = encoder.encode(AttachFrame::Output(vec![b'c'; 40]), &budget).unwrap();
-    assert_eq!(next.frame.offset(), Some(40));
-    let grid = encoder.encode(resized(Some(colors()), b"\xce"), &budget);
-    assert!(grid.is_err(), "a GRID over the budget is refused");
+    assert_eq!(next.frame.offset(), Some(80), "the bytes after the retried frame follow it");
+    assert_eq!(encoder.offset(), 120);
+
+    let grid = expect_refused(
+        encoder.encode(resized(Some(colors()), b"\xce"), &budget),
+        "a GRID over the budget is refused",
+    );
+    assert!(would_block(&grid.error), "{:?}", grid.error);
+    assert_eq!(*grid.frame, resized(Some(colors()), b"\xce"), "the refused GRID comes back");
     drop(next);
-    assert_eq!(budget.retained_bytes.load(std::sync::atomic::Ordering::Acquire), 0);
+    assert_eq!(retained(&budget), 0);
+}
+
+/// Output whose sidecar EVENT does not fit keeps its bytes: the OUTPUT is
+/// not sent without the colors of the same parser transition.
+#[test]
+fn a_refused_sidecar_hands_back_the_output_bytes() {
+    let budget = Arc::new(OutboundByteBudget::new(64));
+    let mut encoder =
+        AttachFrameEncoder::new(STREAM, SURFACE, AttachWireShape::default(), 5).unwrap();
+    let frame = AttachFrame::OutputWithColors { output: b"x".to_vec(), colors: colors(), flow: 9 };
+    let refused = expect_refused(encoder.encode(frame.clone(), &budget), "the sidecar overflows");
+    assert!(would_block(&refused.error), "{:?}", refused.error);
+    assert_eq!(*refused.frame, frame);
+    assert_eq!(encoder.offset(), 5);
+    assert_eq!(retained(&budget), 0, "nothing of the refused frame stays charged");
+}
+
+/// `Bytes::from(Vec)` keeps the whole allocation, so an OUTPUT holds the
+/// tap buffer's capacity, not its length, until it drops (the tap charges
+/// its pending buffers the same way, surface/attach_tap.rs).
+#[test]
+fn output_frames_charge_the_capacity_they_hold() {
+    let budget = Arc::new(OutboundByteBudget::new(1024));
+    let mut encoder =
+        AttachFrameEncoder::new(STREAM, SURFACE, AttachWireShape::default(), 0).unwrap();
+    let mut output = Vec::with_capacity(64);
+    output.extend_from_slice(&[b'o'; 40]);
+    let capacity = output.capacity();
+    assert!(capacity >= 64);
+    let encoded = encoder.encode(AttachFrame::Output(output), &budget).unwrap();
+    assert_eq!(encoded.frame.payload().len(), 40);
+    assert_eq!(retained(&budget), capacity);
+    assert_eq!(encoder.offset(), 40, "the offset counts bytes, not capacity");
+    drop(encoded);
+    assert_eq!(retained(&budget), 0);
 }
 
 /// 10k PTY output chunks of a real terminal through its attach tap: every

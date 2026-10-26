@@ -19,6 +19,9 @@
 //! The offsets of consecutive OUTPUT frames are contiguous, so a reader that
 //! sees a gap knows it lost bytes (Chrome's cc::BeginFrameArgs carry a
 //! sequence number for the same reason, cc/scheduler/begin_frame_source.cc).
+//! An attach frame the outbound budget refuses comes back whole in a
+//! [`RefusedAttachFrame`] with the offset unchanged, so the writer waits and
+//! encodes it again at the same offset, as it retries a JSON line.
 //! Long payloads are cut by the connection's `LaneWriter`, which keeps the
 //! OUTPUT offsets contiguous across chunks (cmux-ipc/src/lane_writer.rs).
 //! Decoding the frames gives back the JSON events byte for byte; only the
@@ -77,6 +80,32 @@ impl From<BadMessage> for AttachFrameError {
     }
 }
 
+/// An [`AttachFrame`] that was not encoded, handed back so the writer can
+/// encode it again once the budget has room: the offset did not move.
+#[derive(Debug)]
+pub(super) struct RefusedAttachFrame {
+    pub(super) frame: Box<AttachFrame>,
+    pub(super) error: AttachFrameError,
+}
+
+impl std::fmt::Display for RefusedAttachFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for RefusedAttachFrame {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+impl From<RefusedAttachFrame> for std::io::Error {
+    fn from(refused: RefusedAttachFrame) -> Self {
+        refused.error.into()
+    }
+}
+
 impl From<AttachFrameError> for std::io::Error {
     fn from(error: AttachFrameError) -> Self {
         match error {
@@ -92,7 +121,7 @@ impl From<AttachFrameError> for std::io::Error {
 }
 
 /// A frame payload charged to an outbound byte budget until it drops, as a
-/// `BudgetedText` is for a JSON line.
+/// `BudgetedText` is for a JSON line: by the capacity of its allocation.
 pub(super) struct BudgetedBytes {
     bytes: bytes::Bytes,
     retained_bytes: usize,
@@ -100,12 +129,15 @@ pub(super) struct BudgetedBytes {
 }
 
 impl BudgetedBytes {
-    /// Charges a buffer that already exists (PTY output, not copied).
-    fn charge(bytes: bytes::Bytes, budget: &Arc<OutboundByteBudget>) -> std::io::Result<Self> {
-        let retained_bytes = bytes.len();
+    /// Takes a buffer that already exists (PTY output, not copied) once its
+    /// capacity is charged; a refused buffer stays in `vec`. `Bytes::from`
+    /// keeps the whole allocation, so the capacity is what the queue holds.
+    fn take_vec(vec: &mut Vec<u8>, budget: &Arc<OutboundByteBudget>) -> std::io::Result<Self> {
+        let retained_bytes = vec.capacity();
         if !budget.try_retain(retained_bytes) {
             return Err(budget_overflow());
         }
+        let bytes = std::mem::take(vec).into();
         Ok(Self { bytes, retained_bytes, budget: budget.clone() })
     }
 
@@ -232,24 +264,23 @@ impl AttachFrameEncoder {
     }
 
     /// The frames of `frame`. The offset advances only when every frame of
-    /// it was encoded, so a refused frame leaves no gap.
+    /// it was encoded; a refused frame comes back whole, to be encoded again
+    /// at the same offset, so the reader never sees a gap over lost bytes.
     pub(super) fn encode(
         &mut self,
-        frame: AttachFrame,
+        mut frame: AttachFrame,
         budget: &Arc<OutboundByteBudget>,
-    ) -> Result<EncodedAttachFrame, AttachFrameError> {
-        match frame {
-            AttachFrame::Output(output) => self.output(output.into(), None, 0, budget),
-            AttachFrame::FlowOutput { output, flow } => {
-                self.output(output.into(), None, flow, budget)
-            }
+    ) -> Result<EncodedAttachFrame, RefusedAttachFrame> {
+        let encoded = match &mut frame {
+            AttachFrame::Output(output) => self.output(output, None, 0, budget),
+            AttachFrame::FlowOutput { output, flow } => self.output(output, None, *flow, budget),
             AttachFrame::OutputWithColors { output, colors, flow } => {
-                self.output(output.into(), Some(&colors), flow, budget)
+                self.output(output, Some(colors), *flow, budget)
             }
             AttachFrame::ColorsChanged(colors) => {
                 let (surface, shape) = (self.surface, self.shape);
                 self.json_event(self.offset, budget, |writer| {
-                    write_colors_changed_json(writer, surface, &colors, shape)
+                    write_colors_changed_json(writer, surface, colors, shape)
                 })
                 .map(EncodedAttachFrame::single)
             }
@@ -263,13 +294,13 @@ impl AttachFrameEncoder {
             } => self
                 .grid(
                     &AttachResize {
-                        cols,
-                        rows,
-                        replay: &replay,
-                        kitty_image_aliases: &kitty_image_aliases,
-                        kitty_state,
+                        cols: *cols,
+                        rows: *rows,
+                        replay,
+                        kitty_image_aliases,
+                        kitty_state: *kitty_state,
                         colors: None,
-                        pending_sequence: &pending_sequence,
+                        pending_sequence,
                     },
                     budget,
                 )
@@ -285,18 +316,19 @@ impl AttachFrameEncoder {
             } => self
                 .grid(
                     &AttachResize {
-                        cols,
-                        rows,
-                        replay: &replay,
-                        kitty_image_aliases: &kitty_image_aliases,
-                        kitty_state,
-                        colors: Some(&colors),
-                        pending_sequence: &pending_sequence,
+                        cols: *cols,
+                        rows: *rows,
+                        replay,
+                        kitty_image_aliases,
+                        kitty_state: *kitty_state,
+                        colors: Some(colors),
+                        pending_sequence,
                     },
                     budget,
                 )
                 .map(EncodedAttachFrame::single),
-        }
+        };
+        encoded.map_err(|error| RefusedAttachFrame { frame: Box::new(frame), error })
     }
 
     /// Another attach event (`detached`, `overflow`) as an EVENT frame at
@@ -311,17 +343,18 @@ impl AttachFrameEncoder {
         })
     }
 
+    /// Takes the tap's buffer out of `output` only once every frame of it is
+    /// encoded; on an error `output` is untouched.
     fn output(
         &mut self,
-        bytes: bytes::Bytes,
+        output: &mut Vec<u8>,
         colors: Option<&TerminalColors>,
         flow: u64,
         budget: &Arc<OutboundByteBudget>,
     ) -> Result<EncodedAttachFrame, AttachFrameError> {
         let start = self.offset;
-        let len = bytes.len();
+        let len = output.len();
         let header = self.header(FrameKind::Output, len, start)?;
-        let frame = BudgetedFrame::new(header, BudgetedBytes::charge(bytes, budget)?)?;
         let sidecar = if colors.is_some() || flow != 0 {
             let (surface, shape) = (self.surface, self.shape);
             Some(self.json_event(start, budget, |writer| {
@@ -332,6 +365,8 @@ impl AttachFrameEncoder {
         } else {
             None
         };
+        // The header was made from `len`, so the frame is complete.
+        let frame = BudgetedFrame { header, payload: BudgetedBytes::take_vec(output, budget)? };
         self.offset = start.saturating_add(u64::try_from(len).unwrap_or(u64::MAX));
         Ok(EncodedAttachFrame { frame, sidecar })
     }
