@@ -41,6 +41,9 @@ extension MainWorkScheduler {
         var turnQueued = false
         /// Owner names interned on the board once each, so a post on main takes no lock after the first.
         var owners: [String: MainTaskOwner] = [:]
+        /// Owner names interned on ``MainWorkScheduler/observations`` once each, so an observer built on main
+        /// takes the ledger's lock only for a name's first instance.
+        var observationOwners: [String: ObservationLedger.Owner] = [:]
         var hiddenWake: HiddenWake?
     }
 
@@ -125,6 +128,15 @@ extension MainWorkScheduler {
     /// Posted work of `workClass` not run yet, held by the launch or not (`debug.main_budget`, tests).
     public func postedCount(_ workClass: BudgetedWorkClass) -> Int {
         posting.queues.first { $0.workClass == workClass.workClass }?.count ?? 0
+    }
+
+    /// `name` interned on ``observations``, once per scheduler: an observer kind made per visible node (a tab
+    /// title, a row) takes the ledger's lock once for its name, never per instance.
+    public func observationOwner(_ name: String) -> ObservationLedger.Owner {
+        if let owner = posting.observationOwners[name] { return owner }
+        let owner = observations.owner(name)
+        posting.observationOwners[name] = owner
+        return owner
     }
 
     // MARK: Internals

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextOracle
@@ -8,7 +9,8 @@ import Testing
 
 /// The app's oracle facet list (p15-oracle-030): AppServices builds it with at most one provider per
 /// facet, and `debug.oracle.snapshot` over it lists every facet and answers each facet that has no
-/// provider yet as not-comparable with its task. Run: `swift test --filter AppOracleHostTests`.
+/// provider yet as not-comparable with its task; the invariants facet (p15-oracle-033) is the desync check.
+/// Run: `swift test --filter AppOracleHostTests`.
 @MainActor @Suite(.serialized) struct AppOracleHostTests {
     @MainActor final class Executor: ControlActionExecutor {
         func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { .ran }
@@ -37,6 +39,46 @@ import Testing
                               "task": .string(facet.task)] as JSONValue)
         })
         #expect(reply == .object(answers))
+    }
+
+    /// p15-oracle-033: the invariants facet runs the check `debug.desync` runs, in the snapshot's turn.
+    @Test func theInvariantsFacetRunsTheDesyncCheck() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let monitor = try #require(services.input.monitor)
+        let before = monitor.checks
+        let snapshot = try #require(try services.makeOracleFacets().beginCapture([.invariants]).completed)
+        let invariants = try #require(snapshot["invariants"])
+        #expect(invariants["checks"] == OracleValue(before + 1))
+        let ids = (monitor.lastResult?.violations ?? []).map { OracleValue.string($0.invariant.rawValue) }
+        #expect(invariants["violations"] == .array(ids))
+        #expect(invariants["windowInvariants"] == .array(WindowInvariants.problems(services.windows).map(OracleValue.string)))
+    }
+
+    /// p15-oracle-032: the registry's perform-turn observer is the app's one turn recorder, and the
+    /// `debug.oracle.*` methods AppControl registers read that same recorder, so a turn of the app's
+    /// registry shows in `debug.oracle.turns`.
+    @Test func theAppRegistryReportsItsTurnsToTheRecorderTheRouterReads() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        #expect(services.registry.turnObserver === services.oracleTurns)
+
+        let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
+                                   executor: Executor(), configuration: .init(requestDeadline: .seconds(30)))
+        router.register(services.oracleControlMethods(snapshots: router.snapshots))
+        let armed = try await router.handle(ControlRequest(id: "1", method: OracleRecorderControl.recorder,
+                                                           params: ["arm": true, "facets": ["topology"]])).get()
+        let after = try #require(armed["checkpoint"]?["sequence"]?.intValue)
+
+        services.registry.register(Action(id: "test.oracle.turn", title: "Turn") {})
+        #expect(services.registry.perform("test.oracle.turn", invocation: ActionInvocation(origin: .cli)))
+
+        let turns = try await router.handle(ControlRequest(id: "2", method: OracleRecorderControl.turns,
+                                                           params: ["after": .number(Double(after))])).get()
+        let checkpoints = try #require(turns["checkpoints"]?.arrayValue)
+        #expect(checkpoints.map { $0["label"] } == ["test.oracle.turn"])
+        #expect(checkpoints.first?["kind"] == "turn")
+        #expect(checkpoints.first?["origin"] == "cli")
     }
 }
 #endif

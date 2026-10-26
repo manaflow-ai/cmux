@@ -9,7 +9,7 @@ public import WebKit
 /// `TaskManagerInterface` (chrome/browser/task_manager/task_manager_interface.h): one row per
 /// process with the tabs, extensions and spare renderers it hosts. DEBUG and bench builds only.
 ///
-/// The census is a value read on the main actor (``init(pages:registry:newTabSpare:spareWindow:browserTabs:rendererProcess:webKitPID:)``);
+/// The census is a value read on the main actor (``init(pages:registry:newTabSpare:spareWindows:browserTabs:rendererProcess:webKitPID:)``);
 /// the helper list is read off it and joined in ``report(listing:)``.
 ///
 /// JSON keys of the reply:
@@ -33,14 +33,15 @@ public import WebKit
 ///     native script pushes (theme, glass, document attributes) while hidden. Both count from the
 ///     page's start or the last `reset`.
 /// - `spares`: spares that are no page view, each `{spare, state, renderer_clients, renderer_pids,
-///   webkit_pid}`: `cef_window`, the Chromium spare window (its `state` is `none`, `creating`,
-///   `live`, `taken` or `closed`; its renderer is its about:blank placeholder's), and `new_tab`, a
-///   New Tab spare with no page view (`state` null, its `webkit_pid`).
+///   webkit_pid}`: `cef_window` and `cef_pages_window`, the Chromium spare windows of the default
+///   and the cmux pages profile (each `state` is `none`, `creating`, `live`, `taken` or `closed`;
+///   its renderer is its about:blank placeholder's), and `new_tab`, a New Tab spare with no page
+///   view (`state` null, its `webkit_pid`).
 /// - `browser_tabs`: `{tab, renderer_clients, renderer_pids}` per Chromium browser tab.
 /// - `processes`: one per Chromium helper process: `{pid, kind, renderer_client_id, hosts}`. `kind`
 ///   is `renderer`, `extension_renderer`, `gpu`, `network`, `utility` or `other`;
 ///   `renderer_client_id` is null but for `renderer`; `hosts` names what the renderer runs
-///   (`page:<id>#<instance>`, `spare:cef_window`, `browser_tab:<id>`), empty when nothing known does.
+///   (`page:<id>#<instance>`, `spare:cef_window`, `spare:cef_pages_window`, `browser_tab:<id>`), empty when nothing known does.
 nonisolated public struct WebUICensus: Sendable {
     /// One Chromium helper process.
     nonisolated public struct Helper: Sendable, Equatable {
@@ -103,12 +104,12 @@ nonisolated public struct WebUICensus: Sendable {
     ///   - pages: The live page views (``WebUIHost/registry``'s ``PageRegistry/pages(id:)``).
     ///   - registry: Their registry, for each page's instance number.
     ///   - newTabSpare: The web view of the parked New Tab page, if one is parked.
-    ///   - spareWindow: The Chromium spare window, nil without Chromium.
+    ///   - spareWindows: The Chromium spare windows, one per kind; empty without Chromium.
     ///   - browserTabs: The Chromium browser tabs, with their renderer clients.
     ///   - rendererProcess: A Chromium page's browser id and renderer client ids.
     ///   - webKitPID: A WebKit view's WebContent pid, nil when WebKit does not say.
     @MainActor
-    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: WKWebView?, spareWindow: Host?,
+    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: WKWebView?, spareWindows: [Host],
                 browserTabs: [Host], rendererProcess: @MainActor (any PageChromiumPage) -> (browserID: Int32?, clients: [Int32]),
                 webKitPID: @MainActor (WKWebView) -> Int32?) {
         var newTabSpareSeen = false
@@ -130,7 +131,7 @@ nonisolated public struct WebUICensus: Sendable {
                         rendererClients: process?.clients ?? [],
                         webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
         }
-        var spares = spareWindow.map { [$0] } ?? []
+        var spares = spareWindows
         if let newTabSpare, !newTabSpareSeen { spares.append(Host(name: "new_tab", webKitPID: webKitPID(newTabSpare))) }
         self.spares = spares
         self.browserTabs = browserTabs

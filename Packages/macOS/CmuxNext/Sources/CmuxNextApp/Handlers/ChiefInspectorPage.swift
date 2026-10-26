@@ -87,8 +87,10 @@ final class ChiefInspectorPageService: InternalPageProvider {
     /// Ten minutes hidden: the page only reads, and a new page asks the brain again.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// The discard closed the page with its view; the tab keeps its server.
-    func viewDiscarded(_ key: String) { pages[key] = nil }
+    /// The page ends with its view; the tab keeps its server.
+    func viewDiscarded(_ key: String) {
+        if let page = pages.removeValue(forKey: key) { services?.webUI.close(page) }
+    }
 }
 
 /// `cmux.chief_inspector.get {path, query}`: one read-only inspector call,

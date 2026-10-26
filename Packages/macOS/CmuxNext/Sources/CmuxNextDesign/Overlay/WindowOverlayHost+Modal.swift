@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 
 extension WindowOverlayHost {
     // MARK: Modal
@@ -104,23 +105,30 @@ extension WindowOverlayHost {
     }
 
     /// Escape reaches the panel only while it is key (a modal overlay). For
-    /// a non-modal overlay that dismisses on Escape, a local key monitor
-    /// lives while such an overlay shows and catches an Escape for any of the
+    /// a non-modal overlay that dismisses on Escape, a tap intercept lives
+    /// while such an overlay shows and catches an Escape for any of the
     /// app's windows; it goes with the last such overlay. It also lives while
     /// a modal shows: when its window took the keyboard back (the app came
-    /// back to the front), the modal still answers an Escape there.
-    func updateEscapeMonitor() {
+    /// back to the front), the modal still answers an Escape there. Its order,
+    /// ``InputEventTap/InterceptOrder/modal``, puts it before every popup's.
+    func updateEscapeIntercept() {
         let wanted = handles.contains { $0.options.dismissOnEscape || $0.options.isModal }
-        if wanted, escapeMonitor == nil {
-            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.keyCode == 53, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-                      self.routeEscape(event, in: event.window) else { return event }
-                return nil
+        if wanted, escapeIntercept == nil, let tap = requiredInputTap(inputTap, owner: "WindowOverlayHost.escape") {
+            escapeIntercept = tap.subscribe(class: .key, phase: .intercept(order: .modal),
+                                            while: { [weak self] in self?.handles.isEmpty == false }) { [weak self] event in
+                self?.escapeEvent(event) ?? .pass
             }
-        } else if !wanted, let monitor = escapeMonitor {
-            NSEvent.removeMonitor(monitor)
-            escapeMonitor = nil
+        } else if !wanted {
+            escapeIntercept = nil
         }
+    }
+
+    /// One key event of the Escape intercept: a plain Escape key down an overlay took is consumed.
+    func escapeEvent(_ event: NSEvent) -> InputEventTap.InterceptResult {
+        guard event.type == .keyDown, event.keyCode == 53,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+              routeEscape(event, in: event.window) else { return .pass }
+        return .consume
     }
 
     /// Tab inside the newest modal overlay: the next (or previous) control, wrapping.

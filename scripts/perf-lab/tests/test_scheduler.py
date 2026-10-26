@@ -55,7 +55,10 @@ STORIES = (
     scheduler.StorySpec("t2-soak", "T2", 1800, "bench"),
     scheduler.StorySpec("linux-diff", "linux", 900, "release"),
 )
-SHARD_MAP = scheduler.ShardMap.from_document(gen.generate(STORIES))
+# The fixture lab: its bench class is an M2 Pro (BENCH), a host class of its own, so unlike the real cmux20-bench
+# (gen_shard_map.LAYOUT) it runs T1 too.
+LAYOUT = {**gen.LAYOUT, "cmux20-bench": {"shards": 1, "tiers": ("T1", "T2")}}
+SHARD_MAP = scheduler.ShardMap.from_document(gen.generate(STORIES, LAYOUT))
 
 
 def ACCEPT(plan):
@@ -157,7 +160,7 @@ class ShardMapTests(unittest.TestCase):
 
     def test_every_sharded_story_has_one_owner_per_class_of_its_tier(self):
         for story in STORIES:
-            for lab_class, spec in gen.LAYOUT.items():
+            for lab_class, spec in LAYOUT.items():
                 owners = [i for i, shard in enumerate(SHARD_MAP.shards(lab_class))
                           if story.id in shard.get(story.tier, ())]
                 expected = 1 if story.tier in spec["tiers"] else 0
@@ -170,17 +173,17 @@ class ShardMapTests(unittest.TestCase):
 
     def test_a_shard_over_its_tier_interval_is_flagged(self):
         heavy = STORIES + tuple(scheduler.StorySpec(f"t1-heavy-{i}", "T1", 1800, "bench") for i in range(4))
-        lines = gen.overloads(gen.generate(heavy))
+        lines = gen.overloads(gen.generate(heavy, LAYOUT))
         self.assertEqual([line.split(":")[0] for line in lines], ["aws-m4pro/0", "cmux20-bench/0"])
         self.assertTrue(all("T1 takes 8400 s" in line for line in lines))
-        self.assertEqual(gen.overloads(gen.generate(STORIES)), [])
+        self.assertEqual(gen.overloads(gen.generate(STORIES, LAYOUT)), [])
         with tempfile.TemporaryDirectory() as tmp:
             original = gen.catalog_stories
             gen.catalog_stories = lambda _root: heavy
             try:
                 err = io.StringIO()
                 gen.run("shard-map", argparse.Namespace(root=Path(tmp), check=True), io.StringIO(), err)
-                self.assertIn("warning: cmux20-bench/0: T1 takes 8400 s", err.getvalue())
+                self.assertIn("warning: aws-m4pro/0: T1 takes 8400 s", err.getvalue())  # gen.LAYOUT: bench runs no T1
             finally:
                 gen.catalog_stories = original
 
@@ -588,7 +591,7 @@ class LowerWorkTests(unittest.TestCase):
 
     def test_an_overloaded_t1_shard_still_runs_t2_and_its_daily_aa(self):
         heavy = STORIES + tuple(scheduler.StorySpec(f"t1-heavy-{i}", "T1", 1800, "bench") for i in range(4))
-        shard_map = scheduler.ShardMap.from_document(gen.generate(heavy))
+        shard_map = scheduler.ShardMap.from_document(gen.generate(heavy, LAYOUT))
         load = sum(s.seconds for s in heavy if s.tier == "T1")
         self.assertGreater(load, scheduler.T1_INTERVAL.total_seconds())  # bench holds all T1: 8400 s > 7200 s
         sim = Sim(merges_per_hour=6, stories=heavy, shard_map=shard_map)
@@ -848,7 +851,11 @@ class StateAndDriverTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             output = json.loads(done.stdout)
             self.assertEqual(output["cut"], 1)
-            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, {"wf-a"})
+            # Each m6 shard that the checkout's shard map gives a T0 story runs a T0 job on its host.
+            shards = json.loads((LAB / "shard_map.json").read_text())["classes"]["m6"]["shards"]
+            t0_hosts = {("wf-a", "wf-b")[s["index"]] for s in shards if s["stories"].get("T0")}
+            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, t0_hosts)
+            self.assertEqual(t0_hosts, {"wf-a", "wf-b"})
             self.assertTrue(state.is_file())
 
 

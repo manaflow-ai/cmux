@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
+pub const ir_sha256 = "22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -18,6 +18,104 @@ pub const ActivitySnapshot = struct {
 
 pub const ActivitySubscribeResult = struct {
     activity: ActivitySnapshot,
+};
+
+pub const AgentCLIIntent = struct {
+    cli: []const u8,
+    key: []const u8,
+    machine: []const u8,
+    profiles: []const []const u8,
+    root_key: []const u8,
+    session: []const u8,
+};
+
+pub const AgentCLIJobPath = struct {
+    kind: []const u8,
+    pane_id: []const u8,
+    screen_id: []const u8,
+    tab_id: []const u8,
+    terminal_id: []const u8,
+    workspace_id: []const u8,
+};
+
+pub const AgentCLIJobReceipt = struct {
+    cli: []const u8,
+    machine: []const u8,
+    path: AgentCLIJobPath,
+    replayed: bool,
+    revision: []const u8,
+    session: []const u8,
+};
+
+pub const AgentCLIJobResolutionCreated = struct {
+    receipt: AgentCLIJobReceipt,
+};
+
+pub const AgentCLIJobResolutionFailed = struct {
+    code: []const u8,
+};
+
+pub const AgentCLIJobResolutionIndeterminate = struct {};
+
+pub const AgentCLIJobResolutionNotFound = struct {};
+
+pub const AgentCLIJobResolutionPending = struct {};
+
+pub const AgentCLIJobResolutionPrepared = struct {};
+
+pub const AgentCLIJobResolution = union(enum) {
+    created: AgentCLIJobResolutionCreated,
+    failed: AgentCLIJobResolutionFailed,
+    indeterminate: AgentCLIJobResolutionIndeterminate,
+    not_found: AgentCLIJobResolutionNotFound,
+    pending: AgentCLIJobResolutionPending,
+    prepared: AgentCLIJobResolutionPrepared,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .created => |payload| try wire.encodeTagged(allocator, "state", "created", payload),
+            .failed => |payload| try wire.encodeTagged(allocator, "state", "failed", payload),
+            .indeterminate => |payload| try wire.encodeTagged(allocator, "state", "indeterminate", payload),
+            .not_found => |payload| try wire.encodeTagged(allocator, "state", "not_found", payload),
+            .pending => |payload| try wire.encodeTagged(allocator, "state", "pending", payload),
+            .prepared => |payload| try wire.encodeTagged(allocator, "state", "prepared", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "state");
+        if (std.mem.eql(u8, tag_value, "created")) {
+            return .{ .created = try wire.decodeLeaky(AgentCLIJobResolutionCreated, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "failed")) {
+            return .{ .failed = try wire.decodeLeaky(AgentCLIJobResolutionFailed, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "indeterminate")) {
+            return .{ .indeterminate = try wire.decodeLeaky(AgentCLIJobResolutionIndeterminate, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "not_found")) {
+            return .{ .not_found = try wire.decodeLeaky(AgentCLIJobResolutionNotFound, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "pending")) {
+            return .{ .pending = try wire.decodeLeaky(AgentCLIJobResolutionPending, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "prepared")) {
+            return .{ .prepared = try wire.decodeLeaky(AgentCLIJobResolutionPrepared, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
+pub const AgentCLIStoredIntent = struct {
+    cli: []const u8,
+    key: []const u8,
+    machine: []const u8,
+    profiles: []const []const u8,
+    receipt: wire.Nullable(AgentCLIJobReceipt),
+    root_key: []const u8,
+    session: []const u8,
 };
 
 pub const AgentPresenceActivity = enum {
@@ -1977,7 +2075,17 @@ pub const ServerStatsSlowRequest = struct {
     client: u64,
     duration_ms: wire.Nullable(u64),
     method: []const u8,
+    stack: []const ServerStatsSlowRequestFrame,
+    stack_error: wire.Nullable([]const u8),
+    stack_truncated: bool,
     started_ms: u64,
+};
+
+pub const ServerStatsSlowRequestFrame = struct {
+    image: wire.Nullable([]const u8),
+    image_id: wire.Nullable([]const u8),
+    offset: u64,
+    symbol: wire.Nullable([]const u8),
 };
 
 pub const ServerStatsSlowRequests = struct {
@@ -3292,6 +3400,145 @@ pub fn addTabsToTabGroup(client: anytype, request: AddTabsToTabGroupRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliIntentsAttachRequest = struct {
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+    key: []const u8,
+    receipt: AgentCLIJobReceipt,
+};
+
+pub const AgentCliIntentsAttachResult = struct {
+    changed: bool,
+    intent: AgentCLIStoredIntent,
+};
+
+pub fn agentCliIntentsAttach(client: anytype, request: AgentCliIntentsAttachRequest) !wire.Decoded(AgentCliIntentsAttachResult) {
+    return client.callTyped(
+        AgentCliIntentsAttachResult,
+        .{
+            .name = "agent-cli-intents-attach",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-intents-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliIntentsListRequest = struct {
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+};
+
+pub const AgentCliIntentsListResult = struct {
+    intents: []const AgentCLIStoredIntent,
+};
+
+pub fn agentCliIntentsList(client: anytype, request: AgentCliIntentsListRequest) !wire.Decoded(AgentCliIntentsListResult) {
+    return client.callTyped(
+        AgentCliIntentsListResult,
+        .{
+            .name = "agent-cli-intents-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-intents-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliIntentsRecordRequest = struct {
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+    intents: []const AgentCLIIntent,
+};
+
+pub const AgentCliIntentsRecordResult = struct {
+    changed: bool,
+    intents: []const AgentCLIStoredIntent,
+};
+
+pub fn agentCliIntentsRecord(client: anytype, request: AgentCliIntentsRecordRequest) !wire.Decoded(AgentCliIntentsRecordResult) {
+    return client.callTyped(
+        AgentCliIntentsRecordResult,
+        .{
+            .name = "agent-cli-intents-record",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-intents-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliIntentsSettleRequest = struct {
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+    keys: []const []const u8,
+};
+
+pub const AgentCliIntentsSettleResult = struct {
+    changed: bool,
+    intents: []const AgentCLIStoredIntent,
+};
+
+pub fn agentCliIntentsSettle(client: anytype, request: AgentCliIntentsSettleRequest) !wire.Decoded(AgentCliIntentsSettleResult) {
+    return client.callTyped(
+        AgentCliIntentsSettleResult,
+        .{
+            .name = "agent-cli-intents-settle",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-intents-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliUpdateJobRequest = struct {
+    cli: []const u8,
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+    idempotency_key: []const u8,
+};
+
+pub const AgentCliUpdateJobResult = AgentCLIJobReceipt;
+
+pub fn agentCliUpdateJob(client: anytype, request: AgentCliUpdateJobRequest) !wire.Decoded(AgentCliUpdateJobResult) {
+    return client.callTyped(
+        AgentCliUpdateJobResult,
+        .{
+            .name = "agent-cli-update-job",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-update-job-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentCliUpdateJobResolveRequest = struct {
+    cli: []const u8,
+    expected_machine_id: []const u8,
+    expected_session_id: []const u8,
+    idempotency_key: []const u8,
+};
+
+pub const AgentCliUpdateJobResolveResult = AgentCLIJobResolution;
+
+pub fn agentCliUpdateJobResolve(client: anytype, request: AgentCliUpdateJobResolveRequest) !wire.Decoded(AgentCliUpdateJobResolveResult) {
+    return client.callTyped(
+        AgentCliUpdateJobResolveResult,
+        .{
+            .name = "agent-cli-update-job-resolve",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-update-job-resolve-v1",
         },
         request,
     );
@@ -9471,6 +9718,64 @@ pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequ
     );
 }
 
+pub const TraceStartRequest = struct {
+    categories: wire.Field([]const []const u8) = .absent,
+    keys: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keys",
+    };
+};
+
+pub const TraceStartResult = wire.Value;
+
+pub fn traceStart(client: anytype, request: TraceStartRequest) !wire.Decoded(TraceStartResult) {
+    return client.callTyped(
+        TraceStartResult,
+        .{
+            .name = "trace-start",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TraceStatusRequest = struct {};
+
+pub const TraceStatusResult = wire.Value;
+
+pub fn traceStatus(client: anytype, request: TraceStatusRequest) !wire.Decoded(TraceStatusResult) {
+    return client.callTyped(
+        TraceStatusResult,
+        .{
+            .name = "trace-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TraceStopRequest = struct {};
+
+pub const TraceStopResult = wire.Value;
+
+pub fn traceStop(client: anytype, request: TraceStopRequest) !wire.Decoded(TraceStopResult) {
+    return client.callTyped(
+        TraceStopResult,
+        .{
+            .name = "trace-stop",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -11593,11 +11898,17 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 285;
+pub const command_count: usize = 294;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "agent-cli-intents-attach", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
+    .{ .name = "agent-cli-intents-list", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
+    .{ .name = "agent-cli-intents-record", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
+    .{ .name = "agent-cli-intents-settle", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
+    .{ .name = "agent-cli-update-job", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-v1", .stream = null },
+    .{ .name = "agent-cli-update-job-resolve", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-resolve-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
@@ -11856,6 +12167,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
+    .{ .name = "trace-start", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "trace-status", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "trace-stop", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

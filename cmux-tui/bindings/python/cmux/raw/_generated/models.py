@@ -358,6 +358,89 @@ class ActivitySubscribeResult:
 
 
 @dataclass(frozen=True)
+class AgentCLIIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobPath:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobPath'
+    terminal_id: str
+    kind: Literal['terminal']
+    pane_id: str
+    screen_id: str
+    tab_id: str
+    workspace_id: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobReceipt:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobReceipt'
+    cli: str
+    machine: str
+    path: AgentCLIJobPath
+    replayed: bool
+    revision: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionCreated:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/created'
+    receipt: AgentCLIJobReceipt
+    state: Literal['created']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionFailed:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/failed'
+    code: str
+    state: Literal['failed']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionIndeterminate:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/indeterminate'
+    state: Literal['indeterminate']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionNotFound:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/not_found'
+    state: Literal['not_found']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPending:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/pending'
+    state: Literal['pending']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPrepared:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/prepared'
+    state: Literal['prepared']
+
+
+@dataclass(frozen=True)
+class AgentCLIStoredIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIStoredIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    receipt: Union[AgentCLIJobReceipt, None]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -1618,7 +1701,19 @@ class ServerStatsSlowRequest:
     busy_ms: int
     duration_ms: Union[int, None]
     method: str
+    stack: List[ServerStatsSlowRequestFrame]
+    stack_error: Union[str, None]
+    stack_truncated: bool
     started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequestFrame:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequestFrame'
+    image: Union[str, None]
+    image_id: Union[str, None]
+    offset: int
+    symbol: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -2238,6 +2333,83 @@ class AddTabsToTabGroupRequest:
     group: str
     surfaces: List[TabRef]
     transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsAttachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/request'
+    expected_machine_id: str
+    expected_session_id: str
+    key: str
+    receipt: AgentCLIJobReceipt
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsAttachResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/result'
+    changed: bool
+    intent: AgentCLIStoredIntent
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/request'
+    expected_machine_id: str
+    expected_session_id: str
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/result'
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/request'
+    expected_machine_id: str
+    expected_session_id: str
+    intents: List[AgentCLIIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/request'
+    expected_machine_id: str
+    expected_session_id: str
+    keys: List[str]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job-resolve/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
 
 
 @dataclass(frozen=True)
@@ -4831,6 +5003,26 @@ class TerminalResumeCommandRequest:
 
 
 @dataclass(frozen=True)
+class TraceStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-start/request'
+    categories: Union[List[str], None, MissingType] = field(default=MISSING)
+    keys: Union[bool, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TraceStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class TraceStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-stop/request'
+    pass
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -5994,6 +6186,7 @@ class WorkspaceRenamedEvent(EventBase):
 
 
 # Named protocol aliases.
+AgentCLIJobResolution = Union[AgentCLIJobResolutionCreated, AgentCLIJobResolutionFailed, AgentCLIJobResolutionIndeterminate, AgentCLIJobResolutionNotFound, AgentCLIJobResolutionPending, AgentCLIJobResolutionPrepared]
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
@@ -6055,6 +6248,16 @@ __all__ = [
     'ViewAttachmentOutcome',
     'ActivitySnapshot',
     'ActivitySubscribeResult',
+    'AgentCLIIntent',
+    'AgentCLIJobPath',
+    'AgentCLIJobReceipt',
+    'AgentCLIJobResolutionCreated',
+    'AgentCLIJobResolutionFailed',
+    'AgentCLIJobResolutionIndeterminate',
+    'AgentCLIJobResolutionNotFound',
+    'AgentCLIJobResolutionPending',
+    'AgentCLIJobResolutionPrepared',
+    'AgentCLIStoredIntent',
     'AgentRecord',
     'AgentSessionSource',
     'AppliedPane',
@@ -6179,6 +6382,7 @@ __all__ = [
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsSlowRequest',
+    'ServerStatsSlowRequestFrame',
     'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
@@ -6244,6 +6448,16 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AgentCliIntentsAttachRequest',
+    'AgentCliIntentsAttachResult',
+    'AgentCliIntentsListRequest',
+    'AgentCliIntentsListResult',
+    'AgentCliIntentsRecordRequest',
+    'AgentCliIntentsRecordResult',
+    'AgentCliIntentsSettleRequest',
+    'AgentCliIntentsSettleResult',
+    'AgentCliUpdateJobRequest',
+    'AgentCliUpdateJobResolveRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
@@ -6550,6 +6764,9 @@ __all__ = [
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
+    'TraceStartRequest',
+    'TraceStatusRequest',
+    'TraceStopRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
@@ -6663,6 +6880,7 @@ __all__ = [
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
+    'AgentCLIJobResolution',
     'Base64',
     'ColorHex',
     'DeclarativeLayout',

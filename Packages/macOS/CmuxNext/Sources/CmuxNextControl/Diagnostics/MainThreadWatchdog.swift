@@ -46,18 +46,19 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
-        /// The debug assertion is useful for interactive launches, but a
-        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
-        /// enough to preserve its watchdog evidence after reporting a hang.
+        /// The debug assertion is useful for interactive launches, but an
+        /// isolated diagnostic or bench launch (``LaunchIsolation/isolated``)
+        /// must stay alive long enough to preserve its watchdog evidence after
+        /// reporting a hang.
         public static var defaultHangAssertThreshold: Duration? {
             hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
-                                noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
+                                isolatedLaunch: LaunchIsolation(environment: ProcessInfo.processInfo.environment).isolated)
         }
 
         /// Policy seam kept explicit so diagnostic-launch behavior is tested
         /// without mutating the process environment.
-        public static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
-            debugBuild && !noActivate ? .seconds(10) : nil
+        public static func hangAssertThreshold(debugBuild: Bool, isolatedLaunch: Bool) -> Duration? {
+            debugBuild && !isolatedLaunch ? .seconds(10) : nil
         }
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
@@ -105,6 +106,9 @@ public final class MainThreadWatchdog: Sendable {
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
     let mainTurnSink = Mutex<(@Sendable (UInt64, UInt64) -> Void)?>(nil)
+    public let turnHistogram = MainTurnHistogram(), inputQueueHistogram = MainTurnHistogram() // +MainTurns, MainTurnHistogram
+    /// The newest input event time counted in ``inputQueueHistogram`` (ns of uptime; main thread writes): a re-sent event is no newer.
+    let newestQueuedInputNanos = Atomic<UInt64>(0)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])

@@ -44,6 +44,12 @@ public:
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsAttachResult> agent_cli_intents_attach(const AgentCliIntentsAttachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsListResult> agent_cli_intents_list(const AgentCliIntentsListRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsRecordResult> agent_cli_intents_record(const AgentCliIntentsRecordRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliIntentsSettleResult> agent_cli_intents_settle(const AgentCliIntentsSettleRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliJobReceipt> agent_cli_update_job(const AgentCliUpdateJobRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentCliJobResolution> agent_cli_update_job_resolve(const AgentCliUpdateJobResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
@@ -302,6 +308,9 @@ public:
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResumeCommandResult> terminal_resume_command(const TerminalResumeCommandRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TraceStartResult> trace_start(const TraceStartRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TraceStatusResult> trace_status(const TraceStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TraceStopResult> trace_stop(const TraceStopRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_screen_group(const UngroupScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<UngroupTabGroupResult> ungroup_tab_group(const UngroupTabGroupRequest& request, RequestOptions options = {});

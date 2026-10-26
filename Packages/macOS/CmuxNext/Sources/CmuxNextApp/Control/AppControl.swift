@@ -8,6 +8,8 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
+import CmuxNextInputDiagnostics
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -92,6 +94,7 @@ final class AppControl {
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
+        registerOracleSettle(service.router, services: services)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
@@ -144,6 +147,8 @@ final class AppControl {
             }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
+            // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
+            ObservationsControl(ledger: services.observations).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
             // owners fold off it.
@@ -215,10 +220,7 @@ final class AppControl {
                 return .value(DebugHome.delivery(services: services))
             },
             // Room, workspace and terminal theme scopes.
-            .mainActor("debug.themes") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugThemes.report(services: services))
-            },
+            .mainActor("debug.themes") { [weak services] _ in .value(services.map { DebugThemes.report(services: $0) } ?? .null) },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -266,10 +268,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursor.report(call.params, services: services))
             },
-            .mainActor("debug.screens") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugScreens.report(services: services))
-            },
+            .mainActor("debug.screens") { [weak services] _ in .value(services.map { DebugScreens.report(services: $0) } ?? .null) },
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
@@ -353,6 +352,15 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
+            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            ShippingModeReport { @MainActor [weak services] in
+                guard let services else { return nil }
+                let hangReports = await AppProcessRoot.shared.hangReports?.shippingModeState(setting: services.settings?.snapshot.hangReports)
+                return ShippingModeReport.State(drawsWhenOccluded: WindowDrawPolicy.drawsWhenOccluded,
+                                                pagesRenderWhenCovered: PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment),
+                                                sentryShouldStart: services.crashReporting.reporter.policy.shouldStart,
+                                                hangReports: hangReports ?? .init(available: false, setting: nil, decision: nil, enabled: false))
+            }.method,
             .async("debug.palette.capture") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugPaletteCapture.capture(call.params, services: services)

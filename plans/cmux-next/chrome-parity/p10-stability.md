@@ -1543,7 +1543,7 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 
 #### p10-stability-146 Chromium host kind in child-crash-e2e (F2)
 - Files: scripts/cmux-next/child-crash-e2e.py
-- Change: Kind `host`: with browserHost.helperPrototype on, SIGKILL the host and navigate to
+- Change: Kind `host`: with browserHost.helper on, SIGKILL the host and navigate to
   chrome://inducebrowsercrashforrealz; cmux stays up, pages show the crash page and reload after restart.
 - Acceptance: Skips with a clear reason when the build lacks the host. Test: `child-crash-e2e.py --only host`.
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -92,5 +93,60 @@ final class HomePageTab: InternalPageProvider {
     static func open(_ services: AppServices, focus: Bool) -> Bool {
         if services.pages.provider(.homeTab) == nil { services.pages.register(HomePageTab(services: services)) }
         return services.pages.openNew(.homeTab, in: services.windows.active, focus: focus) != nil
+    }
+}
+
+// MARK: A Home tab's or dock's view state (`memoryDiscardInternalPages`)
+
+extension TopHomePageView {
+    /// What this page shows that Home's store does not keep: the shown conversation and its open
+    /// thread, the list's search and scroll, and the New Message page (each conversation's draft
+    /// and transcript stay in the store). A Home tab or dock whose view was discarded gives it to
+    /// its next view.
+    struct ViewState: Equatable {
+        var shown: ConversationID?
+        /// The message whose thread branch the transcript has open.
+        var thread: String?
+        /// The list's search text.
+        var search = ""
+        /// Where the list was scrolled to.
+        var listScroll = CGPoint.zero
+        /// The New Message page's draft, nil when there is none or it is empty.
+        var newMessage: HomeNewMessageView.Saved?
+        /// The New Message page is the one on screen.
+        var composing = false
+    }
+
+    var viewState: ViewState {
+        ViewState(shown: shown, thread: host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage, search: list.searchQuery,
+                  listScroll: list.scrollOrigin, newMessage: newMessage.flatMap { $0.isEmpty ? nil : $0.saved },
+                  composing: isComposingNewMessage)
+    }
+
+    /// Shows `state` on this new page: its conversation and thread, the list's search and scroll
+    /// (once the rows are in), and a kept New Message draft with its row, on screen when it was.
+    /// Showing a tab again is not the person choosing it: the keyboard moves only when nothing
+    /// holds it, as `show(_:)` does.
+    func restore(_ state: ViewState) {
+        let keyboardFree = window?.firstResponder == nil || window?.firstResponder === window
+        if !state.search.isEmpty { list.setSearch(state.search) }
+        if state.listScroll != .zero {
+            pendingListScroll = state.listScroll
+            applyPendingListScroll()
+        }
+        if let shown = state.shown { show(HomeDockSelection(conversation: shown.rawValue, message: state.thread)) }
+        guard let saved = state.newMessage else { return }
+        presentNewMessage(focus: false)
+        guard let page = newMessage else { return }
+        page.restore(saved)
+        if state.composing {
+            if keyboardFree { focusPrimaryInput() }
+            return
+        }
+        // Kept with its row while the conversation shows, as after the person left it.
+        page.isHidden = true
+        host?.isHidden = false
+        split.composing = false
+        list.select(state.shown)
     }
 }

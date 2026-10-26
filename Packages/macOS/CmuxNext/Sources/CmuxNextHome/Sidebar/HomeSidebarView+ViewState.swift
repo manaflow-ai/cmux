@@ -1,25 +1,17 @@
 public import AppKit
-import MessagesLabSidebar
 
-/// The list's view state that no store keeps: what the person searched for and where they
-/// scrolled. A Home view made again after a discard puts both back (`memoryDiscardInternalPages`).
+/// What a discarded Home records of its list and puts back when it is built again
+/// (p07-memory-023): the search the person typed and where the list was scrolled.
 extension HomeSidebarView {
-    /// The search field's text. Setting it searches as typing does, and the header opens the
-    /// search when it holds text.
-    public var searchText: String {
-        get { list.searchQuery }
-        set {
-            list.search(newValue)
-            list.headerView.needsLayout = true
-        }
-    }
+    /// The search field's text.
+    public var searchQuery: String { list.searchQuery }
 
-    /// Where the list is scrolled to: the top-left of what shows.
-    public var scrollOrigin: CGPoint {
-        get { list.scrollView.documentVisibleRect.origin }
-        set {
-            list.scrollView.contentView.scroll(to: newValue)
-            list.scrollView.reflectScrolledClipView(list.scrollView.contentView)
-        }
-    }
+    /// Shows `query` in the search field and filters the list by it, as typed.
+    public func setSearch(_ query: String) { list.setSearch(query) }
+
+    /// The list's visible origin (its scroll position).
+    public var scrollOrigin: CGPoint { list.scrollView.contentView.bounds.origin }
+
+    /// Scrolls the list to `origin`, clamped to its content.
+    public func scroll(to origin: CGPoint) { list.scrollView.documentView?.scroll(origin) }
 }

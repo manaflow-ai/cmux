@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333'
+IR_SHA256 = '22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc'
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,86 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'surfaces': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-attach': CommandMetadata(
+        'agent-cli-intents-attach',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-list': CommandMetadata(
+        'agent-cli-intents-list',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-record': CommandMetadata(
+        'agent-cli-intents-record',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'intents': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-settle': CommandMetadata(
+        'agent-cli-intents-settle',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'keys': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job': CommandMetadata(
+        'agent-cli-update-job',
+        'local-admin',
+        12,
+        'agent-cli-update-job-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job-resolve': CommandMetadata(
+        'agent-cli-update-job-resolve',
+        'local-admin',
+        12,
+        'agent-cli-update-job-resolve-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
         },
     ),
     'apply-layout': CommandMetadata(
@@ -3543,6 +3623,38 @@ COMMANDS = {
             'command': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'trace-start': CommandMetadata(
+        'trace-start',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'categories': CommandFieldMetadata(None, None),
+            'keys': CommandFieldMetadata(None, None),
+        },
+    ),
+    'trace-status': CommandMetadata(
+        'trace-status',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'trace-stop': CommandMetadata(
+        'trace-stop',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'undo-layout': CommandMetadata(

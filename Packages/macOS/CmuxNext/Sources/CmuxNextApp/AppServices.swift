@@ -21,6 +21,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextKeepAwake
+import CmuxNextLaunch
 import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
@@ -62,15 +63,15 @@ final class AppServices {
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
     let crashReporting: AppCrashReporting
-    /// The local daemon. Cloud machines are in `machines`; code acting on a
-    /// workspace, pane, or tab resolves its daemon through `machines`.
-    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    /// The local daemon (a build with the sidebar document orders rows from it only: placement-shift-v1). Cloud machines
+    /// are in `machines`; code acting on a workspace, pane, or tab resolves its daemon through `machines`.
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
+    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -118,14 +119,22 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The refactor oracle's turn checkpoints (`debug.oracle.turns`): the registry's perform-turn observer.
+    /// Release builds have none, and their registry has no observer.
+    let oracleTurns = OracleActionTurns()
+    #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
     let wireStats: DaemonWireStats?
+    /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is
+    /// built. It is the main-thread scheduler's one ledger, so every `VisibleObservation` records into it too.
+    var observations: ObservationLedger { mainWork.observations }
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
-    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
-    let openPanel = MadeAheadOpenPanel()
+    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+") and agent page WebKit warm-up.
+    let openPanel = MadeAheadOpenPanel(), agentPageWarmup = AgentPageWarmup()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
@@ -142,7 +151,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, waitDeadlines: mainWork.wakeUps), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -344,7 +353,7 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
-    private(set) lazy var uiInspector = UIInspectorController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(services: self, tap: inputTap)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or
@@ -445,8 +454,8 @@ final class AppServices {
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
     /// The one owner of hover cards in the app: at most one card, ever
-    /// (plans/cmux-next/hovercards.md).
-    let hoverCards = HoverCardCoordinator()
+    /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
+    let hoverCards: HoverCardCoordinator
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -457,6 +466,8 @@ final class AppServices {
     let traceBlackBox: TraceBlackBoxFileSteps?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
+    let launchImageHold: LaunchImageHold
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -486,7 +497,8 @@ final class AppServices {
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap()) {
+         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
+         launchImageHold: LaunchImageHold = LaunchImageHold()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -494,10 +506,15 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
+        hoverCards = HoverCardCoordinator(input: inputTap)
+        (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), turnObserver: oracleTurns)
+        #else
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
@@ -611,7 +628,7 @@ final class AppServices {
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
-        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }

@@ -22,6 +22,8 @@ final class TabContentCache {
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
+    var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -32,8 +34,8 @@ final class TabContentCache {
     /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
-    /// Hibernates hidden pages (time, memory pressure) and restores them.
-    var hibernation: BrowserHibernation?
+    var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
+    weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
@@ -154,7 +156,7 @@ final class TabContentCache {
          resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
         self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
@@ -517,6 +519,16 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// The window it presents in, if any.
+    var presentingWindow: NSWindow? { get }
+}
+
+extension SurfacePresenter {
+    var presentingWindow: NSWindow? { nil }
+}
+
+extension PaneController {
+    var presentingWindow: NSWindow? { view.window }
 }
 
 struct WeakPresenter {

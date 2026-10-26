@@ -15,7 +15,7 @@ enum StatsPageTab {
         let services = context.services
         // at launch, so a restored tab finds it; one request line per call to this app's acpmux,
         // and no acpmux answers unavailable.
-        // Each page asks acpmux again when it opens: a discarded page loses nothing.
+        // Each page asks acpmux again when it opens: a released page loses nothing.
         services.pages.register(WebPageTab(.stats, symbol: "chart.bar.xaxis", title: StatsPageProvider.title,
                                            discardPolicy: .standard) { [weak services] in
             let socket = services.flatMap(QuitAgents.environment)?.socketPath

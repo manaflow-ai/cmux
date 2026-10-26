@@ -16,16 +16,22 @@ import Testing
 /// channels Home, the Home tab and the docked Home declare their discard policy and keep reasons,
 /// and a Home whose view was discarded shows what it showed again. Each discard runs as the page
 /// store runs it (InternalPageTabStore+Show): the provider hears `viewDiscarded`, the tab's next
-/// show makes a view, then `restoreViewState` gives it its state.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
-struct InternalPageDiscardPolicyCoverageTestsBatch4 {
+/// show makes a view, then `restoreViewState` gives it its state. Part of the shared coverage suite.
+extension InternalPageDiscardPolicyCoverageTests {
     static let conversation = ConversationID("conv_discard_round_trip")
     static let typed = "Lunch at noon?"
     static let recipient = HomeRecipient.address(.email("ada@example.com"))
 
-    /// The batch's pages, as the app registers them at launch.
-    static let batchFour: [InternalPageID] = [ChiefViewsPageTab.page, .chiefUsage, .chiefMemory, .chiefInspector, .homeChannels,
-                                              .homeTab, .homeDock]
+    /// Each page of the batch and the source that declares its policy (as ``batchOne``).
+    static let batchFour: [(page: InternalPageID, source: String, declaration: String)] = [
+        (ChiefViewsPageTab.page, "Sources/CmuxNextApp/Pages/ChiefViewsPageTab.swift", "discardPolicy: discardPolicy"),
+        (.chiefUsage, "Sources/CmuxNextApp/Pages/ChiefUsagePage.swift", "discardPolicy: discardPolicy"),
+        (.chiefMemory, "Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift", "func discardPolicy(for key: String)"),
+        (.chiefInspector, "Sources/CmuxNextApp/Handlers/ChiefInspectorPage.swift", "func discardPolicy(for key: String)"),
+        (.homeChannels, "Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift", "func discardPolicy(for key: String)"),
+        (.homeTab, "Sources/CmuxNextApp/TopPages/HomePageTab.swift", "func discardPolicy(for key: String)"),
+        (.homeDock, "Sources/CmuxNextApp/Home/HomeDockTab.swift", "func discardPolicy(for key: String)"),
+    ]
 
     /// To: Ada, with text in the blank page's box.
     static var written: HomeNewMessageView.Saved {
@@ -34,7 +40,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
         return HomeNewMessageView.Saved(recipients: recipients, text: typed)
     }
 
-    static func services() -> AppServices {
+    static func homeServices() -> AppServices {
         _ = NSApplication.shared
         return AppServices(environment: AppEnvironment.current([:]))
     }
@@ -68,16 +74,19 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
 
     // MARK: Explicit policy per ID
 
-    /// Each page of the batch registers at launch with its policy. A WebPageTab cannot leave its
-    /// policy out (its init has no default); a provider class states its own.
-    @Test func everyRegisteredPageOfTheBatchDeclaresItsPolicy() {
-        let services = Self.services()
+    /// Each page of the batch registers at launch and answers ten minutes hidden. The protocol's
+    /// default is never (fail closed) and a WebPageTab's init has no default, so a page that leaves
+    /// its policy out fails here.
+    @Test func everyRegisteredPageOfBatchFourDeclaresItsPolicy() throws {
+        let services = Self.homeServices()
         AppActions.bind(services)
-        for page in Self.batchFour {
-            let provider = services.pages.provider(page)
-            #expect(provider != nil, "\(page.rawValue) registers at launch")
-            #expect(provider?.discardPolicy(for: "batch4") == .standard, "\(page.rawValue): ten minutes hidden")
-            #expect(provider?.keepReasons(for: "batch4").isEmpty == true, "\(page.rawValue): no view, nothing keeps it")
+        for entry in Self.batchFour {
+            let provider = services.pages.provider(entry.page)
+            #expect(provider != nil, "\(entry.page.rawValue) registers at launch")
+            #expect(provider?.discardPolicy(for: "batch4") == .standard, "\(entry.page.rawValue): ten minutes hidden")
+            #expect(provider?.keepReasons(for: "batch4").isEmpty == true, "\(entry.page.rawValue): no view, nothing keeps it")
+            let source = try String(contentsOf: Self.packageRoot.appending(path: entry.source), encoding: .utf8)
+            #expect(source.contains(entry.declaration), "\(entry.page.rawValue) chose its policy in \(entry.source)")
         }
         #expect(services.pages.provider(.homeChannels) is HomeChannelsPageTab)
     }
@@ -97,8 +106,8 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
         }
     }
 
-    @Test func aDockThatOnceShowedChannelsIsKeptOnlyWhileItsComposersHoldInput() async throws {
-        let services = Self.services()
+    @Test func aDockIsKeptOnlyWhileItsChannelsComposersHoldInput() async throws {
+        let services = Self.homeServices()
         let provider = HomeDockTab(services: services)
         let dock = try #require(provider.makeView(for: "dock", in: nil) as? HomeDockView)
         let context = PageCallContext(page: PageDescriptor.homeChannels.id)
@@ -112,7 +121,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
     // MARK: chiefMemory
 
     @Test func theMemoryInspectorKeepsItsViewWhileAnEditIsOpen() throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let service = ChiefMemoryPageService(services: services)
         _ = service.makeView(for: "memory", in: nil)
         let model = try #require(service.model(for: "memory"))
@@ -126,7 +135,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
 
     /// The model searches again on its first reload (ChiefMemoryInspectorModelTests has the hits).
     @Test func aRebuiltMemoryInspectorOpensOnItsNodesAndSearch() throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let service = ChiefMemoryPageService(services: services)
         _ = service.makeView(for: "memory", in: nil)
         try #require(service.model(for: "memory")).restore(trail: ["0+8", "0+3"], query: "deploy", searched: true)
@@ -146,7 +155,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
     /// A rebuilt tab asks the server its first view used, never the one a later open named for
     /// another tab.
     @Test func aRebuiltInspectorTabKeepsItsServer() throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let service = ChiefInspectorPageService(services: services)
         _ = service.makeView(for: "restored", in: nil)
         #expect(service.machine(ofTab: "restored") == nil, "a tab restored at launch waits for the first serving server")
@@ -167,13 +176,13 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
 
     @Test(arguments: [true, false])
     func aRebuiltHomeTabShowsItsConversationSearchAndNewMessageDraft(composing: Bool) throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let provider = HomePageTab(services: services)
         let before = try #require(provider.makeView(for: "home", in: nil) as? TopHomePageView)
         let (window, _) = Self.host(before)
         defer { window.orderOut(nil) }
         try Self.writeNewMessage(on: before, composing: composing)
-        before.list.searchText = "ada"
+        before.list.setSearch("ada")
         let state = before.viewState
         #expect(state.shown == Self.conversation)
         #expect(state.search == "ada")
@@ -199,7 +208,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
     /// stays there. With nothing holding it, the restored New Message takes it, as a show does.
     @Test(arguments: [true, false])
     func aRestoredNewMessageTakesTheKeyboardOnlyWhenNothingHoldsIt(elsewhereHasIt: Bool) throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let provider = HomePageTab(services: services)
         let before = try #require(provider.makeView(for: "home", in: nil) as? TopHomePageView)
         let (old, _) = Self.host(before)
@@ -228,7 +237,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
         // Its own Chief home, so the Home store's cache is this test's, never a real Chief's.
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("discard-dm-\(UUID().uuidString)", isDirectory: true)
         let (services, home) = HomeChiefHostedSettingsTests.withChiefHome(root) {
-            let made = Self.services()
+            let made = Self.homeServices()
             return (made, made.home)
         }
         let me = home.homeSource.me
@@ -263,7 +272,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
     // MARK: homeDock
 
     @Test func aRebuiltDockShowsItsMessagesDraftAgain() throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         let provider = HomeDockTab(services: services)
         let before = try #require(provider.makeView(for: "dock", in: nil) as? HomeDockView)
         let (window, _) = Self.host(before)
@@ -295,7 +304,7 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
     /// A Home action with no `conversation` (CLI, socket, an agent) acts on the conversation the
     /// dock shows, also while the hidden dock's view is discarded.
     @Test func aGroupActionWithoutAConversationFindsTheDiscardedDocksConversation() throws {
-        let services = Self.services()
+        let services = Self.homeServices()
         try #require(!services.home.dock.isClassic, "the docked Home is the default")
         AppActions.bind(services)
         Self.seedHomeDock(services)
@@ -304,11 +313,11 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
         let key = services.pages.storeKey(of: tab.id) ?? tab.id
         let dock = try #require(provider.makeView(for: key, in: nil) as? HomeDockView)
         dock.messages?.show(Self.conversation)
-        #expect(HomeDockTab.homeConversation(services) == Self.conversation)
+        #expect(AppActions.shownConversation(services) == Self.conversation)
 
         provider.viewDiscarded(key)
         #expect(HomeDockTab.view(services) == nil, "the dock's view is gone")
-        #expect(HomeDockTab.homeConversation(services) == Self.conversation, "the tab still stands for its conversation")
+        #expect(AppActions.shownConversation(services) == Self.conversation, "the tab still stands for its conversation")
         let refusal = services.registry.capturingRefusal {
             _ = services.registry.perform("home.muteConversation", invocation: ActionInvocation(origin: .script))
         }

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333.
+// cmux-tui mux protocol 12, IR 22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -41,6 +41,89 @@ pub struct AddTabsToTabGroupRequest {
 
 #[rustfmt::skip]
 pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub key: String,
+    pub receipt: T::AgentCLIJobReceipt,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachResult {
+    pub changed: bool,
+    pub intent: T::AgentCLIStoredIntent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListResult {
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub intents: Vec<T::AgentCLIIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub keys: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResult = T::AgentCLIJobReceipt;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobResolveRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3783,6 +3866,36 @@ pub struct TerminalResumeCommandRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStartRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub categories: Optional<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keys: Option<bool>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+pub type TraceStartResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type TraceStatusResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStopRequest {
+}
+
+#[rustfmt::skip]
+pub type TraceStopResult = serde_json::Value;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UndoLayoutRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4123,6 +4236,30 @@ impl CmuxClient {
 
     pub fn add_tabs_to_tab_group(&mut self, request: AddTabsToTabGroupRequest) -> Result<AddTabsToTabGroupResult> {
         self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_attach(&mut self, request: AgentCliIntentsAttachRequest) -> Result<AgentCliIntentsAttachResult> {
+        self.execute(&AGENT_CLI_INTENTS_ATTACH_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_list(&mut self, request: AgentCliIntentsListRequest) -> Result<AgentCliIntentsListResult> {
+        self.execute(&AGENT_CLI_INTENTS_LIST_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_record(&mut self, request: AgentCliIntentsRecordRequest) -> Result<AgentCliIntentsRecordResult> {
+        self.execute(&AGENT_CLI_INTENTS_RECORD_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_settle(&mut self, request: AgentCliIntentsSettleRequest) -> Result<AgentCliIntentsSettleResult> {
+        self.execute(&AGENT_CLI_INTENTS_SETTLE_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job(&mut self, request: AgentCliUpdateJobRequest) -> Result<AgentCliUpdateJobResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job_resolve(&mut self, request: AgentCliUpdateJobResolveRequest) -> Result<AgentCliUpdateJobResolveResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
     }
 
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
@@ -5637,6 +5774,18 @@ impl CmuxClient {
 
     pub fn terminal_resume_command(&mut self, request: TerminalResumeCommandRequest) -> Result<T::TerminalResumeCommandResult> {
         self.execute(&TERMINAL_RESUME_COMMAND_METADATA, &request)
+    }
+
+    pub fn trace_start(&mut self, request: TraceStartRequest) -> Result<TraceStartResult> {
+        self.execute(&TRACE_START_METADATA, &request)
+    }
+
+    pub fn trace_status(&mut self, request: TraceStatusRequest) -> Result<TraceStatusResult> {
+        self.execute(&TRACE_STATUS_METADATA, &request)
+    }
+
+    pub fn trace_stop(&mut self, request: TraceStopRequest) -> Result<TraceStopResult> {
+        self.execute(&TRACE_STOP_METADATA, &request)
     }
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {

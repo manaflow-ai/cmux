@@ -43,10 +43,10 @@ final class HomeChannelsPageTab: InternalPageProvider {
     /// stays (Chrome's `kFormInteractions`, discard_eligibility_policy.cc).
     func keepReasons(for key: String) -> [CannotDiscardReason] { inputs[key]?.keepReasons ?? [] }
 
-    /// The discard closed the page with its view; the tab's next show makes a new one.
+    /// The page ends with its view; the tab's next show makes a new one.
     func viewDiscarded(_ key: String) {
         inputs[key] = nil
-        pages[key] = nil
+        if let page = pages.removeValue(forKey: key) { services?.webUI.close(page) }
     }
 
     /// Tab `key`'s input report, while its page exists.

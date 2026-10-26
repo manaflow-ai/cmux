@@ -284,6 +284,7 @@ pub(crate) fn new_surface_with_resource_identity(
     let latest_nav = Arc::new(Mutex::new(None));
     let latest_authority = Arc::new(Mutex::new(None));
     let frame_epoch = Arc::new(FrameEpoch::default());
+    let provider_waiters = mux.upgrade().map(|mux| mux.browser_provider_registry());
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
     #[cfg(test)]
@@ -346,6 +347,7 @@ pub(crate) fn new_surface_with_resource_identity(
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
+        provider_waiters,
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
         command_tx: Arc::new(Mutex::new(Some(command_tx))),

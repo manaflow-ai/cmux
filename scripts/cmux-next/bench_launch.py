@@ -98,6 +98,66 @@ def load_by_path(name, path):
 # process's search path, not a switch.
 bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
+# The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
+# stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
+# with these opt-ins; hang reports also need ``seed_hang_report_consent`` and the setting on), and
+# CMUX_NEXT_NO_ACTIVATE gives way to CMUX_NEXT_ISOLATED_LAUNCH: the app may activate (``BenchApp.activate``) and
+# stays an isolated launch (LaunchIsolation: the fixed test window frame, no `cmux` shim pointer, no global hot keys,
+# no relaunch at login, no browser import offer, no Debug hang assertion).
+SHIPPING_DRAW_KEY = "CMUX_NEXT_BENCH_SHIPPING_DRAW"
+ISOLATED_LAUNCH_KEY = "CMUX_NEXT_ISOLATED_LAUNCH"
+SHIPPING_ENV = {SHIPPING_DRAW_KEY: "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1",
+                ISOLATED_LAUNCH_KEY: "1"}
+# HangReportsController.consentKey: this Mac's consent record, the person's own yes in a user's app. A bench tag's
+# defaults domain gets one so its hang reports send (``seed_hang_report_consent``).
+HANG_REPORT_CONSENT_KEY = "cmux.next.hangReports.consentedAt"
+
+
+def shipping_env(draw=True):
+    """BenchApp's `env` for the shipping measurement mode; `draw=False` keeps the automation draw of occluded windows
+    (only a Debug build has one), for an on/off comparison."""
+    env = {**SHIPPING_ENV, "CMUX_NEXT_NO_ACTIVATE": None}
+    if not draw:
+        del env[SHIPPING_DRAW_KEY]
+    return env
+
+
+def defaults_path():
+    """`/usr/bin/defaults`; BENCH_LAUNCH_DEFAULTS replaces it (tests only)."""
+    return os.environ.get("BENCH_LAUNCH_DEFAULTS") or "/usr/bin/defaults"
+
+
+def seed_hang_report_consent(app, now=None):
+    """Writes the hang report consent record (HANG_REPORT_CONSENT_KEY, a date) into the defaults domain of `app`'s
+    bundle id, as the person's Send Hang Reports does in a user's app. With `diagnostics.hangReports` on in the config,
+    the launch then sends instead of putting up the confirm card. Only a tagged bench bundle's own domain is written.
+    Returns "" or the error."""
+    ident = bundle_id(app)
+    if not ident:
+        return f"{app} has no CFBundleIdentifier"
+    if not ident.startswith("com.cmuxterm.app.debug."):
+        return f"{ident} is not a tagged DEV bundle id; its hang report consent is the person's own"
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S +0000", time.gmtime(now if now is not None else time.time()))
+    try:
+        done = subprocess.run([defaults_path(), "write", ident, HANG_REPORT_CONSENT_KEY, "-date", stamp],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"defaults: {error}"[:200]
+    return "" if done.returncode == 0 else f"defaults exit {done.returncode}: {done.stderr.strip()[:200]}"
+
+
+def main_binary(app):
+    """The main executable of bundle `app`: `cmux DEV`, else the first file of Contents/MacOS that is no dylib."""
+    app = os.path.realpath(app).rstrip("/")
+    main = os.path.join(app, "Contents/MacOS/cmux DEV")
+    if os.path.exists(main):
+        return main
+    found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+    if not found:
+        raise SystemExit(f"bench-launch: no executable in {app}/Contents/MacOS")
+    return found[0]
+
+
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
@@ -888,13 +948,7 @@ class BenchApp:
 
     @property
     def binary(self):
-        main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
-        if os.path.exists(main):
-            return main
-        found = [p for p in sorted(glob.glob(os.path.join(self.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
-        if not found:
-            raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
-        return found[0]
+        return main_binary(self.app)
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""
@@ -936,6 +990,35 @@ class BenchApp:
 
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
+
+    def activate(self, timeout=10):
+        """Brings the launched app to the front once (AppleScript `activate` of its bundle id, as a click on its Dock
+        icon). A launch with CMUX_NEXT_NO_ACTIVATE=1 refuses every activation, so this needs ``shipping_env`` (an
+        isolated launch that may activate) or another env without it. Returns {"activated": bool, "error": str}: activated once a window of the app is key
+        (debug.window_list) within `timeout` seconds."""
+        if self.process is None or self.process.poll() is not None:
+            return {"activated": False, "error": "the app is not running"}
+        if (self.launched_env or {}).get("CMUX_NEXT_NO_ACTIVATE") == "1":
+            return {"activated": False, "error": "launched with CMUX_NEXT_NO_ACTIVATE=1, which refuses every activation"}
+        ident = bundle_id(self.app)
+        if not ident:
+            return {"activated": False, "error": f"{self.app} has no CFBundleIdentifier"}
+        try:
+            run = subprocess.run([osascript_path(), "-e", f'tell application id "{ident}" to activate'],
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {"activated": False, "error": f"osascript: {error}"[:200]}
+        if run.returncode != 0:
+            return {"activated": False, "error": f"osascript exit {run.returncode}: {run.stderr.strip()[:200]}"}
+        deadline = time.monotonic() + timeout
+        while True:
+            reply = self.rpc("debug.window_list", timeout=10)
+            windows = reply.get("windows") if isinstance(reply, dict) else None
+            if isinstance(windows, list) and any(isinstance(w, dict) and w.get("key") for w in windows):
+                return {"activated": True, "error": ""}
+            if time.monotonic() >= deadline:
+                return {"activated": False, "error": f"no window of the app is key {timeout:g} s after activate"}
+            time.sleep(0.2)  # bench: the activation reaches the window server asynchronously
 
     def record(self, story, metric, unit, samples, better, engine, target_ref=None):
         """Writes one `cmux-perf-result/v1` file (perf_result.write_ndjson) into the out folder; returns its path.

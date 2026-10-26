@@ -46,7 +46,7 @@ struct DebugWebUITests {
     private func census(_ host: WebUIHost, newTabSpare: WKWebView? = nil, spareClients: [Int32] = [],
                         browserTabs: [WebUICensus.Host] = []) -> WebUICensus {
         WebUICensus(pages: host.registry.pages(), registry: host.registry, newTabSpare: newTabSpare,
-                    spareWindow: WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients),
+                    spareWindows: [WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients)],
                     browserTabs: browserTabs,
                     rendererProcess: { _ in (browserID: 7, clients: [3]) }, webKitPID: { _ in 4242 })
     }
@@ -248,8 +248,8 @@ struct DebugWebUITests {
         #expect(census(host, newTabSpare: spare.webKitView).report(helpers: [])["spares"]?.arrayValue?.count == 1)
     }
 
-    /// The New Tab spare on the old agent host (`agent.pageHost` off) is a bare WebKit view, no page
-    /// view: it gets a `spares` row with its WebContent pid.
+    /// A New Tab spare web view the census has no page view for (none of the pages it was given
+    /// shows it) still gets a `spares` row with its WebContent pid.
     @Test func aViewlessNewTabSpareGetsASpareRow() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil)

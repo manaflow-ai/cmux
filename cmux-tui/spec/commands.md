@@ -623,8 +623,13 @@ object{
   slow_requests?:object{
     threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
     spawn_failures:uint64, watchdog_wakeups:uint64,
-    recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64,
-      duration_ms:uint64|null}>
+    recent:array<object{
+      method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
+      duration_ms:uint64|null,
+      stack:array<object{image:string|null,image_id:string|null,offset:uint64,
+        symbol:string|null}>,
+      stack_truncated:boolean, stack_error:string|null
+    }>
   },
   request_latency_us?:object{
     topology:histogram, terminal_io:histogram, create:histogram,
@@ -722,6 +727,27 @@ its own reply, has no `handled`. A worker's reply is the async slice
 `daemon.request.async` (arg0 the method id), with the instants
 `daemon.request.async.handled` and `daemon.request.async.reply.queued`.
 
+`stack` is the stack of the thread that ran the request, captured when the
+watchdog first saw it running past the threshold (macOS suspends the thread,
+Linux interrupts it with SIGURG; under a millisecond). Frames are innermost
+first: the interrupted pc, then return addresses along the frame pointers,
+at most 32. `image` is the file name of the image that holds the frame,
+`image_id` that image's build id (the Mach-O LC_UUID as `dwarfdump --uuid`
+prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex; null when it has
+none), which picks the matching build's symbols, `offset` the address minus
+the image's load address, for offline symbolication (`addr2line -f -e IMAGE
+OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
+0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
+null. `stack_truncated` is true when `stack` holds only the interrupted pc
+because the daemon was built without frame pointers (a Linux build without
+`-C force-frame-pointers=yes`); a thread stopped inside code linked in
+without frame pointers (a libc, the precompiled std) can still lose or add
+a frame there. `stack` is empty when `stack_error` names
+why: `run-ended` (the request ended before the watchdog stopped its thread,
+including one first seen after it ended), `unsupported` (no capture on this
+OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
+(the thread did not answer the signal in 50 ms).
+
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
 most 25%. `site` values are `file:line` of the code that acquired the registry
@@ -789,6 +815,73 @@ placements) and `workspaces`. `panicLog` is the owner's panic log
 `path` is null when there is no state root. Every map has sorted keys.
 
 Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
+
+### trace-start, trace-stop, trace-status
+
+| Field | Value |
+| --- | --- |
+| name | `trace-start`, `trace-stop`, `trace-status` |
+| status | implemented |
+| since | protocol 12 |
+
+Start, stop or report a trace recording (plans/cmux-next/trace.md, "Release
+trace ring v1") in the daemon and every child it reaches: the holder when its
+link granted `TRACE_CONTROL`, every live terminal host whose record advertises
+`supports_trace_control` (terminal-host.md, `TraceControl`), and acpmux when it
+runs (`_acpmux/trace`; acpmux is never started for a trace). Owner only: any
+client that is not on the trusted local socket gets `trace control requires a
+trusted local connection` before a parameter is read. One call runs at a time:
+a second call while one runs gets `another trace control call is running`, so a
+stop never passes a start that is still reaching the children.
+
+Params of `trace-start`: `{categories?: array<string>|null, keys?: bool}`.
+`categories` are category names (`frame`, `daemon`, ...); omitted, every
+recording category. `key` records per-key records and needs `keys: true`.
+No parameter is a path or a command: the daemon records into `trace/` under its
+state root, a terminal host into `trace/` beside its discovery record, the
+holder into a holder-lifetime directory beside its socket in this user's
+private holder socket directory, acpmux into `$ACPMUX_HOME/trace`. A session
+with no state root (`--ephemeral`) refuses a start: it never records into a
+shared temporary directory. Every ring directory is the user's own (0700) and a
+ring file is created new, never through a symlink. A start the daemon refuses
+(one runs) is not forwarded. Children past the 128 MiB total cap of recording
+rings are not asked; the cap counts a ring only for a process that maps one
+(acpmux only when it runs, the holder only when it was sent the start).
+
+The holder sends no answer, so its entry says what was sent: `recording` (with
+its ring's `recording_bytes`) after a start, `idle` after a stop, and for a
+status `traced` (`reason: "holder_traced"`). A holder that refused its last
+start or stop is `error` with `reason: "holder_trace_failed"` and its message;
+one without the capability is `untraced` (`holder_untraced`); with no holder
+link open it is `not_linked` (`holder_not_linked`), and a holder that links
+while the recording runs gets the start then.
+
+Result:
+
+```text
+object{
+  op:"start"|"stop"|"status",
+  recording:bool,
+  categories?:array<string>, keys?:bool,
+  processes:array<object{
+    role:"daemon"|"holder"|"terminal-host"|"acpmux",
+    pid:uint32|null,
+    state:"recording"|"idle"|"traced"|"not_linked"|"untraced"|"unanswered"|"error",
+    recording_path?:string|null, recording_bytes?:uint64, records_dropped?:uint64,
+    reason?:"holder_traced"|"holder_trace_failed"|"holder_untraced"|"holder_not_linked"
+      |"host_untraced"|"over_total_cap",
+    error?:string
+  }>,
+  bytes_by_role:object<string,uint64>,
+  total_bytes:uint64,
+  total_cap_bytes:uint64
+}
+```
+
+Errors: `trace control requires a trusted local connection`, `another trace
+control call is running`, `this session has no state root to record into (it is
+ephemeral)`, `unknown trace category ...`, `the key category records per-key
+records: ask for it with keys: true`.
 
 ### browser-host-provider
 
@@ -9775,6 +9868,35 @@ Executing-unknown recovery stays `mutation.indeterminate` and never triggers
 an automatic new-key run. An unexecuted reservation can resume only when fresh
 preparation still matches its exact persisted argv. Worker admission shares
 the bounded inventory budget; concurrent job preparation may refuse busy.
+
+`agent-cli-update-job-resolve-v1` adds `agent-cli-update-job-resolve` with the
+same params and admission. It reads the original key's creation journal and
+answers `{state}`: `not_found`, `prepared`, `pending`, `indeterminate`,
+`failed` (with `code`) or `created` (with the job `receipt`). It never
+prepares, reconciles or starts a job, so a client that lost a job reply reads
+its state here instead of sending the job again. No state authorizes execution.
+
+### Update intent ledger
+
+`agent-cli-intents-v1` adds `agent-cli-intents-record`, `-list`, `-settle`
+and `-attach`. The app records each update intent `{key, root_key, machine,
+session, cli, profiles}` before it contacts an owner, attaches the job
+receipt once the owner answers, and settles the intent when the update ends,
+so a restarted app resumes or blocks the same update. An intent is
+non-secret identity, never an execution grant: it holds no argv or
+credentials. Admission is the update job's (a proved main-app Unix connection
+without an agent binding, else `agent_cli_intents.not_trusted`), and every
+request names this daemon's `expected_machine_id` and `expected_session_id`
+(`agent_cli_intents.owner_mismatch` otherwise). Rows are per actor, at most
+256, and expire after seven days. Record and settle take 1-64 entries and
+answer `{intents, changed}`; list answers `{intents}`; attach answers
+`{intent, changed}` and refuses a receipt that differs from one already
+attached. A malformed request is `agent_cli_intents.bad_request` and a
+refused change `agent_cli_intents.refused`. Record, settle, attach and
+`agent-cli-update-job` answer only after their SQLite commit
+(`reply_after_journal`), so an app that crashes after a reply finds the row
+it was told about. spec/sdk-schema.json types the params and results of all
+six agent CLI commands.
 
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the

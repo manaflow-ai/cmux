@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333. */
+/* cmux-tui mux protocol 12, IR 22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc. */
 
 
 import type * as T from "./types.js";
@@ -47,6 +47,73 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
 }
 export type AddTabsToTabGroupResult = T.TabGroupOutcome;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsAttachRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-attach";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "key": string;
+  "receipt": T.AgentCLIJobReceipt;
+}
+export type AgentCliIntentsAttachResult = {
+  "changed": boolean;
+  "intent": T.AgentCLIStoredIntent;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsListRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-list";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+}
+export type AgentCliIntentsListResult = {
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsRecordRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-record";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "intents": Array<T.AgentCLIIntent>;
+}
+export type AgentCliIntentsRecordResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsSettleRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-settle";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "keys": Array<string>;
+}
+export type AgentCliIntentsSettleResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResult = T.AgentCLIJobReceipt;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job-resolve";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -2651,6 +2718,27 @@ export interface TerminalResumeCommandRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface TraceStartRequest extends CmuxRequestBase {
+  cmd: "trace-start";
+  "categories"?: (Array<string>) | null;
+  "keys"?: boolean;
+  [key: string]: unknown;
+}
+export type TraceStartResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface TraceStatusRequest extends CmuxRequestBase {
+  cmd: "trace-status";
+}
+export type TraceStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface TraceStopRequest extends CmuxRequestBase {
+  cmd: "trace-stop";
+}
+export type TraceStopResult = T.JsonValue;
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -2881,6 +2969,12 @@ export type CmuxRequest =
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
+  | AgentCliIntentsAttachRequest
+  | AgentCliIntentsListRequest
+  | AgentCliIntentsRecordRequest
+  | AgentCliIntentsSettleRequest
+  | AgentCliUpdateJobRequest
+  | AgentCliUpdateJobResolveRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
@@ -3139,6 +3233,9 @@ export type CmuxRequest =
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
+  | TraceStartRequest
+  | TraceStatusRequest
+  | TraceStopRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
   | UngroupTabGroupRequest
@@ -3188,6 +3285,54 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "agent-cli-intents-attach": {
+    request: AgentCliIntentsAttachRequest;
+    result: AgentCliIntentsAttachResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-list": {
+    request: AgentCliIntentsListRequest;
+    result: AgentCliIntentsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-record": {
+    request: AgentCliIntentsRecordRequest;
+    result: AgentCliIntentsRecordResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-settle": {
+    request: AgentCliIntentsSettleRequest;
+    result: AgentCliIntentsSettleResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-update-job": {
+    request: AgentCliUpdateJobRequest;
+    result: AgentCliUpdateJobResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-v1";
+    stream: null;
+  };
+  "agent-cli-update-job-resolve": {
+    request: AgentCliUpdateJobResolveRequest;
+    result: AgentCliUpdateJobResolveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-resolve-v1";
     stream: null;
   };
   "apply-layout": {
@@ -5252,6 +5397,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "resume-command";
+    stream: null;
+  };
+  "trace-start": {
+    request: TraceStartRequest;
+    result: TraceStartResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "trace-status": {
+    request: TraceStatusRequest;
+    result: TraceStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "trace-stop": {
+    request: TraceStopRequest;
+    result: TraceStopResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "undo-layout": {

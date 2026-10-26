@@ -47,6 +47,8 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
+        // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
+        TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -89,6 +91,10 @@ public struct CmuxNextApp {
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
         // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
         let inputTap = InputEventTap()
+        // The design kit's popups, overlay hosts and tooltip subscribe to it too, before the delegate
+        // and services make any: their owners in many packages make them with no tap (p04-input-013).
+        WindowOverlayHost.appInputTap = inputTap
+        TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap,

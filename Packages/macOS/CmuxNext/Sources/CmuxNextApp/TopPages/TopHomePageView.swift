@@ -36,7 +36,7 @@ final class TopHomePageView: NSView {
     /// A conversation the person started that the inbox does not list yet: opened (with the
     /// keyboard in its box) when it shows.
     private var opening: ConversationID?
-    /// A restored list scroll position, applied once the list first draws its rows (TopHomePageView+ViewState).
+    /// A page built again after a discard: where its list was, applied once the rows are in.
     var pendingListScroll: CGPoint?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
@@ -209,7 +209,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
-                if !rows.isEmpty, let scroll = pendingListScroll { pendingListScroll = nil; list.layoutSubtreeIfNeeded(); list.scrollOrigin = scroll }
+                applyPendingListScroll()
                 if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
@@ -259,26 +259,11 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The rows the list shows: an archived Chief's conversation is hidden
-    /// (its history stays with the owner, read-only).
-    static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        guard !archivedChiefs.isEmpty else { return rows }
-        return rows.filter { row in
-            guard row.kind == .chief else { return true }
-            return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }
-        }
-    }
-
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation.
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         return rows.homeLines.lazy.compactMap(\.conversation).first
-    }
-
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:
@@ -373,16 +358,10 @@ final class TopHomePageView: NSView {
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as
-    /// the person left it.
-    func presentNewMessage() {
-        guard let page = showNewMessage() else { return }
-        window?.makeFirstResponder(page.focusTarget)
-    }
-
-    /// The New Message page on screen with its selected row; the keyboard stays where it is.
-    @discardableResult
-    func showNewMessage() -> HomeNewMessageView? {
-        guard let page = keptNewMessage() else { return nil }
+    /// the person left it. `focus` false leaves the keyboard where it is (a discarded page made again).
+    func presentNewMessage(focus: Bool = true) {
+        guard let services else { return }
+        let page = newMessage ?? makeNewMessage(services)
         if page.superview == nil {
             page.frame = transcriptColumn.bounds
             page.autoresizingMask = [.width, .height]
@@ -395,11 +374,8 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        return page
+        if focus { window?.makeFirstResponder(page.focusTarget) }
     }
-
-    /// The New Message page, made when there is none (not shown yet).
-    func keptNewMessage() -> HomeNewMessageView? { newMessage ?? services.map { makeNewMessage($0) } }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
         let page = HomeNewMessageView(services: services)

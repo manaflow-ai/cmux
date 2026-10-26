@@ -100,11 +100,10 @@ final class HomeDockTab: InternalPageProvider {
         return found.provider.views[found.key]
     }
 
-    /// The conversation Home shows, without showing it: the classic page's, else the docked
-    /// Messages view's, live or discarded (`memoryDiscardInternalPages`: the tab still stands for
-    /// what its view showed), so an action needs no live view. Nil before the dock first shows.
-    static func homeConversation(_ services: AppServices) -> ConversationID? {
-        if services.home.dock.isClassic { return AppActions.shownPage(services)?.shown }
+    /// The conversation the docked Messages view shows, live or discarded
+    /// (`memoryDiscardInternalPages`: the tab still stands for what its view showed), so an action
+    /// needs no live view. Nil before the dock first shows.
+    static func shownConversation(_ services: AppServices) -> ConversationID? {
         guard let found = dockTab(services) else { return nil }
         if let view = found.provider.views[found.key] { return view.messages?.shown }
         return found.provider.saved[found.key]?.messages?.shown

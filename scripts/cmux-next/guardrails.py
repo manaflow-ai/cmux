@@ -2690,8 +2690,14 @@ AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
-    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\(|\bblockingCall\("
+    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run|ForReading|ForWriting|ForUpdating|SeekToEnd|Seek|"
+    r"Synchronize|CanEvaluatePolicy)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|PosixSpawn"
+    # POSIX files, waitpid, ImageIO file I/O, SQLite, kernel and directory queries (p02-threads-127)
+    r"|Open|Pread|Pwrite|Fsync|Flock|Ftruncate|Rename|Unlink|Stat|Lstat|Realpath|Access|Chmod|Mkdir|Rmdir|Waitpid|Waitid"
+    r"|Sysctl|SysctlByName|ProcPidInfo|ProcPidPath|ProcPidFDInfo|ProcListPids|ProcPidRusage|Getpwuid|Getpwnam"
+    r"|ImageSource|ImageSourceCount|ImageSourceCopyProperties|ImageSourceCreateImage|ImageSourceCreateThumbnail"
+    r"|ImageDestination|ImageDestinationFinalize"
+    r"|SQLiteOpen|SQLitePrepare|SQLiteStep|SQLiteExec|SQLiteClose|SQLiteCloseV2|SQLiteBackupStep)\(|\bblockingCall\("
     # the system-call seams (p02-threads-003)
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
@@ -3294,8 +3300,6 @@ RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_
     "sqlite3_", "proc_", "canEvaluatePolicy(", "Host.current", "hostName", "FileManager()"))
 # Where a match names a declaration, not a call: `func rename(`, `case stat(`.
 DECLARED_AT = re.compile(r"\b(func|case)\s+$")
-# An argument that starts with a label: C functions take none, so `rename(id, to: name)` is a Swift method.
-ARGUMENT_LABEL = re.compile(r"\s*\w+\s*:(?!:)")
 O_FLAG = re.compile(r"\bO_[A-Z]")
 BRACE = re.compile(r"[{}]")
 ARGUMENT_TOKENS = re.compile(r"[()\[\]{},]")
@@ -3521,7 +3525,7 @@ def posix_call(version: Version, index: int, match: re.Match) -> bool:
     arguments = call_arguments(version, index, match.end() - 1)
     if arguments is None:
         return not match.group("open")
-    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):
+    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):  # C functions take no labels
         return False
     if C_ARITY.get(name, len(arguments)) != len(arguments):
         return False

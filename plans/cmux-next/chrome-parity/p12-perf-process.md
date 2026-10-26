@@ -101,7 +101,7 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 | --- | --- | --- |
 | waterfall M6 | 2 M6 minis (from the owned cmux15-24 set) | T0 shards A and B, T1 shards. Alerting class. |
 | pinpoint M6 | 2 M6 minis | bisect, culprit verification, A/A, reference runs. They have the same fingerprint as the waterfall hosts. |
-| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T1 and T2 (xbench vs-browsers, soak). Bisect for their own class borrows them when idle. |
+| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T2 (xbench vs-browsers, soak) on both, T1 on aws-m4pro only (cmux20-bench is the M6 host class; its T1 points would join the M6 series). Bisect for their own class borrows them when idle. |
 
 - Each T0/T1 story is bound to one fixed waterfall host by a generated shard map (`shard_map.json`, bin packing on story seconds), as Chrome does. If the owner host is down, the point is a coverage gap. The story is never moved to another host.
 - A bisect may borrow a waterfall host only when it is idle and its next T0 starts in more than 10 minutes.
@@ -356,7 +356,7 @@ All queries live in `scripts/perf-lab/queues.py` (task 200). `python3 scripts/pe
 - **MQ4: story commands that do not write result-v1.** `python3 scripts/perf-lab/lab.py stories --lint --format=paths | xargs rg --files-without-match -e 'perf_result|BenchApp|\.record\('`
 - **MQ5: SignpostName cases with no emitter (9 today).**
   `for c in $(rg -o -r '$1' '^\s+case (\w+)$' Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift); do n=$(git grep -n -E "(Signposter\.[a-zA-Z]+|signposter|poster)\.[a-zA-Z]+\(\s*\.$c\b|SignpostName\.$c\.staticName" -- Packages/macOS/CmuxNext/Sources ':!Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift' | grep -v -E ':[0-9]+:\s*///' | wc -l); [ $n -eq 0 ] && echo $c; done`
-- **MQ6: perf-path tunables not yet features** (Bool and numeric). After 090: `python3 scripts/cmux-next/gen-features.py --unmigrated`. Seed keys: `browserResize.layerHosting`, `browserHost.helperPrototype`, `motion.pane.holdContent`, `sidebar.*slideHoldsContent`, `hibernation.compressedSnapshots`, `hostPressure.enabled`, `agent.pageHost`, `agent.chromium`, and the env switch `CMUX_TUI_TERMINAL_HOST_MODEL`.
+- **MQ6: perf-path tunables not yet features** (Bool and numeric). After 090: `python3 scripts/cmux-next/gen-features.py --unmigrated`. Seed keys: `browserResize.layerHosting`, `browserHost.helper`, `motion.pane.holdContent`, `sidebar.*slideHoldsContent`, `hibernation.compressedSnapshots`, `hostPressure.enabled`, `agent.pageHost`, `agent.chromium`, and the env switch `CMUX_TUI_TERMINAL_HOST_MODEL`.
 - **MQ7: env switches** (85 `CMUX_NEXT_*`, 183 `CMUX_*` in the app, 101 `CMUX_TUI_*` in the daemon). Each name that changes Release behavior on a perf path becomes a feature or is documented as Debug-only. Command: `python3 scripts/features/env_audit.py --unclassified`.
 - **MQ8: fixed targets with no lab story.** `python3 scripts/perf-lab/lab.py targets --uncovered`
 - **MQ9: perf-hot paths whose bench is not a story.** `python3 scripts/perf-lab/lab.py hot-paths --uncovered`

@@ -21,6 +21,24 @@ class GeneratedClientMixin:
     def add_tabs_to_tab_group(self, group: str, surfaces: List[TabRef], *, transaction: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
         return self._invoke_command('add-tabs-to-tab-group', AddTabsToTabGroupRequest(group=group, surfaces=surfaces, transaction=transaction))
 
+    def agent_cli_intents_attach(self, expected_machine_id: str, expected_session_id: str, key: str, receipt: AgentCLIJobReceipt) -> AgentCliIntentsAttachResult:
+        return self._invoke_command('agent-cli-intents-attach', AgentCliIntentsAttachRequest(expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, key=key, receipt=receipt))
+
+    def agent_cli_intents_list(self, expected_machine_id: str, expected_session_id: str) -> AgentCliIntentsListResult:
+        return self._invoke_command('agent-cli-intents-list', AgentCliIntentsListRequest(expected_machine_id=expected_machine_id, expected_session_id=expected_session_id))
+
+    def agent_cli_intents_record(self, expected_machine_id: str, expected_session_id: str, intents: List[AgentCLIIntent]) -> AgentCliIntentsRecordResult:
+        return self._invoke_command('agent-cli-intents-record', AgentCliIntentsRecordRequest(expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, intents=intents))
+
+    def agent_cli_intents_settle(self, expected_machine_id: str, expected_session_id: str, keys: List[str]) -> AgentCliIntentsSettleResult:
+        return self._invoke_command('agent-cli-intents-settle', AgentCliIntentsSettleRequest(expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, keys=keys))
+
+    def agent_cli_update_job(self, cli: str, expected_machine_id: str, expected_session_id: str, idempotency_key: str) -> AgentCLIJobReceipt:
+        return self._invoke_command('agent-cli-update-job', AgentCliUpdateJobRequest(cli=cli, expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, idempotency_key=idempotency_key))
+
+    def agent_cli_update_job_resolve(self, cli: str, expected_machine_id: str, expected_session_id: str, idempotency_key: str) -> AgentCLIJobResolution:
+        return self._invoke_command('agent-cli-update-job-resolve', AgentCliUpdateJobResolveRequest(cli=cli, expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, idempotency_key=idempotency_key))
+
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
@@ -795,6 +813,15 @@ class GeneratedClientMixin:
     def terminal_resume_command(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING) -> TerminalResumeCommandResult:
         return self._invoke_command('terminal-resume-command', TerminalResumeCommandRequest(surface=surface, terminal_id=terminal_id, command=command))
 
+    def trace_start(self, *, categories: Union[List[str], None, MissingType] = MISSING, keys: Union[bool, MissingType] = MISSING) -> Any:
+        return self._invoke_command('trace-start', TraceStartRequest(categories=categories, keys=keys))
+
+    def trace_status(self) -> Any:
+        return self._invoke_command('trace-status', TraceStatusRequest())
+
+    def trace_stop(self) -> Any:
+        return self._invoke_command('trace-stop', TraceStopRequest())
+
     def undo_layout(self, pane: Id, *, confirm_close: Union[bool, MissingType] = MISSING, revision: Union[int, None, MissingType] = MISSING) -> LayoutUndoResult:
         return self._invoke_command('undo-layout', UndoLayoutRequest(pane=pane, confirm_close=confirm_close, revision=revision))
 
@@ -871,6 +898,12 @@ class GeneratedClientMixin:
 GeneratedClientMixin.ack_tab_notifications.__cmux_command__ = COMMANDS['ack-tab-notifications']
 GeneratedClientMixin.add_screens_to_screen_group.__cmux_command__ = COMMANDS['add-screens-to-screen-group']
 GeneratedClientMixin.add_tabs_to_tab_group.__cmux_command__ = COMMANDS['add-tabs-to-tab-group']
+GeneratedClientMixin.agent_cli_intents_attach.__cmux_command__ = COMMANDS['agent-cli-intents-attach']
+GeneratedClientMixin.agent_cli_intents_list.__cmux_command__ = COMMANDS['agent-cli-intents-list']
+GeneratedClientMixin.agent_cli_intents_record.__cmux_command__ = COMMANDS['agent-cli-intents-record']
+GeneratedClientMixin.agent_cli_intents_settle.__cmux_command__ = COMMANDS['agent-cli-intents-settle']
+GeneratedClientMixin.agent_cli_update_job.__cmux_command__ = COMMANDS['agent-cli-update-job']
+GeneratedClientMixin.agent_cli_update_job_resolve.__cmux_command__ = COMMANDS['agent-cli-update-job-resolve']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']
@@ -1129,6 +1162,9 @@ GeneratedClientMixin.terminal_ports.__cmux_command__ = COMMANDS['terminal-ports'
 GeneratedClientMixin.terminal_read_range.__cmux_command__ = COMMANDS['terminal-read-range']
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
 GeneratedClientMixin.terminal_resume_command.__cmux_command__ = COMMANDS['terminal-resume-command']
+GeneratedClientMixin.trace_start.__cmux_command__ = COMMANDS['trace-start']
+GeneratedClientMixin.trace_status.__cmux_command__ = COMMANDS['trace-status']
+GeneratedClientMixin.trace_stop.__cmux_command__ = COMMANDS['trace-stop']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.ungroup_screen_group.__cmux_command__ = COMMANDS['ungroup-screen-group']
 GeneratedClientMixin.ungroup_tab_group.__cmux_command__ = COMMANDS['ungroup-tab-group']

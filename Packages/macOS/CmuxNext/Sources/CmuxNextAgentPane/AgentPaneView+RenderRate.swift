@@ -18,7 +18,7 @@ extension AgentPaneView {
         get { webView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false }
         set {
             // A Chromium page has no WebKit rate: Chromium renders at the display's rate.
-            guard page?.showsChromium != true, newValue != rendersAtFullRate else { return }
+            guard !page.showsChromium, newValue != rendersAtFullRate else { return }
             // A WebKit without the feature has no rate to re-apply.
             guard webView.configuration.preferences.setWebKitFeature(WebKitRenderRate.near60FPSFeature, enabled: !newValue) else { return }
             reapplyRenderRate()

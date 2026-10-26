@@ -257,19 +257,18 @@ public final class CmuxSidebarView: NSView {
         set { controller.filter = newValue ? .unread : .all }
     }
 
-    /// Searches for `query` as typing it in the field does (a host's view made again shows the
-    /// search it had).
-    public func search(_ query: String) {
-        guard controller.searchField.stringValue != query else { return }
-        controller.searchField.stringValue = query
-        controller.setQuery(query)
-    }
-
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }
         controller.searchField.stringValue = ""
         controller.setQuery("")
+    }
+
+    /// Puts `query` in the search field and filters the list by it, as typing it would (a page
+    /// built again shows the search the person left).
+    public func setSearch(_ query: String) {
+        controller.searchField.stringValue = query
+        controller.setQuery(query)
     }
 
     /// The neutral selection's fill (a translucent theme tint); nil keeps the unemphasized grey.

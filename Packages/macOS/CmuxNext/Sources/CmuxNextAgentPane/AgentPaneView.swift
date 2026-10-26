@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
-import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
@@ -9,7 +8,8 @@ import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
-/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The model's
+/// `scripts/cmux-next/build-agent-pane-web.sh`) on the shared page host (``WebUIHost``, at
+/// `cmux-page://cmux.agent/`), in the engine the host picks. The model's
 /// ``AgentPaneTransport`` owns the acpmux socket and relays its frames to the
 /// page (the page never holds an endpoint or a token); this view answers
 /// host requests, keeps the page on its source, and applies the theme
@@ -41,11 +41,9 @@ public final class AgentPaneView: NSView {
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
-    private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
@@ -55,15 +53,13 @@ public final class AgentPaneView: NSView {
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
-    /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
+    /// The app's made-ahead open panel (Add Files, Attach); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
-    /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
-    private let fileChooser: PageOpenPanel?
-    /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
-    /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
-    /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
-    let page: PageWebView?
-    let pageEvents: AgentPageProvider?
+    /// The page view the page host opened, and the provider that answers its calls and carries the
+    /// host's pushes.
+    let page: PageWebView
+    let pageEvents: AgentPageProvider
+    let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -72,25 +68,18 @@ public final class AgentPaneView: NSView {
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
-    var deliveredThemeScript: String?
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
-    /// The wallpaper still the old host's page lenses (the page host's ``PageWebView`` has its own).
-    private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
-        self?.evaluateScript($0)
-    }
-    private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
-    /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
-    private var gestureMonitor: Any?
+    /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
+    /// through one input tap subscription per window, while the pane is in one.
+    let gestureRouter: AgentPaneGestureRouter
     var transportPacer: AgentPaneFramePacer?
-    /// The page's menu shown past the window's edge (AgentPaneView+Popup).
-    var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
@@ -106,13 +95,8 @@ public final class AgentPaneView: NSView {
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
-    public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
+    public private(set) lazy var redraw = AgentPageRedraw(page: page) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
-    /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    static let processPool = WKProcessPool()
-    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
-    static let processGroups = WebProcessGroups()
-
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
         Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-pane")
@@ -120,7 +104,7 @@ public final class AgentPaneView: NSView {
 
     /// Makes a pane and starts loading its page.
     ///
-    /// Nil when `source` is nil and the bundled page is missing.
+    /// Nil when `source` is nil and the bundled page is missing, or when the page host refuses the page.
     ///
     /// - Parameters:
     ///   - model: Answers the page's host requests.
@@ -128,90 +112,44 @@ public final class AgentPaneView: NSView {
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
     ///     do on a loaded machine (#16471).
-    ///   - pageHost: The app's page host (`AppServices.webUI`), which opens the page in the engine its
-    ///     Chromium host and the page policy pick (tests pass one with a fake Chromium host). Nil
-    ///     keeps the page on this view's own WebKit host. Only a bundled page can move; a
-    ///     dev-server page stays.
-    ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
-    ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - webUI: The app's page host (`AppServices.webUI`), which opens the page in the engine its
+    ///     Chromium host and the page policy pick (tests pass one with a fake Chromium host).
+    ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files and Attach,
+    ///     warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
+    ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
+    ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
+        gestureRouter = gestures
         self.openPanel = openPanel
-        fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
-        self.model = model
-        self.source = source
-        self.renderRate = renderRate
-        Self.warmupNoLongerNeeded = true
-        let webView: WKWebView
-        if let pageHost, case .bundled(let index) = source {
-            let provider = AgentPageProvider { [weak model] _ in model }
-            // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
-            provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
-                                                        webUI: pageHost)
-            else { return nil }
-            self.page = page
-            pageEvents = provider
-            webView = page.webKitView
-            inputReadiness = page.inputReadiness
-            dictation = AgentPaneDictation(send: { [weak provider] update in
-                if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
-                    // The page host reports bounded replay backpressure; reconnecting the acpmux
-                    // transport resyncs the chat while the provider's replay state restores chrome.
-                    if let connection = model.transport.connection { model.transport.close(connection: connection) }
-                }
-            })
-        } else {
-            let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = AgentPaneView.sharedDataStore
-            // One process pool for every agent page: a fresh pool per page made WebKit list the
-            // user-installed fonts again for each new page (registerUserInstalledFonts, about
-            // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
-            configuration.processPool = Self.processPool
-            if renderRate != .capped {
-                WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
+        (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        warmup?.agentPageMade()
+        let provider = AgentPageProvider { [weak model] _ in model }
+        // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
+        provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
+        guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI)
+        else { return nil }
+        self.page = page
+        pageEvents = provider
+        let webView = page.webKitView
+        inputReadiness = page.inputReadiness
+        dictation = AgentPaneDictation(input: gestures.input, send: { [weak provider] update in
+            if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
+                // The page host reports bounded replay backpressure; reconnecting the acpmux
+                // transport resyncs the chat while the provider's replay state restores chrome.
+                if let connection = model.transport.connection { model.transport.close(connection: connection) }
             }
-            source.register(on: configuration)
-            // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
-            // background is the one surface token, or clear over a see-through
-            // window (plans/cmux-next/windows.md).
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            if let script = AgentPaneTunables.documentScript {
-                configuration.userContentController.addUserScript(
-                    WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            }
-            // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-            ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
-            inputReadiness = PageInputReadiness(configuration: configuration)
-            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
-            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
-            // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
-            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
-            #if DEBUG || CMUX_BENCH_HOOKS
-            // Automation launches (capture slots) keep a covered window's page drawing, as
-            // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
-            if PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment) { PageWebView.keepRenderingWhenCovered(webView) }
-            #endif
-            page = nil
-            pageEvents = nil
-            dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
-        }
+        })
         self.webView = webView
         super.init(frame: .zero)
-        pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
-        if let page {
-            attachPage(page)
-        } else {
-            webView.configuration.userContentController.addScriptMessageHandler(
-                AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
-            )
-        }
+        attachPage(page)
         applyZoom()
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         webView.autoresizingMask = [.width, .height]
@@ -242,27 +180,11 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        // A frame that grants needs a real gesture in this pane; page script cannot make one.
-        gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
-            guard Thread.isMainThread else { return event }
-            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; the decision must read focus and bounds before dispatch, so no hop)
-            MainActor.assumeIsolated { self?.monitored(event) }
-            return event
-        }
         installTransport()
         installContextMenu()
-        if page == nil {
-            navigation.view = self
-            webView.navigationDelegate = navigation
-            webView.uiDelegate = fileChooser
-            addSubview(webView)
-            source.load(into: webView)
-        }
         beginLoadingState()
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
-        observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
@@ -270,19 +192,11 @@ public final class AgentPaneView: NSView {
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
         switch source {
         case .bundled(let url): return "bundled:\(url.path)"
-        case .devServer(let url): return "dev:\(url.absoluteString)"
         }
     }
 
     private func applyIconFamily() {
-        let family = AgentPaneTunables.documentAttributes["icon-family"] ?? ""
-        if let page {
-            page.setDocumentAttribute("icon-family", family)
-        } else {
-            // The old host has no PageWebView live-attribute bridge; update its document
-            // directly so Debug Settings changes reach already-open chats too.
-            evaluateScript("document.documentElement?.setAttribute('data-icon-family', '\(family)');")
-        }
+        page.setDocumentAttribute("icon-family", AgentPaneTunables.documentAttributes["icon-family"] ?? "")
     }
 
     private func observeIconFamily() {
@@ -311,33 +225,15 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    private func observeUIScale() {
-        guard page == nil else { return }
-        applyZoom()
-        uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
-                guard let self else { return }
-                self.applyZoom()
-            }
-        }
-    }
-
     func applyZoom() {
         // The page host applies the UI scale and the interface scale itself, in either engine.
-        if let page {
-            page.additionalZoom = zoom
-            return
-        }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
-        glassFeed.refresh() // the zoom moves the art's rect in CSS px
-        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
+        page.additionalZoom = zoom
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            uiScaleObservation?.cancel()
             sessionStatusObservation?.cancel()
         }
     }
@@ -347,7 +243,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        page.frame = topBar.contentFrame(in: bounds)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         redraw.laidOut(self)
     }
@@ -383,7 +279,6 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
-        popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
@@ -394,20 +289,14 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = nil
         dictation.close()
         model.shell.terminateAll()
-        if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
-        gestureMonitor = nil
+        gestureRouter.detach(self)
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
         transportPacer?.stop()
         removeContextMenu()
-        if let page {
-            page.close()
-        } else {
-            webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
-            webView.navigationDelegate = nil
-        }
+        page.close()
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
@@ -417,7 +306,6 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
-        popupHostStorage?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -433,9 +321,10 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
+        // A frame that grants needs a real gesture in this pane; page script cannot make one.
+        if let window { gestureRouter.attach(self, to: window) } else { gestureRouter.detach(self) }
         if window == nil {
             dictation.handle(.stop)
-            popupHostStorage?.dismiss()
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
@@ -445,14 +334,13 @@ public final class AgentPaneView: NSView {
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
-        guard let self else { return }
-        if let page = self.page { page.evaluate(script) } else { self.webView.evaluateJavaScript(script, completionHandler: nil) }
+        self?.page.evaluate(script)
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
     /// selects its text, wherever focus was on the page.
     public func focusLocation() {
-        deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
+        deliver([.focusLocation])
     }
 
     /// The page's surface for overrides (R55): new tab page until a chat starts.
@@ -460,7 +348,7 @@ public final class AgentPaneView: NSView {
 
     /// Pushes ``shortcuts`` to the page.
     func applyShortcuts() {
-        deliver([.shortcuts(shortcuts)], scripts: shortcuts.script().map { [$0] } ?? [])
+        deliver([.shortcuts(shortcuts)])
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
@@ -481,32 +369,20 @@ public final class AgentPaneView: NSView {
         themeCrashNotice(tokens)
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
-        page?.themeSurface = surface
-        if let pageEvents {
-            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
-            deliveredThemeEvent = event
-            if !pageEvents.publish(event), let connection = model.transport.connection {
-                model.transport.close(connection: connection)
-            }
-        } else {
-            if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
-                deliveredThemeScript = script
-                evaluateScript(script)
-            }
-            // After the theme, which sets `data-glass`; a forced push is a new document or its handshake.
-            glassFeed.refresh(newDocument: force)
+        page.themeSurface = surface
+        guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+        deliveredThemeEvent = event
+        if !pageEvents.publish(event), let connection = model.transport.connection {
+            model.transport.close(connection: connection)
         }
     }
 
-    /// Sends a push to the page: events on the page host, scripts on the old host (only built there).
-    func deliver(_ events: [AgentPageEvent], scripts: @autoclosure () -> [String]) {
-        if let pageEvents {
-            for event in events where !pageEvents.publish(event) {
-                if let connection = model.transport.connection { model.transport.close(connection: connection) }
-                break
-            }
-        } else {
-            for script in scripts() { evaluateScript(script) }
+    /// Sends pushes to the page; one the provider cannot take closes the transport, whose reconnect
+    /// resyncs the chat.
+    func deliver(_ events: [AgentPageEvent]) {
+        for event in events where !pageEvents.publish(event) {
+            if let connection = model.transport.connection { model.transport.close(connection: connection) }
+            break
         }
     }
 }

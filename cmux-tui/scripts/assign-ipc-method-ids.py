@@ -67,7 +67,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
-        "set-default-colors", "set-window-title", "clear-window-title",
+        "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
@@ -126,8 +126,8 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals and the local feed.", (
-        "list-agents", "report-agent", "feed-local-*",
+    "agents": (0x0E, "Agents in terminals, the local feed and agent CLI updates.", (
+        "list-agents", "report-agent", "feed-local-*", "agent-cli-intents-*", "agent-cli-update-job*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
@@ -219,7 +219,8 @@ READ_ONLY = (
     "cloud-session-status", "cloud-host-replica-status", "cloud-inbox-list", "cloud-requests-list",
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
-    "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list",
+    "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "agent-cli-intents-list", "agent-cli-update-job-resolve",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -233,6 +234,8 @@ MEMORY = (
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
     "subscribe-activity",
+    # Start or stop a trace recording: process memory and ring files, never the journal.
+    "trace-start", "trace-stop",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -240,7 +243,14 @@ MEMORY = (
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
 )
-REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
+# The agent CLI update ledger and job reply after their SQLite commit: the app
+# records an intent before it contacts an owner so a restarted app resumes the
+# same update, and a job's receipt names a durable creation record
+# (commands.md "Update intent ledger").
+REPLY_AFTER_JOURNAL = (
+    "journal-frontend-event", "agent-cli-intents-record", "agent-cli-intents-settle",
+    "agent-cli-intents-attach", "agent-cli-update-job",
+)
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------
 # A command naming a surface, terminal or view runs in that surface's stream
@@ -273,12 +283,13 @@ CROSSES_STREAM_OK: dict[str, str] = {
 # `spawns_terminal`): their reply can carry `starting:true` and the client gives
 # them the spawn timeout. move-tab-to-split and move-tab-to-column start one
 # only with `respawn`, but an attribute cannot depend on a field, so both are
-# listed. Every Swift TerminalSpawningRequest command must be here.
+# listed. agent-cli-update-job opens a workspace whose terminal runs the
+# prepared update. Every Swift TerminalSpawningRequest command must be here.
 SPAWNS_TERMINAL = (
     "new-tab", "create-terminal", "new-screen", "new-pane", "new-pane-right", "split", "new-row",
     "new-workspace", "run", "restart-tab", "create-surface-with-receipt", "apply-layout",
     "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
-    "move-tab-to-column",
+    "move-tab-to-column", "agent-cli-update-job",
 )
 
 COMMAND_KEY_ORDER = (

@@ -35,9 +35,12 @@ final class CEFPaneHost {
     /// A popup host's about:blank browser that created its Chromium window;
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
-    /// The placeholder's page is frozen as soon as its browser exists (the spare window, `CEFSpareWindow`):
-    /// it is never shown, so Chromium never learns it is hidden and would run its frames and timers.
-    var freezesPlaceholder = false
+    /// The placeholder is a spare window's (`CEFSpareWindow`): never shown, so Chromium never learns it is
+    /// hidden. With `CEFSpareWindow.rendererlessPlaceholders` it is made with no renderer where the fork can,
+    /// else its page is frozen once its browser exists.
+    var quietsPlaceholder = false
+    /// This window's placeholder has no renderer (`cmux_shim_create_placeholder_window`): no page to set up or freeze.
+    private(set) var placeholderHasNoRenderer = false
     /// An extension's popup window (chrome.windows.create type popup, fork
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
@@ -249,10 +252,16 @@ final class CEFPaneHost {
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
+            // Set before AFTER_CREATED can reach the placeholder's attach.
+            placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && runtime.spareWindow.rendererlessPlaceholders
+                && shim.placeholderSupported() == 1
+            let rendererless = placeholderHasNoRenderer
             let create = {
                 CEFStartSteps.shared.createWindow {
-                    shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
-                                      max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+                    let view = Unmanaged.passUnretained(self.hostView).toOpaque()
+                    let width = max(size.width, 1).clampedInt32, height = max(size.height, 1).clampedInt32
+                    return rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
+                        : shim.createWindow(request, view, width, height, initialURL, contextKey)
                 }
             }
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -263,7 +272,10 @@ final class CEFPaneHost {
             if started != 1 {
                 runtime.pendingWindows[request] = nil
                 window = .none
+                placeholderHasNoRenderer = false
                 tab.creationFailed()
+            } else {
+                runtime.spareWindow.noteWindowBuilt(for: key)
             }
             return false
         case .creating:
@@ -337,7 +349,7 @@ final class CEFPaneHost {
         refreshExtensionActions()
         runtime.extensionStores.store(for: key.profile).refresh()
         runtime.orphans.windowBecameLive(self)
-        CEFSpareWindow.shared.windowCameUp(self)
+        runtime.spareWindow.windowCameUp(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
@@ -378,7 +390,7 @@ final class CEFPaneHost {
     /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
         // The spare window has no pane to announce it to: the tab that takes it adopts it.
-        if isSpare { return CEFSpareWindow.shared.park(browser, disposition: disposition, bounds: bounds) }
+        if isSpare { return runtime.spareWindow.park(browser, in: self, disposition: disposition, bounds: bounds) }
         let opener = visibleTab ?? tabs.last
         if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
@@ -404,7 +416,7 @@ final class CEFPaneHost {
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
-        if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
+        if !isPopupHost, tabs.count == 1, placeholder != nil { runtime.spareWindow.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             window = .none
             hostView.layerHosting.stop()
