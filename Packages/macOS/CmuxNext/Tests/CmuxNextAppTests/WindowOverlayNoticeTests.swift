@@ -1,28 +1,32 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBrowserCore
+import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// p06-scheduler-221: the overlay layer and its host observed `NSWindow.didUpdateNotification`, so every
 /// event of the window (each key typed) re-ran the layer's after-pass work, its placement check and the
 /// host's child order check, with no overlay change. They now act on the specific notices (the window's
-/// own through its `WindowEvents`, a page window's appear, hide, move or key), and a layout depth left by
-/// an exception clears once at the end of the turn that began the pass. The window's notices come from
-/// the test's own center: the layer makes the window's `WindowEvents` on it, and the host shares it.
+/// own through its `WindowEvents`, a page window's appear, hide, move or key), and a layout depth counts
+/// only in the turn that began its pass. The window's notices come from the test's own center: the layer
+/// makes the window's `WindowEvents` on it, and the host shares it.
 @MainActor @Suite(.serialized) struct WindowOverlayNoticeTests {
-    @MainActor private final class TurnEnds {
-        var pending: [@MainActor () -> Void] = []
+    /// The main run loop's turn number (`MainTurnMeter.turnNumber`), moved by the test.
+    @MainActor private final class Turns {
+        var number: UInt64 = 1
 
-        func run() {
-            let work = pending
-            pending.removeAll()
-            for body in work { body() }
-        }
+        func next() { number += 1 }
+    }
+
+    @MainActor private final class Count {
+        var value = 0
     }
 
     @MainActor private final class Rig {
         let center: NotificationCenter
-        let turnEnds: TurnEnds
+        let turns: Turns
         let window: NSWindow
         let page: NSWindow
         let layer: WindowOverlayLayer
@@ -38,12 +42,12 @@ import Testing
                                 backing: .buffered, defer: false)
             page.isReleasedWhenClosed = false
             let center = NotificationCenter()
-            let turnEnds = TurnEnds()
+            let turns = Turns()
             self.window = window
             self.page = page
             self.center = center
-            self.turnEnds = turnEnds
-            layer = WindowOverlayLayer(window: window, center: center, atTurnEnd: { turnEnds.pending.append($0) })
+            self.turns = turns
+            layer = WindowOverlayLayer(window: window, center: center, currentTurn: { turns.number })
         }
 
         /// The Chromium fork adds a page as a child window (`ShellWindow.addChildWindow` then evaluates).
@@ -106,25 +110,88 @@ import Testing
         #expect(rig.layer.placement == .inWindow, "a hidden page left the overlay in its panel")
     }
 
-    @Test func aStaleLayoutDepthClearsAtTheEndOfItsTurn() {
+    @Test func aStaleLayoutDepthFromAnEarlierTurnCountsAsNoPass() {
         let rig = Rig()
         defer { rig.close() }
         let layer = rig.layer
 
-        // A normal pass, nested once: one check, and it finds nothing to clear.
+        // A normal pass, nested once.
         layer.windowWillLayout()
         layer.windowWillLayout()
         layer.windowDidLayout()
+        #expect(layer.layoutDepth == 1)
         layer.windowDidLayout()
-        #expect(rig.turnEnds.pending.count == 1, "one check per turn that began a pass")
-        rig.turnEnds.run()
         #expect(layer.layoutDepth == 0)
 
-        // An exception AppKit caught skipped the pass's end: the turn's end clears the depth.
+        // An exception AppKit caught skipped the pass's end: in its own turn the pass still counts.
         layer.windowWillLayout()
         #expect(layer.layoutDepth == 1)
-        rig.turnEnds.run()
-        #expect(layer.layoutDepth == 0, "a stale depth held the deferred work")
-        #expect(rig.turnEnds.pending.isEmpty)
+        rig.turns.next()
+        #expect(layer.layoutDepth == 0, "a depth from an earlier turn holds this turn's deferred work")
+
+        // The next turn's pass is the outermost one (ShellWindow runs its after-pass work at depth 1).
+        layer.windowWillLayout()
+        #expect(layer.layoutDepth == 1)
+        layer.windowDidLayout()
+        #expect(layer.layoutDepth == 0)
+    }
+
+    /// The window's after-pass blocks (`afterLayoutPass`) queued in the pass an exception cut short run
+    /// at the end of the next turn's first pass: it is the outermost one, not a pass nested at depth 2.
+    @Test func theFirstPassAfterAStaleDepthRunsTheWindowsAfterPassWork() {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: CGRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let meter = MainTurnMeter()
+        window.turnMeter = meter
+        defer {
+            window.overlayLayer.teardown()
+            window.orderOut(nil)
+        }
+
+        meter.loopWoke()
+        // The pass began and an exception AppKit caught skipped its end.
+        window.overlayLayer.windowWillLayout()
+        var ran = 0
+        window.afterLayoutPass { ran += 1 }
+        #expect(ran == 0, "a block asked for inside the pass ran inside it")
+        meter.loopWillWait()
+        meter.loopDidRender()
+
+        meter.loopWoke()
+        #expect(!window.isInLayoutPass, "the stale pass still counts in the next turn")
+        window.layoutIfNeeded()
+        #expect(ran == 1, "the next turn's first pass skipped the after-pass work")
+        #expect(window.overlayLayer.layoutDepth == 0)
+        withExtendedLifetime(meter) {}
+    }
+
+    /// A move or an occlusion change schedules no layout pass: the page update it owes after "the pass
+    /// the change schedules" never waits for an unrelated pass in a later turn (a key or a tab switch).
+    @Test func aMoveOwesNoPageUpdateToALaterTurnsPass() {
+        let rig = Rig()
+        defer { rig.close() }
+        rig.showPage()
+        // The layer asks the window's pages on the default center (`CEFHostView` listens there).
+        let posts = Count()
+        let watch = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: rig.window) { posts.value += 1 }
+
+        rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
+        #expect(posts.value == 1, "the pages follow the move at once")
+
+        // A later turn's pass (typing): no page update for the move.
+        rig.turns.next()
+        rig.layer.windowWillLayout()
+        rig.layer.windowDidLayout()
+        #expect(posts.value == 1, "the move's follow-up page update ran in an unrelated pass")
+
+        // A resize in this turn: its pass, in the same turn, updates the pages once more.
+        rig.center.post(name: NSWindow.didResizeNotification, object: rig.window)
+        #expect(posts.value == 2)
+        rig.layer.windowWillLayout()
+        rig.layer.windowDidLayout()
+        #expect(posts.value == 3, "the pass the resize scheduled did not update the pages again")
+        watch.cancel()
     }
 }

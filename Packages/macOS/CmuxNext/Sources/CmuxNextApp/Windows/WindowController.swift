@@ -97,6 +97,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.keyRouter = services.keyRouter
+        window.turnMeter = services.mainWork.budget.turns
         window.title = Strings.appName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -438,7 +439,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
-    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+    /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
+    weak var turnMeter: MainTurnMeter?
+    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
@@ -509,8 +512,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     }
 
     /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
-    /// The overlay layer's depth resets itself on the next event cycle if an
-    /// exception AppKit caught skipped the end of a pass.
+    /// The overlay layer counts a depth only in the turn that began the pass:
+    /// after an exception AppKit caught skipped the end of a pass, the next
+    /// turn's first pass is the outermost one again.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 
     private var pendingAfterLayout: [() -> Void] = []

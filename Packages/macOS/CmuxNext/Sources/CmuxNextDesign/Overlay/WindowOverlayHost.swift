@@ -10,11 +10,14 @@ import CmuxNextWakeups
 /// another parent. Anything in the main window's view tree, and any app
 /// child window shown before such a re-add, is then below the page. The
 /// host keeps one transparent child panel per main window (`OverlayHostPanel`,
-/// the size of the window) above every page window: it re-asserts that order
-/// whenever the window's children change (`childWindowsDidChange(of:)`, called
-/// by the window's `addChildWindow` override) and on every event cycle of the
-/// window while it shows. Overlays presented on it (tooltips, popovers,
-/// toasts, menus, drag ghosts, dialogs) are therefore always above pages.
+/// the size of the window) above every page window: while the panel is
+/// attached it re-asserts that order when a child is added
+/// (`childWindowsDidChange(of:)`, called by the `addChildWindow` override of
+/// every window that shows pages: `ShellWindow`, `BrowserPopupWindow`,
+/// `CEFDevToolsWindow`), and when the window shows again, takes key or
+/// enters or leaves full screen; never per event cycle. Overlays presented
+/// on it (tooltips, popovers, toasts, menus, drag ghosts, dialogs) are
+/// therefore always above pages.
 ///
 /// The panel ignores the mouse except over interactive overlays (and the
 /// whole window under a modal or dimming overlay, or a tab-region
@@ -179,7 +182,9 @@ public final class WindowOverlayHost {
 
     /// `window`'s children changed (a page window was added or re-added):
     /// the panel goes back above every page window before the window
-    /// server composites a frame.
+    /// server composites a frame. Every window class that shows Chromium
+    /// pages calls it from its `addChildWindow` override: nothing else
+    /// catches a page the fork re-adds above the panel.
     public static func childWindowsDidChange(of window: NSWindow) {
         existingHost(for: window)?.reassertOrder()
     }
@@ -324,8 +329,9 @@ public final class WindowOverlayHost {
     public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
     /// The window's own notices while the panel is attached, through its ``WindowEvents``. The
-    /// order is checked when it can break: a child window was added (``childWindowsDidChange(of:)``),
-    /// the window shows again, takes key or enters or leaves full screen; never per event cycle.
+    /// order is checked when it can break: a child window was added (``childWindowsDidChange(of:)``,
+    /// from the `addChildWindow` override of every window that shows pages), the window shows
+    /// again, takes key or enters or leaves full screen; never per event cycle.
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
         let events = WindowEvents.of(window)

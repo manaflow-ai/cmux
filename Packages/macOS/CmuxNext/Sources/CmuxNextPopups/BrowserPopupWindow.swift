@@ -210,6 +210,14 @@ public final class BrowserPopupWindow: NSWindow {
         addressBar.focus()
     }
 
+    /// The Chromium fork adds the popup's page window as a child ordered above
+    /// everything, the overlay host's panel (omnibar suggestions, toasts) included:
+    /// the panel goes back above it in the same call, as on `ShellWindow`.
+    override public func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
     override public func close() {
         observation?.cancel()

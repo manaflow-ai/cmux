@@ -67,17 +67,22 @@ final class WindowOverlayLayer {
     private var observers: [MainActorObservation] = []
     /// The visible page windows at the last check: one that orders out may leave `childWindows` first.
     private var shownPages: Set<ObjectIdentifier> = []
-    private let atTurnEnd: @MainActor (@escaping @MainActor () -> Void) -> Void
-    private var depthCheckPending = false
+    /// The main run loop's turn number (`MainTurnMeter.turnNumber`): the layout depth and the geometry
+    /// change's follow-up page update count only in the turn that set them.
+    private let currentTurn: @MainActor () -> UInt64
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
     private var isTornDown = false
-    /// A window geometry change whose layout pass has not run yet.
+    /// A page update asked for during the layout pass: it runs after the pass.
     private var pageUpdateAfterLayout = false
+    /// The turn of a window geometry change: the layout pass the change schedules, in that turn, updates
+    /// the pages once more. A move or an occlusion change schedules none, and a later turn's pass owes nothing.
+    private var geometryTurn: UInt64?
     /// The deferred page update must reach every page (`requestPageUpdate(force:)`).
     private var forcedPageUpdateAfterLayout = false
-    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
-    private(set) var layoutDepth = 0
+    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`), in the turn that began it.
+    private var openDepth = 0
+    private var passTurn: UInt64 = 0
     /// Interactive rects changed during the layout pass: applied after it.
     private var rectsChangedInLayout = false
     /// Placement and child order checks asked for during the layout pass.
@@ -87,14 +92,12 @@ final class WindowOverlayLayer {
     /// Placement and order checks run (`evaluate()` past its guards; tests).
     private(set) var evaluations = 0
 
-    /// `center`: where windows post (tests pass their own); `atTurnEnd`: a one-shot run after the turn's commit.
+    /// `center`: where windows post (tests pass their own); `currentTurn`: the main run loop's turn number.
     init(window: NSWindow, signposter: Signposter = Signposter.cef, center: NotificationCenter = .default,
-         atTurnEnd: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void = { work in
-             MainRunLoopObserver.once(activities: .beforeWaiting, order: .max, work)
-         }) {
+         currentTurn: @escaping @MainActor () -> UInt64) {
         self.window = window
         self.signposter = signposter
-        self.atTurnEnd = atTurnEnd
+        self.currentTurn = currentTurn
         catchers = DividerMouseCatchers(window: window)
         let events = WindowEvents.of(window, center: center)
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
@@ -170,24 +173,15 @@ final class WindowOverlayLayer {
         windowDidLayoutWork()
     }
 
-    func windowWillLayout() {
-        layoutDepth += 1
-        if layoutDepth == 1 { checkDepthAtTurnEnd() }
-    }
+    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`). A pass never spans turns, so a
+    /// depth from an earlier turn was left by an exception AppKit caught mid-pass: it counts as 0, and the
+    /// next pass is the outermost one, with its after-pass work.
+    var layoutDepth: Int { passTurn == currentTurn() ? openDepth : 0 }
 
-    /// No pass runs after the turn's commit: a depth still open there was left by an exception AppKit caught mid-pass.
-    private func checkDepthAtTurnEnd() {
-        guard !depthCheckPending else { return }
-        depthCheckPending = true
-        atTurnEnd { [weak self] in
-            guard let self else { return }
-            self.depthCheckPending = false
-            guard self.layoutDepth > 0, !self.isTornDown else { return }
-            self.layoutDepth = 0
-            self.windowDidLayoutWork()
-            // What the work changed commits in the next turn, not at unrelated input.
-            CFRunLoopWakeUp(CFRunLoopGetMain())
-        }
+    func windowWillLayout() {
+        let turn = currentTurn()
+        if passTurn != turn { (openDepth, passTurn) = (0, turn) }
+        openDepth += 1
     }
 
     /// The window's layout pass ended: every view has its final frame.
@@ -195,8 +189,8 @@ final class WindowOverlayLayer {
     /// the root without a layout of the root), then pages and catchers
     /// follow once.
     func windowDidLayout() {
-        layoutDepth = max(0, layoutDepth - 1)
-        guard layoutDepth == 0, !isTornDown else { return }
+        openDepth = max(0, layoutDepth - 1)
+        guard openDepth == 0, !isTornDown else { return }
         windowDidLayoutWork()
     }
 
@@ -218,7 +212,9 @@ final class WindowOverlayLayer {
         #if DEBUG || CMUX_BENCH_HOOKS
         for plane in planes { recordRingLag(plane) }
         #endif
-        guard pageUpdateAfterLayout else { return }
+        let followsGeometry = geometryTurn.map { $0 == currentTurn() } ?? false
+        geometryTurn = nil
+        guard pageUpdateAfterLayout || followsGeometry else { return }
         let force = forcedPageUpdateAfterLayout
         (pageUpdateAfterLayout, forcedPageUpdateAfterLayout) = (false, false)
         for plane in planes { plane.syncFrame() }
@@ -364,7 +360,7 @@ final class WindowOverlayLayer {
             updateInteractiveRects()
             syncCatchers()
             requestPageUpdate()
-            pageUpdateAfterLayout = true
+            geometryTurn = currentTurn()
         }
     }
 
