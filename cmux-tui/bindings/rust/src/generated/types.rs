@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR ec91fe6a0b17a8f0a0cbc2ffe350eebe21b8433bbdd533fb2067833cf6d2ed97.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1736,6 +1736,32 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathIo {
+    pub child_process: u64,
+    pub fs_write: u64,
+    pub host_wait: u64,
+    pub journal_wait: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_hold_over_1ms: Option<u64>,
+    pub network: u64,
+    pub proc_scan: u64,
+    pub process_spawn: u64,
+    pub recording: bool,
+    pub scopes: u64,
+    pub sites: Vec<ServerStatsRequestPathSite>,
+    pub sleep: u64,
+    pub sqlite: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathSite {
+    pub kind: String,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResourceProjection {
     pub commit_apply_us: ServerStatsHistogram,
     pub commit_journal_us: ServerStatsHistogram,
@@ -1762,6 +1788,8 @@ pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_path_io: Option<ServerStatsRequestPathIo>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,

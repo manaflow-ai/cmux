@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR ec91fe6a0b17a8f0a0cbc2ffe350eebe21b8433bbdd533fb2067833cf6d2ed97. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1064,6 +1064,27 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestPathIo = {
+  "child_process": bigint;
+  "fs_write": bigint;
+  "host_wait": bigint;
+  "journal_wait": bigint;
+  "lock_hold_over_1ms"?: bigint;
+  "network": bigint;
+  "proc_scan": bigint;
+  "process_spawn": bigint;
+  "recording": boolean;
+  "scopes": bigint;
+  "sites": Array<ServerStatsRequestPathSite>;
+  "sleep": bigint;
+  "sqlite": bigint;
+};
+
+export type ServerStatsRequestPathSite = {
+  "kind": string;
+  "site": string;
+};
+
 export type ServerStatsResourceProjection = {
   "commit_apply_us": ServerStatsHistogram;
   "commit_journal_us": ServerStatsHistogram;
@@ -1088,6 +1109,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;

@@ -1020,6 +1020,7 @@ impl Supervisor {
             .stdout(log.try_clone()?)
             .stderr(log)
             .process_group(0);
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let mut child = command.spawn()?;
         let pid = child.id();
         let reaped = Arc::new(Mutex::new(false));
@@ -1055,6 +1056,7 @@ impl Supervisor {
             return;
         }
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let spawned = std::process::Command::new(&self.config.executable)
             .arg("end-sessions")
             .env_clear()

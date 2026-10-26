@@ -2,15 +2,28 @@
 //!
 //! Chromium's model (base/threading/scoped_blocking_call.h): a blocking
 //! primitive announces itself with the location of its caller, and the
-//! thread's scope decides what that costs. Here a request handler runs inside
+//! thread's state decides what that costs. Here a request handler runs inside
 //! a [`RequestPathScope`]; a blocking primitive calls [`note`] with its
 //! [`BlockingKind`]. Every wrapper between the primitive and the code that
 //! asked for it is `#[track_caller]`, so the noted site is that code's
 //! `file:line`, not the wrapper's.
 //!
-//! Outside a scope a note is one thread-local load. Inside one it adds one
-//! relaxed atomic to the scope's [`RequestPathStats`]; only the `record` and
-//! `panic:<kinds>` modes also fill the 128-entry site ring and print a
+//! One note feeds two detectors, as Chrome's `ScopedBlockingCall` both
+//! asserts `ThreadRestrictions` and tells the thread's `BlockingObserver`
+//! (base/threading/scoped_blocking_call_internal.h):
+//! `cmux_threads::blocking` (may this thread block at all: a process-wide
+//! table of violation sites, `CMUX_DAEMON_BLOCKING=panic`) and this module's
+//! per-daemon counters (what request handlers blocked on, allowed or not).
+//! The kind sets differ because the questions differ: request-path triage
+//! needs `journal_wait`, `proc_scan`, `child_process` and
+//! `lock_hold_over_1ms`, and the thread detector's 16-bit kind mask has no
+//! room for them; [`BlockingKind::threads_kind`] maps each kind onto the
+//! detector's. A primitive calls only [`note`] (or [`sleep`]), never both.
+//!
+//! Outside a scope a note is the thread detector's check plus one
+//! thread-local load. Inside one it adds one relaxed atomic to the scope's
+//! [`RequestPathStats`]; only the `record` and `panic:<kinds>` modes also
+//! fill the 128-entry site ring, time registry lock holds, and print a
 //! `REQUEST_PATH_IO kind=<kind> site=<file:line>` line on stderr. A
 //! `panic:` kind panics only in builds with debug assertions (debug and test).
 //! Nothing here allocates on the note path.
@@ -22,6 +35,9 @@ use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
+
+use cmux_threads::blocking::BlockingKind as ThreadsKind;
 
 /// What a request-path note says the thread blocked on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -84,6 +100,22 @@ impl BlockingKind {
 
     pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+
+    /// The `cmux_threads::blocking` kind the same call is checked as, or
+    /// `None` for what that detector does not check: a lock hold measured at
+    /// its release, and a network round trip (it has no kind for one).
+    pub const fn threads_kind(self) -> Option<ThreadsKind> {
+        match self {
+            Self::Sqlite => Some(ThreadsKind::Sqlite),
+            Self::JournalWait => Some(ThreadsKind::Recv),
+            Self::ProcessSpawn => Some(ThreadsKind::ProcessSpawn),
+            Self::FsWrite | Self::ProcScan => Some(ThreadsKind::Fs),
+            Self::HostWait => Some(ThreadsKind::IpcReply),
+            Self::Sleep => Some(ThreadsKind::Sleep),
+            Self::ChildProcess => Some(ThreadsKind::ProcessWait),
+            Self::Network | Self::LockHoldOver1ms => None,
+        }
     }
 
     fn from_index(index: u8) -> Option<Self> {
@@ -251,11 +283,12 @@ impl RequestPathStats {
             .collect()
     }
 
-    /// Count one note; true when the mode panics on it.
-    fn noted(&self, kind: BlockingKind, site: &'static Location<'static>) -> bool {
+    /// Count one note: whether it was recorded, and whether the mode panics
+    /// on it.
+    fn noted(&self, kind: BlockingKind, site: &'static Location<'static>) -> (Noted, bool) {
         self.counts[kind as usize].fetch_add(1, Ordering::Relaxed);
         if !self.mode.record {
-            return false;
+            return (Noted::Counted, false);
         }
         let slot = &self.ring[self.ring_next.fetch_add(1, Ordering::AcqRel) % SITE_RING_LEN];
         slot.kind.store(kind as u8, Ordering::Relaxed);
@@ -266,8 +299,21 @@ impl RequestPathStats {
             site.file(),
             site.line()
         );
-        self.mode.panics_on(kind)
+        (Noted::Recorded, self.mode.panics_on(kind))
     }
+}
+
+/// What a note did on the current thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Noted {
+    /// The thread runs no request scope: nothing was counted.
+    Outside,
+    /// Counted by the scope's stats.
+    Counted,
+    /// Counted and kept in the site ring (`record`, `panic:<kinds>`): the
+    /// mode in which a primitive also measures what costs a clock read, such
+    /// as a registry lock hold.
+    Recorded,
 }
 
 thread_local! {
@@ -312,16 +358,25 @@ pub fn in_scope() -> bool {
 /// between the blocking primitive and its public call `#[track_caller]`.
 #[track_caller]
 #[inline]
-pub fn note(kind: BlockingKind) {
-    note_at(kind, Location::caller());
+pub fn note(kind: BlockingKind) -> Noted {
+    note_at(kind, Location::caller())
 }
 
-/// [`note`] at a site recorded earlier (a lock hold measured at its release).
+/// [`note`] at a site captured earlier: before a closure (closures are not
+/// `#[track_caller]`), or a lock hold measured at its release. It reads the
+/// thread's scope once: callers act on the returned [`Noted`] instead of
+/// asking [`in_scope`] first.
 #[inline]
-pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) {
-    let refused = ACTIVE
-        .try_with(|active| active.borrow().as_ref().is_some_and(|stats| stats.noted(kind, site)))
-        .unwrap_or(false);
+pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
+    if let Some(threads_kind) = kind.threads_kind() {
+        cmux_threads::blocking::assert_blocking_allowed_at(threads_kind, site);
+    }
+    let (noted, refused) = ACTIVE
+        .try_with(|active| match active.borrow().as_ref() {
+            Some(stats) => stats.noted(kind, site),
+            None => (Noted::Outside, false),
+        })
+        .unwrap_or((Noted::Outside, false));
     // `CMUX_TUI_REQUEST_PATH_IO=panic:<kinds>` refuses these kinds in debug
     // and test builds; a release build only records them.
     debug_assert!(
@@ -330,6 +385,16 @@ pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) {
         site.file(),
         site.line()
     );
+    noted
+}
+
+/// `std::thread::sleep`, noted as `sleep` at the caller. Daemon code sleeps
+/// through this, so a sleep that reaches a request thread is counted where
+/// it was asked for.
+#[track_caller]
+pub fn sleep(duration: Duration) {
+    note(BlockingKind::Sleep);
+    std::thread::sleep(duration);
 }
 
 #[cfg(test)]

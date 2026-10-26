@@ -8,7 +8,6 @@
 /// started: the terminal's PTY child `pid` is login(1) and `leader` is its
 /// child. That shell is the terminal's own shell, not a job it runs.
 #[cfg(target_os = "macos")]
-#[track_caller]
 pub(crate) fn login_session_shell(pid: u32, leader: u32) -> bool {
     KinfoProc::read(pid).is_some_and(|child| child.command() == b"login")
         && KinfoProc::read(leader).is_some_and(|shell| shell.parent() == pid)
@@ -41,11 +40,7 @@ impl KinfoProc {
     const E_TDEV: usize = 572;
     const E_TPGID: usize = 576;
 
-    /// A process table read: a `proc_scan` on a request thread
-    /// (`request_path`), noted at the caller.
-    #[track_caller]
     pub(crate) fn read(pid: u32) -> Option<Self> {
-        crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
         let pid = libc::c_int::try_from(pid).ok()?;
         let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
         let mut info = [0u8; Self::SIZE];

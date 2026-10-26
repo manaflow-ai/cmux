@@ -4,6 +4,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
         Self::new_with_test_surface_runtime(
             session,
@@ -16,6 +17,7 @@ impl Mux {
     /// Builds a mux whose workspace lifecycle is provider-owned from its
     /// first control connection. The authority must be provisioned by the
     /// provider that owns this mux generation.
+    #[track_caller]
     pub fn new_provider_managed(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -36,6 +38,7 @@ impl Mux {
 
     /// Builds a provider-owned mux whose authority will be installed through
     /// the root-only management socket before lifecycle mutations are allowed.
+    #[track_caller]
     pub fn new_provider_managed_pending(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -56,6 +59,7 @@ impl Mux {
         ))
     }
 
+    #[track_caller]
     pub(super) fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -75,6 +79,7 @@ impl Mux {
         .expect("in-memory workspace registry must load")
     }
 
+    #[track_caller]
     pub fn open_persistent(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -91,6 +96,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub fn open_persistent_provider_managed(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -113,6 +119,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub fn open_persistent_provider_managed_pending(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -137,6 +144,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn from_workspace_registry(
         session: String,
         surface_options: SurfaceOptions,
@@ -458,7 +466,7 @@ impl Mux {
                 mux.shutdown();
                 anyhow::bail!("interrupted resource creation did not settle during startup");
             }
-            std::thread::sleep(Duration::from_millis(25));
+            crate::request_path::sleep(Duration::from_millis(25));
         }
         mux.close_ephemeral_workspaces()?;
         // cx-6so.49: host losses whose respawn an earlier owner never ran
@@ -477,6 +485,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn new_for_test(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -490,6 +499,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn new_provider_managed_for_test(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -509,6 +519,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn new_provider_managed_pending_for_test(
         session: impl Into<String>,
         surface_options: SurfaceOptions,

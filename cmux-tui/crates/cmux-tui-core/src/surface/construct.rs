@@ -306,6 +306,7 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
         let mut child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();

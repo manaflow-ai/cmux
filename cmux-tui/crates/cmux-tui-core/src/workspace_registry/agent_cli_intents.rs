@@ -49,6 +49,7 @@ pub(crate) struct AgentCLIIntent {
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub(crate) fn record_agent_cli_intents(
         &mut self,
         actor: &Actor,
@@ -57,6 +58,7 @@ impl WorkspaceRegistry {
         self.record_agent_cli_intents_at(actor, intents, i64::try_from(super::unix_epoch_ms()?)?)
     }
 
+    #[track_caller]
     pub(crate) fn record_agent_cli_intents_at(
         &mut self,
         actor: &Actor,
@@ -116,6 +118,7 @@ impl WorkspaceRegistry {
     }
 
     /// Forgets settled intents. A key already gone is not an error: settling is idempotent.
+    #[track_caller]
     pub(crate) fn settle_agent_cli_intents(
         &mut self,
         actor: &Actor,
@@ -163,6 +166,7 @@ impl WorkspaceRegistry {
         read_rows(&self.connection.get(), &frontend(actor)?, now_ms)
     }
 
+    #[track_caller]
     pub(crate) fn attach_agent_cli_intent_receipt(
         &mut self,
         actor: &Actor,

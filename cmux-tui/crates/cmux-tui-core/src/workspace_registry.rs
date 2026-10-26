@@ -2445,6 +2445,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
@@ -2458,6 +2459,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -2505,6 +2507,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2933,18 +2936,19 @@ impl WorkspaceRegistry {
 
     #[track_caller]
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
+        // One acquisition for the whole read: one `sqlite` note
+        // (`request_path`), one lock hold.
+        let db = self.connection.get();
+        let revision = current_revision(&db)?;
+        let resource_revision = current_resource_revision(&db)?;
+        let max_numeric_id =
+            db.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+                row.get::<_, i64>(0)
+            })?;
         let next_numeric_id = u64::try_from(max_numeric_id)
             .context("stored workspace id is negative")?
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
                     w.name_source, w.name_revision
@@ -3004,6 +3008,7 @@ impl WorkspaceRegistry {
     /// until the recovered effect can publish its complete topology in one
     /// revision. The daemon rehydrates them only during startup so terminal
     /// host adoption can finish that transaction.
+    #[track_caller]
     pub(crate) fn interrupted_resource_workspaces(
         &self,
     ) -> anyhow::Result<Vec<(usize, RegistryWorkspace)>> {
@@ -3102,6 +3107,7 @@ impl WorkspaceRegistry {
         read_terminal(&self.connection.get(), terminal_id)
     }
 
+    #[track_caller]
     pub fn replay_terminal(
         &self,
         mutation: &WorkspaceMutation,
@@ -3118,6 +3124,7 @@ impl WorkspaceRegistry {
     /// a host, then advance it through `adopting`/`running` only after the host
     /// record is durable. A tombstoned id can never be resurrected.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_terminal(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3143,6 +3150,7 @@ impl WorkspaceRegistry {
 
     /// Durably tombstones a terminal before the caller signals its host. This
     /// makes a repeated close safe even if the first success reply was lost.
+    #[track_caller]
     pub fn close_terminal(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3168,6 +3176,7 @@ impl WorkspaceRegistry {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn replay_terminal_close(
         &self,
         mutation: &WorkspaceMutation,
@@ -3182,6 +3191,7 @@ impl WorkspaceRegistry {
     /// identities and incarnations are validated before the first update, and
     /// any later SQLite failure rolls the entire set back. Hosts are signaled
     /// only after this method commits successfully.
+    #[track_caller]
     pub fn close_terminals_atomically(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3196,6 +3206,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn set_terminal_close_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
             self.connection.get().execute_batch(
@@ -3211,6 +3222,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub fn terminal_events_after(
         &self,
         revision: u64,
@@ -3252,6 +3264,7 @@ impl WorkspaceRegistry {
     /// workspace selector. This is what lets a lost-response retry of a
     /// successful close return the original result after the workspace has
     /// become a tombstone.
+    #[track_caller]
     pub fn replay(
         &self,
         mutation: &WorkspaceMutation,
@@ -3294,6 +3307,7 @@ impl WorkspaceRegistry {
     /// a committed command must return its original result even after newer
     /// commands have advanced the registry.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3339,6 +3353,7 @@ impl WorkspaceRegistry {
     /// Atomically replace the live ordered registry, including its selected
     /// workspace, and record the mutation plus its public resource event.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_with_active_workspace(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3371,6 +3386,7 @@ impl WorkspaceRegistry {
     /// unchanged (metadata only) or reordered (a group move). A replayed
     /// mutation returns its original result and writes nothing.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_workspace_presentation(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3476,6 +3492,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn put_frontend_projection(
         &mut self,
         mutation: &WorkspaceMutation,

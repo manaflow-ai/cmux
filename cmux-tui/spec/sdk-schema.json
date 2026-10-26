@@ -6023,6 +6023,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "request_path_io": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRequestPathIo"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6031,7 +6039,8 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "request_path_io is present only when the request names it in include."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6230,6 +6239,151 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsRequestPathIo": {
+   "kind": "object",
+   "fields": {
+    "recording": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scopes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sqlite": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_wait": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "process_spawn": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "fs_write": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_wait": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sleep": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "proc_scan": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "child_process": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "network": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "lock_hold_over_1ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "sites": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsRequestPathSite"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
+    "scopes counts outermost request scopes entered: frames read plus queued requests run.",
+    "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
+    "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+   ]
+  },
+  "ServerStatsRequestPathSite": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kind is one of sqlite, journal_wait, process_spawn, fs_write, host_wait, sleep, proc_scan, child_process, network, lock_hold_over_1ms.",
+    "site is the file:line of the code that asked for the blocking work."
    ]
   },
   "GuestUrlOpenResult": {
@@ -16588,7 +16742,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
    ]
   },
   "paste-image": {

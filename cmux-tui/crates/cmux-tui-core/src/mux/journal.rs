@@ -20,6 +20,7 @@ impl Mux {
 
     /// Test-only: output goes to the output store, never the journal.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -76,6 +77,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }
@@ -106,6 +108,7 @@ impl Mux {
         self.journal_ingress.enabled()
     }
 
+    #[track_caller]
     pub fn journal_local_frontend_event(
         &self,
         event: crate::FrontendJournalEvent,
@@ -118,6 +121,7 @@ impl Mux {
         self.session_public_id.clone()
     }
 
+    #[track_caller]
     pub(crate) fn journal_frontend_event(
         &self,
         principal_id: String,
@@ -132,6 +136,7 @@ impl Mux {
 
     /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
     /// and structural, it carries no output.
+    #[track_caller]
     pub(crate) fn journal_terminal_output_gap(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -146,6 +151,7 @@ impl Mux {
         });
     }
 
+    #[track_caller]
     pub(crate) fn journal_terminal_resize(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -371,6 +377,7 @@ impl Mux {
         self.journal_event_epoch()
     }
 
+    #[track_caller]
     pub(crate) fn resource_events_after(
         &self,
         revision: u64,
@@ -397,10 +404,12 @@ impl Mux {
     }
 
     /// The journal head without decoding any record or sealed segment.
+    #[track_caller]
     pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().session_journal_head()
     }
 
+    #[track_caller]
     pub(crate) fn session_journal_after(
         &self,
         sequence: u64,
@@ -412,6 +421,7 @@ impl Mux {
     /// Records in `(sequence, through]` other than `terminal.output`, at
     /// most `limit`, and the sequence the read covered through (see
     /// `WorkspaceRegistry::session_journal_without_output_after`).
+    #[track_caller]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -459,18 +469,21 @@ impl Mux {
         self.journal_kernel.read_after(sequence, limit)
     }
 
+    #[track_caller]
     pub(crate) fn journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
         self.workspace_registry.lock().unwrap().journal_producer_manifests()
     }
 
+    #[track_caller]
     pub(crate) fn userland_journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
         self.workspace_registry.lock().unwrap().userland_journal_producer_manifests()
     }
 
+    #[track_caller]
     pub(crate) fn put_journal_producer(
         &self,
         manifest: &crate::JournalProducerManifest,
@@ -492,6 +505,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn append_journal_ingress(
         &self,
         ingress: &crate::JournalIngress,
@@ -539,6 +553,7 @@ impl Mux {
         self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
     }
 
+    #[track_caller]
     pub(super) fn finish_journal_ingress(
         &self,
         ingress: &crate::JournalIngress,

@@ -115,6 +115,7 @@ impl EffectCommitIntent {
 
     /// Apply inside `transaction` (the writer's savepoint, or a request-side
     /// transaction), then the extra rows.
+    #[track_caller]
     pub(crate) fn apply(
         &self,
         transaction: &Transaction<'_>,
@@ -126,6 +127,7 @@ impl EffectCommitIntent {
         Ok(receipt)
     }
 
+    #[track_caller]
     fn apply_receipt(&self, transaction: &Transaction<'_>) -> anyhow::Result<EffectCommitReceipt> {
         match &self.kind {
             EffectCommitKind::Outcome { outcome, outcome_value, deltas } => {
@@ -178,6 +180,7 @@ impl WorkspaceRegistry {
     }
 
     /// Validate and prepare a `commit_resource_effect` intent.
+    #[track_caller]
     pub(crate) fn prepare_effect_outcome_intent(
         &self,
         idempotency_key: &str,
@@ -213,6 +216,7 @@ impl WorkspaceRegistry {
     /// Validate and prepare a `commit_resource_effect_patch` intent. Public
     /// `deltas` the journal already states are dropped here.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn prepare_effect_patch_intent(
         &mut self,
         idempotency_key: &str,
@@ -260,6 +264,7 @@ impl WorkspaceRegistry {
     /// Commit an intent in its own request-side transaction and fsync. The
     /// journal writer path is preferred (`Mux::commit_effect_intent`); this
     /// runs when the writer is disabled, stopped, or not running.
+    #[track_caller]
     pub(crate) fn commit_effect_intent_locally(
         &self,
         intent: EffectCommitIntent,
@@ -269,6 +274,7 @@ impl WorkspaceRegistry {
 
     /// Request-side bookkeeping after a durable receipt: projection commit
     /// spans and the public fold. The caller held the registry since prepare.
+    #[track_caller]
     pub(crate) fn finish_effect_commit(
         &mut self,
         finish: EffectCommitFinish,

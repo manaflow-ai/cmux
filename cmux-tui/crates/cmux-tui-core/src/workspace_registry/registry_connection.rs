@@ -15,8 +15,9 @@
 //! time where `&mut Connection` used to refuse it at compile time.
 //!
 //! On a request thread (`crate::request_path`) the first acquisition notes
-//! `sqlite` at the code that asked for the connection, and its release notes
-//! `lock_hold_over_1ms` there when the hold lasted that long.
+//! `sqlite` at the code that asked for the connection; in a recording scope
+//! its release notes `lock_hold_over_1ms` there when the hold lasted that
+//! long.
 
 use std::cell::Cell;
 use std::panic::Location;
@@ -64,11 +65,11 @@ pub(crate) struct RegistryConnectionPin {
 /// Holds this long or longer are noted as `lock_hold_over_1ms`.
 const LONG_HOLD: Duration = Duration::from_millis(1);
 
-/// A connection hold as a request thread sees it: a first acquisition inside
-/// a request scope notes `sqlite` at its caller before it waits, and the hold
-/// starts its clock once the lock is taken, so its release can note a long
-/// hold (not a long wait) at the same site. Re-entries and every acquisition
-/// outside a scope cost one thread-local load.
+/// A connection hold as a request thread sees it: a first acquisition notes
+/// `sqlite` at `site` before it waits; a re-entry notes nothing (it cannot
+/// block). In a recording scope (`record`, `panic:<kinds>`) the hold starts
+/// its clock once the lock is taken, so its release can note a long hold
+/// (not a long wait) at the same site; other modes take no clock.
 struct RequestPathHold {
     since: Option<(Instant, &'static Location<'static>)>,
 }
@@ -76,16 +77,18 @@ struct RequestPathHold {
 impl RequestPathHold {
     const NONE: Self = Self { since: None };
 
-    /// Note the acquisition `sqlite` at the caller; the site to time, or
-    /// `None` for a re-entry or a thread outside a request scope.
-    #[track_caller]
-    fn note_acquire(reentry: bool) -> Option<&'static Location<'static>> {
-        if reentry || !crate::request_path::in_scope() {
+    /// Note the acquisition `sqlite` at `site`; the site to time, or `None`
+    /// for a re-entry or a scope that does not record.
+    fn note_acquire(
+        reentry: bool,
+        site: &'static Location<'static>,
+    ) -> Option<&'static Location<'static>> {
+        if reentry {
             return None;
         }
-        let site = Location::caller();
-        crate::request_path::note_at(BlockingKind::Sqlite, site);
-        Some(site)
+        (crate::request_path::note_at(BlockingKind::Sqlite, site)
+            == crate::request_path::Noted::Recorded)
+            .then_some(site)
     }
 
     /// The hold of a lock just taken for `site`.
@@ -252,9 +255,18 @@ impl RegistryConnection {
     /// unless it pinned this lock before taking state.
     #[track_caller]
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
+        self.get_at(Location::caller())
+    }
+
+    /// [`Self::get`] for a site captured before a closure (closures are not
+    /// `#[track_caller]`): `let site = Location::caller();` in the
+    /// `#[track_caller]` method, then `get_at(site)` inside the closure.
+    #[track_caller]
+    pub(crate) fn get_at(&self, site: &'static Location<'static>) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        let site = RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread());
+        let site =
+            RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread(), site);
         let guard = self.connection.lock();
         RegistryConnectionGuard {
             guard,
@@ -270,7 +282,10 @@ impl RegistryConnection {
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
         self.check_rank();
-        let site = RequestPathHold::note_acquire(self.connection.is_owned_by_current_thread());
+        let site = RequestPathHold::note_acquire(
+            self.connection.is_owned_by_current_thread(),
+            Location::caller(),
+        );
         let guard = self.connection.lock_arc();
         RegistryConnectionPin {
             _guard: guard,

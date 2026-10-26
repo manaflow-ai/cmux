@@ -385,6 +385,7 @@ fn launch(
         // Its own process group: a signal to the daemon's group does not
         // reach it, and a stop can end its helper processes with it.
         .process_group(0);
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser: {error}"))?;
     let mut lifeline = child.stdin.take();

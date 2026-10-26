@@ -3,11 +3,57 @@ use super::*;
 #[test]
 fn request_path_note_outside_a_scope_counts_nothing() {
     let stats = RequestPathStats::new(RequestPathMode::RECORD);
-    note(BlockingKind::Sqlite);
+    let other = RequestPathStats::new(RequestPathMode::OFF);
+    {
+        let _scope = RequestPathScope::enter(&stats);
+        assert_eq!(note(BlockingKind::Sqlite), Noted::Recorded);
+    }
+    // The scope ended: the same note reaches no stats.
     assert!(!in_scope());
-    assert_eq!(stats.count(BlockingKind::Sqlite), 0);
-    assert_eq!(stats.handler_runs(), 0);
-    assert!(stats.sites().is_empty());
+    assert_eq!(note(BlockingKind::Sqlite), Noted::Outside);
+    {
+        let _other = RequestPathScope::enter(&other);
+        assert_eq!(note(BlockingKind::Sqlite), Noted::Counted);
+    }
+    assert_eq!(stats.count(BlockingKind::Sqlite), 1, "only the note inside its scope");
+    assert_eq!(stats.handler_runs(), 1);
+    assert_eq!(stats.sites().len(), 1);
+    assert_eq!(other.count(BlockingKind::Sqlite), 1);
+}
+
+#[test]
+fn request_path_note_feeds_the_thread_blocking_detector_at_the_same_site() {
+    let stats = RequestPathStats::new(RequestPathMode::OFF);
+    let (line, hold_line) = std::thread::spawn(move || {
+        let _scope = RequestPathScope::enter(&stats);
+        cmux_threads::blocking::disallow_blocking();
+        let line = line!() + 1;
+        note(BlockingKind::Sqlite);
+        let hold_line = line!() + 1;
+        note(BlockingKind::LockHoldOver1ms);
+        assert_eq!(stats.count(BlockingKind::Sqlite), 1);
+        (line, hold_line)
+    })
+    .join()
+    .expect("note thread");
+    let snapshot = cmux_threads::blocking::snapshot();
+    let site = snapshot.site(file!(), line).expect("a violation at the note's caller");
+    assert!(site.kinds.contains(cmux_threads::blocking::BlockingKind::Sqlite));
+    assert!(snapshot.site(file!(), hold_line).is_none(), "a lock hold is not a blocking call");
+}
+
+#[test]
+fn request_path_sleep_is_noted_at_its_caller() {
+    let stats = RequestPathStats::new(RequestPathMode::RECORD);
+    let _scope = RequestPathScope::enter(&stats);
+    let line = line!() + 1;
+    sleep(Duration::ZERO);
+    assert_eq!(stats.count(BlockingKind::Sleep), 1);
+    let site = stats.sites()[0];
+    assert_eq!(
+        (site.kind, site.site.file(), site.site.line()),
+        (BlockingKind::Sleep, file!(), line)
+    );
 }
 
 #[test]
