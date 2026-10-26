@@ -170,8 +170,7 @@ pub enum TicketCmd {
     /// Tickets and paired machines (no secrets).
     #[command(alias = "list")]
     Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open
-    /// connections close at once.
+    /// Revoke a ticket, or a paired machine by id or name; its open connections close at once.
     Revoke { id: String },
     /// Let a paired client machine run chats in Full access (on), or not
     /// (off, the default): the agent edits files and runs commands on this

@@ -239,6 +239,9 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
 fn turn_tools_stop_ends_the_turn_with_no_final_text_and_no_failure() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "start the work");
+    // A person's message gets words before stop (eval_replies.rs).
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("On it."))).expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
@@ -281,6 +284,8 @@ fn turn_tools_stop_outside_a_turn_is_a_noop() {
 fn turn_tools_sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "watch the nightly");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("Watching it."))).expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || {
         sp.sleep(SleepCall {
