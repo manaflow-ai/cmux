@@ -1,0 +1,93 @@
+// The native palette's chat header toggles (AgentPaneView+Commands.swift, AgentPageCommand) in the
+// real chat pane: the page lists the ones its header offers, and runs each the way its button does.
+// CMUX_BROWSER_TESTS=1 bun test test/page-commands-palette.test.ts
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { chromium, type Browser, type Page } from "playwright";
+import { papercutPane } from "./support/papercutChat";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+type NativeCall = { method: string; params: Record<string, unknown> };
+
+await requireBrowserLane("page-commands-palette.test.ts", async () => {
+  setDefaultTimeout(180_000);
+  let browser: Browser;
+  let pane: Awaited<ReturnType<typeof papercutPane>>;
+  beforeAll(async () => {
+    browser = await chromium.launch({ headless: true });
+    pane = await papercutPane(() => browser, { turns: 2, running: false });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await pane?.close();
+  });
+
+  // The App's side of `pane.commandAvailability` and `pane.action`: recorded, in every actions map
+  // the page sets.
+  const record = async (page: Page) => {
+    await page.addInitScript(() => {
+      const calls: { method: string; params: Record<string, unknown> }[] = [];
+      (window as unknown as { nativeCalls: typeof calls }).nativeCalls = calls;
+      const stand = Object.fromEntries(
+        ["pane.commandAvailability", "pane.action"].map((method) => [
+          method,
+          async (params: Record<string, unknown>) => {
+            calls.push({ method, params });
+            return method === "pane.action" ? { shown: true } : null;
+          },
+        ]),
+      );
+      let actions: Record<string, unknown> = { ...stand };
+      Object.defineProperty(window, "cmuxAcpmuxActions", {
+        configurable: true,
+        get: () => actions,
+        set: (next: Record<string, unknown> | undefined) => {
+          actions = { ...next, ...stand };
+        },
+      });
+    });
+  };
+  const calls = (page: Page, method: string) =>
+    page.evaluate(
+      (method) =>
+        (window as unknown as { nativeCalls: NativeCall[] }).nativeCalls.filter((call) => call.method === method),
+      method,
+    );
+  // Until the page made `count` calls of `method`.
+  const made = (page: Page, method: string, count: number) =>
+    page.waitForFunction(
+      ([method, count]) =>
+        (window as unknown as { nativeCalls: NativeCall[] }).nativeCalls.filter((call) => call.method === method)
+          .length >= count,
+      [method, count] as const,
+      { timeout: 10_000 },
+    );
+
+  test("the page offers the header's toggles its chat has, and runs each like its button", async () => {
+    const page = await pane.open({ width: 1200, height: 760 }, record);
+    try {
+      // A local chat with no page to preview: Files and the tabs beside it, not Preview.
+      await page.waitForFunction(
+        () =>
+          (window as unknown as { nativeCalls: NativeCall[] }).nativeCalls
+            .filter((call) => call.method === "pane.commandAvailability")
+            .at(-1)
+            ?.params.commands?.toString() === "toggleFiles,toggleSideTabs",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleFiles"));
+      await made(page, "pane.action", 1);
+      // Not offered here: the command changes nothing, so the next call is the side tabs' own.
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("togglePreview"));
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSideTabs"));
+      await made(page, "pane.action", 2);
+      expect((await calls(page, "pane.action")).map((call) => call.params)).toEqual([
+        { id: "files", cwd: "/home/dev/cmux", mode: "toggle" },
+        { id: "sideTabs" },
+      ]);
+    } finally {
+      await page.close();
+    }
+  });
+});

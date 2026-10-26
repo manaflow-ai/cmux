@@ -178,6 +178,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "session.persist":
     case "chat.persistSession":
     case "pane.checkpointAvailability":
+    case "pane.commandAvailability":
     case "pane.renderRate":
     case "pane.tabRowTools":
     case "newTab.remember":

@@ -6,6 +6,8 @@ import Foundation
 extension AgentPaneView {
     /// Toggles Session Info through the same page callback as the header button.
     public func toggleSessionInfo() { send("toggleSessionInfo") }
+    /// Runs a header toggle the page offers now (``AgentPageCommand``, ``AgentPaneModel/pageCommands``).
+    public func run(_ command: AgentPageCommand) { send(command.rawValue) }
 
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.

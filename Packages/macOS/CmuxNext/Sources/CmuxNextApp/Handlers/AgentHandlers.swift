@@ -107,6 +107,14 @@ enum AgentHandlers {
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
+        registry.bindAgentPageCommands(available: {
+            // Read only: no refusal while the palette asks whether a row is enabled.
+            let scope = context.scope()
+            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey else { return nil }
+            return context.services.agentTabs.existingView(key)?.model.pageCommands
+        }, run: { command, invocation in
+            focusedAgentView(context, invocation)?.run(command)
+        })
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {

@@ -175,9 +175,14 @@ export async function papercutPane(
   });
   await vite.listen();
   await warmViteServer(vite, "/");
-  const open = async (viewport = { width: 900, height: 700 }): Promise<Page> => {
+  /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say).
+  const open = async (
+    viewport = { width: 900, height: 700 },
+    prepare?: (page: Page) => Promise<void>,
+  ): Promise<Page> => {
     const page = await browser().newPage({ viewport });
     await installPaintedFrames(page);
+    await prepare?.(page);
     const { port } = vite.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(

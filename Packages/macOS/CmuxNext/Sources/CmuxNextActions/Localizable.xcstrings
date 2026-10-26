@@ -27513,263 +27513,263 @@
       }
     },
     "argument.attach": {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Attach To"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach To"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إرفاق بـ"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرفاق بـ"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Priključi na"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priključi na"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tilslut til"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilslut til"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Anhängen an"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anhängen an"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Adjuntar a"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adjuntar a"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Attacher à"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attacher à"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Collega a"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Collega a"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "接続先"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続先"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ភ្ជាប់ទៅ"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅ"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "연결 대상"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결 대상"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Koble til"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dołącz do"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dołącz do"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Anexar a"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anexar a"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Подключиться к"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключиться к"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แนบกับ"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แนบกับ"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Şuna bağlan"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şuna bağlan"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Приєднатися до"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приєднатися до"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Gắn vào"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gắn vào"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "附加到"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "附加到"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "附加到"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "附加到"
           }
         }
       }
     },
     "argument.ratio": {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Size Ratio"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size Ratio"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "نسبة الحجم"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسبة الحجم"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Omjer veličine"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omjer veličine"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Størrelsesforhold"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsesforhold"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Größenverhältnis"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Größenverhältnis"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Proporción de tamaño"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proporción de tamaño"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rapport de taille"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rapport de taille"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rapporto dimensioni"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rapporto dimensioni"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "サイズ比率"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイズ比率"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សមាមាត្រទំហំ"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សមាមាត្រទំហំ"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "크기 비율"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "크기 비율"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Størrelsesforhold"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsesforhold"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Proporcja rozmiaru"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proporcja rozmiaru"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Proporção de tamanho"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proporção de tamanho"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Соотношение размеров"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соотношение размеров"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "อัตราส่วนขนาด"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัตราส่วนขนาด"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Boyut oranı"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boyut oranı"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Співвідношення розмірів"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Співвідношення розмірів"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tỷ lệ kích thước"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tỷ lệ kích thước"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "大小比例"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小比例"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "大小比例"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "大小比例"
           }
         }
       }
@@ -27909,603 +27909,918 @@
       "comment": "cloud new-machine argument: the machine never pauses by itself when idle.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Persistent"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "常時稼働"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Dauerhaft"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Persistante"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "دائم"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "상시 실행"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "常驻"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "常駐"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Trajno"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Vedvarende"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការជានិច្ច"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Vedvarende"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Stała"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Постоянная"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ทำงานต่อเนื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Kalıcı"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Постійна"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn chạy"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常時稼働"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dauerhaft"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Persistante"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Persistente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دائم"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "상시 실행"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常驻"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常駐"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trajno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vedvarende"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Persistente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការជានិច្ច"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vedvarende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stała"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Persistente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Постоянная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานต่อเนื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kalıcı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Постійна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luôn chạy"
+          }
+        }
       }
     },
     "argument.bootstrap": {
       "comment": "cloud new-machine argument: what setup runs on the new machine.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップ"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Ersteinrichtung"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Amorçage"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Arranque inicial"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "التمهيد"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Početno podešavanje"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Opstart"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Avvio iniziale"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការរៀបចំដំបូង"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Oppstart"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Konfiguracja startowa"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Inicialização"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Начальная настройка"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การตั้งค่าเริ่มต้น"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "İlk kurulum"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Початкове налаштування"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khởi tạo ban đầu"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bootstrap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブートストラップ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ersteinrichtung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Amorçage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arranque inicial"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمهيد"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "부트스트랩"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引导"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引導"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Početno podešavanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opstart"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio iniziale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការរៀបចំដំបូង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfiguracja startowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicialização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Начальная настройка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İlk kurulum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Початкове налаштування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khởi tạo ban đầu"
+          }
+        }
       }
     },
     "argument.bootstrapScript": {
       "comment": "cloud new-machine argument: the script file the new machine runs on its first boot.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap Script"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップスクリプト"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Bootstrap-Skript"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "نص التمهيد"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩 스크립트"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导脚本"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導腳本"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Skripta početnog podešavanja"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Opstartsscript"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Script di avvio iniziale"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ស្គ្រីបរៀបចំដំបូង"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Oppstartsskript"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Skrypt konfiguracji startowej"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Script de inicialização"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Скрипт начальной настройки"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "สคริปต์ตั้งค่าเริ่มต้น"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "İlk kurulum betiği"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Скрипт початкового налаштування"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Tập lệnh khởi tạo ban đầu"}}
-      }
-    },
-    "action.chief.importMemories" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Import Memories…"
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bootstrap Script"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "استيراد الذكريات…"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブートストラップスクリプト"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Uvezi sjećanja…"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bootstrap-Skript"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importér minder…"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Script de bootstrap"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Erinnerungen importieren …"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Script de bootstrap"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importar recuerdos…"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نص التمهيد"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importer des souvenirs…"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "부트스트랩 스크립트"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importa ricordi…"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引导脚本"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "メモリを読み込む…"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引導腳本"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "នាំចូលការចងចាំ…"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skripta početnog podešavanja"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "기억 가져오기…"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opstartsscript"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importer minner …"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Script di avvio iniziale"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importuj wspomnienia…"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្គ្រីបរៀបចំដំបូង"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importar memórias…"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppstartsskript"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Импорт памяти…"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrypt konfiguracji startowej"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "นำเข้าความจำ…"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Script de inicialização"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Anıları İçe Aktar…"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрипт начальной настройки"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Імпорт пам’яті…"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สคริปต์ตั้งค่าเริ่มต้น"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nhập ký ức…"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İlk kurulum betiği"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "导入记忆…"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрипт початкового налаштування"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "匯入記憶…"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tập lệnh khởi tạo ban đầu"
           }
         }
       }
     },
-    "action.chief.importMemories.undo" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Undo Last Memory Import"
+    "action.chief.importMemories": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Memories…"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "التراجع عن آخر استيراد للذكريات"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استيراد الذكريات…"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Poništi posljednji uvoz sjećanja"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvezi sjećanja…"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fortryd seneste import af minder"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importér minder…"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Letzten Erinnerungsimport rückgängig machen"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erinnerungen importieren …"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Deshacer la última importación de recuerdos"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar recuerdos…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Annuler le dernier import de souvenirs"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer des souvenirs…"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Annulla l’ultima importazione di ricordi"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importa ricordi…"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "直前のメモリ読み込みを取り消す"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メモリを読み込む…"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ត្រឡប់ការនាំចូលការចងចាំចុងក្រោយវិញ"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំចូលការចងចាំ…"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "마지막 기억 가져오기 취소"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기억 가져오기…"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Angre siste import av minner"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importer minner …"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cofnij ostatni import wspomnień"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importuj wspomnienia…"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Desfazer a última importação de memórias"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Importar memórias…"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Отменить последний импорт памяти"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Импорт памяти…"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เลิกทำการนำเข้าความจำล่าสุด"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำเข้าความจำ…"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Son Anı İçe Aktarımını Geri Al"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anıları İçe Aktar…"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скасувати останній імпорт пам’яті"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Імпорт пам’яті…"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hoàn tác lần nhập ký ức gần nhất"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhập ký ức…"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "撤销上次记忆导入"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "导入记忆…"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "復原上次記憶匯入"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匯入記憶…"
           }
         }
       }
     },
-    "argument.chiefImportChief" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud Chief"
+    "action.chief.importMemories.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo Last Memory Import"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التراجع عن آخر استيراد للذكريات"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poništi posljednji uvoz sjećanja"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortryd seneste import af minder"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzten Erinnerungsimport rückgängig machen"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deshacer la última importación de recuerdos"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler le dernier import de souvenirs"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulla l’ultima importazione di ricordi"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直前のメモリ読み込みを取り消す"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រឡប់ការនាំចូលការចងចាំចុងក្រោយវិញ"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 기억 가져오기 취소"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angre siste import av minner"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cofnij ostatni import wspomnień"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desfazer a última importação de memórias"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отменить последний импорт памяти"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกทำการนำเข้าความจำล่าสุด"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son Anı İçe Aktarımını Geri Al"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скасувати останній імпорт пам’яті"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoàn tác lần nhập ký ức gần nhất"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撤销上次记忆导入"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "復原上次記憶匯入"
           }
         }
       }
     },
-    "argument.chiefImportSource" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Source"
+    "argument.chiefImportChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Chief"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "المصدر"
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Izvor"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kilde"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Quelle"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fuente"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Source"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fonte"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ソース"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ប្រភព"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "소스"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kilde"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Źródło"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fonte"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Источник"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แหล่งที่มา"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kaynak"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Джерело"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nguồn"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "来源"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "來源"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Chief"
+          }
+        }
+      }
+    },
+    "argument.chiefImportSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المصدر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kilde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Source"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ソース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រភព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "소스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Źródło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Источник"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แหล่งที่มา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaynak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Джерело"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nguồn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "来源"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "來源"
           }
         }
       }
@@ -28645,27 +28960,132 @@
       "comment": "cloud enroll-machine argument: the ssh public key file on this Mac.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "SSH Public Key"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "SSH 公開鍵"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Öffentlicher SSH-Schlüssel"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Clé publique SSH"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Clave pública SSH"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "مفتاح SSH العام"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 공개 키"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 公钥"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Javni SSH ključ"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøgle"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Chiave pubblica SSH"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "សោសាធារណៈ SSH"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøkkel"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Klucz publiczny SSH"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH açık anahtarı"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Public Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 公開鍵"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffentlicher SSH-Schlüssel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clé publique SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clave pública SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفتاح SSH العام"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 공개 키"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 公钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 公鑰"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Javni SSH ključ"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Offentlig SSH-nøgle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiave pubblica SSH"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សោសាធារណៈ SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Offentlig SSH-nøkkel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klucz publiczny SSH"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chave pública SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открытый ключ SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์สาธารณะ SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH açık anahtarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкритий ключ SSH"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa công khai SSH"
+          }
+        }
       }
     },
     "action.notifications.importSound": {
@@ -31576,81 +31996,396 @@
       "comment": "cloud new-machine argument: the GitHub repository the new machine clones.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Repository"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "リポジトリ"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Code-Repository"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Dépôt"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Repositorio"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "المستودع"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "저장소"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仓库"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "儲存庫"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Repozitorij"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Kodelager"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Repository Git"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ឃ្លាំងកូដ"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Kodelager"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Repozytorium"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Repositório"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Репозиторий"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ที่เก็บโค้ด"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Depo"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Репозиторій"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Code-Repository"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dépôt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repositorio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المستودع"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仓库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "儲存庫"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repozitorij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodelager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repository Git"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឃ្លាំងកូដ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodelager"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repozytorium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repositório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Репозиторий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่เก็บโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depo"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Репозиторій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kho mã"
+          }
+        }
       }
     },
     "argument.machineConfig": {
       "comment": "cloud new-machine / apply-machine-config argument: a .cmux/machine.toml file on this Mac.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Machine Config"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Configuration de la machine"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Configuración de la máquina"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "إعداد الجهاز"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器配置"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器設定"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Konfiguracija mašine"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinkonfiguration"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Configurazione della macchina"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការកំណត់ម៉ាស៊ីន"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinkonfigurasjon"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Konfiguracja maszyny"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Configuração da máquina"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Конфигурация машины"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การกำหนดค่าเครื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırması"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Конфігурація машини"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Cấu hình máy"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン構成"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschinenkonfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configuration de la machine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configuración de la máquina"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعداد الجهاز"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 구성"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器設定"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfiguracija mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinkonfiguration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurazione della macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinkonfigurasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfiguracja maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configuração da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфигурация машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การกำหนดค่าเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine yapılandırması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Конфігурація машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cấu hình máy"
+          }
+        }
       }
     },
     "argument.secretRepo": {
       "comment": "cloud deliver-secrets argument: the repository (OWNER/NAME) whose repo-scoped secrets the machine gets.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Repository"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "リポジトリ"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Code-Repository"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Dépôt"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Repositorio"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "المستودع"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "저장소"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仓库"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "儲存庫"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Repozitorij"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ឃ្លាំង"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Repo"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Repozytorium"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Repositório"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Репозиторий"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ที่เก็บ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Depo"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Репозиторій"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code-Repository"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dépôt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repositorio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المستودع"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仓库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "儲存庫"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repozitorij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repository"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repository"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឃ្លាំង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repo"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repozytorium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repositório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Репозиторий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่เก็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depo"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Репозиторій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kho mã"
+          }
+        }
       }
     },
     "argument.pinned": {
@@ -31781,6 +32516,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已固定"
+          }
+        }
+      }
+    },
+    "action.agentPane.toggleFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Files Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のファイルを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الملفات بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi datoteke pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift filer ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar archivos junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer les fichiers à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva file accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកឯកសារនៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 파일 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle filer ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz pliki obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar arquivos ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить файлы рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไฟล์ข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Dosyaları Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути файли поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt tệp bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的檔案"
+          }
+        }
+      }
+    },
+    "action.agentPane.togglePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Preview Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のプレビューを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل المعاينة بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi pregled pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift forhåndsvisning ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar vista previa junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer l’aperçu à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva anteprima accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកការមើលជាមុននៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 미리보기 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle forhåndsvisning ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz podgląd obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar pré-visualização ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить предпросмотр рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับตัวอย่างข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Önizlemeyi Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути попередній перегляд поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt bản xem trước bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的預覽"
+          }
+        }
+      }
+    },
+    "action.agentPane.toggleSideTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Tabs Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のタブを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل علامات التبويب بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi kartice pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift faner ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar pestañas junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer les onglets à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva schede accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកផ្ទាំងនៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 탭 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle faner ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz karty obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar abas ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить вкладки рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับแท็บข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Sekmeleri Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути вкладки поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt các tab bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的分頁"
           }
         }
       }

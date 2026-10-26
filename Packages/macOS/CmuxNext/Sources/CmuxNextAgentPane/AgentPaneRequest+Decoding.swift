@@ -100,6 +100,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.commandAvailability":
+            if let commands = params?["commands"] as? [String] {
+                self = .commandAvailability(commands)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))

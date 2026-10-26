@@ -15,6 +15,8 @@ extension ActionID {
     public static let toggleAcpInspector: ActionID = "agentPane.toggleInspector"
     /// Toggle the chat's floating Session Info panel through its header path.
     public static let toggleSessionInfo: ActionID = "agentPane.toggleSessionInfo"
+    /// The page commands the palette runs (``AgentPageCommand``): `agentPane.<command>`.
+    public init(_ command: AgentPageCommand) { self.init(rawValue: "agentPane.\(command.rawValue)") }
     /// Stop the focused agent chat's active turn through the page's composer path.
     public static let stopTurn: ActionID = "agentPane.stopTurn"
     /// Open File: a file in a tab of the pane or in the text editor
@@ -24,7 +26,36 @@ extension ActionID {
     public static let openBrowser: ActionID = "openBrowser"
 }
 
+/// A chat header toggle the native palette runs through the page's `command` bridge, by its name
+/// there. The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick
+/// Chat's panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the
+/// chat's page or the preview it opened.
+public enum AgentPageCommand: String, CaseIterable, Sendable {
+    case toggleFiles, togglePreview, toggleSideTabs
+}
+
 extension ActionRegistry {
+    /// Binds every ``AgentPageCommand``. `available` is the focused agent chat's page commands (nil
+    /// when no agent chat has the keyboard: `run` refuses then); a command the page does not list is
+    /// unavailable, with the reason, and one run by automation without a focus request refuses.
+    @discardableResult
+    public func bindAgentPageCommands(
+        available: @escaping @MainActor () -> Set<String>?,
+        run: @escaping @MainActor (AgentPageCommand, ActionInvocation) -> Void
+    ) -> Bool {
+        AgentPageCommand.allCases.map { command in
+            let title = descriptor(for: ActionID(command))?.title ?? command.rawValue
+            return bindEffect(ActionID(command), unavailable: {
+                guard let commands = available(), !commands.contains(command.rawValue) else { return nil }
+                return AgentPaneView.pageCommandUnavailable(title)
+            }, effect: { invocation in
+                guard ActionRunScope.viewChangeAllowed() else { return .refused(AgentPaneView.pageCommandNeedsFocus(title)) }
+                run(command, invocation)
+                return .done
+            })
+        }.allSatisfy(\.self)
+    }
+
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
     /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
     /// reporting a toggle that changed nothing.
