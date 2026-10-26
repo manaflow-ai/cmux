@@ -274,6 +274,23 @@ final class FenceOwner {
     }
 }
 """,
+    # awaited-low-priority (p02-threads-113): a stored background task that a main-actor method awaits, and a
+    # fire-and-forget one (a plain `Task(priority:)` states its priority: no task-priority hit).
+    SRC + "CmuxNextUI/Saver.swift": """import Foundation
+
+final class Saver {
+    private var lastWrite: Task<Void, Never>?
+
+    func save() {
+        lastWrite = Task(priority: .background) { print("written") }
+        Task(priority: .background) { print("forgotten") }
+    }
+
+    func flush() async {
+        await lastWrite?.value
+    }
+}
+""",
     # Two functions with hits where one calls the other (one call-graph root), and one unrelated function.
     SRC + "CmuxNextCore/Graph.swift": """import Foundation
 
@@ -346,6 +363,7 @@ class RuleTests(unittest.TestCase):
         self.assertEqual({(h.enclosing_func, h.isolation) for h in self.hits if h.rule == "pool-blocking"},
                          {("Reader.offMain", "pool"), ("Store.save", "actor")})
         hit(self.hits, "raw-blocking-ext", "files.removeItem(atPath: path)")
+        self.assertEqual(hit(self.hits, "awaited-low-priority", "lastWrite = Task(").enclosing_func, "Saver.save")
 
     def test_cpu_intensive_lists_raw_long_cpu_calls_that_run_on_the_main_thread(self):
         found = [h for h in self.hits if h.rule == "cpu-intensive"]
@@ -869,7 +887,7 @@ class CLITests(unittest.TestCase):
                          {"main-blocking": 1, "raw-blocking": 8, "pool-blocking": 2, "raw-blocking-ext": 1,
                           "maybe-main-blocking": 1,
                           "task-priority": 1, "thread-doc": 1, "cpu-intensive": 8, "sync-inversion": 1,
-                          "once-blocking": 1})
+                          "once-blocking": 1, "awaited-low-priority": 1})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",
