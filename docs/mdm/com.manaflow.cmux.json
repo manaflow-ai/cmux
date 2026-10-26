@@ -1341,6 +1341,12 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.import.enabled" : {
+      "default" : true,
+      "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+      "title" : "Import from Other Browsers",
+      "type" : "boolean"
+    },
     "browser.keepNeighborTabsAwake" : {
       "default" : 1,
       "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
