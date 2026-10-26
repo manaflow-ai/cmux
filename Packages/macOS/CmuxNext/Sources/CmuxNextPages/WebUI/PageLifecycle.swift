@@ -14,8 +14,9 @@ package protocol PageLifecycleTarget {
     /// From now on the page calls ``PageLifecycle/pageReasonsDidChange(_:)`` when a reason it reports
     /// starts or ends with no show or hide (its load). Called once per page object.
     func reportsReasonChanges(to lifecycle: PageLifecycle)
-    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
-    func freeze()
+    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory. Returns false when
+    /// the page refused (it shows, or its engine did not freeze it): it stays hidden.
+    func freeze() -> Bool
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
@@ -23,9 +24,9 @@ package protocol PageLifecycleTarget {
     func discard()
 }
 
-/// A ``PageWebView`` as the lifecycle drives it. The steps are no-ops until the engine steps land:
-/// freeze and thaw in p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its window), the
-/// discard in p13-webui-030.
+/// A ``PageWebView`` as the lifecycle drives it: freeze and thaw are the view's
+/// (``PageWebView/freezePage()``: Chromium SetPageFrozen, WebKit hidden in its window); the discard
+/// is a no-op until p13-webui-030.
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
 
@@ -48,8 +49,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
 
-    package func freeze() {}
-    package func thaw() {}
+    package func freeze() -> Bool { view?.freezePage() ?? false }
+    package func thaw() { view?.thawPage() }
     package func discard() {}
 }
 
@@ -267,7 +268,7 @@ package final class PageLifecycle {
         guard var entry = entries[decision.key], entry.state != decision.state else { return }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
-            entry.target.freeze()
+            guard entry.target.freeze() else { return }
         case (.hidden, .discarded), (.frozen, .discarded):
             entry.target.discard()
         case (.frozen, .hidden):

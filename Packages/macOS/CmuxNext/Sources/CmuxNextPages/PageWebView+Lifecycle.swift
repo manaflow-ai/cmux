@@ -1,7 +1,65 @@
+import ObjectiveC
 public import WebKit
+
+/// What the page lifecycle froze a page in (``PageWebView/freezePage()``).
+enum PageFrozenEngine {
+    /// The Chromium page with this identity, frozen through ``PageChromiumPage/setFrozen(_:)``.
+    case chromium(ObjectIdentifier)
+    /// The WebKit view, hidden in its window with WebKit's hidden-page throttling on.
+    case webKit
+}
 
 @MainActor
 extension PageWebView {
+    // MARK: Freeze and thaw (p13-webui.md 3.C)
+
+    /// Whether the page shows now: in a window, with no hidden view above it.
+    var isShownInWindow: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    /// Freezes the hidden page for the page lifecycle: its timers, tasks and frames stop, its memory
+    /// and state stay. Hidden comes first, then the freeze, as Chrome freezes only hidden pages
+    /// (`WebContents::SetPageFrozen`, content/public/browser/web_contents.h). Chromium: the page is
+    /// told it is hidden, then frozen once. WebKit stays in its window (no detach; p13-webui-029
+    /// measures one): its view is hidden, which stops its frames and makes `document.hidden` true, and
+    /// WebKit's own hidden-page throttling is turned on (``WKPreferences/enableHiddenPageThrottling()``).
+    ///
+    /// - Returns: True when the page is frozen (a second call makes no second engine call); false
+    ///   when refused: the page shows, its Chromium page is still starting, or the engine did not
+    ///   freeze it.
+    @discardableResult
+    func freezePage() -> Bool {
+        if frozenEngine != nil { return true }
+        guard !isShownInWindow else { return false }
+        if engineDecision.engine == .webKit, chromiumSession == nil {
+            webView.isHidden = true
+            webView.configuration.preferences.enableHiddenPageThrottling()
+            frozenEngine = .webKit
+            return true
+        }
+        guard let page = chromiumSession?.page else { return false }
+        page.setVisible(false)
+        guard page.setFrozen(true) else { return false }
+        frozenEngine = .chromium(ObjectIdentifier(page))
+        return true
+    }
+
+    /// Thaws a frozen page, in the turn of its show and before it is visible (``setEngineVisible(_:)``
+    /// thaws first too). Chromium: the page thaws, and is shown only after. WebKit: the view is
+    /// shown in its window again; the throttling stays, as it acts only while the page is hidden.
+    /// Does nothing on a running page.
+    func thawPage() {
+        guard let engine = frozenEngine else { return }
+        frozenEngine = nil
+        switch engine {
+        case .chromium(let identity):
+            // The Chromium page ended meanwhile (a fallback to WebKit): nothing of it is frozen.
+            guard let page = chromiumSession?.page, ObjectIdentifier(page) == identity else { return }
+            page.setFrozen(false)
+        case .webKit:
+            if chromiumSession == nil { webView.isHidden = false }
+        }
+    }
+
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
         _ = claimState.end()
@@ -61,5 +119,36 @@ extension PageWebView {
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
         reloadPage()
+    }
+}
+
+extension WKPreferences {
+    /// WebKit's hidden-page throttling (`WKPreferencesPrivate.h`): the DOM timers of a hidden page are
+    /// throttled, the throttle grows while it stays hidden, and the web process may be suppressed
+    /// (App Nap) while it shows no page. Each acts only on a hidden page.
+    private static let hiddenPageThrottling = [
+        ("_hiddenPageDOMTimerThrottlingEnabled", "_setHiddenPageDOMTimerThrottlingEnabled:"),
+        ("_hiddenPageDOMTimerThrottlingAutoIncreases", "_setHiddenPageDOMTimerThrottlingAutoIncreases:"),
+        ("_pageVisibilityBasedProcessSuppressionEnabled", "_setPageVisibilityBasedProcessSuppressionEnabled:"),
+    ]
+
+    /// Turns on every hidden-page throttling preference this WebKit has; one already on is not set
+    /// again (a set sends the page a preferences update). A WebKit without a selector keeps its default.
+    ///
+    /// - Returns: How many it turned on now (0 when all were on, or this WebKit has none).
+    @MainActor @discardableResult
+    func enableHiddenPageThrottling() -> Int {
+        typealias GetFlag = @convention(c) (AnyObject, Selector) -> Bool
+        typealias SetFlag = @convention(c) (AnyObject, Selector, Bool) -> Void
+        var turnedOn = 0
+        for (getterName, setterName) in Self.hiddenPageThrottling {
+            let getter = NSSelectorFromString(getterName), setter = NSSelectorFromString(setterName)
+            guard let get = class_getInstanceMethod(WKPreferences.self, getter),
+                  let set = class_getInstanceMethod(WKPreferences.self, setter),
+                  !unsafeBitCast(method_getImplementation(get), to: GetFlag.self)(self, getter) else { continue }
+            unsafeBitCast(method_getImplementation(set), to: SetFlag.self)(self, setter, true)
+            turnedOn += 1
+        }
+        return turnedOn
     }
 }
