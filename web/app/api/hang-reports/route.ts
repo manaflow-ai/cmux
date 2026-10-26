@@ -21,7 +21,10 @@ import { setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 
 /*
- * Anonymous opt-in hang reports from cmux NEXT Nightly (schema 2; schema 1 refused).
+ * Anonymous opt-in hang reports from cmux NEXT Nightly (schemas 2 and 3; schema 1
+ * refused). A schema 3 histogram or stability name outside the server catalog
+ * is dropped and counted, never refused: 400 is only for a bad shape, 413 for
+ * a body over 64 KiB.
  *
  * Privacy: this handler never reads a client address header
  * (x-forwarded-for, x-real-ip, or similar) or the user agent, never logs or
@@ -77,6 +80,8 @@ export function makeHangReportsHandler(dependencies: HangReportsRouteDependencie
         setSpanAttributes(span, {
           "cmux.hang_reports.outcome": exit.value.outcome,
           "cmux.hang_reports.hang_count": exit.value.hangCount,
+          "cmux.hang_reports.schema": exit.value.schema,
+          "cmux.hang_reports.dropped_names": exit.value.droppedNames,
         });
         return new Response(null, { status: 204, headers: NO_STORE });
       }

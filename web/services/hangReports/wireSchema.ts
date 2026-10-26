@@ -1,16 +1,41 @@
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
+import { HISTOGRAM_UNITS, PROCESS_KINDS } from "./histogramCatalog";
+
 /**
- * Wire format schema 2 of an opt-in cmux NEXT hang report. The bounds and
- * patterns mirror the client's allow-list builder (hang-reports-DESIGN.md
+ * Wire format schemas 2 and 3 of an opt-in cmux NEXT hang report. The bounds
+ * and patterns mirror the client's allow-list builder (hang-reports-DESIGN.md
  * section 4). Schema 2 has schema 1's fields; it marks a client with the
  * review 1 and 2 privacy fixes (Data-volume and `..` image paths are "other",
  * no redirects, per-Mac consent). Schema 1 is refused (400, which the client
  * treats as final and drops from its outbox), so reports an older Nightly
  * queued under the old image rules are never stored. The Swift client encodes with JSONEncoder, which omits nil
  * optionals, so every nullable field accepts the key absent or `null`, and
- * every array and `metrics` may be absent (read as empty).
+ * every array, `metrics` and `stability` may be absent (read as empty).
+ *
+ * Schema 3 (p09-observability task 063) is schema 2 plus field histograms in
+ * the shape of a Chrome UMA log (components/metrics/metrics_log.cc: histogram
+ * deltas, stability counts and one system profile per log; an earlier
+ * launch's persistent histograms go in their own section with that launch's
+ * profile, as components/metrics/file_metrics_provider.cc sends them):
+ *
+ * - `catalogVersion`: the client's `HistogramID` catalog version.
+ * - `histograms[]`: this launch's deltas, at most 32. Each has `name`, `unit`
+ *   (a Swift `HistogramID.Unit` case name), `buckets` as `[index, count]`
+ *   pairs in ascending index order (at most 24 non-empty ones), and `count`,
+ *   `sum` and `max` over every sample of the delta.
+ * - `stability{}`: task 109's counters, key to count (at most 96 keys).
+ * - `blackbox[]`: at most 512 trace events `{process, name, atUs, durUs?,
+ *   value?}`; `atUs` is microseconds before the event that took the black
+ *   box. A key-category record (`key.*`) refuses the whole report.
+ * - `launches[]`: at most 4 earlier launches folded at this launch, each with
+ *   its own `app` and `os` profile, `histograms[]` and `stability{}`.
+ *
+ * A histogram or stability name only needs the shape
+ * ``HISTOGRAM_NAME_PATTERN`` to decode; ingest drops names outside the
+ * server catalog and counts them, so a newer client is never refused for a
+ * new name.
  */
 
 export const HANG_REPORT_MAX_BYTES = 64 * 1024;
@@ -19,11 +44,20 @@ export const MAX_CPU_EXCEPTIONS = 5;
 export const MAX_FRAMES = 64;
 export const MAX_BUCKETS = 32;
 export const MAX_INTERVALS = 64;
+export const MAX_HISTOGRAMS = 32;
+export const MAX_HISTOGRAM_BUCKETS = 24;
+export const MAX_STABILITY_KEYS = 96;
+export const MAX_BLACKBOX_EVENTS = 512;
+export const MAX_LAUNCHES = 4;
 
 const MAX_DURATION_MS = 86_400_000;
 const MAX_OFFSET = 2 ** 40;
 const MAX_COUNT = 1_000_000_000;
 const MAX_MS_PER_S = 1000;
+const MAX_SAFE = Number.MAX_SAFE_INTEGER;
+const MAX_BUCKET_INDEX = 1023;
+const MAX_BLACKBOX_AGE_US = 3_600_000_000;
+const MAX_CATALOG_VERSION = 1_000_000;
 
 export const UUID_PATTERN = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9 ._+()-]{1,64}$/;
@@ -42,6 +76,14 @@ const OS_VERSION_PATTERN = new RegExp(`^${CLIENT_VERSION}$`);
 const CHIP_PATTERN = /^(?:Apple M[0-9]{1,2}(?: (?:Pro|Max|Ultra))?|Intel|other)$/;
 export const MEMORY_SIZES_GB = [4, 8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512] as const;
 const INTERVAL_NAME_PATTERN = /^[a-z0-9_.-]{1,48}$/;
+/**
+ * A histogram or stability name: a lowercase catalog name, or a Chromium
+ * histogram under `chromium.` in Chromium's own spelling
+ * (`chromium.EventLatency.KeyPressed.TotalLatency`). At most 64 characters.
+ */
+export const HISTOGRAM_NAME_PATTERN = /^(?=.{1,64}$)(?:[a-z0-9_.]+|chromium\.[A-Za-z0-9_.]+)$/;
+/** A black-box event name: a trace catalog name (`SignpostName`), always lowercase. */
+const BLACKBOX_NAME_PATTERN = /^[a-z0-9_.]{1,64}$/;
 
 const COUNT_BUCKETS = ["0", "1", "2-5", "6-10", "11-30", "31-100", "101+"] as const;
 const CHANNELS = ["nightly", "dev", "rc", "release"] as const;
@@ -111,21 +153,69 @@ const Interval = Schema.Struct({
   hitchMsPerS: optionalNullable(msPerS),
 });
 
-/** The wire schema the server accepts (the Swift client's `HangReport.schemaVersion`). */
-export const HANG_REPORT_SCHEMA = 2;
+const AppProfile = Schema.Struct({
+  version: Schema.String.pipe(Schema.pattern(APP_VERSION_PATTERN)),
+  build: Schema.String.pipe(Schema.pattern(APP_BUILD_PATTERN)),
+  channel: Schema.Literal(...CHANNELS),
+});
 
-/** Schema 2 of the hang report body. Decode with ``decodeHangReport``. */
-export const HangReportSchema = Schema.Struct({
-  schema: Schema.Literal(HANG_REPORT_SCHEMA),
+const OsProfile = Schema.Struct({ version: Schema.String.pipe(Schema.pattern(OS_VERSION_PATTERN)) });
+
+const HistogramName = Schema.String.pipe(Schema.pattern(HISTOGRAM_NAME_PATTERN));
+const IndexCount = Schema.Tuple(boundedInt(MAX_BUCKET_INDEX), boundedInt(MAX_COUNT));
+
+/** Bucket indexes strictly ascend, and the buckets hold no more samples than `count`. */
+function bucketsConsistent(histogram: { readonly buckets: ReadonlyArray<readonly [number, number]>; readonly count: number }): boolean {
+  let total = 0;
+  let previous = -1;
+  for (const [index, count] of histogram.buckets) {
+    if (index <= previous) return false;
+    previous = index;
+    total += count;
+  }
+  return total <= histogram.count;
+}
+
+const Histogram = Schema.Struct({
+  name: HistogramName,
+  unit: Schema.Literal(...HISTOGRAM_UNITS),
+  buckets: Schema.Array(IndexCount).pipe(Schema.maxItems(MAX_HISTOGRAM_BUCKETS)),
+  count: boundedInt(MAX_COUNT),
+  sum: boundedInt(MAX_SAFE),
+  max: boundedInt(MAX_SAFE),
+}).pipe(Schema.filter(bucketsConsistent, { message: () => "bucket indexes not ascending, or bucket counts above count" }));
+
+const Stability = Schema.Record({ key: HistogramName, value: boundedInt(MAX_COUNT) }).pipe(
+  Schema.filter((stability) => Object.keys(stability).length <= MAX_STABILITY_KEYS, { message: () => "too many stability keys" }),
+);
+
+const optionalStability = Schema.optionalWith(Stability, {
+  exact: true,
+  default: (): Readonly<Record<string, number>> => ({}),
+});
+
+const BlackboxEvent = Schema.Struct({
+  process: Schema.Literal(...PROCESS_KINDS),
+  name: Schema.String.pipe(Schema.pattern(BLACKBOX_NAME_PATTERN)),
+  atUs: boundedInt(MAX_BLACKBOX_AGE_US),
+  durUs: optionalNullable(boundedInt(MAX_BLACKBOX_AGE_US)),
+  value: optionalNullable(Schema.Number.pipe(Schema.int(), Schema.between(-MAX_SAFE, MAX_SAFE))),
+});
+
+const Launch = Schema.Struct({
+  app: AppProfile,
+  os: OsProfile,
+  histograms: optionalArray(Histogram, MAX_HISTOGRAMS),
+  stability: optionalStability,
+});
+
+/** Every schema 2 field but `schema`; schema 3 has them all. */
+const reportFields = {
   reportId: Uuid,
   installId: Uuid,
   day: Schema.String.pipe(Schema.pattern(DAY_PATTERN), Schema.filter(isCalendarDay, { message: () => "not a calendar day" })),
-  app: Schema.Struct({
-    version: Schema.String.pipe(Schema.pattern(APP_VERSION_PATTERN)),
-    build: Schema.String.pipe(Schema.pattern(APP_BUILD_PATTERN)),
-    channel: Schema.Literal(...CHANNELS),
-  }),
-  os: Schema.Struct({ version: Schema.String.pipe(Schema.pattern(OS_VERSION_PATTERN)) }),
+  app: AppProfile,
+  os: OsProfile,
   hardware: Schema.Struct({
     arch: Schema.Literal("arm64", "x86_64", "other"),
     chip: Schema.String.pipe(Schema.pattern(CHIP_PATTERN)),
@@ -143,12 +233,36 @@ export const HangReportSchema = Schema.Struct({
   stallHistogram: optionalArray(Bucket, MAX_BUCKETS),
   metrics: Schema.optionalWith(Metrics, { exact: true }),
   intervals: optionalArray(Interval, MAX_INTERVALS),
+};
+
+/** The wire schemas the server accepts (the Swift client's `HangReport.schemaVersion`). */
+export const HANG_REPORT_SCHEMAS = [2, 3] as const;
+
+/** Schema 2 of the hang report body. */
+export const HangReportSchema2 = Schema.Struct({ schema: Schema.Literal(2), ...reportFields });
+
+/** Schema 3 of the hang report body: schema 2 plus field histograms (see the file comment). */
+export const HangReportSchema3 = Schema.Struct({
+  schema: Schema.Literal(3),
+  ...reportFields,
+  catalogVersion: Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_CATALOG_VERSION)),
+  histograms: optionalArray(Histogram, MAX_HISTOGRAMS),
+  stability: optionalStability,
+  blackbox: optionalArray(BlackboxEvent, MAX_BLACKBOX_EVENTS),
+  launches: optionalArray(Launch, MAX_LAUNCHES),
 });
 
-/** A decoded, bounded schema 2 report. Absent arrays decode as empty. */
+/** A hang report body of any accepted schema. Decode with ``decodeHangReport``. */
+export const HangReportSchema = Schema.Union(HangReportSchema2, HangReportSchema3);
+
+/** A decoded, bounded schema 2 or 3 report. Absent arrays decode as empty. */
 export type HangReport = Schema.Schema.Type<typeof HangReportSchema>;
+export type HangReportV3 = Schema.Schema.Type<typeof HangReportSchema3>;
 export type HangReportFrame = Schema.Schema.Type<typeof Frame>;
 export type HangReportBucket = Schema.Schema.Type<typeof Bucket>;
+export type HangReportHistogram = Schema.Schema.Type<typeof Histogram>;
+export type HangReportLaunch = Schema.Schema.Type<typeof Launch>;
+export type HangReportStability = Schema.Schema.Type<typeof Stability>;
 
 const decode = Schema.decodeUnknownEither(HangReportSchema, { onExcessProperty: "error", errors: "first" });
 

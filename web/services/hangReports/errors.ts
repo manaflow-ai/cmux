@@ -8,9 +8,13 @@ export type HangReportInvalidReason =
   | "leak_email"
   | "leak_url"
   | "leak_ip_address"
-  | "leak_token";
+  | "leak_token"
+  | "blackbox_key_record";
 
-/** The body is not a valid schema 2 report (HTTP 400; schema 1 included). */
+/**
+ * The body is not a valid schema 2 or 3 report (HTTP 400; schema 1 included).
+ * Only a bad shape gets here: an unknown histogram name is dropped, not refused.
+ */
 export class HangReportInvalid extends Data.TaggedError("HangReportInvalid")<{
   readonly reason: HangReportInvalidReason;
 }> {}
