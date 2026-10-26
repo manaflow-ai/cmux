@@ -19,8 +19,8 @@ blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
 owned label as before, where the rescue still watches them.
 
 Only CASCADE_JOBS take part, and only those the workflow says run on this route
-(CASCADE_RUNS: not fast-tier when vars.CI_FAST_LANE_RUNNER gives it its own
-runner, not a job path routing or labels skip), so no slot is spent on a job
+(CASCADE_RUNS: not fast-tier while an idle vars.CI_FAST_LANE_RUNNER runner takes
+it, not a job path routing or labels skip), so no slot is spent on a job
 that never asks for it. The jobs that need a logged-in session (swift-test,
 daemon-test, generated-files) keep the gui route. release-compile cascades too
 (2026-10-21 ~20:10Z: 76 Release compiles queued on the minis); off a mini it
@@ -283,7 +283,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
     promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
-    candidates = (promoted if promote_busy else []) + side[len(owned):]
+    # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
+    # run's slots first: with MAX_PER_RUN slots a run it was last and found none (2026-10-26 09:21Z, run
+    # 40298786351: fast-tier and the scheme compile took 6 vCPU's two). Every side job takes the same
+    # label and races for its idle minis, so the count of jobs those minis take is all that is known:
+    # it is spent on the run's other jobs first, and a FIRST_JOBS job has a slot whenever one is free.
+    first = set((env.get("FIRST_JOBS") or "").split())
+    rest = [job for job in side if job not in first]
+    leading = [job for job in side if job in first]
+    candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
+                  + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
     # The overflow label counts the slots this run's own jobs just took.

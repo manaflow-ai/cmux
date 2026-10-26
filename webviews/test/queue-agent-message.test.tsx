@@ -23,6 +23,8 @@ const replacements: Record<string, unknown> = {
   Element: dom.window.Element,
   Node: dom.window.Node,
   Range: dom.window.Range,
+  // useAnchoredCollapse asks the transcript to hold the line with a CustomEvent from this DOM.
+  CustomEvent: dom.window.CustomEvent,
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
   ResizeObserver: class {

@@ -10,11 +10,13 @@ import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.ex
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
+import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
+import { trayPanelLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -28,11 +30,13 @@ export const EXPERIMENTS: readonly Experiment[] = [
   newTabHeadline,
   threadMinimapLit,
   threadMinimapMark,
+  chatMinimapPlaceholder,
   turnErrorCard,
   codeRouterOffer,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
+  trayPanelLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -52,6 +55,8 @@ pub struct Conn {
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// True once the client stopped sending (its read side ended): it exited or hung up.
+    ended: tokio::sync::watch::Sender<bool>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -264,6 +269,17 @@ impl Conn {
         }
     }
 
+    /// Resolves once the client is gone: nobody reads its replies any more, or it stopped
+    /// sending. A unix socket's writer learns of a closed socket only when it writes, so the
+    /// read side ending counts too.
+    async fn closed(&self) {
+        let mut ended = self.ended.subscribe();
+        tokio::select! {
+            () = self.out.closed() => {}
+            _ = ended.wait_for(|ended| *ended) => {}
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let control = matches!(msg, Message::Response { .. });
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
@@ -303,6 +319,11 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
@@ -325,10 +346,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -977,7 +994,7 @@ async fn serve_http(
         if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
             ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
         } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
+            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to open it with its token (<code>acpmux web --no-open --show-token</code> prints the link).</p>".to_owned(), "text/html; charset=utf-8")
         }
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
@@ -1110,6 +1127,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        ended: tokio::sync::watch::Sender::new(false),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
         media: if auth == ConnAuth::PeerToken {
@@ -1179,7 +1197,11 @@ async fn serve_connection_from(
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
+                        Err(mut e) => {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            Message::err(id, e)
+                        }
                     });
                 });
             }
@@ -1225,6 +1247,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.ended.send_replace(true);
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.
@@ -1444,6 +1467,8 @@ mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1462,6 +1487,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 mod routes;
@@ -1471,7 +1497,7 @@ mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
 mod view;
-mod wait;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;

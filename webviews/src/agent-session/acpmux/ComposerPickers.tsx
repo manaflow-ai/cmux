@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -18,6 +18,7 @@ import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
@@ -402,7 +403,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot, catalogModel);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -1087,6 +1088,8 @@ function AccessMenu({
   numbered?: boolean;
 }) {
   const t = useT();
+  // On New Tab the menu opens down, with no key hints (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -1167,7 +1170,7 @@ function AccessMenu({
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
-          side="top"
+          side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
@@ -1187,7 +1190,7 @@ function AccessMenu({
                   key={choice.id}
                   value={choice.id}
                   disabled={refusedIds.includes(choice.id)}
-                  shortcut={numbered && index < 9 ? String(index + 1) : undefined}
+                  shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
                   className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
                   {!iconless && (
