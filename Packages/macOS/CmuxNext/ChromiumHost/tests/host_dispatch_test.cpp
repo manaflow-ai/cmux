@@ -7,7 +7,9 @@
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
 // ways; Chromium focuses a page only inside cmux's set_focus; a page's
-// accessibility token comes back in its REPLY; a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// accessibility token comes back in its REPLY; a page window whose layers
+// are hosted is detached; a page view moves only when its geometry changed
+// (task 053); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
 
@@ -51,6 +54,8 @@ struct Shim {
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
   bool create_at_once = true;  // create_window's AFTER_CREATED comes inside the call
+  int create_result = 1;       // create_window's return (0: refused)
+  bool refuse_detach = false;  // set_detached_hosting(1) answers 0 (a fork that cannot detach)
   // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
   std::vector<std::pair<int, int>> created_in_call;
 } shim;
@@ -74,6 +79,7 @@ void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn) {}
 void cmux_shim_set_new_tab_page_url(const char* url) { shim.calls.push_back(std::string("ntp ") + url); }
 int cmux_shim_create_window(int request, void* parent_view, int, int, const char* url, const char*) {
   shim.calls.push_back("create " + std::to_string(request) + " " + url + (parent_view ? " view" : " noview"));
+  if (!shim.create_result) return 0;
   ++shim.live;
   if (shim.create_at_once) Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
   const std::vector<std::pair<int, int>> created = std::move(shim.created_in_call);
@@ -126,6 +132,15 @@ int cmux_shim_browser_accessibility_token(int browser_id, int embedder_pid, cons
   if (out && capacity >= kLength) std::memcpy(out, kToken, kLength);
   return kLength;
 }
+// The fork's layer hosting gives browser 3 a context and refuses every other browser.
+unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
+  shim.calls.push_back("layer_hosting " + std::to_string(browser_id) + " " + std::to_string(enabled));
+  return enabled && browser_id == 3 ? 0xC0FFEEu : 0u;
+}
+int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
+  shim.calls.push_back("detached " + std::to_string(browser_id) + " " + std::to_string(enabled));
+  return enabled && shim.refuse_detach ? 0 : 1;
+}
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
   shim.calls.push_back("nav_state " + std::to_string(browser_id));
@@ -157,6 +172,10 @@ struct Views : cmux_host::PageViews {
     return &view;
   }
   void Close(uint64_t token) override { calls.push_back("close " + std::to_string(token)); }
+  void Place(uint64_t token, const cmux_host::PageGeometry& g) override {
+    calls.push_back("place " + std::to_string(token) + " " + std::to_string(g.width) + "x" + std::to_string(g.height) +
+                    " at " + std::to_string(g.screen_x) + "," + std::to_string(g.screen_y));
+  }
 };
 
 // The host's shim has one optional export.
@@ -786,6 +805,175 @@ void AccessibilityTokenCreatedInsideAnotherOp() {
   Expect(f.delegate.calls, {"initialize /root"}, "no bad message");
 }
 
+// create_window of `minted` (request 42) into page view `view`; the fake shim makes browser 3.
+void CreateWindow(Fixture& f, int32_t minted, uint64_t view) {
+  Writer create;
+  create.I32(minted);
+  create.I32(42);
+  create.ViewToken(view);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://b/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 20, create)});
+}
+
+// Task 053: the host's page windows never order in. Once the fork hosts a page window's layers
+// in the context cmux shows, the host detaches that window (set_detached_hosting(1), API 30);
+// a refused hosting detaches nothing, and turning hosting off attaches the window first.
+void LayerHostingDetachesThePageWindow() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  f.Sent();
+  shim.calls.clear();
+  auto hosting = [&f](int32_t browser, int32_t enabled, uint32_t token) {
+    Writer w;
+    w.I32(browser);
+    w.I32(enabled);
+    f.host.OnMessages({Op(kOpBrowserSetLayerHosting, token, w)});
+  };
+  hosting(kMinted, 1, 50);
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1"},
+         "hosting on, for Chromium's id, then the hosted page window detached");
+  Check(f.sent.size() == 1 && f.sent[0].op == kOpReply && f.sent[0].token == 50 &&
+            Reader(f.sent[0].fields).U32() == 0xC0FFEEu,
+        "the REPLY carries the context id");
+  f.Sent();
+
+  shim.calls.clear();
+  hosting(5, 1, 51);
+  Expect(shim.calls, {"layer_hosting 5 1"}, "a refused hosting detaches nothing");
+  Expect(f.Sent(), {"reply 51 0"}, "and answers 0");
+
+  shim.calls.clear();
+  hosting(kMinted, 0, 52);
+  Expect(shim.calls, {"detached 3 0", "layer_hosting 3 0"}, "hosting off attaches the page window first");
+  Expect(f.Sent(), {"reply 52 0"}, "and answers 0");
+
+  // A fork that refuses to detach: the page window would stay attached under a window that is
+  // never ordered in, which the fork's tracker hides, so hosting goes off again and cmux reads a
+  // refused hosting.
+  shim.calls.clear();
+  shim.refuse_detach = true;
+  hosting(kMinted, 1, 54);
+  shim.refuse_detach = false;
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1", "layer_hosting 3 0"},
+         "a refused detach turns hosting off again");
+  Expect(f.Sent(), {"reply 54 0"}, "and answers 0, a refused hosting");
+
+  Writer bad;
+  bad.I32(kMinted);
+  f.host.OnMessages({Op(kOpBrowserSetLayerHosting, 53, bad)});
+  Expect(f.delegate.calls, {"initialize /root", "bad a malformed layer hosting op"}, "a malformed op is bad");
+}
+
+cmux_host::Header GeometryFrame(int32_t browser, int32_t width, int32_t height, int32_t x, int32_t y) {
+  cmux_host::Header frame;
+  frame.kind = cmux_host::kGeometry;
+  frame.v[0] = width;
+  frame.v[1] = height;
+  frame.v[2] = x;
+  frame.v[3] = y;
+  frame.v[4] = 2000;
+  cmux_host::input_ring::SetBrowser(&frame, browser);
+  return frame;
+}
+
+// Task 053: a page view moves or resizes only when its geometry changed: a page that moves gets
+// one placement per new place, an unchanged frame costs a comparison, and a frame for a browser
+// not created yet waits, the newest one only, for its creation.
+void GeometryOnlyOnChange() {
+  {
+    Fixture f;
+    f.Start();
+    CreateWindow(f, kMinted, 9);
+    f.views.calls.clear();
+    Check(f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 100, 200)), "a geometry frame is the host's to place");
+    Check(f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 100, 200)), "the same geometry again");
+    Check(f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 110, 200)), "the page moved");
+    Check(f.host.PlaceFrame(GeometryFrame(kMinted, 0, -4, 110, 200)), "an empty page");
+    Expect(f.views.calls, {"place 9 640x480 at 100,200", "place 9 640x480 at 110,200", "place 9 1x1 at 110,200"},
+           "one placement per change, an empty page placed at 1 x 1");
+    Check(f.host.geometry_stats().frames == 4 && f.host.geometry_stats().applied == 3 &&
+              f.host.geometry_stats().unchanged == 1 && f.host.geometry_stats().unplaced == 0,
+          "the stats count 4 frames, 3 applied, 1 unchanged");
+
+    cmux_host::Header key;
+    key.kind = cmux_host::kKey;
+    cmux_host::input_ring::SetBrowser(&key, kMinted);
+    Check(!f.host.PlaceFrame(key), "a key is the input dispatch's");
+    Check(f.host.PlaceFrame(GeometryFrame(7, 10, 10, 0, 0)) && f.host.geometry_stats().unplaced == 1,
+          "a browser with no page view places nothing");
+
+    shim.live = 0;
+    Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+    CreateWindow(f, kMinted + 1, 9);
+    f.views.calls.clear();
+    f.host.PlaceFrame(GeometryFrame(kMinted + 1, 640, 480, 0, 1));
+    Expect(f.views.calls, {"place 9 640x480 at 0,1"}, "a page view opened again under the same token is placed again");
+  }
+  {
+    Fixture f;
+    f.Start();
+    shim.create_at_once = false;
+    CreateWindow(f, kMinted + 2, 11);
+    f.views.calls.clear();
+    f.host.PlaceFrame(GeometryFrame(kMinted + 2, 300, 200, 5, 5));
+    f.host.PlaceFrame(GeometryFrame(kMinted + 2, 320, 200, 5, 5));
+    Check(f.views.calls.empty(), "no placement before the browser exists");
+    Emit(CMUX_SHIM_AFTER_CREATED, 3, 42);
+    Expect(f.views.calls, {"place 11 320x200 at 5,5"}, "the creation places the newest geometry once");
+    f.host.PlaceFrame(GeometryFrame(kMinted + 2, 320, 200, 5, 5));
+    Check(f.views.calls.size() == 1, "and it counts as the view's last geometry");
+  }
+  {
+    // The ring overtakes create_window (not an ordered op): a minted id's geometry that comes
+    // before create_window is dispatched still places its page view, at the creation.
+    Fixture f;
+    f.Start();
+    f.host.PlaceFrame(GeometryFrame(kMinted + 3, 500, 400, 7, 8));
+    f.host.PlaceFrame(GeometryFrame(kMinted + 3, 510, 400, 7, 8));
+    Check(f.views.calls.empty() && f.host.geometry_stats().unplaced == 0, "held, not dropped");
+    CreateWindow(f, kMinted + 3, 12);
+    Expect(f.views.calls, {"open 12", "place 12 510x400 at 7,8"},
+           "create_window's creation places the newest geometry that came before it");
+
+    // A refused create_window drops what it held.
+    shim.create_at_once = false;
+    shim.create_result = 0;
+    f.host.PlaceFrame(GeometryFrame(kMinted + 4, 50, 50, 0, 0));
+    CreateWindow(f, kMinted + 4, 13);
+    shim.create_result = 1;
+    f.views.calls.clear();
+    Emit(CMUX_SHIM_AFTER_CREATED, 4, 42);
+    Check(f.views.calls.empty(), "a refused create_window's held geometry places nothing");
+  }
+}
+
+// The geometry counters go to cmux on request (chromium-host-bench.py geometry row).
+void GeometryStatsReply() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 0, 0));
+  f.host.PlaceFrame(GeometryFrame(kMinted, 640, 480, 0, 0));
+  f.host.PlaceFrame(GeometryFrame(7, 10, 10, 0, 0));
+  f.Sent();
+  f.host.OnMessages({Op(cmux_host::kOpGeometryStats, 60, Writer())});
+  Check(f.sent.size() == 1 && f.sent[0].op == kOpReply && f.sent[0].token == 60, "a REPLY to the stats request");
+  if (f.sent.size() == 1) {
+    Reader r(f.sent[0].fields);
+    const int64_t frames = r.I64(), applied = r.I64(), unchanged = r.I64(), unplaced = r.I64();
+    Check(r.ok() && r.AtEnd() && frames == 3 && applied == 1 && unchanged == 1 && unplaced == 1,
+          "frames, applied, unchanged, unplaced");
+  }
+  Writer bad;
+  bad.I32(1);
+  f.host.OnMessages({Op(cmux_host::kOpGeometryStats, 61, bad)});
+  Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -810,6 +998,9 @@ int main() {
   AccessibilityToken();
   AccessibilityTokenBeforeCreation();
   AccessibilityTokenCreatedInsideAnotherOp();
+  LayerHostingDetachesThePageWindow();
+  GeometryOnlyOnChange();
+  GeometryStatsReply();
   WipeZeroes();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
