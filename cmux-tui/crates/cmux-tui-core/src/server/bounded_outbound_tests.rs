@@ -316,6 +316,23 @@ fn bounded_outbound_identify_reports_the_frame_cut_with_revisions() {
     mux.shutdown();
 }
 
+/// IdentifyResult is closed (`additional_properties: false`), so a strict
+/// generated decoder refuses a reply key the schema does not declare.
+#[test]
+fn bounded_outbound_identify_revisions_reply_keys_are_in_the_schema() {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
+    let declared = schema["types"]["IdentifyResult"]["fields"].as_object().unwrap();
+    assert_eq!(declared["bulk_frame_max"]["type"]["name"], "uint32");
+    let mux = crate::Mux::new_for_test("bulk-frame-max-schema", crate::SurfaceOptions::default());
+    let client = mux.local_test_client(0);
+    let reply = super::super::cmd_server::identify(&mux, client, false, true).unwrap();
+    let undeclared: Vec<&String> =
+        reply.as_object().unwrap().keys().filter(|key| !declared.contains_key(*key)).collect();
+    assert!(undeclared.is_empty(), "identify keys missing from IdentifyResult: {undeclared:?}");
+    mux.shutdown();
+}
+
 /// The 16/32/64 KiB measurement behind BULK_FRAME_MAX: over a Unix socket
 /// pair whose reader drains at full speed, the delay from queueing a ping
 /// reply behind a 32 MiB snapshot that started writing to reading it, and

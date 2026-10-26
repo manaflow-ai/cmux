@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 42e0256cc80059e27ca003116e524f484be7fe4c6a5b5226a76fc05737e79958. */
+/* cmux-tui mux protocol 12, IR 7b0be5dbde1184d7c2b545d00d5dd64b0008d6960d9ad6bed01e5181841ca523. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "42e0256cc80059e27ca003116e524f484be7fe4c6a5b5226a76fc05737e79958" as const;
+export const SDK_IR_SHA256 = "7b0be5dbde1184d7c2b545d00d5dd64b0008d6960d9ad6bed01e5181841ca523" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10446,6 +10446,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "bulk_frame_max": {
+        "constraints": [
+          "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
         }
       },
       "capabilities": {
@@ -27130,7 +27141,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "revisions": {
           "constraints": [
-            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+            "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",
