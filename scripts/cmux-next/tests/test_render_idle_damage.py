@@ -28,10 +28,113 @@ class AvailabilityTests(unittest.TestCase):
         self.assertIn("not a method", rid.unavailable_reason({"error": {"code": "method_not_found"}}))
         self.assertEqual(rid.unavailable_reason({"available": False, "error": "needs the render hooks"}),
                          "needs the render hooks")
-        self.assertIsNotNone(rid.unavailable_reason(None))
+        # A dead or wrong socket (bench_launch.rpc_at) is not a Release build, and neither is another failure.
+        unreachable = {"error": "[Errno 2] No such file or directory", "unreachable": True}
+        self.assertIsNone(rid.unavailable_reason(unreachable))
+        self.assertIn("did not answer", rid.unreachable_reason(unreachable))
+        self.assertIn("did not answer", rid.read_problem(unreachable))
+        self.assertIsNone(rid.unavailable_reason({"error": {"code": "timeout"}}))
+        self.assertIsNotNone(rid.read_problem({"error": {"code": "timeout"}}))
+        self.assertIsNotNone(rid.read_problem(None))
 
     def test_debug_build_is_available(self):
         self.assertIsNone(rid.unavailable_reason({"available": True, "running": False}))
+        self.assertIsNone(rid.read_problem({"available": True, "running": False}))
+
+    def test_check_available_tells_a_dead_socket_from_a_release_build(self):
+        bench = bench_with({"read": [{"error": "[Errno 61] Connection refused", "unreachable": True}]})
+        with self.assertRaises(rid.MeasureError) as raised:
+            bench.check_available()
+        self.assertIn("did not answer", str(raised.exception))
+        with self.assertRaises(rid.Unavailable):
+            bench_with({"read": [{"error": {"code": "method_not_found", "message": "Unknown method debug.damage"}}]}).check_available()
+
+
+class StopReplyTests(unittest.TestCase):
+    def test_a_stop_without_counts_is_a_problem(self):
+        self.assertIsNone(rid.stop_problem(reply(0, [])))
+        for bad in (None, {"error": "timeout", "unreachable": True}, {"error": {"code": "timeout"}},
+                    {"available": True, "running": False}, {"available": False, "error": "no hooks"}):
+            self.assertIsNotNone(rid.stop_problem(bad), bad)
+
+    def test_a_failed_idle_stop_never_passes(self):
+        for bad in (None, {}, {"error": "timeout", "unreachable": True}, {"available": True, "running": False}):
+            self.assertEqual(rid.verdict(bad), {"idle_damage_zero": False, "ghostty_idle_frames_zero": False}, bad)
+
+    def test_a_failed_idle_stop_or_start_is_a_measure_error(self):
+        unreachable = {"error": "timed out", "unreachable": True}
+        for replies in ({"start": [{"running": True}], "stop": [unreachable]},
+                        {"start": [{"running": True}], "stop": [{"available": True, "running": False}]},
+                        {"start": [{"available": True, "running": False, "error": "the render hooks are not counting"}]}):
+            with self.assertRaises(rid.MeasureError):
+                bench_with(replies).idle()
+        self.assertEqual(bench_with({"start": [{"running": True}], "stop": [reply(0, [])]}).idle(), reply(0, []))
+
+
+class MotionTests(unittest.TestCase):
+    def test_a_failed_round_goes_into_errors_and_out_of_the_sums(self):
+        good = reply(3, [{"owner": "PaneView", "damage": 3, "damage_rects": 3}])
+        bench = bench_with({"start": [{"running": True}, {"available": True, "running": False, "error": "not counting"},
+                                      {"running": True}],
+                            "stop": [good, good, {"available": True, "running": False}]}, rounds=3)
+        results, incomplete = bench.motion()
+        self.assertIsNone(incomplete)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["rounds"], [good])
+        self.assertEqual(results[0]["failed_rounds"], 2)
+        self.assertEqual(results[0]["damage"], 3)
+        self.assertEqual(results[0]["owners"][0]["damage"], 3)
+        self.assertIn("round 2", results[0]["errors"][0])
+        self.assertIn("no counts", results[0]["errors"][1])
+        self.assertEqual(bench.undos, 3)
+
+    def test_a_dead_socket_ends_the_motion_pass_and_keeps_what_finished(self):
+        good = reply(2, [{"owner": "PaneView", "damage": 2, "damage_rects": 2}])
+        dead = {"error": "[Errno 61] Connection refused", "unreachable": True}
+        bench = bench_with({"start": [{"running": True}, dead], "stop": [good, dead]}, rounds=3, scenarios=2)
+        results, incomplete = bench.motion()
+        self.assertIn("did not answer", incomplete)
+        self.assertEqual([r["scenario"] for r in results], ["s0"])
+        self.assertEqual(results[0]["rounds"], [good])
+        self.assertEqual(results[0]["failed_rounds"], 1)
+
+
+class FakeStress:
+    def __init__(self, rpc, log=print):
+        self.rpc = rpc
+
+    def focus_pane(self, pane):
+        pass
+
+
+class FakeStressModule:
+    Stress = FakeStress
+
+
+class FakeBench(rid.Bench):
+    def __init__(self, rpc, opts, scenarios):
+        super().__init__(rpc, FakeStressModule, opts, log=lambda *args, **kwargs: None)
+        self.count = scenarios
+        self.undos = 0
+
+    def undo(self):
+        self.undos += 1
+        return {}
+
+    def scenarios(self):
+        return [(f"s{i}", None, lambda: {}, self.undo) for i in range(self.count)]
+
+
+def bench_with(replies, rounds=1, scenarios=1):
+    """A Bench whose `debug.damage` actions answer from `replies` (per action, in order) and whose sleeps are 0."""
+    queues = {action: list(items) for action, items in replies.items()}
+
+    def rpc(method, params=None, timeout=60):
+        assert method == "debug.damage", method
+        return queues[params["action"]].pop(0)
+    opts = rid.parse(["--socket", "/tmp/x.sock", "--settle", "0", "--idle-s", "0", "--step-settle", "0",
+                      "--rounds", str(rounds)])
+    return FakeBench(rpc, opts, scenarios)
 
 
 class OwnerTests(unittest.TestCase):

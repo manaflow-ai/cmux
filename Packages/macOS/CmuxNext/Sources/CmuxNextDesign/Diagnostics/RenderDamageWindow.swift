@@ -2,15 +2,33 @@ public import AppKit
 import CmuxNextWakeups
 
 /// Ghostty's main-thread display passes (`-[IOSurfaceLayer display]`), counted by the App's
-/// `debug.terminal_display` probe; ``RenderDamageWindow`` reads them through this seam.
+/// `debug.terminal_display` probe; ``RenderDamageWindow`` reads them through this seam. Arms nest,
+/// so a window and a `debug.terminal_display` session never end or reset each other's counts.
 @MainActor
 public protocol DisplayPassSource: AnyObject {
-    /// Passes counted since the probe was armed; nil while it is not armed.
-    var armedPassCount: Int? { get }
-    /// Arms the probe from 0; false when it cannot count.
+    /// Passes counted while armed, since launch; it never goes down.
+    var passCount: Int { get }
+    /// Holds one arm (the first puts the probe on); false, holding nothing, when it cannot count.
     func armPasses() -> Bool
+    /// Ends one arm (the last takes the probe off).
     func disarmPasses()
 }
+
+/// The render counts a ``RenderDamageWindow`` reads: the app's one ``RenderStats`` (a test passes a fake).
+@MainActor
+public protocol RenderCounting: AnyObject {
+    /// Holds one arm (arms nest); false, holding nothing, in a build without hooks.
+    func arm() -> Bool
+    /// Waits for the queued hook work; true when the hooks count.
+    func ready() async -> Bool
+    /// Ends one arm.
+    func disarm()
+    var totals: RenderStats.Totals { get }
+    func ownerTotals() -> [UInt: RenderStats.Totals]
+    func owners() -> [RenderStats.Owner]
+}
+
+extension RenderStats: RenderCounting {}
 
 /// `debug.damage {action: start | stop | read}`: render damage per owner class over one window,
 /// for scripts/cmux-next/render-idle-damage.py, whose owner table is the MQ-damage-owners queue
@@ -24,15 +42,14 @@ public protocol DisplayPassSource: AnyObject {
 /// ``start()`` holds one arm of the app's one ``RenderStats`` (`debug.frames` nests its own) and returns
 /// once the hooks count; the window's counts are differences from that moment. Ghostty's frames are the
 /// contents sets of its layer owners (`ghosttyOwners`); its main-thread display passes come from the
-/// ``DisplayPassSource``, which the window arms unless someone already did (then it counts the passes
-/// since ``start()`` and leaves the probe armed). ``stop()`` returns the report and disarms; ``read()``
-/// returns the window so far, or the last stopped one. A window ends by itself after ``maximumRun``.
+/// ``DisplayPassSource``, of which the window holds one nested arm. ``stop()`` returns the report and
+/// ends both arms; ``read()`` returns the window so far, or the last stopped one. A window ends by itself after ``maximumRun``.
 /// In a build without the hooks (Release) every call returns ``Report/unavailable``.
 @MainActor
 public final class RenderDamageWindow {
     public static let maximumRun: Duration = .seconds(900)
 
-    private let stats: RenderStats
+    private let stats: any RenderCounting
     private let displayPasses: (any DisplayPassSource)?
     private let windows: @MainActor () -> [NSWindow]
     private let elapsed: @Sendable () -> Duration
@@ -40,6 +57,7 @@ public final class RenderDamageWindow {
     /// Owner names whose contents sets are Ghostty frames.
     public let ghosttyOwners: Set<String>
     private var holdsArm = false
+    private var holdsPassArm = false
     private var current: Span?
     private var last: Report?
 
@@ -48,9 +66,8 @@ public final class RenderDamageWindow {
         var owners: [UInt: RenderStats.Totals]
         var totals: RenderStats.Totals
         var started: Duration
-        /// Display passes at ``start()``, and whether this window armed their probe.
+        /// Display passes at ``start()``; nil when their probe could not be armed.
         var passes: Int?
-        var ownsPasses: Bool
     }
 
     /// - Parameters:
@@ -59,7 +76,7 @@ public final class RenderDamageWindow {
     ///   - ghosttyOwners: owner names whose contents sets are Ghostty frames.
     ///   - windows: the windows read for hidden looping animations.
     ///   - clock: measures the window's seconds and its ``maximumRun``.
-    public init(stats: RenderStats, displayPasses: (any DisplayPassSource)?, ghosttyOwners: Set<String>,
+    public init(stats: any RenderCounting, displayPasses: (any DisplayPassSource)?, ghosttyOwners: Set<String>,
                 windows: @escaping @MainActor () -> [NSWindow] = { NSApp.windows },
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.stats = stats
@@ -86,14 +103,9 @@ public final class RenderDamageWindow {
             if current == nil { releaseArm() }
             return Report(error: "the render hooks are not counting (a stop came before they started)")
         }
-        var passes = displayPasses?.armedPassCount
-        var armedHere = false
-        if passes == nil, displayPasses?.armPasses() == true {
-            passes = 0
-            armedHere = true
-        }
-        current = Span(owners: stats.ownerTotals(), totals: stats.totals, started: elapsed(), passes: passes,
-                       ownsPasses: current?.ownsPasses == true || armedHere)
+        if !holdsPassArm, let displayPasses { holdsPassArm = displayPasses.armPasses() }
+        current = Span(owners: stats.ownerTotals(), totals: stats.totals, started: elapsed(),
+                       passes: holdsPassArm ? displayPasses?.passCount : nil)
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in _ = self?.stop() }
         return Report(running: true)
     }
@@ -107,7 +119,6 @@ public final class RenderDamageWindow {
             return last ?? Report()
         }
         let report = measure(span, running: false)
-        if span.ownsPasses { displayPasses?.disarmPasses() }
         current = nil
         releaseArm()
         last = report
@@ -122,6 +133,10 @@ public final class RenderDamageWindow {
     }
 
     private func releaseArm() {
+        if holdsPassArm {
+            holdsPassArm = false
+            displayPasses?.disarmPasses()
+        }
         guard holdsArm else { return }
         holdsArm = false
         stats.disarm()
@@ -129,7 +144,8 @@ public final class RenderDamageWindow {
 
     private func measure(_ span: Span, running: Bool) -> Report {
         let names = Dictionary(stats.owners().map { ($0.key, $0.name) }, uniquingKeysWith: { first, _ in first })
-        let passes = span.passes.flatMap { start in displayPasses?.armedPassCount.map { max(0, $0 - start) } }
+        // A count below the start mark is not a count of this window: no number rather than a wrong one.
+        let passes: Int? = if let start = span.passes, let now = displayPasses?.passCount, now >= start { now - start } else { nil }
         let counts = Self.counts(start: span.owners, end: stats.ownerTotals(), totals: stats.totals - span.totals, names: names,
                                  seconds: (elapsed() - span.started) / .seconds(1), ghosttyOwners: ghosttyOwners,
                                  displayPasses: passes, hiddenLoops: RenderStats.hiddenLoopingAnimations(in: windows()))

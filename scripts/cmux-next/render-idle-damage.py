@@ -23,9 +23,13 @@ What it does, through the debug socket of a tagged DEBUG or bench app (`debug.da
 
 The session is checked before anything is measured: a STRESS shape problem, Chromium that is not running
 (`debug.cef`), an idle pane without its tabs, or a terminal that is not the selected tab exits 2 with the reason.
-An app without the hooks (a Release build: no `debug.*` method, or `debug.damage` `available: false`) exits 2 with
-"unavailable". Otherwise it writes the report and exits 0, or 1 with `--fail-on-damage` when the idle pass has
-damage or Ghostty frames (the DC7r target).
+An app without the hooks (a Release build: `debug.damage` is `method_not_found`, or `available: false`) exits 2 with
+"unavailable". A socket that does not answer (no app, a wrong `--socket`, a crash) or an idle window that did not
+open or whose stop has no counts exits 3 with the reply: never a pass without data. A motion round whose window did
+not open or whose stop has no counts goes into its scenario's `errors` and `failed_rounds` and is left out of the
+sums; the socket going away in the motion pass ends it (`motion_incomplete`) and the report is still written.
+Otherwise it writes the report and exits 0, or 1 with `--fail-on-damage` when the idle pass has damage or Ghostty
+frames (the DC7r target).
 
 Usage (on the fleet; never on a person's Mac):
   python3 scripts/cmux-next/render-idle-damage.py --app "/path/cmux DEV <tag>.app" --out DIR --vdisplay 120
@@ -40,8 +44,9 @@ JSON schema (`schema: "cmux-render-idle-damage/v1"`):
   conditions        {session: "stress" | "light", vdisplay_hz, chromium_tabs, idle_s, settle_s, rounds,
                      key_window: bool, cursor_blink: bool, busy_stopped: int, stress: <STRESS summary> | null}
   idle              the `debug.damage` stop reply of the idle pass (below)
-  motion            [{scenario, rounds: [<debug.damage stop reply>], errors: [str], damage, owners: [owner row]}]
-                    (owners summed over the rounds; [] with --no-motion)
+  motion            [{scenario, rounds: [<debug.damage stop reply>], failed_rounds: int, errors: [str], damage,
+                    owners: [owner row]}] (the rounds with counts only, owners summed over them; [] with --no-motion)
+  motion_incomplete null, or why the motion pass ended early (the socket stopped answering)
   queue             the MQ-damage-owners queue: every owner with damage > 0 at idle or in a motion scenario,
                     [{owner, idle_damage, idle_damage_per_s, idle_damage_area, idle_contents_sets,
                       motion_damage, scenarios: {scenario: damage}}], most idle damage first, then most motion
@@ -51,7 +56,7 @@ JSON schema (`schema: "cmux-render-idle-damage/v1"`):
 A `debug.damage` reply: {available, running, seconds, totals: {frame_sets, layouts, damage_rects, damage_area,
 contents_sets, window_calls, tracking_area_adds}, damage (damage_rects + contents_sets of all owners),
 damage_per_s, owners: [owner row], ghostty: {frames (contents sets of TerminalSurfaceView / IOSurfaceLayer),
-frames_per_s, display_calls (debug.terminal_display calls in the window, or null)}, hidden_looping_animations,
+frames_per_s, display_calls (-[IOSurfaceLayer display] calls in the window, or null)}, hidden_looping_animations,
 hidden_looping_owners: {owner: count}}. An owner row: {owner (class name), damage, damage_per_s, and each nonzero
 counter key}; only owners with damage > 0, most first.
 
@@ -78,6 +83,10 @@ class Unavailable(Exception):
     """The app has no render hooks (Release) or no `debug.damage`: exit 2."""
 
 
+class MeasureError(Exception):
+    """The socket did not answer, or the idle window gave no counts: exit 3, never a pass."""
+
+
 class ShapeError(Exception):
     """The session is not the one this bench measures: exit 2."""
 
@@ -93,15 +102,58 @@ def load(name, filename):
 # ---------------------------------------------------------------------------
 # Pure parts (tested without an app)
 
+def unreachable_reason(reply):
+    """Why the debug socket gave no reply (bench_launch.rpc_at's `unreachable`), or None."""
+    if isinstance(reply, dict) and reply.get("unreachable"):
+        return f"the debug socket did not answer: {str(reply.get('error'))[:200]}"
+    return None
+
+
 def unavailable_reason(reply):
-    """Why `reply` (to `debug.damage`) says the hooks are not there, or None."""
-    if not isinstance(reply, dict):
-        return f"debug.damage answered {str(reply)[:120]}"
+    """Why `reply` (to `debug.damage`) says this build has no hooks, or None. Only `available: false` or the router's
+    `method_not_found` (a Release build registers no debug.* method) mean that; an unreachable socket does not."""
+    if not isinstance(reply, dict) or reply.get("unreachable"):
+        return None
     if reply.get("available") is False:
         return str(reply.get("error") or "debug.damage is unavailable in this build")
-    if "error" in reply and "available" not in reply:
-        return f"debug.damage is not a method of this app (a Release build registers no debug.* method): {str(reply['error'])[:160]}"
+    error = reply.get("error")
+    if "available" not in reply and isinstance(error, dict) and error.get("code") == "method_not_found":
+        return f"debug.damage is not a method of this app (a Release build registers no debug.* method): {str(error)[:160]}"
     return None
+
+
+def read_problem(reply):
+    """Why a `debug.damage` read reply is not a working one (unreachable, unavailable or failed), or None."""
+    reason = unreachable_reason(reply) or unavailable_reason(reply)
+    if reason:
+        return reason
+    if not isinstance(reply, dict) or reply.get("error") or reply.get("available") is not True:
+        return f"debug.damage read answered {str(reply)[:200]}"
+    return None
+
+
+def start_problem(reply):
+    """Why a `debug.damage` start did not open a window, or None."""
+    if isinstance(reply, dict) and reply.get("running") is True and not reply.get("error"):
+        return None
+    return unreachable_reason(reply) or f"debug.damage start answered {str(reply)[:200]}"
+
+
+def stop_problem(reply):
+    """Why a `debug.damage` stop reply holds no counts of a window, or None."""
+    if not isinstance(reply, dict):
+        return f"debug.damage stop answered {str(reply)[:120]}"
+    if reply.get("unreachable"):
+        return unreachable_reason(reply)
+    if reply.get("error") or reply.get("available") is not True:
+        return f"debug.damage stop failed: {str(reply)[:200]}"
+    if not is_count(reply.get("damage")) or not is_count(reply.get("seconds")):
+        return f"debug.damage stop has no counts (no window was open): {str(reply)[:200]}"
+    return None
+
+
+def is_count(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def damage_of(row):
@@ -155,9 +207,12 @@ def owner_queue(idle, motion):
 
 
 def verdict(idle):
-    idle = idle or {}
-    return {"idle_damage_zero": int(idle.get("damage") or 0) == 0,
-            "ghostty_idle_frames_zero": int((idle.get("ghostty") or {}).get("frames") or 0) == 0}
+    """The DC7r target; a reply without the counts never passes (`run` exits 3 before it gets here)."""
+    counted = stop_problem(idle) is None
+    damage = idle.get("damage") if counted else None
+    frames = (idle.get("ghostty") or {}).get("frames") if counted else None
+    return {"idle_damage_zero": is_count(damage) and damage == 0,
+            "ghostty_idle_frames_zero": is_count(frames) and frames == 0}
 
 
 def table(queue, limit=40):
@@ -247,9 +302,13 @@ class Bench:
         return [p["id"] for p in self.stress.panes(self.stress.workspace(self.workspace))]
 
     def check_available(self):
-        reason = unavailable_reason(self.rpc("debug.damage", {"action": "read"}))
+        reply = self.rpc("debug.damage", {"action": "read"})
+        reason = unavailable_reason(reply)
         if reason:
             raise Unavailable(f"render-idle-damage: unavailable: {reason}")
+        reason = read_problem(reply)
+        if reason:
+            raise MeasureError(f"render-idle-damage: {reason}")
 
     def build(self):
         summary, busy_stopped = None, 0
@@ -291,17 +350,24 @@ class Bench:
         return next((w for w in windows if w.get("kind") == "main" and w.get("visible")), None) or {}
 
     def start_window(self):
-        """Opens one `debug.damage` window (the caller stops it); raises Unavailable when it does not run."""
-        started = self.rpc("debug.damage", {"action": "start"}, timeout=60)
-        if not isinstance(started, dict) or not started.get("running"):
-            raise Unavailable(f"render-idle-damage: unavailable: debug.damage start answered {str(started)[:200]}")
-        return started
+        """Opens one `debug.damage` window (the caller stops it); why it did not open, or None."""
+        return start_problem(self.rpc("debug.damage", {"action": "start"}, timeout=60))
+
+    def stop_window(self):
+        """Stops the window: (the reply, why it holds no counts or None)."""
+        stopped = self.rpc("debug.damage", {"action": "stop"})
+        return stopped, stop_problem(stopped)
 
     def idle(self):
         time.sleep(self.opts.settle)  # bench script: pages load and the session settles before the idle window
-        self.start_window()
+        problem = self.start_window()
+        if problem:
+            raise MeasureError(f"render-idle-damage: the idle window did not open: {problem}")
         time.sleep(self.opts.idle_s)  # bench script: the measured idle window
-        return self.rpc("debug.damage", {"action": "stop"})
+        stopped, problem = self.stop_window()
+        if problem:
+            raise MeasureError(f"render-idle-damage: the idle pass has no counts: {problem}")
+        return stopped
 
     # The DC2 scenarios: (name, setup, measured step, undo). Each returns the replies it got.
 
@@ -350,27 +416,44 @@ class Bench:
         ]
 
     def motion(self):
-        results = []
+        """The motion pass: (the scenario results, why it ended early or None)."""
+        results, incomplete = [], None
         for name, setup, step, undo in self.scenarios():
-            rounds, errors = [], []
-            for _ in range(self.opts.rounds):
+            rounds, round_errors, errors = [], [], []
+            for number in range(1, self.opts.rounds + 1):
                 if setup:
                     errors += replies_errors(setup())
                     time.sleep(self.opts.step_settle)  # bench script: the setup's motion ends outside the window
-                self.start_window()
+                # The step and its undo run even when the window did not open, so the session stays the same.
+                problem = self.start_window()
                 errors += replies_errors(step())
                 time.sleep(self.opts.step_settle)  # bench script: the measured motion runs to its end
-                rounds.append(self.rpc("debug.damage", {"action": "stop"}))
+                # Stopped even after a failed start: a late window closes, and its reply is not counted.
+                stopped, stop_failed = self.stop_window()
+                problem = problem or stop_failed
+                if problem:
+                    round_errors.append(f"round {number}: {problem}")
+                else:
+                    rounds.append(stopped)
+                if unreachable_reason(stopped):
+                    incomplete = f"{name} round {number}: {unreachable_reason(stopped)}"
+                    break
                 if undo:
                     errors += replies_errors(undo())
                     time.sleep(self.opts.step_settle)  # bench script: the undo's motion ends before the next round
-            self.stress.focus_pane(self.pane)
+            if not incomplete:
+                self.stress.focus_pane(self.pane)
             owners = sum_owners(rounds)
-            results.append({"scenario": name, "rounds": rounds, "errors": errors[:12],
-                            "damage": sum(int((r or {}).get("damage") or 0) for r in rounds), "owners": owners})
+            errors = round_errors + errors
+            results.append({"scenario": name, "rounds": rounds, "failed_rounds": len(round_errors), "errors": errors[:12],
+                            "damage": sum(int(r["damage"]) for r in rounds), "owners": owners})
             self.log(f"render-idle-damage: {name}: damage {results[-1]['damage']}, {len(owners)} owners"
+                     + (f", {len(round_errors)} failed rounds" if round_errors else "")
                      + (f", errors {errors[:2]}" if errors else ""), flush=True)
-        return results
+            if incomplete:
+                self.log(f"render-idle-damage: the motion pass ended early: {incomplete}", flush=True)
+                break
+        return results, incomplete
 
 
 def replies_errors(replies):
@@ -407,7 +490,7 @@ def run(opts):
             raise ShapeError("render-idle-damage: wrong session shape: the main window is not key, so the focused "
                              "terminal's cursor does not blink (pass --no-activate to measure that on purpose)")
         idle = bench.idle()
-        motion = bench.motion() if opts.motion else []
+        motion, motion_incomplete = bench.motion() if opts.motion else ([], None)
         host = dict(launch.read_host())
         host.update(launch.host_facts())
         report = {
@@ -415,13 +498,17 @@ def run(opts):
             "conditions": {"session": opts.session, "vdisplay_hz": opts.vdisplay or None, "chromium_tabs": opts.tabs,
                            "idle_s": opts.idle_s, "settle_s": opts.settle, "rounds": opts.rounds, "key_window": key_window,
                            "cursor_blink": key_window, "busy_stopped": busy_stopped, "stress": stress_summary},
-            "idle": idle, "motion": motion, "queue": owner_queue(idle, motion), "pass": verdict(idle),
+            "idle": idle, "motion": motion, "motion_incomplete": motion_incomplete, "queue": owner_queue(idle, motion),
+            "pass": verdict(idle),
         }
     except (Unavailable, ShapeError, stress_module.StressShapeError) as error:
         message = str(error)
         print(message if message.startswith("render-idle-damage:") else f"render-idle-damage: wrong session shape: {message}",
               file=sys.stderr, flush=True)
         return 2
+    except MeasureError as error:
+        print(str(error), file=sys.stderr, flush=True)
+        return 3
     finally:
         if bench:
             bench.stress.pages.close()

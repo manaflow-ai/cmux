@@ -1,11 +1,11 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// `debug.damage` (p03-rendering-003): the owner table render-idle-damage.py turns into the
-/// MQ-damage-owners queue. These tests never arm the hooks (they are process-wide; RenderStatsTests
-/// owns that), so they check the counts built from owner totals, the reply keys, and the replies with
-/// no window open.
+/// MQ-damage-owners queue. The hooks are process-wide (RenderStatsTests owns them), so the window's
+/// arm, re-start, stop and expiry logic runs against a fake ``RenderCounting`` and a fake display-pass probe.
 @MainActor
 struct RenderDamageWindowTests {
     private func totals(_ values: [RenderStats.Counter: Int]) -> RenderStats.Totals {
@@ -93,15 +93,167 @@ struct RenderDamageWindowTests {
         #expect(reply["owners"] == nil)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// One arm of the counts is held across a re-start, the window's counts are differences from its
+    /// (last) start, and stop ends both arms.
+    @Test func aWindowHoldsOneArmAcrossARestartAndCountsFromItsStart() async {
+        let stats = FakeStats()
+        let passes = FakePasses()
+        let window = RenderDamageWindow(stats: stats, displayPasses: passes, ghosttyOwners: ["IOSurfaceLayer"], windows: { [] },
+                                        clock: ManualClock())
+        stats.add(owner: 1, name: "SidebarRowView", totals([.damageRects: 50]))
+        passes.passCount = 40
+        #expect(await window.start() == RenderDamageWindow.Report(running: true))
+        #expect(stats.arms == 1 && passes.arms == 1)
+        stats.add(owner: 1, name: "SidebarRowView", totals([.damageRects: 3]))
+        stats.add(owner: 2, name: "IOSurfaceLayer", totals([.contentsSets: 4]))
+        passes.passCount = 45
+        #expect(window.read().counts?.owners.map(\.name) == ["IOSurfaceLayer", "SidebarRowView"])
+        #expect(window.read().counts?.displayPasses == 5)
+
+        #expect(await window.start() == RenderDamageWindow.Report(running: true))
+        #expect(stats.arms == 1 && passes.arms == 1)
+        stats.add(owner: 1, name: "SidebarRowView", totals([.damageRects: 2]))
+        passes.passCount = 47
+        let report = window.stop()
+        #expect(report.running == false)
+        #expect(report.counts?.owners.map(\.name) == ["SidebarRowView"])
+        #expect(report.counts?.owners.first?.totals[.damageRects] == 2)
+        #expect(report.counts?.ghosttyFrames == 0)
+        #expect(report.counts?.displayPasses == 2)
+        #expect(stats.arms == 0 && passes.arms == 0)
+        #expect(window.read() == report)
+        #expect(!window.isRunning)
+    }
+
+    /// A stop while the hooks are still going in makes that start answer an error, and no arm stays held.
+    @Test func aStopBeforeTheHooksCountEndsTheStartWithAnErrorAndNoArm() async {
+        let stats = FakeStats()
+        stats.holdsReady = true
+        let passes = FakePasses()
+        let window = RenderDamageWindow(stats: stats, displayPasses: passes, ghosttyOwners: [], windows: { [] }, clock: ManualClock())
+        let started = Task { await window.start() }
+        await stats.waitForReadyCall()
+        #expect(window.stop() == RenderDamageWindow.Report())
+        stats.releaseReady(counting: false)
+        let reply = await started.value
+        #expect(reply.error?.contains("not counting") == true)
+        #expect(stats.arms == 0 && passes.arms == 0)
+        #expect(!window.isRunning)
+    }
+
+    /// The window holds its own nested arm of the display-pass probe, so a session that armed it first
+    /// keeps its arm after the window stops; a probe that cannot count gives `display_calls` null.
+    @Test func theDisplayPassArmIsTheWindowsOwn() async {
+        let stats = FakeStats()
+        let passes = FakePasses()
+        passes.arms = 1 // a debug.terminal_display session
+        let window = RenderDamageWindow(stats: stats, displayPasses: passes, ghosttyOwners: [], windows: { [] }, clock: ManualClock())
+        _ = await window.start()
+        #expect(passes.arms == 2)
+        _ = window.stop()
+        #expect(passes.arms == 1)
+
+        let dead = FakePasses()
+        dead.canArm = false
+        let blind = RenderDamageWindow(stats: FakeStats(), displayPasses: dead, ghosttyOwners: [], windows: { [] }, clock: ManualClock())
+        _ = await blind.start()
+        dead.passCount = 9
+        let report = blind.stop()
+        #expect(report.counts != nil && report.counts?.displayPasses == nil)
+        #expect((report.foundationObject["ghostty"] as? [String: Any])?["display_calls"] is NSNull)
+        #expect(dead.arms == 0)
+    }
+
+    /// A window nobody stops ends by itself after ``RenderDamageWindow/maximumRun`` and lets its arms go.
+    @Test func aWindowEndsByItselfAfterItsMaximumRun() async throws {
+        let stats = FakeStats()
+        let passes = FakePasses()
+        let clock = ManualClock()
+        let window = RenderDamageWindow(stats: stats, displayPasses: passes, ghosttyOwners: [], windows: { [] }, clock: clock)
+        _ = await window.start()
+        try await clock.waitForSleeper()
+        clock.advance(by: RenderDamageWindow.maximumRun)
+        for _ in 0..<50 where window.isRunning { await Task.yield() }
+        #expect(!window.isRunning)
+        #expect(stats.arms == 0 && passes.arms == 0)
+        #expect(window.read().counts?.seconds == 900)
+    }
+    #endif
+
     @MainActor final class FakePasses: DisplayPassSource {
         var arms = 0
         var disarms = 0
-        var armedPassCount: Int? { nil }
+        var canArm = true
+        var passCount = 0
         func armPasses() -> Bool {
+            guard canArm else { return false }
             arms += 1
             return true
         }
 
-        func disarmPasses() { disarms += 1 }
+        func disarmPasses() {
+            disarms += 1
+            arms -= 1
+        }
+    }
+
+    /// Counts the test sets by hand; ``ready()`` can be held until the test releases it.
+    @MainActor final class FakeStats: RenderCounting {
+        private(set) var arms = 0
+        var holdsReady = false
+        private var counting = true
+        private var byOwner: [UInt: RenderStats.Totals] = [:]
+        private var names: [UInt: String] = [:]
+        private var readyWaiter: CheckedContinuation<Void, Never>?
+        private var readyCalled: CheckedContinuation<Void, Never>?
+        private var sawReady = false
+
+        func add(owner: UInt, name: String, _ delta: RenderStats.Totals) {
+            names[owner] = name
+            var sum = byOwner[owner] ?? RenderStats.Totals()
+            for counter in RenderStats.Counter.allCases { sum[counter] += delta[counter] }
+            byOwner[owner] = sum
+        }
+
+        func arm() -> Bool {
+            arms += 1
+            return true
+        }
+
+        func ready() async -> Bool {
+            sawReady = true
+            readyCalled?.resume()
+            readyCalled = nil
+            if holdsReady { await withCheckedContinuation { readyWaiter = $0 } }
+            return counting && arms > 0
+        }
+
+        func waitForReadyCall() async {
+            if sawReady { return }
+            await withCheckedContinuation { readyCalled = $0 }
+        }
+
+        func releaseReady(counting: Bool) {
+            self.counting = counting
+            readyWaiter?.resume()
+            readyWaiter = nil
+        }
+
+        func disarm() { arms -= 1 }
+
+        var totals: RenderStats.Totals {
+            var sum = RenderStats.Totals()
+            for owner in byOwner.values {
+                for counter in RenderStats.Counter.allCases { sum[counter] += owner[counter] }
+            }
+            return sum
+        }
+
+        func ownerTotals() -> [UInt: RenderStats.Totals] { byOwner }
+
+        func owners() -> [RenderStats.Owner] {
+            byOwner.map { RenderStats.Owner(key: $0.key, name: names[$0.key] ?? "unnamed", totals: $0.value) }
+        }
     }
 }
