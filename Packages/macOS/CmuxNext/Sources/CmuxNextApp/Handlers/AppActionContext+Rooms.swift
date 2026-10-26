@@ -54,14 +54,32 @@ enum RoomDefaultsArguments {
         invocation["cwd"] != nil || invocation["env"] != nil
     }
 
+    /// The fields a run names, parsed: nil leaves a field as the space has it.
+    struct Patch: Sendable, Equatable {
+        /// `.some(nil)` clears the directory.
+        var cwd: String??
+        var env: [String: String]?
+
+        /// Clear Space Terminal Defaults…: both fields cleared.
+        static let clear = Patch(cwd: .some(nil), env: [:])
+
+        /// `current` with the named fields replaced.
+        func applied(to current: ProfileDefaults?) -> ProfileDefaults {
+            var defaults = current ?? ProfileDefaults()
+            if let cwd { defaults.cwd = cwd }
+            if let env { defaults.env = env }
+            return defaults
+        }
+    }
+
+    /// The run's named fields; throws on a value that is not text or a relative `cwd`.
+    static func patch(_ invocation: ActionInvocation) throws -> Patch {
+        try Patch(cwd: invocation["cwd"].map(directory), env: invocation["env"].map(environment))
+    }
+
     /// The space's defaults after this run: `current` with the named fields replaced.
     static func merged(_ invocation: ActionInvocation, into current: ProfileDefaults?) throws -> ProfileDefaults {
-        let cwd = try invocation["cwd"].map(directory)
-        let env = try invocation["env"].map(environment)
-        var defaults = current ?? ProfileDefaults()
-        if let cwd { defaults.cwd = cwd }
-        if let env { defaults.env = env }
-        return defaults
+        try patch(invocation).applied(to: current)
     }
 
     private static func text(_ value: ActionValue) throws -> String {

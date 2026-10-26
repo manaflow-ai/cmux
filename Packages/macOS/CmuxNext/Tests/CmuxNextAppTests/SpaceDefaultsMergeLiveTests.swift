@@ -81,6 +81,16 @@ struct SpaceDefaultsMergeLiveTests {
         #expect(defaults()?.cwd == nil)
         #expect(defaults()?.env == ["B": "2"], "--cwd= alone dropped the space's environment: \(String(describing: defaults()))")
 
+        // Two quick partial runs, the second sent before the mirror shows the first: each merges into
+        // what the daemon holds when it runs, so neither drops the other's field.
+        let quickCwd = ActionInvocation(target: target, arguments: ["cwd": .string("/tmp/a")], origin: .cli)
+        let quickEnv = ActionInvocation(target: target, arguments: ["env": .string(#"{"X":"1"}"#)], origin: .cli)
+        #expect(services.registry.perform("space.setDefaults", invocation: quickCwd))
+        #expect(services.registry.perform("space.setDefaults", invocation: quickEnv))
+        await wait(within: .seconds(30)) { defaults() == ProfileDefaults(cwd: "/tmp/a", env: ["X": "1"]) }
+        #expect(defaults() == ProfileDefaults(cwd: "/tmp/a", env: ["X": "1"]),
+                "back-to-back --cwd and --env lost a field: \(String(describing: defaults()))")
+
         // `cmux space clear-defaults --confirm` removes both.
         let clear = ActionInvocation(target: target, origin: .cli).confirmed()
         #expect(services.registry.perform("space.clearDefaults", invocation: clear))

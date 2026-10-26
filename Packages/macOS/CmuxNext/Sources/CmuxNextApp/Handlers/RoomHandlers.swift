@@ -93,13 +93,13 @@ enum RoomHandlers {
                 }
                 return
             }
-            let defaults = try RoomDefaultsArguments.merged(invocation, into: room.defaults)
-            update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
+            let patch = try RoomDefaultsArguments.patch(invocation)
+            RoomDefaultsUpdates.apply(patch, to: room.id, context)
         }
         // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
         bind("space.clearDefaults") { invocation in
             let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, defaults: .clear) }
+            RoomDefaultsUpdates.apply(.clear, to: room.id, context)
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
@@ -231,5 +231,42 @@ enum RoomHandlers {
     static func update(_ id: ProfileID, _ context: AppActionContext,
                        _ body: @escaping @Sendable (DaemonConnection, ProfileID) async throws -> Void) {
         context.services.machines.local.send("update-profile") { try await body($0, id) }
+    }
+}
+
+/// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
+/// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
+/// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
+/// the old mirror, and the second's whole-object write would drop the first's field.
+@MainActor
+enum RoomDefaultsUpdates {
+    /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
+    /// removed, unless a newer run replaced it.
+    private static var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
+
+    /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
+    /// connection): the body holds the only reference, so the next run never waits forever.
+    private final class Finish: Sendable {
+        let signal: AsyncStream<Void>.Continuation
+        init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
+        deinit { signal.finish() }
+    }
+
+    static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
+        let previous = tails[id]?.done
+        let (finished, signal) = AsyncStream<Void>.makeStream()
+        let finish = Finish(signal)
+        let token = UUID()
+        tails[id] = (token, Task { @MainActor in
+            for await _ in finished {}
+            if tails[id]?.token == token { tails[id] = nil }
+        })
+        context.services.machines.local.send("update-profile") { connection in
+            defer { finish.signal.finish() }
+            await previous?.value
+            let current = try await connection.listPersonal().profiles.first(where: { $0.id == id })?.defaults
+            let defaults = patch.applied(to: current)
+            try await connection.updateProfile(id, defaults: defaults.isEmpty ? .clear : .set(defaults))
+        }
     }
 }
