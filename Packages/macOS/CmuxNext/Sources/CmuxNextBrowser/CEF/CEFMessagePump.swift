@@ -35,7 +35,8 @@ import Foundation
 ///
 /// Each pass is one `cef.pump` slice (``Signposter/beginCEFPump(reasonCode:)``): the reason it runs, whether it
 /// used CEF's whole time slice and its time, like Chrome's `ThreadControllerWithMessagePumpImpl::DoWork` trace
-/// event (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). Only the in-process pump
+/// event (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). The ring takes it only during a
+/// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
 /// emits it: with the Chromium host on there is no pump in the app, and the host emits its own (p09 task 104).
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
@@ -53,7 +54,8 @@ final class CEFMessagePump {
         case reentered
 
         /// The reason's number in a `cef.pump` begin record (`arg0`): fixed and nonzero, so 0 is a pass no timer
-        /// armed (the quit path's drain).
+        /// armed (the quit path's drain). A reentered fire runs no pass; 4 marks the pass that runs it after the
+        /// outer pass returns.
         var traceCode: UInt64 {
             switch self {
             case .now: 1
@@ -266,6 +268,7 @@ final class CEFMessagePump {
         // kept until now join the schedule (rearm() publishes again after the pass).
         mergeKeptRequests()
         let started = clock()
+        let traceReason: LedgerReason? = schedule.servesDeferredFire ? .reentered : reason
         guard schedule.beginWork(now: started) else {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
@@ -279,7 +282,7 @@ final class CEFMessagePump {
         input?.holdEnded()
         earlyPassWatch.passBegan(servesFireDate: reason == .delayed || reason == .kept)
         rearm()
-        let interval = signposter.beginCEFPump(reasonCode: reason?.traceCode ?? 0)
+        let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
         work()
         let elapsed = clock() - started
         let longRun = counters.recordWorkRun(elapsed: elapsed)
