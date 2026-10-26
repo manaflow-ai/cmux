@@ -63,11 +63,12 @@ fn resize_points_at_the_cloud_action() {
 }
 
 #[test]
-fn snapshot_defaults_to_create() {
+fn snapshot_subcommands_and_help_pass_through() {
     assert_eq!(
-        planned(&["vm", "snapshot", "vm_1"]).unwrap(),
+        planned(&["vm", "snapshot", "create", "vm_1"]).unwrap(),
         args(&["snapshot", "create", "vm_1"])
     );
+    assert_eq!(planned(&["vm", "snapshot", "--help"]).unwrap(), args(&["snapshot", "--help"]));
     assert_eq!(
         planned(&["vm", "snapshot", "list", "--limit", "2"]).unwrap(),
         args(&["snapshot", "list", "--limit", "2"])

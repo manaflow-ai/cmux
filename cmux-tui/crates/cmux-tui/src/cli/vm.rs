@@ -37,7 +37,7 @@ VERBS
   rm        Delete a VM (alias: delete)
   exec      Run a command in a VM
   fork      Fork a VM
-  snapshot  Create a snapshot
+  snapshot  Manage snapshots (create, get, list, delete)
 
 Use `cmux cloud resize-machine` for Cloud machine resizing.
 Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
@@ -75,13 +75,6 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         plan.push("--json".to_owned());
     }
     plan.push(mapped.to_owned());
-    if verb == "snapshot"
-        && !tail.first().is_some_and(|subcommand| {
-            matches!(subcommand.as_str(), "create" | "get" | "list" | "delete")
-        })
-    {
-        plan.push("create".to_owned());
-    }
     plan.extend(tail.iter().cloned());
     Ok(plan)
 }
