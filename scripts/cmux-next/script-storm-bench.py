@@ -44,19 +44,29 @@ Per session and phase:
 
 --hidden N (p06-scheduler-150; bare --hidden is N=50): N hidden workspaces (the --background workspaces: no window
 shows them) and one more phase, `hidden`, after the others. In it the person does nothing: the script process sends
-HIDDEN_OPS (1000) CLI ops, the daemon kinds of --rates only (reorder, move, column, rename; app-rename and batch are
-control-socket ops, not CLI ops), each kind its share by rate, all into the hidden workspaces, and waits for every
-reply. The window runs from the counters' reset to HIDDEN_SETTLE_S after the last reply (the app applies the last
-events, and the hidden surfaces' 1 s aligned frontend flush lands). Then, after the script closed its panes, an idle
-window of the same length on the same counters. Per window, numbers only (no budget is read against them):
+HIDDEN_OPS (1000) CLI ops into the hidden workspaces, split over the hidden-node kinds of --rates by rate (move,
+column, rename: changes inside hidden workspaces only; reorder moves a row of the always-shown sidebar, which is
+visible work, and app-rename and batch are control-socket ops, not CLI ops). Each kind runs in its own window, one
+after the other: the counters' reset, `go`, every reply, HIDDEN_SETTLE_S more (the app applies the last events, and
+the hidden surfaces' 1 s aligned frontend flush lands), the read. Then, after the script closed its panes, an idle
+window as long as the kinds' windows together, on counters it reset itself. Per kind and for the whole storm,
+numbers only (no budget is read against them):
   main_ms_per_op       app main-thread busy time in run-loop turns (debug.main_budget turn_ms scheduled + render +
                        input + unattributed totals) over the applied ops; `net_*` is the storm minus the idle window
   hidden_node_tasks    finished main-thread tasks whose visibility node was hidden (and occluded) when they ran, by
                        class (debug.main_budget owners' node states), with the owners that ran them
   hidden_workspace_layouts / hidden_workspace_applies   debug.layout_counters deltas (p06-scheduler-229)
-  frontend_events_per_hidden_surface_per_s   the daemon events the app's store drained (debug.drain_cost `events`:
-                       what the frontend mailbox delivered) over the hidden surfaces (the prepared tabs) and seconds
+  store_events_per_prepared_hidden_tab_per_s   every daemon event the app's store drained (debug.drain_cost `events`:
+                       structural and field events, of every workspace) over the tabs prepared before the storm and
+                       the seconds. The rename window's value is the field-event share: its load changes only titles
+                       of prepared hidden tabs, so (net of the idle window) it shows the hidden flush's coalescing.
+  hidden_surface_field_events_per_surface_per_s   done check 4's mailbox number (field events delivered for hidden
+                       surfaces): no debug method reports it yet (p06-scheduler-227 exposes no per-visibility count),
+                       so it is null and named in `missing`
   hidden_body_evaluations   SwiftUI hosting bodies evaluated while hidden (debug.observations)
+The phase is "invalid" when a kind's script did not get every reply, applied under MIN_APPLIED_SHARE of its share
+(or the storm under MIN_APPLIED_SHARE of HIDDEN_OPS), skipped or failed a send, raised in a step, had over
+MAX_REFUSED_SHARE refused or left terminals open, or when the shown workspaces changed.
 A number whose debug method or field the build lacks is null and named in `missing` (a base build runs it too).
 A phase is reported "invalid" with its reasons and no key numbers when: its storm was not applied during the person's
 window (an applied rate, overall or in any second of the window, under MIN_APPLIED_SHARE of the asked one, refusals
@@ -120,10 +130,15 @@ KEY_COLUMN = "contents_ms"
 # 1 ms at p99 (p06-scheduler-033). A measurement, reported next to the phase, never a gate.
 DRAIN_P99_BUDGET_MS = 1.0
 # --hidden N: the hidden phase's CLI ops (plans/cmux-next/chrome-parity/p06-scheduler.md, done check 4), the daemon op
-# kinds that make them, and the settle after the last reply: the app applies the last events, and the frontend
-# mailbox's 1 s aligned flush of hidden surfaces' field events (p06-scheduler-227) lands inside the window.
+# kinds that make them (changes inside hidden workspaces only: reorder moves a row of the always-shown sidebar, which
+# is visible work, so it is left out), and the settle after a kind's last reply: the app applies the last events, and
+# the frontend mailbox's 1 s aligned flush of hidden surfaces' field events (p06-scheduler-227) lands inside the window.
 HIDDEN_OPS = 1000
-HIDDEN_KINDS = ("reorder", "move", "column", "rename")
+HIDDEN_KINDS = ("move", "column", "rename")
+# The kind whose load is field events of hidden surfaces only (title changes of prepared hidden tabs).
+HIDDEN_FIELD_KIND = "rename"
+# Done check 4's mailbox number has no debug source yet (p06-scheduler-227 exposes no per-visibility count).
+HIDDEN_FIELD_EVENTS = "hidden_surface_field_events_per_surface_per_s"
 HIDDEN_SETTLE_S = 2.0
 HIDDEN_WORKSPACES_BARE = 50
 # The debug.layout_counters fields the hidden phase reads as deltas (p06-scheduler-229).
@@ -183,14 +198,15 @@ def main_busy_ms(budget):
 def node_tasks(budget):
     """Finished main-thread tasks whose visibility node was hidden (or occluded) when they ran, by class (the
     debug.main_budget `owners` rows' node states), and the owners that ran hidden ones, most first; None when the reply
-    has no owners."""
+    has no owners or a row has no `nodes` (a build without node states: its zero would read as a pass)."""
     owners = budget.get("owners") if isinstance(budget, dict) else None
-    if not isinstance(owners, list):
+    if not isinstance(owners, list) or not all(isinstance(row, dict) and isinstance(row.get("nodes"), dict)
+                                               for row in owners):
         return None
     by_state = {"hidden": {}, "occluded": {}}
     hidden_owners = []
     for row in owners:
-        nodes = row.get("nodes") or {}
+        nodes = row["nodes"]
         work_class = str(row.get("class"))
         for state, classes in by_state.items():
             count = number(nodes.get(state)) or 0
@@ -216,11 +232,15 @@ def counter_deltas(before, after, fields):
     return deltas
 
 
-def hidden_numbers(window, ops, surfaces):
+def per_tab_rate(events, tabs, seconds):
+    return round(events / tabs / seconds, 3) if events is not None and tabs and seconds else None
+
+
+def hidden_numbers(window, ops, tabs):
     """One window of the hidden phase in numbers. `window` holds its `seconds`, the debug replies read at its end
     (`budget`: debug.main_budget, `layout`: debug.layout_counters, `drain`: debug.drain_cost, `observations`:
-    debug.observations) and `layout_before`; `ops` is the applied CLI ops and `surfaces` the hidden surfaces. A number
-    whose source is missing is None and named in `missing`."""
+    debug.observations) and `layout_before`; `ops` is the applied CLI ops and `tabs` the hidden tabs prepared before
+    the storm. A number whose source is missing is None and named in `missing`."""
     seconds = number(window.get("seconds")) or 0
     busy = main_busy_ms(window.get("budget"))
     tasks = node_tasks(window.get("budget"))
@@ -230,46 +250,129 @@ def hidden_numbers(window, ops, surfaces):
     observations = window.get("observations")
     totals = observations.get("totals") if isinstance(observations, dict) else None
     bodies = number(totals.get("hidden_body_evaluations")) if isinstance(totals, dict) else None
-    found = {"main_busy_ms": busy, "hidden_node_tasks": tasks, "frontend_events": events,
-             "hidden_body_evaluations": bodies, **layouts}
+    found = {"main_busy_ms": busy, "hidden_node_tasks": tasks, "store_events": events,
+             "hidden_body_evaluations": bodies, **layouts, HIDDEN_FIELD_EVENTS: None}
     return {"seconds": round(seconds, 3), "ops": ops, "main_busy_ms": busy,
             "main_ms_per_op": round(busy / ops, 4) if busy is not None and ops else None,
-            "hidden_node_tasks": tasks, **layouts, "frontend_events": events,
-            "frontend_events_per_hidden_surface_per_s":
-                round(events / surfaces / seconds, 3) if events is not None and surfaces and seconds else None,
+            "hidden_node_tasks": tasks, **layouts, "store_events": events,
+            "store_events_per_prepared_hidden_tab_per_s": per_tab_rate(events, tabs, seconds),
+            HIDDEN_FIELD_EVENTS: None,
             "hidden_body_evaluations": bodies, "drain": drain_report(drain) if drain is not None else None,
             "missing": [name for name, value in found.items() if value is None]}
 
 
+def hidden_combined(windows, tabs):
+    """The kinds' windows (hidden_numbers, one per kind) as one storm: sums, rates over the summed seconds, the
+    drain's worst p99; a number any window lacks is None and named in `missing`."""
+    def total(field):
+        values = [w.get(field) for w in windows]
+        return None if not values or None in values else round(sum(values), 3)
+    seconds, ops, busy, events = total("seconds") or 0, total("ops") or 0, total("main_busy_ms"), total("store_events")
+    tasks = None
+    if windows and all(w.get("hidden_node_tasks") is not None for w in windows):
+        tasks = {"hidden_by_class": {}, "occluded_by_class": {}}
+        for w in windows:
+            for key in ("hidden_by_class", "occluded_by_class"):
+                for work_class, count in w["hidden_node_tasks"][key].items():
+                    tasks[key][work_class] = tasks[key].get(work_class, 0) + count
+        tasks["hidden_total"] = sum(tasks["hidden_by_class"].values())
+    p99s = [(w.get("drain") or {}).get("p99_ms") for w in windows]
+    missing = sorted({name for w in windows for name in w.get("missing") or []})
+    return {"seconds": seconds, "ops": ops, "main_busy_ms": busy,
+            "main_ms_per_op": round(busy / ops, 4) if busy is not None and ops else None,
+            "hidden_node_tasks": tasks, **{field: total(field) for field in HIDDEN_LAYOUT_FIELDS},
+            "store_events": events, "store_events_per_prepared_hidden_tab_per_s": per_tab_rate(events, tabs, seconds),
+            HIDDEN_FIELD_EVENTS: None, "hidden_body_evaluations": total("hidden_body_evaluations"),
+            "drain_p99_ms": None if not p99s or None in p99s else max(p99s), "missing": missing}
+
+
 def hidden_net(storm, idle):
-    """The storm window minus the idle one (scaled to the storm's length): the main ms per op and the frontend events
-    per hidden surface per second that the storm itself caused."""
+    """A storm window minus the idle one (scaled to the storm's length): the main ms per op and the store events per
+    prepared hidden tab per second that the storm itself caused."""
     scale = storm["seconds"] / idle["seconds"] if idle.get("seconds") else None
     busy, idle_busy = storm.get("main_busy_ms"), idle.get("main_busy_ms")
     net_busy = None if busy is None or idle_busy is None or scale is None else busy - idle_busy * scale
-    rate, idle_rate = (storm.get("frontend_events_per_hidden_surface_per_s"),
-                       idle.get("frontend_events_per_hidden_surface_per_s"))
+    rate, idle_rate = (storm.get("store_events_per_prepared_hidden_tab_per_s"),
+                       idle.get("store_events_per_prepared_hidden_tab_per_s"))
     return {"net_main_ms_per_op": round(net_busy / storm["ops"], 4) if net_busy is not None and storm.get("ops") else None,
-            "net_frontend_events_per_hidden_surface_per_s":
+            "net_store_events_per_prepared_hidden_tab_per_s":
                 round(rate - idle_rate, 3) if rate is not None and idle_rate is not None else None}
+
+
+def kind_report(kind, run):
+    """A kind's own report from its worker's (`run["script"]`), or None."""
+    script = run.get("script")
+    report = script.get(kind) if isinstance(script, dict) else None
+    return report if isinstance(report, dict) else None
+
+
+def hidden_applied(kinds):
+    """The counted storm's sends, summed over the kinds' worker reports (`kinds`: kind -> {"script": report})."""
+    totals = dict.fromkeys(("sent", "ok", "skipped_inflight_full", "send_failed", "held_at_limit",
+                            "creates_held_at_pty_limit"), 0)
+    for kind, run in kinds.items():
+        report = kind_report(kind, run) or {}
+        for field in totals:
+            totals[field] += number(report.get(field)) or 0
+    return totals
+
+
+def hidden_problems(kinds):
+    """Why the counted storm is not HIDDEN_OPS answered CLI ops into the hidden workspaces, if it is not. `kinds`:
+    kind -> {"share" (ops asked), "paced" (the worker's paced_done line), "script" (its report)}."""
+    problems = []
+    for kind, run in kinds.items():
+        paced, share = run.get("paced") or {}, run.get("share") or 0
+        if not paced.get("answered"):
+            problems.append(f"{kind}: the script did not get every reply to its {share} ops in time ({paced})")
+        report = kind_report(kind, run)
+        if report is None:
+            problems.append(f"{kind}: no report")
+            continue
+        ok = number(report.get("ok")) or 0
+        if ok < MIN_APPLIED_SHARE * share:
+            problems.append(f"{kind}: {ok} of {share} ops applied (sent {report.get('sent')}, held at a limit "
+                            f"{report.get('held_at_limit', 0)}, PTY-held {report.get('creates_held_at_pty_limit', 0)})")
+        for field in ("skipped_inflight_full", "send_failed"):
+            if report.get(field):
+                problems.append(f"{kind}: {report[field]} {field.replace('_', ' ')}")
+        if report.get("step_errors"):
+            problems.append(f"{kind}: step errors {report['step_errors']}")
+        if report.get("refused", 0) > MAX_REFUSED_SHARE * max(report.get("sent", 0), 1):
+            problems.append(f"{kind}: {report.get('refused')} of {report.get('sent')} refused {report.get('refusals')}")
+        if report.get("terminals_left_open"):
+            problems.append(f"{kind}: {report['terminals_left_open']} script terminals left open")
+    applied = hidden_applied(kinds)["ok"]
+    if applied < MIN_APPLIED_SHARE * HIDDEN_OPS:
+        problems.append(f"{applied} of the storm's {HIDDEN_OPS} CLI ops applied")
+    return problems
 
 
 def hidden_summary(run):
     """A hidden phase's summary row: its numbers, the idle window's next to them, and what the build lacked."""
     storm, idle = run["storm"], run.get("idle") or {}
     tasks = storm.get("hidden_node_tasks") or {}
+    kinds = run.get("kinds") or {}
+    field_kind = kinds.get(HIDDEN_FIELD_KIND) or {}
     return {"shape": run.get("shape"), "invalid": run.get("invalid") or None,
-            "hidden_workspaces": run.get("hidden_workspaces"), "hidden_surfaces": run.get("hidden_surfaces"),
-            "ops": storm.get("ops"), "seconds": storm.get("seconds"),
+            "hidden_workspaces": run.get("hidden_workspaces"), "prepared_hidden_tabs": run.get("prepared_hidden_tabs"),
+            "ops_asked": run.get("ops_asked"), "ops_sent": run.get("ops_sent"), "ops": storm.get("ops"),
+            "seconds": storm.get("seconds"),
             "main_ms_per_op": storm.get("main_ms_per_op"), "net_main_ms_per_op": run.get("net_main_ms_per_op"),
+            "main_ms_per_op_by_kind": {k: (v.get("numbers") or {}).get("main_ms_per_op") for k, v in kinds.items()} or None,
+            "net_main_ms_per_op_by_kind": {k: v.get("net_main_ms_per_op") for k, v in kinds.items()} or None,
             "hidden_node_tasks_by_class": tasks.get("hidden_by_class"),
             "idle_hidden_node_tasks_by_class": (idle.get("hidden_node_tasks") or {}).get("hidden_by_class"),
             "hidden_workspace_layouts": storm.get("hidden_workspace_layouts"),
             "hidden_workspace_applies": storm.get("hidden_workspace_applies"),
-            "frontend_events_per_hidden_surface_per_s": storm.get("frontend_events_per_hidden_surface_per_s"),
-            "net_frontend_events_per_hidden_surface_per_s": run.get("net_frontend_events_per_hidden_surface_per_s"),
+            "store_events_per_prepared_hidden_tab_per_s": storm.get("store_events_per_prepared_hidden_tab_per_s"),
+            "field_window_store_events_per_prepared_hidden_tab_per_s":
+                (field_kind.get("numbers") or {}).get("store_events_per_prepared_hidden_tab_per_s"),
+            "net_field_window_store_events_per_prepared_hidden_tab_per_s":
+                field_kind.get("net_store_events_per_prepared_hidden_tab_per_s"),
+            HIDDEN_FIELD_EVENTS: storm.get(HIDDEN_FIELD_EVENTS),
             "hidden_body_evaluations": storm.get("hidden_body_evaluations"),
-            "drain_p99_ms": (storm.get("drain") or {}).get("p99_ms"), "missing": storm.get("missing") or None}
+            "drain_p99_ms": storm.get("drain_p99_ms"), "missing": storm.get("missing") or None}
 
 
 def error_code(message):
@@ -759,10 +862,13 @@ parser.add_argument("--max-live-terminals", type=int, default=40, help="script-m
 parser.add_argument("--max-inflight", type=int, default=512, help="unanswered requests per op kind")
 parser.add_argument("--hidden", type=int, nargs="?", const=HIDDEN_WORKSPACES_BARE, metavar="N",
                     help=f"N hidden workspaces (the background ones; bare: {HIDDEN_WORKSPACES_BARE}) and a last phase "
-                         f"`hidden`: {HIDDEN_OPS} CLI ops ({', '.join(HIDDEN_KINDS)} at their --rates shares) into them "
-                         f"while the person does nothing, then an idle window as long; reports main ms/op, hidden-node "
-                         f"tasks by class, hidden_workspace_layouts, frontend mailbox events per hidden surface per "
-                         f"second and hidden SwiftUI bodies, numbers only. Every phase also reports the store's drain "
+                         f"`hidden`: {HIDDEN_OPS} CLI ops ({', '.join(HIDDEN_KINDS)} at their --rates shares, one "
+                         f"window per kind) into them while the person does nothing, then an idle window as long; "
+                         f"reports main ms/op (per kind too), hidden-node tasks by class, hidden_workspace_layouts, "
+                         f"store events per prepared hidden tab per second (the {HIDDEN_FIELD_KIND} window's: field "
+                         f"events only), the frontend mailbox's field events per hidden surface per second (null in "
+                         f"`missing` until a debug method reports it) and hidden SwiftUI bodies, numbers only; invalid "
+                         f"when fewer ops applied or a send was skipped or failed. Every phase also reports the store's drain "
                          f"cost (debug.drain_cost): its p99 against {DRAIN_P99_BUDGET_MS:g} ms, sidebar flattenings and "
                          f"workspace-list changes")
 opts = parser.parse_args()
@@ -1389,33 +1495,10 @@ class Session:
                 "layout": self.rpc("debug.layout_counters", timeout=20), "drain": self.rpc("debug.drain_cost", timeout=20),
                 "observations": self.rpc("debug.observations", timeout=20)}
 
-    @staticmethod
-    def hidden_problems(paced, script):
-        """Why the counted storm is not HIDDEN_OPS answered CLI ops, if it is not."""
-        problems = []
-        if not (paced or {}).get("answered"):
-            problems.append(f"the script did not get every reply to its {HIDDEN_OPS} ops in time ({paced})")
-        for kind in HIDDEN_RATES:
-            report = (script or {}).get(kind)
-            if not isinstance(report, dict):
-                problems.append(f"{kind}: no report")
-                continue
-            if report.get("refused", 0) > MAX_REFUSED_SHARE * max(report.get("sent", 0), 1):
-                problems.append(f"{kind}: {report.get('refused')} of {report.get('sent')} refused {report.get('refusals')}")
-            if report.get("terminals_left_open"):
-                problems.append(f"{kind}: {report['terminals_left_open']} script terminals left open")
-        return problems
-
-    def measure_hidden(self):
-        """HIDDEN_OPS CLI ops into the N hidden workspaces while the person does nothing, from the counters' reset to
-        HIDDEN_SETTLE_S after the last reply; then, once the script closed its panes and HIDDEN_SETTLE_S passed, an idle
-        window as long on the same counters. Numbers only."""
-        invalid = []
-        if len(self.background) < opts.hidden:
-            invalid.append(f"{len(self.background)} hidden workspaces prepared of {opts.hidden} asked")
-        shown = {w.get("workspace") for w in self.topology().get("windows") or []}
-        surfaces = sum(len(ws["tabs"]) for ws in self.background)
-        worker = self.start_storm("hidden", rates=HIDDEN_RATES, ops=HIDDEN_OPS)
+    def hidden_window(self, kind, rate, share):
+        """One kind's counted window: its script process up, the counters' reset, `go`, every reply to its `share`
+        ops, HIDDEN_SETTLE_S more, the read, then the stop (its closes come after the read)."""
+        worker = self.start_storm(f"hidden-{kind}", rates={kind: rate}, ops=share)
         try:
             layout_before = self.hidden_reset()
             started, window_start = time.perf_counter(), uptime()
@@ -1429,37 +1512,63 @@ class Session:
             time.sleep(HIDDEN_SETTLE_S)  # bench script: the last events apply and the 1 s aligned hidden flush lands
             seconds = time.perf_counter() - started
             window = [window_start, uptime()]
-            storm_counters = self.hidden_read(layout_before, seconds)
+            counters = self.hidden_read(layout_before, seconds)
             script = self.stop_storm(worker, window)
             worker = None
         finally:
             if worker:
                 self.abort_storm(worker)
-        invalid += self.hidden_problems(paced, script)
+        return {"share": share, "paced": paced, "script": script, "counters": counters}
+
+    def measure_hidden(self):
+        """HIDDEN_OPS CLI ops into the N hidden workspaces while the person does nothing, one window per kind (its
+        share of the ops, from the counters' reset to HIDDEN_SETTLE_S after its last reply); then, once the script
+        closed its panes and HIDDEN_SETTLE_S passed, an idle window as long as the kinds' together, on counters reset
+        for it. Numbers only."""
+        invalid = []
+        if len(self.background) < opts.hidden:
+            invalid.append(f"{len(self.background)} hidden workspaces prepared of {opts.hidden} asked")
+        shown = {w.get("workspace") for w in self.topology().get("windows") or []}
+        tabs = sum(len(ws["tabs"]) for ws in self.background)
+        shares = op_shares(HIDDEN_RATES, HIDDEN_OPS)
+        kinds = {}
+        for kind, share in shares.items():
+            if kinds:
+                time.sleep(HIDDEN_SETTLE_S)  # bench script: the last window's closes' events land before this one
+            kinds[kind] = self.hidden_window(kind, HIDDEN_RATES[kind], share)
+        invalid += hidden_problems(kinds)
         shown_after = {w.get("workspace") for w in self.topology().get("windows") or []}
         if shown_after != shown:
             invalid.append(f"the shown workspaces changed during the storm ({sorted(map(str, shown))} to "
                            f"{sorted(map(str, shown_after))}): the storm's workspaces were not all hidden")
+        seconds = sum(run["counters"]["seconds"] for run in kinds.values())
         time.sleep(HIDDEN_SETTLE_S)  # bench script: the closes' events land before the idle window
         layout_before = self.hidden_reset()
-        time.sleep(seconds)  # bench script: the idle window is as long as the storm's
-        idle_counters = self.hidden_read(layout_before, seconds)
-        ops = sum((script.get(kind) or {}).get("ok", 0) for kind in HIDDEN_RATES if isinstance(script.get(kind), dict))
-        storm = hidden_numbers(storm_counters, ops, surfaces)
-        idle = hidden_numbers(idle_counters, 0, surfaces)
+        time.sleep(seconds)  # bench script: the idle window is as long as the storm's windows together
+        idle = hidden_numbers(self.hidden_read(layout_before, seconds), 0, tabs)
+        for kind, run in kinds.items():
+            run["numbers"] = hidden_numbers(run.pop("counters"), number((kind_report(kind, run) or {}).get("ok")) or 0, tabs)
+            run.update(hidden_net(run["numbers"], idle))
+        storm = hidden_combined([run["numbers"] for run in kinds.values()], tabs)
+        sends = hidden_applied(kinds)
         entry = {"session": self.name, "shape": SESSION_SHAPE.get(self.name, self.name), "phase": "hidden",
-                 "invalid": invalid, "hidden_workspaces": len(self.background), "hidden_surfaces": surfaces,
-                 "shown_workspaces": sorted(map(str, shown)), "ops_asked": HIDDEN_OPS,
-                 "shares": op_shares(HIDDEN_RATES, HIDDEN_OPS), "paced": paced, "storm": storm, "idle": idle,
-                 **hidden_net(storm, idle), "script": script}
+                 "invalid": invalid, "hidden_workspaces": len(self.background), "prepared_hidden_tabs": tabs,
+                 "shown_workspaces": sorted(map(str, shown)), "ops_asked": HIDDEN_OPS, "ops_sent": sends["sent"],
+                 "ops_applied": sends["ok"], "sends": sends, "shares": shares, "storm": storm, "idle": idle,
+                 **hidden_net(storm, idle), "kinds": kinds}
         tasks = storm["hidden_node_tasks"] or {}
-        note(f"{self.name}.hidden ({entry['shape']}, {len(self.background)} hidden workspaces, {surfaces} surfaces): "
+        field = kinds.get(HIDDEN_FIELD_KIND) or {}
+        note(f"{self.name}.hidden ({entry['shape']}, {len(self.background)} hidden workspaces, {tabs} prepared tabs): "
              + (f"INVALID ({'; '.join(invalid)}); " if invalid else "")
-             + f"{ops} CLI ops in {storm['seconds']} s; main {storm['main_ms_per_op']} ms/op (net "
-             f"{entry['net_main_ms_per_op']}); hidden-node tasks by class {json.dumps(tasks.get('hidden_by_class'))}; "
-             f"hidden_workspace_layouts {storm['hidden_workspace_layouts']}; frontend events per hidden surface per s "
-             f"{storm['frontend_events_per_hidden_surface_per_s']} (net {entry['net_frontend_events_per_hidden_surface_per_s']}); "
-             f"hidden bodies {storm['hidden_body_evaluations']}"
+             + f"{sends['ok']} of {HIDDEN_OPS} CLI ops applied ({sends['sent']} sent) in {storm['seconds']} s; main "
+             f"{storm['main_ms_per_op']} ms/op (net {entry['net_main_ms_per_op']}; by kind "
+             f"{json.dumps({k: v['numbers']['main_ms_per_op'] for k, v in kinds.items()})}); hidden-node tasks by class "
+             f"{json.dumps(tasks.get('hidden_by_class'))}; hidden_workspace_layouts {storm['hidden_workspace_layouts']}; "
+             f"store events per prepared hidden tab per s {storm['store_events_per_prepared_hidden_tab_per_s']}, in the "
+             f"{HIDDEN_FIELD_KIND} (field-event) window "
+             f"{(field.get('numbers') or {}).get('store_events_per_prepared_hidden_tab_per_s')} (net "
+             f"{field.get('net_store_events_per_prepared_hidden_tab_per_s')}); hidden bodies "
+             f"{storm['hidden_body_evaluations']}"
              + (f"; missing {storm['missing']}" if storm["missing"] else ""))
         results["runs"].append(entry)
         if opts.json:
