@@ -184,6 +184,18 @@ the spike must justify. A claim in the key's turn shows the cover in
 that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
 CEF spare windows keep the window with no renderer.
 
+Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `2ca55eea`, on the cmux.33 line
+`c382c63b`). Nobody has built or run it. A Chrome-style browser created with an empty URL and
+`extra_info[CMUX_EXTRA_INFO_NO_RENDERER] = true` gets a first tab made with
+`WebContents::CreateParams::desired_renderer_state = kNoRendererProcess` and no navigation, as Chrome makes restored
+tabs (`chrome/browser/ui/browser_tabrestore.cc`). No `chrome://ignore/` load runs, so the tab takes no spare
+renderer and starts none. Its CEF browser is made before the insertion, so it owns the window's BrowserView, and
+tabs added with `cmux_tab_add` load as before. The key leaves extra_info before any renderer sees it.
+`cmux_tab_renderer_state(browser_id)` says whether a tab has a live renderer process. No API number yet (the train,
+086, gives one); the app honors the key only when it finds `cmux_tab_renderer_state` with dlsym (019, which also
+passes the key from the shim's window create). `ceftests --gtest_filter=CmuxPlaceholderTest.*` on a fork build
+decides whether it stays.
+
 ### 3.6 Lazy loading, shared chunks and the Home floor
 
 No page view until its tab first shows, and no WKWebView in Chromium mode until a fallback needs it. Every page is
