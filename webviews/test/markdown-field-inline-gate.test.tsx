@@ -74,6 +74,8 @@ afterAll(() => {
 });
 
 const DRAFT = "see \uFFFCword\uFFFC here";
+/// The composer's attachments in most tests: `word`, the one DRAFT places.
+const KNOWS_WORD = (id: string) => id === "word";
 const handle = createRef<MarkdownFieldHandle>();
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
@@ -86,7 +88,14 @@ async function render(
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
-      <MarkdownField ref={handle} value={DRAFT} onChange={() => {}} onInlineViews={onInlineViews} {...props} />,
+      <MarkdownField
+        ref={handle}
+        value={DRAFT}
+        onChange={() => {}}
+        onInlineViews={onInlineViews}
+        isInlineAttachment={KNOWS_WORD}
+        {...props}
+      />,
     ),
   );
   for (let turn = 0; turn < 200; turn++) {
@@ -142,6 +151,7 @@ test("a file link's id with a path in it comes back as the same attachment", asy
   const editor = await render((views) => told.push([...views.keys()]), {
     value: draft,
     onChange: (markdown) => changes.push(markdown),
+    isInlineAttachment: (id) => id === link.id,
   });
   expect(editor.querySelector("[data-inline-attachment]")?.getAttribute("data-inline-attachment")).toBe(link.id);
   expect(told.at(-1)).toEqual([link.id]);
@@ -257,6 +267,7 @@ test("a value cleared before the editor is made is the editor's document", async
       value={value}
       onChange={(markdown) => changes.push(markdown)}
       onInlineViews={() => {}}
+      isInlineAttachment={KNOWS_WORD}
       onReady={() => ready.push(handle.current!.value())}
     />
   );
@@ -281,4 +292,71 @@ test("undo after a draft is read back leaves its attachment placed", async () =>
   await settle();
   expect(editor.querySelector("[data-inline-attachment]")?.getAttribute("data-inline-attachment")).toBe("word");
   expect(editor.textContent).toBe("see  here");
+});
+
+// Review (root, R4): with no attachment ids to read against, every token-shaped run was taken for an
+// attachment, though the person may have written U+FFFC, a word, U+FFFC.
+test("before the composer names its attachments, a token-shaped run stays text", async () => {
+  const changes: string[] = [];
+  const editor = await render(() => {}, {
+    isInlineAttachment: undefined,
+    onChange: (markdown) => changes.push(markdown),
+  });
+  expect(editor.querySelector("[data-inline-attachment]")).toBeNull();
+  expect(editor.textContent).toBe(DRAFT);
+  expect(handle.current!.value()).toBe(DRAFT);
+  expect(changes).toEqual([]);
+});
+
+// Review (root, R4): the scanner gives every token-shaped run, an unknown id's too; only a known id's
+// is an attachment.
+test("a token of an id the composer does not have stays text beside one it has", async () => {
+  const draft = `a${inlineToken("gone")} b${inlineToken("one")} c`;
+  const editor = await render(() => {}, { value: draft, isInlineAttachment: (id) => id === "one" });
+  const ids = [...editor.querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(ids).toEqual(["one"]);
+  expect(editor.textContent).toBe(`a${inlineToken("gone")} b c`);
+  expect(handle.current!.value()).toBe(draft);
+});
+
+// Review (root, R4): a draft read back before its attachments are (the host's record comes later)
+// places them when their ids come, as no edit of the person's: no change told, nothing to undo.
+test("attachment ids that come after the draft place its waiting tokens", async () => {
+  const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
+  const changes: string[] = [];
+  const told: string[][] = [];
+  const field = (isInlineAttachment: ((id: string) => boolean) | undefined) => (
+    <MarkdownField
+      ref={handle}
+      value={DRAFT}
+      onChange={(markdown) => changes.push(markdown)}
+      onInlineViews={(views) => told.push([...views.keys()])}
+      isInlineAttachment={isInlineAttachment}
+    />
+  );
+  const { createRoot } = await import("react-dom/client");
+  root ??= createRoot(host);
+  await act(async () => root!.render(field(undefined)));
+  for (let turn = 0; turn < 200 && !document.querySelector(".acpmux-md-field .acpmux-md")?.textContent; turn++)
+    await settle();
+  await settle();
+  const waiting = document.querySelector<HTMLElement>(".acpmux-md-field .acpmux-md")!;
+  expect(waiting.querySelector("[data-inline-attachment]")).toBeNull();
+  await act(async () => root!.render(field(KNOWS_WORD)));
+  await settle();
+  expect(waiting.querySelector("[data-inline-attachment]")?.getAttribute("data-inline-attachment")).toBe("word");
+  expect(waiting.textContent).toBe("see  here");
+  expect(told.at(-1)).toEqual(["word"]);
+  expect(handle.current!.value()).toBe(DRAFT);
+  expect(changes).toEqual([]);
+  act(() => handle.current!.undo());
+  await settle();
+  expect(waiting.querySelector("[data-inline-attachment]")?.getAttribute("data-inline-attachment")).toBe("word");
+  // Ids the composer knew before are not read again: pasted token text of a known id stays text.
+  act(() => handle.current!.pasteText(` ${inlineToken("word")}`));
+  await act(async () => root!.render(field((id) => id === "word" || id === "other")));
+  await settle();
+  expect(waiting.querySelectorAll("[data-inline-attachment]").length).toBe(1);
 });
