@@ -1,5 +1,5 @@
 // From MessagesLab bd65bbf appkit-native/Sources/FrameTick.swift (not vendored: it is a
-// Host.swift helper). Unchanged except this header.
+// Host.swift helper). Unchanged except this header and its main-actor isolation.
 import AppKit
 
 /// Runs work at the start of the next display frame of a view's screen: a display
@@ -9,6 +9,8 @@ import AppKit
 /// (Host.dispatch). A landing that arrived from the loader queue late in a frame
 /// committed after the frame's deadline (a 2 ms commit, still a dropped frame in a
 /// knob drag over the 1M store); at the frame's start it has the whole frame.
+/// cmux: main actor: the view's display link fires on the main run loop.
+@MainActor
 final class FrameTick: NSObject {
     private weak var view: NSView?
     private var link: CADisplayLink?
