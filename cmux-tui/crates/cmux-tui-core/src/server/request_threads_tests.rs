@@ -101,8 +101,13 @@ fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     // The pool's workers stay up with the mux.
     assert_declared("mux-seq-control", ThreadQos::UserInitiated);
     scheduler.finish_and_wait();
-    let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
-    assert_eq!(reply["ok"], true, "{reply}");
+    // The detector's mode is process-wide: a parallel test that sets panic
+    // mode (`on_request_thread`) makes the read panic after it records its
+    // site, and then no reply comes. A reply that comes answers the read.
+    if let Some(line) = outbound.try_pop() {
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
     assert!(
         site_count("src/server.rs", BlockingKind::Sqlite) > before,
         "list-workspaces on mux-seq-control records no sqlite site"
