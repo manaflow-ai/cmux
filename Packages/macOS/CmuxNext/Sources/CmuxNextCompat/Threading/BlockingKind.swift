@@ -1,6 +1,6 @@
 /// The kind of wait a blocking call does, as the main-thread blocking detector names it.
 ///
-/// The detector (``assertBlockingAllowed(_:fileID:line:)``) is cmux's copy of Chrome's
+/// The detector (``blockingCall(_:fileID:line:_:)``) is cmux's copy of Chrome's
 /// `base::ScopedBlockingCall` and `base::ThreadRestrictions`: the main thread never waits on
 /// disk, a socket, another thread, another process or a child's exit
 /// (plans/cmux-next/threading-model.md). The raw values are the names the debug log and the

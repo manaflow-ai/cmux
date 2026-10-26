@@ -223,6 +223,11 @@ public final class CEFEngine: BrowserEngine {
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The renderer client ids of the untaken spare window's about:blank placeholder (`debug.webui`).
+    public var spareWindowRendererClients: [Int32] { CEFSpareWindow.shared.host?.placeholder?.rendererClientIDs ?? [] }
+    #endif
+
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
     public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
