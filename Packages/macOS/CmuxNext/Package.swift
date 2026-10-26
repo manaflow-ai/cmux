@@ -1302,6 +1302,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextWakeupsTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
