@@ -28,6 +28,9 @@
 //! git with that environment. Not under approve-edits: an agent that writes files unasked could
 //! put its own `rg` in one of those directories.
 //!
+//! An allowed git read may still write git's own bookkeeping, as it does when the person runs
+//! it: `git status` refreshes the index's stat data. Nothing the agent chooses reaches it.
+//!
 //! What is trusted: the launch environment and the person's own files it points at (`$HOME`'s
 //! shell startup files, `~/.gitconfig`). The agent changes those only by writing, which asks.
 //! Git config in every scope passes only keys that name no program a read runs
@@ -397,7 +400,11 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
         // `--paginate` (`-l`) runs `pr`.
         "diff" => !any(&|a| short_has(a, 'l') || long_is(a, "--paginate")),
         "sort" => !any(&|a| {
-            short_has(a, 'o') || long_is(a, "--output") || long_is(a, "--compress-program")
+            short_has(a, 'o')
+                || short_has(a, 'T')
+                || long_is(a, "--output")
+                || long_is(a, "--compress-program")
+                || long_is(a, "--temporary-directory")
         }),
         // A filter on its input only: an operand is a file to read and the next one, however it
         // is spelled (BSD stops at the first operand, `-out` after it is the output), is written.
@@ -487,9 +494,12 @@ fn git_read_ok(args: &[String]) -> bool {
     let Some((sub, rest)) = args.split_first() else { return false };
     // git takes any unambiguous prefix of a long option, and a short cluster (`-nOsh` is
     // `-n -O sh`). A signature check (`--show-signature`, a `%G` format) runs gpg.
+    let grep = sub == "grep";
     let writes = |a: &String| {
         long_is(a, "--output")
             || short_has(a, 'O')
+            // `git diff -o FILE` writes FILE; `git grep -o` only prints the matched part.
+            || (short_has(a, 'o') && !grep)
             || long_is(a, "--open-files-in-pager")
             || long_is(a, "--ext-diff")
             || long_is(a, "--show-signature")
@@ -696,11 +706,10 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
         None => (None, rest),
     };
     match (section, sub) {
-        // `true` is git's own fsmonitor daemon; any other value is a hook to run.
-        ("core", None) if name == "fsmonitor" => matches!(
-            value.to_ascii_lowercase().as_str(),
-            "true" | "false" | "yes" | "no" | "on" | "off" | "1" | "0" | ""
-        ),
+        // Off only: `true` starts git's own fsmonitor daemon, and any other value is a hook.
+        ("core", None) if name == "fsmonitor" => {
+            matches!(value.to_ascii_lowercase().as_str(), "false" | "no" | "off" | "0" | "")
+        }
         // core.hooksPath: the hook itself is checked where git looks for it.
         ("core", None) => matches!(
             name,
