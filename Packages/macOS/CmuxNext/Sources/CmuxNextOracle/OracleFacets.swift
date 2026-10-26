@@ -29,6 +29,18 @@ public struct OracleFacets: Sendable {
     /// The facets this build has a provider for, in catalog order.
     public var provided: [OracleFacet] { OracleFacet.allCases.filter { providers[$0] != nil } }
 
+    /// `facet`'s change signal, nil when its provider gives none (``OracleFacetProvider/changes``).
+    public func changes(_ facet: OracleFacet) -> OracleFacetChanges? { providers[facet]?.changes }
+
+    /// Whether `debug.oracle.wait_for` can wait on `facet`: a provider reads it on the main actor (its reads are
+    /// observed) or gives a change signal. A background facet without one would only be read once.
+    public func signalsChanges(_ facet: OracleFacet) -> Bool {
+        guard let provider = providers[facet] else { return false }
+        if provider.changes != nil { return true }
+        if case .mainActor = provider.capture { return true }
+        return false
+    }
+
     /// The facets a request names (`facets: [String]`), or every facet when it names none.
     /// An unknown name is an error: a typo must not turn into a facet nobody compares.
     public static func requested(_ names: [String]?) throws(OracleRequestError) -> [OracleFacet] {

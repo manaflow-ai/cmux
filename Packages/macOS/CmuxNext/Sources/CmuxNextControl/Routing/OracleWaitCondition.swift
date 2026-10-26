@@ -6,6 +6,11 @@ import Foundation
 /// What `debug.oracle.wait_for` waits for: the snapshot value at a JSON pointer (RFC 6901) that starts
 /// with a facet name meets `equals` or a `predicate` (schemas/oracle/case-v1.schema.json, `$defs/waitFor`).
 /// Pure: parsed once from the request, evaluated against each facet value the wait reads.
+///
+/// `changed` compares with `since`, the value at the pointer the runner read at the step's `before`
+/// checkpoint (null: absent), never with the wait's own first read: an action applies its intent in the input's
+/// turn, so by the time the wait reads, the value usually changed already. `changed` without `since`, and
+/// `since` with any other test, are `invalid_params`.
 struct OracleWaitCondition: Sendable, Hashable {
     enum Test: Sendable, Hashable {
         case equals(JSONValue)
@@ -13,8 +18,8 @@ struct OracleWaitCondition: Sendable, Hashable {
         case absent
         case empty
         case nonEmpty
-        /// The value differs from the one the first read found (absent included).
-        case changed
+        /// The value differs from `since`, the value before the step (null: absent).
+        case changed(since: JSONValue)
         case compare(Comparison, JSONValue)
     }
 
@@ -50,9 +55,10 @@ struct OracleWaitCondition: Sendable, Hashable {
         limit = .milliseconds(milliseconds)
         switch (params["equals"], params["predicate"]) {
         case (let value?, nil): test = .equals(value)
-        case (nil, let predicate?): test = try Self.parse(predicate: predicate)
+        case (nil, let predicate?): test = try Self.parse(predicate: predicate, since: params["since"])
         default: throw .test
         }
+        if case .changed = test {} else if params["since"] != nil { throw .since }
     }
 
     static func parse(pointer: String) throws(OracleWaitConditionError) -> (facet: OracleFacet, path: [String]) {
@@ -72,13 +78,15 @@ struct OracleWaitCondition: Sendable, Hashable {
         return (facet, Array(tokens.dropFirst()))
     }
 
-    static func parse(predicate: JSONValue) throws(OracleWaitConditionError) -> Test {
+    static func parse(predicate: JSONValue, since: JSONValue?) throws(OracleWaitConditionError) -> Test {
         switch predicate {
         case .string("exists"): return .exists
         case .string("absent"): return .absent
         case .string("empty"): return .empty
         case .string("nonEmpty"): return .nonEmpty
-        case .string("changed"): return .changed
+        case .string("changed"):
+            guard let since else { throw .since }
+            return .changed(since: since)
         case .object(let members):
             guard members.count == 2, let op = members["op"]?.stringValue.flatMap(Comparison.init(rawValue:)),
                   let value = members["value"] else { throw .test }
@@ -106,16 +114,16 @@ struct OracleWaitCondition: Sendable, Hashable {
         return current
     }
 
-    /// Whether `value` (nil: the pointer resolves to nothing) meets the condition. `baseline` is the
-    /// value of the wait's first read, for `changed`.
-    func holds(_ value: JSONValue?, baseline: JSONValue?) -> Bool {
+    /// Whether `value` (nil: the pointer resolves to nothing) meets the condition.
+    func holds(_ value: JSONValue?) -> Bool {
         switch test {
         case .equals(let expected): return value == expected
         case .exists: return value != nil
         case .absent: return value == nil
         case .empty: return value.flatMap(Self.length) == 0
         case .nonEmpty: return value.flatMap(Self.length).map { $0 > 0 } ?? false
-        case .changed: return value != baseline
+        // A runner reads an absent pointer as null: absent and null are the same baseline.
+        case .changed(let since): return (value ?? .null) != since
         case .compare(let op, let operand):
             guard let value else { return false }
             return Self.meets(value, op, operand)
@@ -168,6 +176,8 @@ struct OracleWaitCondition: Sendable, Hashable {
 enum OracleWaitConditionError: Error, Sendable, Hashable {
     case pointer(String)
     case maxMs
+    /// `changed` without `since`, or `since` with another test.
+    case since
     /// Neither or both of `equals` and `predicate`, or a predicate outside the schema's.
     case test
 
@@ -176,6 +186,7 @@ enum OracleWaitConditionError: Error, Sendable, Hashable {
         case .pointer(let reason): reason
         case .maxMs: "maxMs must be an integer from 1 to \(OracleWaitCondition.maxMilliseconds)"
         case .test: "give exactly one of equals or predicate (exists, absent, empty, nonEmpty, changed, or {op, value})"
+        case .since: "since (the value at the pointer before the step; null: absent) goes with predicate changed, and only with it"
         }
     }
 
@@ -184,6 +195,7 @@ enum OracleWaitConditionError: Error, Sendable, Hashable {
         case .pointer: "pointer"
         case .maxMs: "maxMs"
         case .test: "predicate"
+        case .since: "since"
         }
     }
 }

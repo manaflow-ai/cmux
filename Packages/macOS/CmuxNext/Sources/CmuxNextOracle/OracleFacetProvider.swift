@@ -5,7 +5,19 @@
 public protocol OracleFacetProvider: Sendable {
     var facet: OracleFacet { get }
     var capture: OracleFacetCapture { get }
+    /// The facet's change signal for `debug.oracle.wait_for`. A main-actor facet needs none (the wait reads it
+    /// under Observation tracking); a background facet without one cannot be waited on (`unavailable`).
+    var changes: OracleFacetChanges? { get }
 }
+
+extension OracleFacetProvider {
+    public var changes: OracleFacetChanges? { nil }
+}
+
+/// Subscribes to a facet's changes: the stream yields once for each change of the state the facet reads, from
+/// the owning actor's own state-change point (no poll), and finishes when the subscriber cancels or the owner
+/// goes away. Each call is a new subscription.
+public typealias OracleFacetChanges = @Sendable () -> AsyncStream<Void>
 
 /// Where a provider reads its model.
 public enum OracleFacetCapture: Sendable {
@@ -22,10 +34,12 @@ public enum OracleFacetCapture: Sendable {
 public struct OracleFacetSource: OracleFacetProvider {
     public let facet: OracleFacet
     public let capture: OracleFacetCapture
+    public let changes: OracleFacetChanges?
 
-    public init(_ facet: OracleFacet, _ capture: OracleFacetCapture) {
+    public init(_ facet: OracleFacet, _ capture: OracleFacetCapture, changes: OracleFacetChanges? = nil) {
         self.facet = facet
         self.capture = capture
+        self.changes = changes
     }
 }
 #endif

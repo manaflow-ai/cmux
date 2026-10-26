@@ -3,64 +3,25 @@ public import CmuxNextOracle
 import CmuxNextSettings
 import Observation
 
-/// What the app settles on (`debug.oracle.settle`, p15-oracle.md section 3B), injected by the composition
-/// root: Control sees neither the daemon store's continuations, AppKit's frames nor Core Animation.
-public struct OracleSettleSources: Sendable {
-    /// The daemon half (p15-oracle-029's `DaemonStore.settle(through:since:)`): returns once the store applied
-    /// every event up to the sequence and no intent is pending, with the waits still pending when it ended
-    /// early (the connection changed), by name. The settle's deadline cancels it.
-    public var daemon: @MainActor @Sendable (UInt64) async -> [String]
-    /// Returns true once no `MotionClock` steps an animator, false at the deadline it gets.
-    public var motionIdle: @MainActor @Sendable (ContinuousClock.Instant) async -> Bool
-    /// Returns after the next `CommitBoundary`: the Core Animation commit that ends the main run-loop turn.
-    public var commit: @MainActor @Sendable () async -> Void
-    /// What still keeps the app from settling, read in one main-actor turn when a stage misses the deadline:
-    /// `intent:<kind>` per pending intent, `motion:<trace>` per running animator. Never private text.
-    public var pending: @MainActor @Sendable () -> [String]
-
-    public init(daemon: @escaping @MainActor @Sendable (UInt64) async -> [String],
-                motionIdle: @escaping @MainActor @Sendable (ContinuousClock.Instant) async -> Bool,
-                commit: @escaping @MainActor @Sendable () async -> Void,
-                pending: @escaping @MainActor @Sendable () -> [String]) {
-        self.daemon = daemon
-        self.motionIdle = motionIdle
-        self.commit = commit
-        self.pending = pending
-    }
-
-    /// The outcome of a settle that stopped at `stopped` (stage names), with what is still pending now.
-    func outcome(_ sequence: UInt64?, stopped: [String]) async -> OracleSettleOutcome {
-        let pending = pending
-        let details = await pending()
-        return OracleSettleOutcome(sequence: sequence, pending: stopped + details.filter { !stopped.contains($0) })
-    }
-}
-
-/// How a settle ended: settled when nothing is pending.
-struct OracleSettleOutcome: Sendable, Equatable {
-    /// The home daemon event sequence the settle covered (nil when the sync barrier missed the deadline).
-    var sequence: UInt64?
-    var pending: [String]
-
-    var settled: Bool { pending.isEmpty }
-}
-
 /// `debug.oracle.settle` and `debug.oracle.wait_for` (p15-oracle.md section 3B), DEV and bench builds only:
 /// a Release router drops every `debug.*` registration (``ControlRouter/debugMethodsAllowed``).
 ///
 /// - `debug.oracle.settle {sequence, settleMaxMs}`: the checkpoint barrier (``ControlRouter/oracleSettle(after:sources:deadline:)``).
 ///   `sequence` is a home daemon event sequence or `"sync"` (the default). Answers
 ///   `{settled, pending, sequence, elapsed_ms}`; a missed `settleMaxMs` is `settled: false` with the pending list.
-/// - `debug.oracle.wait_for {pointer, equals | predicate, maxMs}` (schemas/oracle/case-v1.schema.json `$defs/waitFor`):
-///   reads the pointer's facet, then again on each change signal of that facet (the Observation of what its
-///   provider read, and each control snapshot publish) until the condition holds. Answers
+/// - `debug.oracle.wait_for {pointer, equals | predicate, since, maxMs}` (schemas/oracle/case-v1.schema.json
+///   `$defs/waitFor`; `since` is the runner's): reads the pointer's facet, then again on each change signal of
+///   that facet (the Observation of what a main-actor provider read, a background provider's
+///   ``OracleFacetProvider/changes``, and each control snapshot publish) until the condition holds. Answers
 ///   `{satisfied, value, evaluations, elapsed_ms}`, plus `pending: [pointer]` when `maxMs` passed first.
 public struct OracleSettleControl: Sendable {
     public static let settle = "debug.oracle.settle"
     public static let waitFor = "debug.oracle.wait_for"
     /// `settleMaxMs` when the request gives none.
     public static let defaultSettleMilliseconds = 5_000
-    public static let maxSettleMilliseconds = 60_000
+    /// The case schema's `settleMaxMs` maximum (60,000) times 5: a `Slow` expectation multiplies the case's
+    /// bound by 5 (p15-oracle.md 3E, expectations.py rule 16).
+    public static let maxSettleMilliseconds = 300_000
     /// The router's own deadline is this much later than the request's bound, so the bound answers first.
     static let replyMargin: Duration = .seconds(1)
 
@@ -68,7 +29,6 @@ public struct OracleSettleControl: Sendable {
     enum Stage {
         static let sync = "control.sync"
         static let snapshot = "control.snapshot"
-        static let daemon = "daemon"
         static let motion = "motion"
         static let commit = "commit"
     }
@@ -111,6 +71,11 @@ public struct OracleSettleControl: Sendable {
                     throw ControlError(code: "unavailable", message: "no provider for facet \(condition.facet.rawValue) in this build",
                                        data: ["facet": .string(condition.facet.rawValue), "task": .string(condition.facet.task)])
                 }
+                // A background facet read once and never again would end every wait on it as a false Timeout.
+                guard facets.signalsChanges(condition.facet) else {
+                    throw ControlError(code: "unavailable", message: "facet \(condition.facet.rawValue) gives no change signal to wait on in this build",
+                                       data: ["facet": .string(condition.facet.rawValue), "reason": "no_change_signal"])
+                }
                 let started = ContinuousClock.now
                 let outcome = try await Self.awaitCondition(condition, facets: facets, snapshots: router.snapshots, deadline: started + condition.limit)
                 var reply: [String: JSONValue] = [
@@ -127,7 +92,7 @@ public struct OracleSettleControl: Sendable {
         ]
     }
 
-    /// `settleMaxMs` (1 to 60,000; ``defaultSettleMilliseconds`` when absent).
+    /// `settleMaxMs` (an integer from 1 to ``maxSettleMilliseconds``; ``defaultSettleMilliseconds`` when absent).
     static func settleBound(_ params: [String: JSONValue]) throws(ControlError) -> Duration {
         guard let param = params["settleMaxMs"], !param.isNull else { return .milliseconds(defaultSettleMilliseconds) }
         guard let milliseconds = param.intValue, (1...maxSettleMilliseconds).contains(milliseconds) else {
@@ -144,11 +109,12 @@ public struct OracleSettleControl: Sendable {
         var evaluations: Int
     }
 
-    /// Reads `condition`'s facet until the condition holds or `deadline` passes. Each read runs inside
-    /// Observation tracking, so a change to anything the facet's provider read signals the next read; each
-    /// control snapshot publish (the daemon sequences, the topology, key windows) signals one too. No timer:
-    /// the deadline is the snapshot store's own read-barrier deadline, which ends the publish wait and with
-    /// it the signals. Off the main actor: only the facet read hops there.
+    /// Reads `condition`'s facet until the condition holds or `deadline` passes. A read signals the next one on:
+    /// a change to anything a main-actor provider read (each read runs inside Observation tracking), each change
+    /// the provider's own ``OracleFacetProvider/changes`` stream reports (subscribed before the first read, so no
+    /// change between the two is lost), and each control snapshot publish. No timer: the deadline is the
+    /// snapshot store's own read-barrier deadline, which ends the publish wait and with it the signals. Off the
+    /// main actor: only the facet read hops there.
     static func awaitCondition(_ condition: OracleWaitCondition, facets: OracleFacets, snapshots: ControlSnapshotStore,
                                deadline: ContinuousClock.Instant) async throws(ControlError) -> WaitOutcome {
         let (signals, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -163,14 +129,20 @@ public struct OracleSettleControl: Sendable {
             signal.finish()
         }
         defer { publishes.cancel() }
+        let providerChanges = facets.changes(condition.facet)?()
+        let forwarding = providerChanges.map { changes in
+            // task-owner: this wait; cancelled when it returns, which ends the provider's subscription
+            Task {
+                for await _ in changes { signal.yield() }
+            }
+        }
+        defer { forwarding?.cancel() }
         var outcome = WaitOutcome(satisfied: false, value: nil, evaluations: 0)
-        var baseline: JSONValue?
         func evaluate() async throws(ControlError) -> Bool {
             let value = try await read(condition, facets: facets) { signal.yield() }
-            if outcome.evaluations == 0 { baseline = value }
             outcome.evaluations += 1
             outcome.value = value
-            outcome.satisfied = condition.holds(value, baseline: baseline)
+            outcome.satisfied = condition.holds(value)
             return outcome.satisfied
         }
         if try await evaluate() { return outcome }

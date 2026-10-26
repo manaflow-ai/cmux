@@ -5,7 +5,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextOracle
 import CmuxNextSignposts
-import CmuxNextWakeups
 #endif
 
 extension AppControl {
@@ -30,46 +29,53 @@ extension AppControl {
     }
 
     /// `debug.oracle.settle` and `debug.oracle.wait_for` (p15-oracle.md section 3B) over the app's own
-    /// signals: the daemon store's settle (p15-oracle-029), the window motion clocks checked once per frame
-    /// on the app's frame scheduler, and one `CommitBoundary`. DEV and bench builds only.
+    /// signals: the daemon store's settle and connection waits (p15-oracle-029), a sync round trip that reads the
+    /// connection epoch before it, the motion clocks' idle waits, and one `CommitBoundary`. DEV and bench builds only.
     func registerOracleSettle(_ router: ControlRouter, services: AppServices) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        let store = services.daemon.store
+        let daemon = services.daemon
         let windows: @MainActor @Sendable () -> [NSWindow] = { [weak services] in services?.windows.controllers.compactMap(\.window) ?? [] }
         let sources = OracleSettleSources(
-            // The epoch now: a sequence from an earlier reply has no epoch of its own.
-            daemon: { [weak store] sequence in
-                guard let store else { return [] }
-                return await store.settle(through: sequence, since: store.connectionEpoch).map(\.rawValue)
-            },
-            motionIdle: { deadline in await Self.motionIdle(windows, until: deadline) },
+            store: daemon.store,
+            sync: { [weak daemon] in await Self.oracleSync(daemon) },
+            motionIdle: { await Self.motionIdle(windows) },
             commit: { await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in CommitBoundary().after { _ in done.resume() } } },
-            pending: { [weak store] in
-                // The case name only: an intent's payload can hold a tab or workspace name.
-                let intents = store?.pendingIntents.map { "intent:\(Mirror(reflecting: $0).children.first?.label ?? "unknown")" } ?? []
-                return intents + Self.runningMotion(windows()).map { "motion:\($0)" }
-            })
+            motion: { Self.runningMotion(windows()) })
         router.register(OracleSettleControl(router: router, facets: services.makeOracleFacets(), sources: sources).methods)
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    private static func runningMotion(_ windows: [NSWindow]) -> [String] {
-        windows.flatMap { MotionClock.forWindow($0).running }
+    /// One sync round trip for the oracle's settle: the connection and its epoch read in one main-actor turn
+    /// before the round trip, so the mark's sequence and epoch belong to the same connection. Unavailable while
+    /// the store is not connected (no connection yet, a drop, a restart) or the round trip fails.
+    private static func oracleSync(_ daemon: DaemonService?) async -> OracleSyncAttempt {
+        guard let daemon else { return .unavailable(epoch: 0) }
+        let store = daemon.store
+        let epoch = store.connectionEpoch
+        guard case .connected = store.connectionState, let connection = daemon.connection else { return .unavailable(epoch: epoch) }
+        do {
+            _ = try await connection.request(IdentifyRequest())
+        } catch {
+            return .unavailable(epoch: epoch)
+        }
+        guard let sequence = await connection.eventSequence(), daemon.connection === connection else { return .unavailable(epoch: epoch) }
+        return .reached(OracleDaemonMark(sequence: sequence, epoch: epoch))
     }
 
-    /// True once no window's motion clock steps an animator, false at `deadline`: checked now, then on each
-    /// frame of the app's scheduler (a settle-wait frame client; the clocks tick on the same display frames).
-    private static func motionIdle(_ windows: @escaping @MainActor @Sendable () -> [NSWindow], until deadline: ContinuousClock.Instant) async -> Bool {
-        if Self.runningMotion(windows()).isEmpty { return true }
-        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            FrameClient(owner: "Oracle.settle", isAnimation: false, on: .app) { _ in
-                let idle = Self.runningMotion(windows()).isEmpty
-                guard idle || ContinuousClock.now >= deadline else { return true }
-                done.resume(returning: idle)
-                return false
-            }.activate()
+    /// The traces of the animators running now, on every clock that can step one (no clock is created).
+    private static func runningMotion(_ windows: [NSWindow]) -> [String] {
+        MotionClock.existing(in: windows).filter { !$0.isIdle }.flatMap(\.running)
+    }
+
+    /// True once no motion clock steps an animator (the windows' and the app clock window-less views share),
+    /// false when cancelled. Each wait is the clock's own idle continuation; a clock that starts again while
+    /// another is awaited is found on the next pass.
+    private static func motionIdle(_ windows: @MainActor @Sendable () -> [NSWindow]) async -> Bool {
+        while let busy = MotionClock.existing(in: windows()).first(where: { !$0.isIdle }) {
+            guard await busy.waitIdle() else { return false }
         }
+        return true
     }
     #endif
 }
