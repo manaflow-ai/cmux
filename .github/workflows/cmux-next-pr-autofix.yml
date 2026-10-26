@@ -283,8 +283,37 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.regenerate.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
+      # A generator can report its exact missing input and continue-on-error can otherwise
+      # let this job pass with no artifact. Fail here before repair consumes an empty result.
+      # The source stamp is intentionally derived and ignored, so an old exporter that still
+      # requires schemas/settings-export/settings-schema.sources.sha256 names a retired input.
+      - name: Require generated exports
+        id: require-exports
+        if: always()
+        env:
+          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions }}
+          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings }}
+          ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
+          SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [[ "$ACTIONS_REQUESTED" == true && "$ACTIONS_EXPORTS" != true ]]; then
+            echo "::error::action exports were requested but the exporter produced no files"
+            failed=1
+          fi
+          if [[ "$SETTINGS_REQUESTED" == true && "$SETTINGS_EXPORTS" != true ]]; then
+            echo "::error::settings exports were requested but the exporter produced no files"
+            failed=1
+          fi
+          if [[ "$failed" != 0 ]]; then exit 1; fi
+          if [[ ! -d "$RUNNER_TEMP/action-exports" ]] || ! find "$RUNNER_TEMP/action-exports" -type f -print -quit | grep -q .; then
+            echo "::error::exporter reported success but uploaded no files"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: steps.require-exports.outcome == 'success'
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
