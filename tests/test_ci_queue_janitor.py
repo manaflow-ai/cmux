@@ -2914,6 +2914,39 @@ class BlacksmithLegTests(unittest.TestCase):
         jobs[run["id"]][0]["name"] = "cmux-next swift test"
         self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
 
+    def test_at_a_live_push_head_a_lost_blacksmith_leg_is_re_run_only_by_an_app(self):
+        # The App gating still holds where cancels remain: a cmux-next push at its live branch head, no open PR.
+        run, jobs = self.world(age=40)
+        run.update(event="push", head_branch="lane/next-push", pull_requests=[])
+        jobs[run["id"]][0]["labels"] = ["blacksmith-6vcpu-macos-26"]
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        jobs[other["id"]] = [started_job(age=10, label="blacksmith-6vcpu-macos-26")]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        self.assertEqual(sorted(lost), [run["id"]])
+        # The PR lookup covers a push's branch too, so an open PR at its head would be seen.
+        self.assertEqual(janitor.lost_branches([run, other], lost, []), ["lane/next-push"])
+        prs = {"lane/next-push": [], "lane/other": [make_pr(9)]}
+        for app_rerun, action in ((False, "skip"), (True, "cancel")):
+            with self.subTest(app_rerun=app_rerun):
+                result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                            pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                            branch_heads={"lane/next-push": run["head_sha"]}, app_rerun=app_rerun)
+                decision = decision_for(result, run)
+                self.assertEqual((decision.action, decision.candidate.category), (action, "lost"))
+                if action == "skip":
+                    self.assertIn("App", decision.note)
+                    continue
+                self.assertTrue(decision.candidate.rerun and decision.candidate.app_actor)
+                entries = janitor.new_lost_reruns([decision.candidate], {run["id"]: "cancelled"}, now=NOW)
+                self.assertEqual([entry.get("app_actor") for entry in entries], [True])
+        # An open PR at that head turns the same run into a skip.
+        prs["lane/next-push"] = [make_pr(31, head=run["head_sha"])]
+        result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                    pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                    branch_heads={"lane/next-push": run["head_sha"]}, app_rerun=True)
+        self.assertEqual((decision_for(result, run).action, decision_for(result, run).note),
+                         ("skip", janitor.OPEN_HEAD_RULE))
+
     def test_a_lost_blacksmith_leg_at_the_open_pr_head_is_never_cancelled(self):
         # Category e can hold the run first (a newer job on the same label started): at the open head it waits.
         run, jobs = self.world(age=40)
