@@ -91,8 +91,10 @@ struct ChildExitWatchTests {
     nonisolated private struct SpawnFailed: Error { let code: Int32 }
 
     private static func spawn(_ script: String) throws -> pid_t {
-        let arguments = ["/bin/sh", "-c", script].map { strdup($0) } + [nil]
-        let environment = ["PATH=/usr/bin:/bin"].map { strdup($0) } + [nil]
+        let words: [String] = ["/bin/sh", "-c", script]
+        let variables: [String] = ["PATH=/usr/bin:/bin"]
+        let arguments: [UnsafeMutablePointer<CChar>?] = words.map { strdup($0) } + [nil]
+        let environment: [UnsafeMutablePointer<CChar>?] = variables.map { strdup($0) } + [nil]
         defer { for pointer in arguments + environment { free(pointer) } }
         var pid: pid_t = 0
         let result = posix_spawn(&pid, "/bin/sh", nil, nil, arguments, environment)

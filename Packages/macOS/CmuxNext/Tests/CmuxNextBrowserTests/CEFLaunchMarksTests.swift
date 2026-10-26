@@ -13,8 +13,10 @@ import Testing
         var marks = CEFLaunchMarks()
         marks.receiver = log.receive
         for mark in CEFLaunchMarks.Mark.allCases where mark != .libraryLoaded {
-            #expect(marks.send(mark))
-            #expect(!marks.send(mark), "\(mark.rawValue) went out twice")
+            let sent = marks.send(mark)
+            #expect(sent)
+            let sentAgain = marks.send(mark)
+            #expect(!sentAgain, "\(mark.rawValue) went out twice")
         }
         #expect(log.names == CEFLaunchMarks.Mark.allCases.filter { $0 != .libraryLoaded }.map(\.rawValue))
     }
@@ -37,7 +39,8 @@ import Testing
         let second = marks.libraryLoadedSend()
         await Task.detached { first(); second() }.value
         #expect(log.names == ["cef.library_loaded"])
-        #expect(!marks.send(.libraryLoaded))
+        let sentAfterTake = marks.send(.libraryLoaded)
+        #expect(!sentAfterTake)
     }
 
     /// A preload starts the one load: `cef.preload_started` once, and no `cef.library_loaded` for a load
