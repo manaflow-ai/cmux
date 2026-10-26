@@ -32,16 +32,18 @@ import CmuxNextTerminal
 /// - `hidden_workspace_layouts`: layout passes of the mounted roots while their workspace is off screen (parked and
 ///   on no screen, `WorkspaceContentController.isOffScreen`: its visibility node hidden, p06-scheduler-023). A
 ///   hidden workspace's changes update the model only, so this stays 0 (p06-scheduler.md done checks 4 and 6;
-///   bench_idle.py, script-storm-bench.py `--hidden`). Per-root counts, so `reset` leaves it: read a delta.
+///   bench_idle.py, script-storm-bench.py `--hidden`). All roots, kept when a root unmounts
+///   (`LayoutRootView.hiddenLayoutPasses`).
 /// - `hidden_workspace_applies`: tree changes that reached a mounted off-screen workspace: each updates the handles
 ///   only and is kept for its show, where the last one applies once (no view sync, no topology while hidden).
-///   Per-workspace counts, as `hidden_workspace_layouts`.
 @MainActor
 enum DebugLayoutCounters {
     static var paneSnapshots: UInt64 = 0
     static var workspaceApplies: UInt64 = 0
     static var topologySends: UInt64 = 0
     static var workspaceWindowEntries: UInt64 = 0
+    /// Tree changes that reached an off-screen workspace (`hidden_workspace_applies`), all workspaces.
+    static var hiddenWorkspaceApplies: UInt64 = 0
     static var paneCountChanges: [Int] = []
     /// Each counted call by kind and call site (`sources`), so a budget breach names its caller.
     static var sources: [String: Int] = [:]
@@ -56,12 +58,8 @@ enum DebugLayoutCounters {
         if paneCountChanges.count > 64 { paneCountChanges.removeFirst(paneCountChanges.count - 64) }
     }
 
-    /// - Parameters:
-    ///   - roots: Every window's mounted workspace roots, shown and parked.
-    ///   - hiddenApplies: The sum of the mounted workspaces' `hiddenApplies`.
-    static func handle(_ params: [String: JSONValue], roots: [LayoutRootView] = [], hiddenApplies: UInt64 = 0) -> JSONValue {
+    static func handle(_ params: [String: JSONValue], roots: [LayoutRootView] = []) -> JSONValue {
         let visibilityUpdates = roots.reduce(UInt64(0)) { $0 &+ $1.visibilityUpdates }
-        let hiddenLayouts = roots.reduce(UInt64(0)) { $0 &+ $1.hiddenLayoutPasses }
         let report: JSONValue = [
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
@@ -75,15 +73,17 @@ enum DebugLayoutCounters {
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
-            "hidden_workspace_layouts": JSONValue(Int(truncatingIfNeeded: hiddenLayouts)),
-            "hidden_workspace_applies": JSONValue(Int(truncatingIfNeeded: hiddenApplies)),
+            "hidden_workspace_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.hiddenLayoutPasses)),
+            "hidden_workspace_applies": JSONValue(Int(truncatingIfNeeded: hiddenWorkspaceApplies)),
         ]
         if params["reset"]?.boolValue == true {
             paneSnapshots = 0
             workspaceApplies = 0
             topologySends = 0
             workspaceWindowEntries = 0
+            hiddenWorkspaceApplies = 0
             LayoutRootView.layoutPasses = 0
+            LayoutRootView.hiddenLayoutPasses = 0
             LayoutRootView.paneChromeUpdates = 0
             TerminalSurfaceView.windowStateUpdates = 0
             StatusIndicatorAppearance.resyncs = 0

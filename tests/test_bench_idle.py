@@ -5,14 +5,17 @@
 1. `main_wakeups_per_s` is the `debug.hangs` `main_wakes` delta over the window, read last before and first after
    it; a missing or reset counter is None, never 0.
 2. `owners` is the per-owner `debug.wakeups` ledger delta over the window, reasons summed, most first.
-3. `hidden_workspace_layouts` and `hidden_workspace_applies` are `debug.layout_counters` deltas; None without the
-   method (a Release build) or when the per-workspace sum went back (a workspace unmounted inside the window).
+3. `hidden_workspace_layouts` and `hidden_workspace_applies` are `debug.layout_counters` deltas of app-wide
+   monotonic counters; None without the method (a Release build) or when a counter went back (a reset).
+   The end usage samples come before every request after the window.
 4. `mixed-hidden` expands to its window-visible and app-hidden phases; the criteria judge app + daemon and main
-   wakeups there, and a hidden workspace layout in any scenario.
-5. The mixed-hidden setup opens the tabs and terminals, then a new workspace, then hides the app; the app-hidden
-   phase alone sets the workspace up first.
+   wakeups there, fail when main wakeups, hidden layouts (with the method) or window visibility was not measured,
+   and judge a hidden workspace layout in any scenario.
+5. The mixed-hidden setup opens the tabs and terminals, then a new workspace, then hides the app; it runs once,
+   for whichever phase runs first, and a minimized window is restored first.
 6. `launch.order_ok`: no background, idle or best-effort task before `launch.revealed`, from the app's signposts
-   and its startup trace (an open trace without its closing `]` too); no reveal or no scheduled task fails closed.
+   and its startup trace (an open trace without its closing `]` too); no reveal, no scheduled task, a signpost
+   loss event or a missing trace file fails closed.
 7. `bench_launch.py order` writes `{"launch": {"order_ok": ...}}` from a stubbed app and signpost stream.
 
 No app, no build, no macOS tool. Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
@@ -68,11 +71,23 @@ class FakeControl:
 def args_for(**overrides):
     values = dict(max_cpu=0.5, max_wakeups=5, max_host_cpu=0.2, max_host_wakeups=2, max_helper_cpu=1.0,
                   max_mixed_wakeups=1.0, max_main_wakeups=0.5, hidden_tabs=10, hidden_terminals=5, url="http://x/p",
-                  mixed_ready=False)
+                  mixed_ready=False, has_layout_counters=True)
     values.update(overrides)
     namespace = argparse.Namespace(**values)
     namespace.next_url = lambda: namespace.url
     return namespace
+
+
+def main_window(visible, miniaturized):
+    return {"result": {"windows": [{"kind": "main", "visible": visible, "miniaturized": miniaturized},
+                                   {"kind": "popover", "visible": False, "miniaturized": False}]}}
+
+
+SHOWN, MINIMIZED = main_window(True, False), main_window(False, True)
+
+
+def actions_of(control):
+    return [params["action"] for method, params in control.calls if method == "action.run"]
 
 
 def row(kind, wakeups, cpu=0.0, pid=1):
@@ -123,8 +138,8 @@ class HiddenCounterTests(unittest.TestCase):
         end = {"hidden_workspace_layouts": 5, "hidden_workspace_applies": 1, "workspace_applies": 20}
         self.assertEqual(bi.hidden_counters(start, end), {"hidden_workspace_layouts": 2, "hidden_workspace_applies": 0})
 
-    def test_a_sum_that_went_back_is_not_measured(self):
-        # A hidden workspace that unmounted inside the window took its counts with it.
+    def test_a_counter_that_went_back_is_not_measured(self):
+        # A `reset` inside the window.
         start = {"hidden_workspace_layouts": 4, "hidden_workspace_applies": 9}
         end = {"hidden_workspace_layouts": 1, "hidden_workspace_applies": 9}
         self.assertEqual(bi.hidden_counters(start, end), {"hidden_workspace_layouts": None, "hidden_workspace_applies": 0})
@@ -164,6 +179,27 @@ class MeasureTests(unittest.TestCase):
         self.assertTrue(all(name != "debug.wakeups" for name in methods[first_hang:second_hang]))
         json.dumps(result)
 
+    def test_end_usage_comes_before_any_request_after_the_window(self):
+        order = []
+
+        def hangs(params):
+            order.append(("debug.hangs", params))
+            return {"result": {"main_wakes": 1}}
+
+        def sample(pid):
+            order.append(("usage", pid))
+            return (0, 0, 0)
+
+        control = FakeControl({"debug.hangs": hangs})
+        clock = iter([0.0, 10.0])
+        with mock.patch.object(bi, "classify", return_value={7: "app"}), mock.patch.object(bi, "usage", side_effect=sample), \
+                mock.patch.object(bi.time, "sleep", side_effect=lambda _: order.append(("sleep",))), \
+                mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
+            bi.measure(7, "/b.app", 10, control)
+        sleep = order.index(("sleep",))
+        self.assertEqual(order[sleep - 2:sleep + 3], [("debug.hangs", {"limit": 0}), ("usage", 7), ("sleep",),
+                                                       ("usage", 7), ("debug.hangs", {"limit": 0})])
+
 
 class ScenarioTests(unittest.TestCase):
     def test_mixed_hidden_expands_to_both_phases_once(self):
@@ -174,7 +210,7 @@ class ScenarioTests(unittest.TestCase):
 
     def test_mixed_hidden_criteria(self):
         result = {"processes": [row("app", 0.6), row("daemon", 0.6, pid=2), row("terminal-host", 0.1, pid=3)],
-                  "main_wakeups_per_s": 0.8, "hidden_workspace_layouts": 0}
+                  "main_wakeups_per_s": 0.8, "hidden_workspace_layouts": 0, "window_visible": True}
         failures = bi.criteria("mixed-hidden-visible", result, args_for())
         self.assertEqual(failures, ["mixed-hidden-visible: app + daemon 1.2 wakeups/s > 1.0",
                                     "mixed-hidden-visible: main thread 0.8 wakeups/s > 0.5"])
@@ -184,34 +220,80 @@ class ScenarioTests(unittest.TestCase):
     def test_a_hidden_workspace_layout_fails_any_scenario(self):
         result = {"processes": [], "hidden_workspace_layouts": 3}
         self.assertEqual(bi.criteria("chromium-hidden", result, args_for()), ["chromium-hidden: 3 hidden workspace layouts > 0"])
-        # Not measured (a Release build) is not a failure.
+        # Not measured is not a failure in the older scenarios.
         self.assertEqual(bi.criteria("chromium-hidden", {"processes": [], "hidden_workspace_layouts": None}, args_for()), [])
 
+    def test_mixed_hidden_fails_closed_on_numbers_not_measured(self):
+        result = {"processes": [row("app", 0.1)], "main_wakeups_per_s": None, "hidden_workspace_layouts": None,
+                  "window_visible": None}
+        self.assertEqual(bi.criteria("mixed-hidden-visible", result, args_for()), [
+            "mixed-hidden-visible: main thread wakeups not measured",
+            "mixed-hidden-visible: hidden workspace layouts not measured",
+            "mixed-hidden-visible: the window was not visible (window_visible=None)"])
+        # A build without debug.layout_counters cannot measure hidden layouts; the app-hidden phase has no window check.
+        self.assertEqual(bi.criteria("mixed-hidden-app-hidden", result, args_for(has_layout_counters=False)),
+                         ["mixed-hidden-app-hidden: main thread wakeups not measured"])
+        minimized = {"processes": [], "main_wakeups_per_s": 0.1, "hidden_workspace_layouts": 0, "window_visible": False}
+        self.assertEqual(bi.criteria("mixed-hidden-visible", minimized, args_for()),
+                         ["mixed-hidden-visible: the window was not visible (window_visible=False)"])
+
     def test_mixed_hidden_setup_then_app_hidden(self):
-        control = FakeControl({"action.run": [{"result": {}}]})
+        control = FakeControl({"action.run": [{"result": {}}], "debug.window_list": [SHOWN]})
         args = args_for(hidden_tabs=3, hidden_terminals=2)
         with mock.patch.object(bi, "classify", return_value={7: "app", 8: "cef-renderer"}):
             self.assertIsNone(bi.prepare("mixed-hidden-visible", control, args, 7, "/b.app"))
-            actions = [params["action"] for _, params in control.calls]
-            self.assertEqual(actions, ["openBrowser.chromium"] * 3 + ["newSurface"] * 2 + ["newTab"])
+            self.assertEqual(actions_of(control), ["openBrowser.chromium"] * 3 + ["newSurface"] * 2 + ["newTab"])
             control.calls.clear()
             self.assertIsNone(bi.prepare("mixed-hidden-app-hidden", control, args, 7, "/b.app"))
-        self.assertEqual(control.calls, [("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
-                                                         "focus": False, "origin": "script"})])
+        self.assertEqual([call for call in control.calls if call[0] == "action.run"],
+                         [("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
+                                          "focus": False, "origin": "script"})])
+
+    def test_app_hidden_then_visible_sets_up_once(self):
+        control = FakeControl({"action.run": [{"result": {}}], "debug.window_list": [SHOWN]})
+        args = args_for(hidden_tabs=2, hidden_terminals=1)
+        with mock.patch.object(bi, "classify", return_value={8: "cef-renderer"}):
+            for scenario in bi.scenario_list("mixed-hidden-app-hidden,mixed-hidden"):
+                self.assertIsNone(bi.prepare(scenario, control, args, 7, "/b.app"))
+        self.assertEqual(actions_of(control),
+                         ["openBrowser.chromium"] * 2 + ["newSurface", "newTab", "showHideAllWindows"])
+
+    def test_a_minimized_window_is_restored_before_mixed_hidden(self):
+        # `minimized` ran before: the window is in the Dock until showMainWindow restores it.
+        control = FakeControl({"action.run": [{"result": {}}], "debug.window_list": [MINIMIZED, MINIMIZED, SHOWN]})
+        with mock.patch.object(bi, "classify", return_value={8: "cef-renderer"}), mock.patch.object(bi.time, "sleep"):
+            self.assertIsNone(bi.prepare("mixed-hidden-visible", control, args_for(hidden_tabs=1, hidden_terminals=0),
+                                         7, "/b.app"))
+        self.assertEqual(actions_of(control), ["showMainWindow", "openBrowser.chromium", "newTab"])
+
+    def test_a_window_that_stays_minimized_skips_the_phase(self):
+        control = FakeControl({"action.run": [{"result": {}}], "debug.window_list": [MINIMIZED]})
+        clock = iter(float(t) for t in range(100))
+        with mock.patch.object(bi.time, "sleep"), mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
+            skipped = bi.prepare("mixed-hidden-visible", control, args_for(hidden_tabs=1), 7, "/b.app")
+        self.assertEqual(skipped, "the main window is still minimized or hidden 15 s after showMainWindow")
+        self.assertEqual(actions_of(control), ["showMainWindow"])
+
+    def test_main_window_shown(self):
+        self.assertTrue(bi.main_window_shown(FakeControl({"debug.window_list": [SHOWN]})))
+        self.assertFalse(bi.main_window_shown(FakeControl({"debug.window_list": [MINIMIZED]})))
+        self.assertIsNone(bi.main_window_shown(FakeControl({})))
+        panel_only = {"result": {"windows": [{"kind": "panel", "visible": True, "miniaturized": False}]}}
+        self.assertIsNone(bi.main_window_shown(FakeControl({"debug.window_list": [panel_only]})))
 
     def test_app_hidden_phase_alone_sets_the_workspace_up_first(self):
-        control = FakeControl({"action.run": [{"result": {}}]})
+        control = FakeControl({"action.run": [{"result": {}}], "debug.window_list": [SHOWN]})
         with mock.patch.object(bi, "classify", return_value={8: "cef-renderer"}):
             self.assertIsNone(bi.prepare("mixed-hidden-app-hidden", control, args_for(hidden_tabs=1, hidden_terminals=1),
                                          7, "/b.app"))
-        actions = [params["action"] for _, params in control.calls]
-        self.assertEqual(actions, ["openBrowser.chromium", "newSurface", "newTab", "showHideAllWindows"])
+        self.assertEqual(actions_of(control), ["openBrowser.chromium", "newSurface", "newTab", "showHideAllWindows"])
 
     def test_a_refused_terminal_skips_the_scenario(self):
         def reply(params):
             return {"ok": False, "error": {"code": "no_pane"}} if params["action"] == "newSurface" else {"result": {}}
         with mock.patch.object(bi, "classify", return_value={8: "cef-renderer"}):
-            skipped = bi.prepare("mixed-hidden-visible", FakeControl({"action.run": reply}), args_for(hidden_tabs=1), 7, "/b")
+            skipped = bi.prepare("mixed-hidden-visible", FakeControl({"action.run": reply, "debug.window_list": [SHOWN]}),
+                                 args_for(hidden_tabs=1), 7, "/b")
         self.assertEqual(skipped, "terminal 1: {'code': 'no_pane'}")
 
 
@@ -229,7 +311,7 @@ class LaunchOrderTests(unittest.TestCase):
                 *extra,
                 signpost("launch.mark", "event", "launch.revealed ms=120.5", 100),
                 signpost("stall.main_task", "begin", "class=background owner=feed", 110),
-                json.dumps({"eventType": "lossEvent"}), "not json"]
+                "not json"]
 
     def test_deferred_work_after_the_reveal_holds(self):
         events = bl.launch_signposts(self.lines(), pid=10)
@@ -245,6 +327,14 @@ class LaunchOrderTests(unittest.TestCase):
         self.assertFalse(result["order_ok"])
         self.assertEqual(result["early_main_owners"], [{"class": "background", "owner": "updates"}])
         self.assertIn("1 background/idle/bestEffort main tasks before launch.revealed", result["reason"])
+
+    def test_a_loss_event_fails_closed(self):
+        # A dropped begin could have been a background task's before the reveal; a loss event of any process counts.
+        loss = json.dumps({"eventType": "lossEvent", "processID": 0})
+        result = bl.launch_order(bl.launch_signposts(self.lines(loss) + [loss], pid=10))
+        self.assertFalse(result["order_ok"])
+        self.assertEqual(result["signpost_loss_events"], 2)
+        self.assertEqual(result["reason"], "2 signpost loss events: the stream cannot prove the order")
 
     def test_another_process_is_ignored(self):
         lines = self.lines(signpost("stall.main_task", "begin", "class=background owner=x", 50, pid=99))
@@ -306,7 +396,9 @@ class LaunchOrderCommandTests(unittest.TestCase):
                 self.env, self.process, self.stopped = env, Process(), False
 
             def launch(self, timeout):
-                pass
+                if write_trace:
+                    with open(self.env["CMUX_TRACE_STARTUP_FILE"], "w") as f:
+                        f.write('[\n{"name":"launch.revealed","cat":"launch","ph":"i","s":"p","ts":100.0,"pid":1,"tid":1}\n')
 
             def rpc(self, method, params=None, timeout=60):
                 if method == "debug.timings":
@@ -317,24 +409,38 @@ class LaunchOrderCommandTests(unittest.TestCase):
                 self.stopped = True
 
         apps = []
+        write_trace = True
 
         def make_app(env):
             apps.append(App(env))
             return apps[-1]
 
-        opts = argparse.Namespace(app="/x.app", out=out, runs=2, timeout=5, after=0, trace_seconds=30,
-                                  json=os.path.join(out, "order.json"))
-        with contextlib.redirect_stdout(io.StringIO()) as printed, contextlib.redirect_stderr(io.StringIO()):
-            code = bl.launch_order_check(opts, make_app=make_app, start_stream=Stream)
-        self.assertEqual(code, 0)
-        with open(opts.json) as f:
-            written = json.load(f)
+        def check(name):
+            opts = argparse.Namespace(app="/x.app", out=out, runs=2, timeout=5, after=0, trace_seconds=30,
+                                      json=os.path.join(out, name))
+            with contextlib.redirect_stdout(io.StringIO()) as printed, contextlib.redirect_stderr(io.StringIO()):
+                code = bl.launch_order_check(opts, make_app=make_app, start_stream=Stream)
+            with open(opts.json) as f:
+                return code, json.load(f), printed.getvalue()
+
+        code, written, printed = check("order.json")
+        self.assertEqual(code, 0, written)
         self.assertTrue(written["launch"]["order_ok"])
         self.assertEqual(written["launch"]["runs"], 2)
-        self.assertIn("BENCH-LAUNCH ", printed.getvalue())
+        self.assertIn("BENCH-LAUNCH ", printed)
         self.assertTrue(all(app.stopped for app in apps))
         self.assertEqual(apps[0].env["CMUX_TRACE_STARTUP"], "30")
         self.assertTrue(apps[0].env["CMUX_TRACE_STARTUP_FILE"].endswith("startup-1.json"))
+
+        # No startup trace file (the env not honored, or its write failed) is no evidence: the run fails closed.
+        for index in (1, 2):
+            os.remove(os.path.join(out, f"startup-{index}.json"))
+        write_trace = False
+        code, written, _ = check("order-no-trace.json")
+        self.assertEqual(code, 1)
+        run = written["launch"]["per_run"][0]
+        self.assertEqual((run["order_ok"], run["trace_missing"]), (False, True))
+        self.assertIn("no launch.revealed mark in the startup trace", run["reason"])
 
     def test_order_is_a_subcommand(self):
         with contextlib.redirect_stdout(io.StringIO()) as printed, self.assertRaises(SystemExit):

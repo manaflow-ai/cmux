@@ -17,12 +17,14 @@ terminal hosts, and each Chromium helper over --measure seconds after
                    twice: with the window visible (mixed-hidden-visible)
                    and with the app hidden (mixed-hidden-app-hidden, Show/
                    Hide All Windows; shown again after it). Each phase is
-                   also a scenario of its own; the app-hidden one sets the
-                   workspace up first when it runs alone.
+                   also a scenario of its own; the setup runs once, for the
+                   first phase that runs, and both phases first restore a
+                   window an earlier `minimized` left in the Dock.
 
 CPU and wakeups come from proc_pid_rusage (user+system time, package idle
 exits plus interrupt wakeups), sampled at the start and end of each window,
-so the bench itself adds no wakeups to the app. Each scenario also records:
+after the bench's last request before it and before its first request after
+it, so the bench itself adds no wakeups to the app. Each scenario also records:
 
   main_wakeups_per_s  the app's main run loop wakes from sleep per second
                       (`debug.hangs` `main_wakes`, read last before and
@@ -36,6 +38,8 @@ so the bench itself adds no wakeups to the app. Each scenario also records:
                       the tree changes that reached them (model only, kept
                       for their show), over the window
                       (`debug.layout_counters`, Debug builds; null without it)
+  window_visible      mixed-hidden-visible: the main window was shown and not
+                      minimized when the window began (`debug.window_list`)
 
 When the build has `debug.wakeups`, the ledger's current rates, active
 frame clients and live display links are recorded too. Pass criteria
@@ -43,7 +47,9 @@ frame clients and live display links are recorded too. Pass criteria
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
 Chromium helpers < 1% on the static and hidden pages; no hidden workspace
 layout. The mixed-hidden phases (p06-scheduler.md done check 6) also need
-app + daemon <= 1.0 wakeups/s and main thread <= 0.5/s. The Chromium Host app's
+app + daemon <= 1.0 wakeups/s and main thread <= 0.5/s, and fail when either
+number, or the hidden layouts of a build with `debug.layout_counters`, was not
+measured; the visible phase fails when its window was not visible. The Chromium Host app's
 browser process (cef-host, the Debug-only host prototype) is reported, not
 judged: it does the app's in-process Chromium work, so the helper limit does
 not fit it and it has no limit of its own yet.
@@ -221,9 +227,9 @@ HIDDEN_COUNTERS = ("hidden_workspace_layouts", "hidden_workspace_applies")
 
 
 def hidden_counters(start, end):
-    """The window's hidden-workspace layout passes and applies from two `debug.layout_counters` reads: each a
-    delta, None when a read is missing (a Release build has no such method) or the sum went back (the counts are
-    per mounted workspace, so one that unmounted inside the window took its own with it)."""
+    """The window's hidden-workspace layout passes and applies from two `debug.layout_counters` reads (app-wide
+    monotonic counters): each a delta, None when a read is missing (a Release build has no such method) or the
+    counter went back (a `reset` inside the window)."""
     def delta(name):
         if not (isinstance(start, dict) and isinstance(end, dict)):
             return None
@@ -238,6 +244,8 @@ def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
     # The app's own counters first and its main wakes last: the requests that wake its main thread
     # (debug.wakeups, debug.layout_counters) land before the window, the main_wakes read itself wakes none.
+    # The usage samples bracket the window with no request inside: the start ones after every request before it,
+    # the end ones before every request after it (main_wakes reads a counter, so it can come after them).
     ledger_start = read_result(control, "debug.wakeups") or {}
     layout_start = read_result(control, "debug.layout_counters")
     wakes_start = main_wakes(control)
@@ -245,11 +253,12 @@ def measure(app_pid, bundle, seconds, control):
     t0 = time.monotonic()
     time.sleep(seconds)  # test script: the measurement window itself
     wall = time.monotonic() - t0
+    end = {pid: usage(pid) for pid in kinds}
     wakes_end = main_wakes(control)
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
     rows = []
     for pid, kind in sorted(kinds.items(), key=lambda item: item[1]):
-        before, after = start.get(pid), usage(pid)
+        before, after = start.get(pid), end.get(pid)
         if before is None or after is None:
             # Started or ended inside the window (a daemon restart shows here).
             rows.append({"pid": pid, "kind": kind, "partial": True,
@@ -288,6 +297,16 @@ def wait_for(condition, limit_s):
     return False
 
 
+def main_window_shown(control):
+    """True when every main window is visible and none is minimized (`debug.window_list`), False when one is not,
+    None when the build has no such method or lists no main window."""
+    windows = (read_result(control, "debug.window_list") or {}).get("windows")
+    mains = [w for w in windows or [] if isinstance(w, dict) and w.get("kind") == "main"]
+    if not mains:
+        return None
+    return all(w.get("visible") is True and w.get("miniaturized") is False for w in mains)
+
+
 def prepare(scenario, control, args, app_pid, bundle):
     """Sets the scenario up; returns a skip reason or None."""
     refused = refused_reply
@@ -315,8 +334,16 @@ def prepare(scenario, control, args, app_pid, bundle):
         return refused(run_action("newTab"))
     if scenario == "minimized":
         return refused(run_action("minimizeWindow"))
-    if scenario == "mixed-hidden-visible" or (scenario == "mixed-hidden-app-hidden" and not args.mixed_ready):
+    if scenario in MIXED_HIDDEN and main_window_shown(control) is not True:
+        # An earlier `minimized` left the window in the Dock: Show Main Window restores it (minimizeWindow's handler).
+        reason = refused(run_action("showMainWindow"))
+        if reason:
+            return f"restore the window: {reason}"
+        if not wait_for(lambda: main_window_shown(control) is not False, 15):
+            return "the main window is still minimized or hidden 15 s after showMainWindow"
+    if scenario in MIXED_HIDDEN and not args.mixed_ready:
         # One workspace with the Chromium tabs and the terminals, then a new workspace shows: all of them are hidden.
+        # Once for both phases, whichever runs first.
         for index in range(args.hidden_tabs):
             response = control.action("openBrowser.chromium", timeout=90, url=args.next_url())
             if (response.get("error") or {}).get("code") != "timeout" and refused(response):
@@ -393,13 +420,20 @@ def criteria(scenario, result, args):
     if (result.get("hidden_workspace_layouts") or 0) > 0:
         failures.append(f"{scenario}: {result['hidden_workspace_layouts']} hidden workspace layouts > 0")
     if scenario in MIXED_HIDDEN:
+        # These phases exist to judge these numbers (done check 6): one not measured fails, never passes.
         total = sum(row["wakeups_per_s"] for row in result["processes"]
                     if not row.get("partial") and row["kind"] in ("app", "daemon"))
         if total > args.max_mixed_wakeups:
             failures.append(f"{scenario}: app + daemon {round(total, 2)} wakeups/s > {args.max_mixed_wakeups}")
         main = result.get("main_wakeups_per_s")
-        if main is not None and main > args.max_main_wakeups:
+        if main is None:
+            failures.append(f"{scenario}: main thread wakeups not measured")
+        elif main > args.max_main_wakeups:
             failures.append(f"{scenario}: main thread {main} wakeups/s > {args.max_main_wakeups}")
+        if args.has_layout_counters and result.get("hidden_workspace_layouts") is None:
+            failures.append(f"{scenario}: hidden workspace layouts not measured")
+        if scenario == "mixed-hidden-visible" and result.get("window_visible") is not True:
+            failures.append(f"{scenario}: the window was not visible (window_visible={result.get('window_visible')})")
     return failures
 
 
@@ -467,6 +501,7 @@ def main():
     # mixed-hidden opens one page per tab (each its own URL), or --url in every tab.
     args.next_url = pages.url if pages else (lambda: args.url)
     args.mixed_ready = False
+    args.has_layout_counters = False
     # One launch path for GUI benches (bench_launch.py): the console-session check, a refusal when this app already
     # runs, the tag's socket in the state folder, and the reason when the app does not come up.
     bench = BenchApp(bundle, out=args.out or scratch, config=config, window=None, screen="last", env=env,
@@ -480,6 +515,7 @@ def main():
         identity = control.call("system.identify").get("result", {})
         app_pid = identity.get("pid", app.pid)
         report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
+        args.has_layout_counters = report["has_layout_counters"] = read_result(control, "debug.layout_counters") is not None
         for scenario in scenario_list(args.scenarios):
             if app.poll() is not None:
                 # Negative: killed by that signal (a crash, or someone else's cleanup).
@@ -496,7 +532,10 @@ def main():
                 print(f"== {scenario}: skipped ({skipped})")
                 continue
             time.sleep(args.settle)  # test script: let the scenario settle
+            window_visible = main_window_shown(control) if scenario == "mixed-hidden-visible" else None
             result = measure(app_pid, bundle, args.measure, control)
+            if scenario == "mixed-hidden-visible":
+                result["window_visible"] = window_visible
             if scenario == "mixed-hidden-app-hidden":
                 result["shown_again"] = refused_reply(show_all(control, hidden=False)) is None
             report["scenarios"][scenario] = result

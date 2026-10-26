@@ -68,7 +68,8 @@ The launch order check (p06-scheduler-229, done check 7 of plans/cmux-next/chrom
 launches, no background, idle or best-effort task starts before `launch.revealed`. It reads the app's own signposts
 (`log stream --signpost`: each `stall.main_task` begin names its class, each `launch.mark` its mark) and its startup
 trace (CMUX_TRACE_STARTUP: each lane job with its priority). `launch.order_ok` is true only when every run saw the
-reveal, saw scheduled main tasks at all, and none of the deferred classes ran first. Exit 0 when it holds:
+reveal, saw scheduled main tasks at all, lost no signpost and had a startup trace, and none of the deferred classes
+ran first. Exit 0 when it holds:
 
     python3 scripts/cmux-next/bench_launch.py order --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
 
@@ -1352,8 +1353,9 @@ def signpost_fields(message):
 
 def launch_signposts(lines, pid=None):
     """The launch marks and scheduled main-task begins of `log stream --signpost --style ndjson` lines, in stream
-    order: {"at": machTimestamp, "mark": name} or {"at": ..., "task_class": ..., "owner": ...}. Lines of another
-    process (when `pid` is given), loss events and lines that are not JSON are skipped."""
+    order: {"at": machTimestamp, "mark": name} or {"at": ..., "task_class": ..., "owner": ...}, and {"lost": True}
+    for each loss event (the stream dropped events: of any process, so kept whatever `pid` is). Lines of another
+    process (when `pid` is given) and lines that are not JSON are skipped."""
     events = []
     for line in lines:
         if not line.startswith("{"):
@@ -1361,6 +1363,9 @@ def launch_signposts(lines, pid=None):
         try:
             event = json.loads(line)
         except ValueError:
+            continue
+        if event.get("eventType") == "lossEvent":
+            events.append({"lost": True})
             continue
         if event.get("eventType") != "signpostEvent" or (pid is not None and event.get("processID") != pid):
             continue
@@ -1395,21 +1400,26 @@ def launch_order(signposts, trace=None, limit=20):
     """One launch's order verdict from ``launch_signposts`` events and, when given, ``startup_trace_events``.
 
     `order_ok` is True only when the reveal was seen, at least one scheduled main task was seen (a stream that saw
-    none proves nothing), and no main task of a deferred class began before the reveal; with a trace, also no lane
+    none proves nothing), the stream lost no event (a dropped begin could be a deferred task's, and a loss event
+    does not say when the drop was), and no main task of a deferred class began before the reveal; with a trace,
+    also no lane
     job of a deferred priority started before the trace's own `launch.revealed` mark (one clock per source: mach
     ticks for signposts, CLOCK_UPTIME_RAW microseconds for the trace). `reason` says why it is False."""
     revealed = next((event["at"] for event in signposts if event.get("mark") == REVEALED_MARK), None)
     tasks = [event for event in signposts if "task_class" in event]
     before = [event for event in tasks if revealed is not None and event["at"] < revealed]
     early = [event for event in before if event["task_class"] in DEFERRED_CLASSES]
+    lost = sum(1 for event in signposts if event.get("lost"))
     result = {"revealed": revealed is not None, "main_tasks_seen": len(tasks), "main_tasks_before_reveal": len(before),
-              "early_main_tasks": len(early),
+              "early_main_tasks": len(early), "signpost_loss_events": lost,
               "early_main_owners": [{"class": e["task_class"], "owner": e["owner"]} for e in early[:limit]]}
     reasons = []
     if revealed is None:
         reasons.append(f"no {REVEALED_MARK} signpost")
     if not tasks:
         reasons.append("no stall.main_task signposts (the stream saw no scheduled task)")
+    if lost:
+        reasons.append(f"{lost} signpost loss events: the stream cannot prove the order")
     if early:
         reasons.append(f"{len(early)} {'/'.join(DEFERRED_CLASSES)} main tasks before {REVEALED_MARK}")
     if trace is not None:
@@ -1487,10 +1497,14 @@ def launch_order_check(opts, make_app=None, start_stream=None):
                 stream.kill()
         with open(stream_path) as f:
             signposts = launch_signposts(f, pid=pid)
-        trace = None
+        # No trace file (the trace env not honored, or its write failed) is no evidence: judged as an empty trace,
+        # which has no launch.revealed mark.
+        trace = []
         if os.path.exists(trace_path):
             with open(trace_path) as f:
                 trace = startup_trace_events(f.read())
+        else:
+            run["trace_missing"] = True
         run.update(launch_order(signposts, trace))
         if "launch_error" in run:
             run.update(order_ok=False, reason=f"launch failed: {run['launch_error']}")
