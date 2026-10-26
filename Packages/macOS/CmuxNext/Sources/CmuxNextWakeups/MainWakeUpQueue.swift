@@ -18,7 +18,8 @@ import Foundation
 /// ``insert(owner:after:policy:_:)`` and ``cancel(_:)`` work from any thread. An insert re-arms the
 /// timer only when it makes the fire date earlier; otherwise it costs no wake. A fire runs every due
 /// entry on the main actor in deadline order, with one ledger record per entry (reason `deadline`) and
-/// one `MainWakeUpQueue` `fire` record per wake. No Task and no pool thread take part.
+/// one `MainWakeUpQueue` `fire` record per wake, for at most ``sliceBudget``; what is left runs on a fire
+/// armed for now, after the run loop has handled input. No Task and no pool thread take part.
 public final class MainWakeUpQueue: Sendable {
     /// Names one pending entry for ``cancel(_:)``.
     public struct Token: Hashable, Sendable {
@@ -30,6 +31,11 @@ public final class MainWakeUpQueue: Sendable {
 
     /// The `WakeupLedger` owner of the queue's own wakes (reason `fire`).
     public static let ledgerOwner = "MainWakeUpQueue"
+
+    /// The longest one fire runs entries, in ns. Entries still due after it run on the next fire, armed
+    /// for now, so input the run loop handles goes between them, as `MessagePumpCFRunLoopBase::RunWork`
+    /// (base/message_loop/message_pump_apple.mm) returns to the run loop between batches of work.
+    public static let sliceBudget: UInt64 = 2_000_000
 
     private struct State {
         var heap = MainWakeUpHeap<Action>()
@@ -64,17 +70,19 @@ public final class MainWakeUpQueue: Sendable {
     }
 
     /// The seam initializer: `makeTimer` gets the queue's fire callout and returns the timer it drives.
+    /// The timer is made inside the lock: a `@Sendable` factory called with a `Sendable` callout returns
+    /// a value no other code holds, so it can move into the `Mutex` without being `Sendable` itself.
     init(
         alignment: Duration,
         ledger: WakeupLedger,
         uptime: @escaping @Sendable () -> UInt64,
-        makeTimer: (@escaping Action) -> any MainWakeUpTimer
+        makeTimer: @Sendable (@escaping Action) -> any MainWakeUpTimer
     ) {
         self.alignment = alignment
         self.ledger = ledger
         self.uptime = uptime
-        let timer = makeTimer { [weak self] in self?.fire() }
-        state.withLock { $0.timer = timer }
+        let fire: Action = { [weak self] in self?.fire() }
+        state.withLock { $0.timer = makeTimer(fire) }
     }
 
     /// Entries waiting to run.
@@ -87,7 +95,7 @@ public final class MainWakeUpQueue: Sendable {
         owner: String, after delay: Duration, policy: DelayPolicy = .flexibleNoSooner, _ action: @escaping Action
     ) -> Token {
         let window = WakeLeeway.window(delay: delay, policy: policy, alignment: alignment)
-        let (deadline, overflow) = uptime().addingReportingOverflow(Self.nanoseconds(delay))
+        let (deadline, overflow) = uptime().addingReportingOverflow(delay.nanosecondCount)
         return insert(owner: owner, at: overflow ? .max : deadline, window: window, action)
     }
 
@@ -99,7 +107,7 @@ public final class MainWakeUpQueue: Sendable {
     @discardableResult
     public func insert(owner: String, at deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
         let (earliest, latest) = (window.earliest(deadline: deadline), window.latest(deadline: deadline))
-        let grid = window.policy == .precise ? 0 : Self.nanoseconds(window.grid)
+        let grid = window.policy == .precise ? 0 : window.grid.nanosecondCount
         return state.withLock { state in
             state.nextID &+= 1
             let id = state.nextID
@@ -125,7 +133,8 @@ public final class MainWakeUpQueue: Sendable {
     /// An entry inserted while it runs (by an entry or by another thread) that is already due runs in the
     /// same pass. "Due" is judged at the armed date when the fire comes before it: the uptime to
     /// `CFAbsoluteTime` conversion can land a fire microseconds early, and a fire that ran nothing would
-    /// cost a second wake.
+    /// cost a second wake. After ``sliceBudget`` the fire stops and arms the timer for the next due entry,
+    /// a date that has passed, so the run loop handles input first and then fires again at once.
     @MainActor
     func fire() {
         let now = state.withLock { state in
@@ -136,7 +145,8 @@ public final class MainWakeUpQueue: Sendable {
             return time
         }
         ledger.record(Self.ledgerOwner, reason: "fire")
-        while let entry = state.withLock({ $0.heap.popDue(now: now) }) {
+        let start = uptime()
+        while withinSlice(since: start), let entry = state.withLock({ $0.heap.popDue(now: now) }) {
             ledger.record(entry.owner, reason: "deadline")
             entry.payload()
         }
@@ -144,6 +154,12 @@ public final class MainWakeUpQueue: Sendable {
             state.firing = false
             rearm(&state, onlyIfEarlier: false)
         }
+    }
+
+    /// True until ``sliceBudget`` has passed since `start`; a clock that went back counts as no time.
+    private func withinSlice(since start: UInt64) -> Bool {
+        let now = uptime()
+        return now < start || now - start < Self.sliceBudget
     }
 
     /// Arms the timer for the heap's wake-up, or parks it when the heap is empty. Skips a re-arm to the
@@ -161,18 +177,10 @@ public final class MainWakeUpQueue: Sendable {
         timer.arm(at: wakeUp.date, tolerance: wakeUp.tolerance, now: uptime())
         state.armed = wakeUp.date
     }
-
-    /// Whole nanoseconds of a duration; zero for a negative one, saturating at `UInt64.max`.
-    static func nanoseconds(_ duration: Duration) -> UInt64 {
-        guard duration > .zero else { return 0 }
-        let (seconds, attoseconds) = duration.components
-        guard seconds < 18_000_000_000 else { return .max }
-        return UInt64(seconds) * 1_000_000_000 + UInt64(attoseconds / 1_000_000_000)
-    }
 }
 
 /// The timer seam of ``MainWakeUpQueue``. It lives in the queue's `Mutex` and is called only with that
-/// lock held (from any thread), so it needs no synchronization of its own.
+/// lock held (from any thread), so it needs no synchronization of its own and is not `Sendable`.
 protocol MainWakeUpTimer: AnyObject {
     /// Fires once at `date` (uptime ns; `now` is the uptime read just before), with `tolerance` ns of
     /// slack after it.

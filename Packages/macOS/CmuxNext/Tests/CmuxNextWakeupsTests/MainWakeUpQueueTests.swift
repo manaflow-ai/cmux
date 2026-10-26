@@ -33,7 +33,7 @@ struct MainWakeUpQueueTests {
     @Test("Aligned fire dates are exact multiples of the grid in uptime ns", arguments: [WakeLeeway.defaultAlignment, WakeLeeway.saverAlignment])
     func gridMultiples(alignment: Duration) throws {
         let rig = Rig(alignment: alignment)
-        let grid = MainWakeUpQueue.nanoseconds(alignment)
+        let grid = alignment.nanosecondCount
         var deadline: UInt64 = 900 * Self.ms + 123_457
         for step in 0..<40 {
             deadline -= UInt64(step % 7 + 1) * 3 * Self.ms + 17
@@ -59,7 +59,7 @@ struct MainWakeUpQueueTests {
         for (id, (deadline, window)) in windows.enumerated() {
             let entry = MainWakeUpHeap<Int>.Entry(
                 id: UInt64(id), earliest: window.earliest(deadline: deadline), latest: window.latest(deadline: deadline),
-                grid: window.policy == .precise ? 0 : MainWakeUpQueue.nanoseconds(window.grid), owner: "mix", payload: id)
+                grid: window.policy == .precise ? 0 : window.grid.nanosecondCount, owner: "mix", payload: id)
             heap.insert(entry)
             latest = min(latest, entry.latest)
             let wakeUp = try #require(heap.wakeUp())
@@ -70,7 +70,8 @@ struct MainWakeUpQueueTests {
                                               grid: 1_000 * Self.ms, owner: "s", payload: 9)
         var single = MainWakeUpHeap<Int>()
         single.insert(whole)
-        #expect(try #require(single.wakeUp()).date == 5_800 * Self.ms, "6 s is past the latest: clamped to 5.8 s")
+        let clamped = try #require(single.wakeUp())
+        #expect(clamped.date == 5_800 * Self.ms, "6 s is past the latest: clamped to 5.8 s")
     }
 
     @Test("A precise entry fires at its own deadline with no tolerance")
@@ -127,6 +128,28 @@ struct MainWakeUpQueueTests {
         #expect(log.ran == [1, 2])
         #expect(rig.fires == 1)
         #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 304 * Self.ms], "no arm while firing; one at its end")
+    }
+
+    @Test("A fire stops after its 2 ms slice and arms for the rest at once")
+    func sliceBudgetYields() {
+        let rig = Rig()
+        let log = RunLog()
+        let uptime = rig.uptime
+        rig.queue.insert(owner: "slow", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
+            log.ran.append(100)
+            uptime.now += 3 * Self.ms
+        }
+        for at: UInt64 in [101, 102] {
+            rig.queue.insert(owner: "next", at: at * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(at) }
+        }
+        rig.fire()
+        #expect(log.ran == [100], "the slow entry used the whole slice")
+        #expect(rig.timer.armedDate == 104 * Self.ms, "armed for a date that has passed: it fires at once")
+        #expect(uptime.now == 107 * Self.ms)
+        rig.timer.fired()
+        rig.queue.fire()
+        #expect(log.ran == [100, 101, 102])
+        #expect(rig.fires == 2 && rig.queue.count == 0)
     }
 
     @Test("A fire a little before the armed date still runs what that date is for")
@@ -202,30 +225,43 @@ private final class RunLog {
     var count = 0
 }
 
-/// Records each arm and park. The queue calls it only with its lock held, so the calls are serialized.
-private final class FakeTimer: MainWakeUpTimer {
-    struct Arm: Equatable {
+/// Records each arm and park. The queue calls it from the inserting threads and the test reads it on the
+/// main actor, so the record is behind its own lock.
+private final class FakeTimer: MainWakeUpTimer, Sendable {
+    struct Arm: Equatable, Sendable {
         var date: UInt64
         var tolerance: UInt64
     }
 
-    private(set) var arms: [Arm] = []
-    private(set) var parks = 0
-    private(set) var armedDate: UInt64?
+    private struct Record {
+        var arms: [Arm] = []
+        var parks = 0
+        var armedDate: UInt64?
+    }
+
+    private let record = Mutex(Record())
+
+    var arms: [Arm] { record.withLock { $0.arms } }
+    var parks: Int { record.withLock { $0.parks } }
+    var armedDate: UInt64? { record.withLock { $0.armedDate } }
 
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {
-        arms.append(Arm(date: date, tolerance: tolerance))
-        armedDate = date
+        record.withLock { record in
+            record.arms.append(Arm(date: date, tolerance: tolerance))
+            record.armedDate = date
+        }
     }
 
     func park() {
-        parks += 1
-        armedDate = nil
+        record.withLock { record in
+            record.parks += 1
+            record.armedDate = nil
+        }
     }
 
     /// What CFRunLoop does to the parked repeating timer when it fires: the next date is a park.
     func fired() {
-        armedDate = nil
+        record.withLock { $0.armedDate = nil }
     }
 }
 
