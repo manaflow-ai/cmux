@@ -91,6 +91,10 @@ enum CloudStartSessionStrings {
     }
 
     /// The machine list could not be read, so a machine by that name may exist.
+    static func accountChanged(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.accountChanged", defaultValue: "Your Cloud account or team changed after this was asked, so %2$@ didn't start on %1$@. Run `%3$@` again in the account you want it in.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
     static func listUnread(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.listUnread", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start: a machine named %1$@ may already exist. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }

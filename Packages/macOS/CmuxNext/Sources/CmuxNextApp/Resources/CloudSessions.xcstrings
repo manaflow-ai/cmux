@@ -513,6 +513,33 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося прочитати ваші машини Cloud, тому %2$@ не запущено: машина з назвою %1$@ може вже існувати. Перевірте `cmux cloud list-machines`, потім знову виконайте `%3$@`."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc danh sách máy Cloud của bạn nên %2$@ chưa khởi động: có thể đã có một máy tên %1$@. Kiểm tra `cmux cloud list-machines`, rồi chạy lại `%3$@`."}}
       }
+    },
+    "cloud.startSession.accountChanged": {
+      "comment": "The signed-in Cloud account or team changed while the run waited. %1$@ machine, %2$@ agent, %3$@ the command (keep it in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your Cloud account or team changed after this was asked, so %2$@ didn't start on %1$@. Run `%3$@` again in the account you want it in."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "確認の後に Cloud のアカウントまたはチームが変わったため、%1$@ で %2$@ は開始されませんでした。使いたいアカウントで `%3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dein Cloud-Konto oder Team hat sich nach der Anfrage geändert, daher wurde %2$@ auf %1$@ nicht gestartet. Führe `%3$@` im gewünschten Konto erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Votre compte ou équipe Cloud a changé après la demande : %2$@ n'a pas démarré sur %1$@. Relancez `%3$@` dans le compte voulu."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tu cuenta o equipo de Cloud cambió después de la solicitud, así que %2$@ no se inició en %1$@. Vuelve a ejecutar `%3$@` en la cuenta que quieras."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تغيّر حساب Cloud أو الفريق بعد الطلب، لذا لم يبدأ %2$@ على %1$@. شغّل `%3$@` مرة أخرى في الحساب الذي تريده."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "요청 후 Cloud 계정 또는 팀이 바뀌어 %1$@에서 %2$@이(가) 시작되지 않았습니다. 원하는 계정에서 `%3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "提出请求后你的 Cloud 帐户或团队已更改，因此 %2$@ 没有在 %1$@ 上启动。请在你想要的帐户中再次运行 `%3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "提出請求後你的 Cloud 帳號或團隊已變更，因此 %2$@ 沒有在 %1$@ 上啟動。請在你想要的帳號中再次執行 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vaš Cloud račun ili tim se promijenio nakon zahtjeva, pa %2$@ nije pokrenut na %1$@. Ponovo pokrenite `%3$@` u računu u kojem ga želite."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Din Cloud-konto eller dit team ændrede sig efter anmodningen, så %2$@ startede ikke på %1$@. Kør `%3$@` igen i den konto, du vil bruge."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il tuo account o team Cloud è cambiato dopo la richiesta, quindi %2$@ non è stato avviato su %1$@. Esegui di nuovo `%3$@` nell'account che vuoi usare."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គណនី ឬក្រុម Cloud របស់អ្នកបានប្តូរបន្ទាប់ពីសំណើនេះ ដូច្នេះ %2$@ មិនបានចាប់ផ្តើមលើ %1$@ ទេ។ ដំណើរការ `%3$@` ម្តងទៀតក្នុងគណនីដែលអ្នកចង់ប្រើ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Cloud-kontoen eller teamet ditt endret seg etter forespørselen, så %2$@ startet ikke på %1$@. Kjør `%3$@` igjen i kontoen du vil bruke."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Twoje konto lub zespół Cloud zmieniły się po prośbie, więc %2$@ nie uruchomiono na %1$@. Uruchom `%3$@` ponownie na koncie, którego chcesz użyć."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sua conta ou equipe do Cloud mudou depois do pedido, então %2$@ não foi iniciado em %1$@. Execute `%3$@` de novo na conta que você quer usar."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Аккаунт или команда Cloud изменились после запроса, поэтому %2$@ не запущен на %1$@. Снова выполните `%3$@` в нужном аккаунте."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บัญชีหรือทีม Cloud ของคุณเปลี่ยนไปหลังจากคำขอนี้ %2$@ จึงไม่ได้เริ่มบน %1$@ เรียกใช้ `%3$@` อีกครั้งในบัญชีที่คุณต้องการ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İstekten sonra Cloud hesabınız veya ekibiniz değişti, bu yüzden %2$@ %1$@ üzerinde başlamadı. `%3$@` komutunu istediğiniz hesapta yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Обліковий запис або команда Cloud змінилися після запиту, тому %2$@ не запущено на %1$@. Знову виконайте `%3$@` у потрібному обліковому записі."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tài khoản hoặc nhóm Cloud của bạn đã thay đổi sau yêu cầu này, nên %2$@ chưa khởi động trên %1$@. Hãy chạy lại `%3$@` trong tài khoản bạn muốn dùng."}}
+      }
     }
   },
   "version": "1.0"

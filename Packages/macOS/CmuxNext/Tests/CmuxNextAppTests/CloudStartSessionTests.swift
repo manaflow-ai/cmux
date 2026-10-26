@@ -201,43 +201,77 @@ struct CloudStartSessionTests {
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
-    /// Two asks for one new name share one creation; another account's ask makes its own.
+    enum CreationEvent: Equatable { case joined(String), entered(Int) }
+
+    /// Two asks for one new name share one creation; another team's ask for it, meanwhile, makes its own.
     @Test func twoRunsForOneNewNameCreateOnce() async throws {
         let f = Self.fixture()
         let runs = CloudStartSessionRuns()
-        let (joins, join) = AsyncStream<String>.makeStream()
-        runs.joinedCreation = { join.yield($0) }
+        let (events, event) = AsyncStream<CreationEvent>.makeStream()
+        runs.joinedCreation = { event.yield(.joined($0)) }
         // One gate per creation, each finished at the end: a second creation (the bug) never shares one.
-        var gates: [AsyncStream<Void>.Continuation] = []
-        defer { for gate in gates { gate.finish() }; join.finish() }
-        let (entered, enter) = AsyncStream<Int>.makeStream()
-        defer { enter.finish() }
+        let gates = Box<[AsyncStream<Void>.Continuation]>([])
+        defer { for gate in gates.value { gate.finish() }; event.finish() }
         let creates = Box(0)
         func create() -> @MainActor () async throws -> CloudMachineSession {
             let (gate, open) = AsyncStream<Void>.makeStream()
-            gates.append(open)
+            gates.value.append(open)
             return {
                 creates.value += 1
-                enter.yield(creates.value)
+                event.yield(.entered(creates.value))
                 for await _ in gate { break }
                 return f.session
             }
         }
+        // The next join or creation: a second creation (the bug) ends the wait as surely as the join.
+        func next() async -> CreationEvent? {
+            for await value in events { return value }
+            return nil
+        }
         let first = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
-        for await _ in entered { break }
+        #expect(await next() == .entered(1))
         let second = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
-        for await name in joins { #expect(name == "dev"); break }
-        gates[0].yield()
+        #expect(await next() == .joined("dev"))
+        let other = Task { @MainActor in try await runs.creating("dev", account: ["user-1", "team-2"], create()) }
+        #expect(await next() == .entered(2), "another team's ask made its own machine while the first was being made")
+        for gate in gates.value { gate.yield() }
         let one = try await first.value
         let two = try await second.value
-        #expect(creates.value == 1)
-        #expect(one === f.session && two === f.session)
-        // Another team's ask for the same name is its own creation.
-        let other = Task { @MainActor in try await runs.creating("dev", account: ["user-1", "team-2"], create()) }
-        for await count in entered { #expect(count == 2); break }
-        gates[2].yield()
         _ = try await other.value
         #expect(creates.value == 2)
+        #expect(one === f.session && two === f.session)
+    }
+
+    /// A run asked in one account stops before its next step once another is signed in: the
+    /// refusal says so and gives the command, and nothing is created.
+    @Test func aRunAskedInAnotherAccountStartsNothing() async throws {
+        let services = Self.fixture().services
+        let name = "team-\(UUID().uuidString.prefix(6).lowercased())"
+        let request = CloudStartSession.Request(machineID: nil, name: name, agent: "claude", cwd: nil)
+        let asked = ["user-1", "team-A"] as [String?]
+        #expect(asked != services.cloud.account)
+        do {
+            _ = try await CloudStartSession(services: services).run(request, Self.invocation(["agent": .string("claude"), "name": .string(name)]),
+                                                                    AppActionContext(services: services), account: asked)
+            Issue.record("a run asked in another account went on")
+        } catch let failure as ActionFailure {
+            #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: name)))
+            #expect(failure.message.contains("`cmux cloud start-session --name \(name) --agent claude`"))
+        }
+        #expect(!services.machines.cloud.contains { $0.machine.title == name })
+    }
+
+    @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {
+        let asked = Self.asked
+        #expect(throws: Never.self) { try CloudStartSession.checked(Self.account, now: Self.account, asked) }
+        #expect(throws: CloudStartSession.AccountChanged.self) { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], asked) }
+        #expect(throws: ActionFailure.self) { try CloudStartSession.checked(Self.account, now: [nil, nil], asked) }
+        let cancelled = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return Result { try CloudStartSession.checked(Self.account, now: Self.account, asked) }
+        }
+        guard case .failure(let error) = await cancelled.value else { Issue.record("a cancelled run went on"); return }
+        #expect(error is CancellationError)
     }
 
     /// Another account's same ask never takes a kept run's end, and a sign-out forgets them all.
@@ -389,6 +423,8 @@ struct CloudStartSessionTests {
         let started = Box(0)
         let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
+            // A second start (the bug) answers at once: it never reads the first start's gate.
+            guard started.value == 1 else { return ["session_id": .string("s-\(started.value)")] }
             for await _ in gate { break }
             return ["session_id": .string("s-1")]
         }

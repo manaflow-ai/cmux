@@ -55,9 +55,10 @@ struct CloudStartSession {
                 request.machineID = try CloudHandlers.machine(invocation, context).machineID
             }
             if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
+            let key = CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account)
             CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account), within: Self.answerWithin, pending: Self.pending(request, services)) {
-                    try await start.run(request, invocation, context)
+                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
+                    try await start.run(request, invocation, context, account: key.account)
                 }
             }
         }
@@ -93,7 +94,8 @@ struct CloudStartSession {
                     let token = try await asks.ask(tab: tab.id, text: text, asked: asked, services: services)
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
                     do {
-                        let fields = try await start.run(request, asPerson, context, askedBy: caller, revealing: false)
+                        // The account the agent asked in: a switch while the card was open refuses.
+                        let fields = try await start.run(request, asPerson, context, account: key.account, askedBy: caller, revealing: false)
                         asks.finish(tab: tab.id, token: token, failure: nil, services: services)
                         return fields
                     } catch {
@@ -147,11 +149,18 @@ struct CloudStartSession {
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
-    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, askedBy: String? = nil,
+    /// `account`: the user and team signed in when it was asked. It is checked before each step
+    /// that changes anything and after each wait, so a team switch or sign-out mid-run starts
+    /// nothing in the account signed in now.
+    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
-        let session = try await machine(request, invocation, askedBy: askedBy)
+        let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
+        try still(request.name ?? request.machineID ?? "")
+        let session = try await machine(request, invocation, account: account, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
+        try still(name)
         try await connected(session, invocation, request)
+        try still(name)
         let daemon = session.daemon
         guard let host = AgentTabStore.registryHost(of: daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
@@ -162,6 +171,7 @@ struct CloudStartSession {
         } catch {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
+        try still(name)
         let started: AgentTabRemoteStart.Started
         let tabKey: String
         do {
@@ -170,11 +180,16 @@ struct CloudStartSession {
             tabKey = try await pending.value().key
             // The start reads the tab as the machine's tree lists it.
             _ = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey) != nil }
+            try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             switch tabs.remoteHost(tabKey) {
             case let remote as AgentTabRemoteHost: started = try await remote.startNow(cwd: request.cwd, harness: agent)
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
             }
+        } catch let changed as AccountChanged {
+            throw changed.failure
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw ActionFailure(message: Self.startFailure(error, name: name, id: id, agent: agent))
         }
@@ -186,6 +201,20 @@ struct CloudStartSession {
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
             "workspace_id": .string(anchor.id), "surface_id": .string(String(started.surface)), "tab_id": .string(tabKey),
         ]
+    }
+
+    /// The account changed (or the run was cancelled) since `asked` was asked: stop before the next step.
+    struct AccountChanged: Error { var failure: ActionFailure }
+
+    /// Inside a step whose other errors are mapped (``AccountChanged`` passes through the mapping).
+    static func check(_ account: [String?], now: [String?], _ asked: CloudStartSessionStrings.Asked) throws {
+        try Task.checkCancellation()
+        guard account == now else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) }
+    }
+
+    /// Between steps: the refusal itself.
+    static func checked(_ account: [String?], now: [String?], _ asked: CloudStartSessionStrings.Asked) throws {
+        do { try check(account, now: now, asked) } catch let changed as AccountChanged { throw changed.failure }
     }
 
     /// The start's refusal in the run's words: the machine is up, its agent is not.
@@ -220,7 +249,7 @@ struct CloudStartSession {
     static let listFresh: Duration = .seconds(15)
 
     /// The machine named by id, else by name, else a new one with that name.
-    private func machine(_ request: Request, _ invocation: ActionInvocation, askedBy: String?) async throws -> CloudMachineSession {
+    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
         if let id = request.machineID {
             guard let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
@@ -230,17 +259,22 @@ struct CloudStartSession {
         let cloud = services.cloud
         // A list the server answered just now for this account: a machine by this name made
         // elsewhere is taken, never made again. A failed or superseded read refuses.
+        let still = { try Self.check(account, now: cloud.account, request.asked(machine: name)) }
         if !cloud.hasCurrentList(within: Self.listFresh) { await cloud.refresh() }
+        try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
         do {
-            return try await cloud.startSessionRuns.creating(name, account: cloud.account) { [machines] in
+            return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+                try still()
                 return try await cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
             }
         } catch is CancellationError {
             throw CancellationError()
+        } catch let changed as AccountChanged {
+            throw changed.failure
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             throw ActionFailure(message: CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
