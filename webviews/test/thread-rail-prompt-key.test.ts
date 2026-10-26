@@ -156,10 +156,12 @@ test("an older echo with the first tick's promptId arriving above moves no tick 
   const before = minimapTurns(rows, CHAT).ticks;
   const ref = (index: number) => ({ key: before[index]!.key, id: before[index]!.id });
   const anchor = { tick: ref(0), first: ref(0), index: 0, layoutTop: 0, y: 0 };
-  // The older echo of p-7 loads above it: it takes the prompt's key, the retried send keys on its row.
-  const after = minimapTurns([user("user-2", "p-7"), ...rows], CHAT).ticks;
-  expect(after[0]!.key).toBe(before[0]!.key);
+  // The older echo of p-7 loads above it: the retried send keeps its tick's key (the rail's focus,
+  // hover, card and list key stay on it), and the echo keys on its row.
+  const after = minimapTurns([user("user-2", "p-7"), ...rows], CHAT, minimapTurns(rows, CHAT)).ticks;
   expect(after[1]!.id).toBe("local-p-7");
+  expect(after[1]!.key).toBe(before[0]!.key);
+  expect(after[0]!.key).toBe(`${before[0]!.key}#user-2`);
   // The anchored tick is the retried send's, now at index 1, and a step under way still finds it.
   expect(prependedBy(anchor, after)).toBe(1);
   expect(tickIndex(after, ref(0))).toBe(1);

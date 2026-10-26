@@ -385,14 +385,27 @@ function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolea
 const repeatKey = (turn: Pick<MinimapTurn, "key" | "id">) => `${turn.key}#${turn.id}`;
 
 /// Each turn's tick, the previous one where its prompt is the same. Every tick's key is its own (the
-/// list's key, and the rail's focus, hover and card maps): a turn whose key an earlier one took (a
-/// retried send beside acpmux's echo of it, one promptId) keys on its row too. Built when the ticks
-/// change (a new prompt, older turns), never per token.
+/// list's key, and the rail's focus, hover and card maps), and a tick keeps the key it had: two turns
+/// can share a key (a retried send beside acpmux's echo of it, one promptId), and the one that had it
+/// first keeps it wherever the other arrives (an older echo read in above it); the other keys on its
+/// row too. Built when the ticks change (a new prompt, older turns), never per token.
 function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
-  const seen = new Set<string>();
+  const had = new Map(previous.map((tick) => [tick.id, tick.key]));
+  const keys: (string | undefined)[] = [];
+  const taken = new Set<string>();
+  // The keys the ticks already had, first.
+  turns.forEach((turn, index) => {
+    const key = had.get(turn.id);
+    if (key === undefined || (key !== turn.key && key !== repeatKey(turn)) || taken.has(key)) return;
+    keys[index] = key;
+    taken.add(key);
+  });
   return turns.map((turn, index) => {
-    const key = seen.has(turn.key) ? repeatKey(turn) : turn.key;
-    seen.add(key);
+    let key = keys[index];
+    if (key === undefined) {
+      key = taken.has(turn.key) ? repeatKey(turn) : turn.key;
+      taken.add(key);
+    }
     const tick = previous[index];
     return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
       ? tick
