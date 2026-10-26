@@ -69,6 +69,7 @@ public final class TraceCategories: Sendable {
     /// Stores the word for the current request and gate, again until neither changed under it: the last
     /// store of any racing writer then matches the last change.
     private func publish() {
+        // wakeup-allow: never waits for readiness; it runs again only when another writer changed the request or gate between these loads and the store.
         while true {
             let mask = requested.load(ordering: .sequentiallyConsistent)
             let suppressed = keyTimingSuppressed.load(ordering: .sequentiallyConsistent)
