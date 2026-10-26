@@ -61,8 +61,8 @@ final class CEFRuntime {
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
-    /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
-    var input: InputEventTap?
+    /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it. The app's crash keys (`adopt`): the pump names its passes.
+    var input: InputEventTap?, crashKeys: CrashKeySlots?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -168,14 +168,14 @@ final class CEFRuntime {
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
     init(storage: CEFProfileStorage) { self.storage = storage }
 
-    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
-    /// App's one engine hands them over before its first start or tab), and its host supervisor, which
+    /// Takes the engine's stores, sign-in tabs, wait deadlines and crash keys (the process has one Chromium, so
+    /// the App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
     /// own queue. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, crashKeys: CrashKeySlots? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
-        self.signInCallbacks = signInCallbacks
+        (self.signInCallbacks, self.crashKeys) = (signInCallbacks, crashKeys ?? self.crashKeys)
         if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
         guard stores !== self.stores else { return }
         self.stores = stores
@@ -413,7 +413,7 @@ final class CEFRuntime {
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
                 safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
-                gate: pumpGate
+                gate: pumpGate, crashKeys: crashKeys
             )
             self.pump = pump
             pump.start()

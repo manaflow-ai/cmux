@@ -150,13 +150,14 @@ final class AppServices {
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
+    let crashKeys: CrashKeySlots?  // AppControl's crash keys: the Chromium message pump names its passes in them
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
     let browserStores = BrowserSharedStores.application()
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, waitDeadlines: mainWork.wakeUps, input: inputTap), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, waitDeadlines: mainWork.wakeUps, input: inputTap, crashKeys: crashKeys), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -514,14 +515,14 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
-         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil) {
+         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil, crashKeys: CrashKeySlots? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
-        self.energyMonitor = energyMonitor
+        (self.energyMonitor, self.crashKeys) = (energyMonitor, crashKeys)
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        (self.wireStats, self.inputTap, self.launchReveal) = (wireStats, inputTap, launchReveal)
         hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         self.launchStartup = launchStartup
@@ -540,7 +541,6 @@ final class AppServices {
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch)
-        self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

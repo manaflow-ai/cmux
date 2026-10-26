@@ -2,6 +2,7 @@
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextTrace
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -11,56 +12,52 @@ import Testing
 /// asleep, and the scopes run on named threads that spin, so the monitor samples a thread that is running
 /// its work, as a real hang does.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct HangWatchScopeTests {
-    /// A thread blocked inside its scope (p10-stability-031): one jank with no stack at the budget, then one
-    /// hang dump whose stack has the blocked function on top (under the `read` it waits in), with the crash
-    /// keys of the moment, and the hung thread in the crash-key page.
+    #if DEBUG
+    /// A thread blocked inside its scope (p10-stability-031): one jank with no stack at the budget (in
+    /// `threadJanks`), then one hang dump (in `threadHangs`) whose stack has the blocked function on top (under
+    /// the `read` it waits in), with the crash keys of the moment, the hung thread named in them while it is
+    /// hung. The hang dump itself unblocks the thread: the test waits on the monitor's report, not on a clock.
     @Test func aBlockedScopeJanksOnceThenDumpsOneHangWithTheBlockedFunctionOnTop() async throws {
-        let crashKeys = RecordingCrashKeys()
-        crashKeys.setCrashKey(.actionIndex, 42)
-        let (watchdog, watch) = Self.running(hangAfterBudget: .milliseconds(300), crashKeys: crashKeys)
-        defer { watchdog.stop() }
+        let crashKeys = CrashKeySlots()
+        crashKeys.set(.daemonEpoch, 42)
         var fds: [Int32] = [0, 0]
         try #require(pipe(&fds) == 0)
         defer { close(fds[0]); close(fds[1]) }
-        let readEnd = fds[0]
+        let (readEnd, writeEnd) = (fds[0], fds[1])
         let port = PortBox()
-        let blocked = Task.detached {
-            await onThread(named: "hang-watch-blocked") {
-                port.value.store(pthread_mach_thread_np(pthread_self()), ordering: .releasing)
-                let thread = watch.registerThread(.io, name: "test.blocked")
-                watch.watch(thread, deadline: .milliseconds(100)) { _ = cmux_hang_watch_test_blocked_in_read(readEnd) }
-                watch.unregister(thread)
-            }
+        let namedWhileHung = Atomic<UInt64>(0)
+        let (watchdog, watch) = Self.running(hangAfterBudget: .milliseconds(300), crashKeys: crashKeys) { _ in
+            namedWhileHung.store(UInt64(crashKeys.snapshot().hungThread(at: 0)?.port ?? 0), ordering: .releasing)
+            var byte: UInt8 = 1
+            _ = write(writeEnd, &byte, 1)
         }
-        // The blocked thread stays in its scope until the monitor dumped it (5 s at most); the time is the scenario.
-        let began = uptime()
-        while watchdog.threadHangs.summary.count == 0, uptime() - began < 5_000_000_000 {
-            try await Task.sleep(for: .milliseconds(20))
+        defer { watchdog.stop() }
+        await onThread(named: "hang-watch-blocked") {
+            port.value.store(pthread_mach_thread_np(pthread_self()), ordering: .releasing)
+            let thread = watch.registerThread(.io, name: "test.blocked")
+            watch.watch(thread, deadline: .milliseconds(100)) { _ = cmux_hang_watch_test_blocked_in_read(readEnd) }
+            watch.unregister(thread)
         }
-        var byte: UInt8 = 1
-        _ = write(fds[1], &byte, 1)
-        await blocked.value
-        let records = watchdog.threadHangs.records()
-        #expect(records.map(\.kind) == [.jank, .hang], "each tier once, however long it blocks")
-        let jank = try #require(records.first)
+        let janks = watchdog.threadJanks.records()
+        #expect(janks.map(\.kind) == [.jank], "one jank, however long it blocks")
+        let jank = try #require(janks.first)
         #expect(jank.addresses.isEmpty, "a jank samples no stack")
         #expect(jank.details["thread"] == JSONValue.string("hang-watch-blocked"))
-        let hang = try #require(records.last)
+        let hangs = watchdog.threadHangs.records()
+        #expect(hangs.map(\.kind) == [.hang], "one hang dump, and no jank among the hang dumps")
+        let hang = try #require(hangs.first)
         #expect(hang.details["scope"] == JSONValue.string("test.blocked"))
         #expect(hang.details["thread"] == JSONValue.string("hang-watch-blocked"))
+        #expect(hang.startUptimeNanos == jank.startUptimeNanos, "both tiers count from the budget's end")
         let symbols = StackSymbolicator(map: nil).frames(for: hang.addresses).prefix(3).compactMap(\.symbol)
         #expect(symbols.contains { $0.contains("cmux_hang_watch_test_blocked_in_read") }, "top frames: \(symbols)")
-        #expect(hang.details["crash_keys"]?.objectValue?["action_index"] == JSONValue(42))
-        #expect(crashKeys.crashKey(.lastThreadHangPort) == UInt64(port.value.load(ordering: .acquiring)))
-        #expect(crashKeys.crashKey(.lastThreadHangUptime) == jank.startUptimeNanos, "the budget's end")
-        #expect(watchdog.threadHangs.summary.jankCount == 1)
+        let keys = try #require(hang.details["crash_keys"]?.objectValue)
+        #expect(keys["crash_key.daemon_epoch"] == JSONValue.string("42"))
+        #expect(keys["crash_key.hung_thread_kinds"] == JSONValue.string("io"))
+        #expect(namedWhileHung.load(ordering: .acquiring) == UInt64(port.value.load(ordering: .acquiring)))
         #expect(watchdog.log.records().isEmpty, "not a main-thread stall")
     }
-
-    @Test func theCEFPumpCrashKeyNamesTheMainThreadPhase() {
-        #expect(MainThreadWatchdog.phaseLabel(inCEFPump: 1) == "cef_pump")
-        #expect(MainThreadWatchdog.phaseLabel(inCEFPump: 0) == nil)
-    }
+    #endif
 
     @Test func aScopeThatEndsBeforeItsDeadlineIsNotReported() async throws {
         let (watchdog, watch) = Self.running()
@@ -97,7 +94,7 @@ import Testing
             watch.unregister(thread)
         }
         #expect(watchdog.threadHangs.summary.count == 2, "one hang dump per scope")
-        #expect(watchdog.threadHangs.summary.jankCount == 2, "one jank per scope")
+        #expect(watchdog.threadJanks.summary.count == 2, "one jank per scope")
     }
 
     #if DEBUG
@@ -167,11 +164,16 @@ import Testing
     }
 
     /// A watchdog whose thread runs as at launch (main run loop asleep) and watches a fresh slot table.
-    private static func running(hangAfterBudget: Duration = .seconds(2),
-                                crashKeys: (any CrashKeyStore)? = nil) -> (MainThreadWatchdog, HangWatch) {
+    /// `afterHang` (debug builds) runs on the watchdog thread after each hang dump.
+    private static func running(hangAfterBudget: Duration = .seconds(2), crashKeys: CrashKeySlots? = nil,
+                                afterHang: (@Sendable (HangRecord) -> Void)? = nil) -> (MainThreadWatchdog, HangWatch) {
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
         let watch = HangWatch(hangAfterBudget: hangAfterBudget)
-        watchdog.attach(hangWatch: watch, crashKeys: crashKeys)
+        var source = HangMonitor.Source(watch: watch, crashKeys: crashKeys)
+        #if DEBUG
+        source.afterHangForTesting = afterHang
+        #endif
+        watchdog.attach(source)
         watchdog.running.store(true, ordering: .releasing)
         let thread = Thread { watchdog.watch(sampler: nil) }
         thread.name = "hang-watch-test-watchdog"
@@ -195,13 +197,6 @@ public func cmux_hang_watch_test_blocked_in_read(_ fd: Int32) -> Int {
 /// The blocked thread's Mach port, set on that thread.
 private final class PortBox: Sendable {
     let value = Atomic<UInt32>(0)
-}
-
-/// A crash-key page in memory (``CrashKeyStore``): what the hang monitor read and wrote.
-private final class RecordingCrashKeys: CrashKeyStore {
-    private let values = Mutex<[CrashKeySlot: UInt64]>([:])
-    func setCrashKey(_ slot: CrashKeySlot, _ value: UInt64) { values.withLock { $0[slot] = value } }
-    func crashKey(_ slot: CrashKeySlot) -> UInt64 { values.withLock { $0[slot] ?? 0 } }
 }
 
 /// Runs the scope's work on the calling thread until `done` holds.

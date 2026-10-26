@@ -1,13 +1,11 @@
-import CmuxNextCompat
-import CmuxNextTrace
 import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
 /// The CEF pump runs on the main thread, so it is a phase of the main thread's episode, not a
-/// hang-watch scope (p10-stability-031): each pass runs with the `in_cef_pump` crash key set, which the
-/// main-thread watchdog reads while the main thread is suspended and names `cef_pump` in its records.
+/// hang-watch scope (p10-stability-031): each pass runs with the crash keys' CEF state at `inPump`, which
+/// the main-thread watchdog reads while the main thread is suspended and names `cef_pump` in its records.
 @MainActor
 @Suite struct CEFMessagePumpCrashKeyTests {
     /// The pump's timer, fired by hand.
@@ -19,23 +17,55 @@ import Testing
         func fire() { onFire?() }
     }
 
-    /// A crash-key page in memory.
-    nonisolated final class Keys: CrashKeyStore {
-        private let values = Mutex<[CrashKeySlot: UInt64]>([:])
-        func setCrashKey(_ slot: CrashKeySlot, _ value: UInt64) { values.withLock { $0[slot] = value } }
-        func crashKey(_ slot: CrashKeySlot) -> UInt64 { values.withLock { $0[slot] ?? 0 } }
-    }
+    private static let inPump = CrashKeySlots.CEFState.inPump.rawValue
+    private static let running = CrashKeySlots.CEFState.running.rawValue
 
-    @Test func aPassRunsWithTheCEFPumpCrashKeySetAndClearsItAfter() {
-        let keys = Keys()
+    @Test func aPassRunsInThePumpStateAndPutsTheStateBefore() {
+        let keys = CrashKeySlots()
+        keys.set(.cefState, Self.running)
         var during: [UInt64] = []
         let timer = Timer()
-        let pump = CEFMessagePump(work: { during.append(keys.crashKey(.inCEFPump)) }, safetyNet: .none, timer: timer,
+        let pump = CEFMessagePump(work: { during.append(keys.value(.cefState)) }, safetyNet: .none, timer: timer,
                                   clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys)
         pump.start()
         timer.fire()
-        #expect(during == [1], "set while CefDoMessageLoopWork runs")
-        #expect(keys.crashKey(.inCEFPump) == 0, "cleared once the pass returns")
+        #expect(during == [Self.inPump], "in the pump while CefDoMessageLoopWork runs")
+        #expect(keys.value(.cefState) == Self.running, "the state before the pass once it returns")
+        pump.stop()
+    }
+
+    /// A menu or modal panel that CefDoMessageLoopWork opens runs a nested run loop inside the pass: the
+    /// main thread does AppKit's work there, not Chromium's, so the pump's fire in that loop puts the state
+    /// before the pass back; a stall in the menu is not named `cef_pump`.
+    @Test func aNestedRunLoopInsideAPassLeavesThePumpState() {
+        let keys = CrashKeySlots()
+        keys.set(.cefState, Self.running)
+        var seen: [UInt64] = []
+        var nested = false
+        let timer = Timer()
+        let pump = CEFMessagePump(work: {
+            seen.append(keys.value(.cefState))
+            guard !nested else { return }
+            nested = true
+            timer.fire() // the nested run loop fires the pump's timer: a reentrant fire runs no work
+            seen.append(keys.value(.cefState))
+        }, safetyNet: .none, timer: timer, clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys)
+        pump.start()
+        timer.fire()
+        #expect(seen == [Self.inPump, Self.running], "in the pump, then not once the nested loop fired it")
+        #expect(pump.stats.reentrantFires == 1)
+        #expect(keys.value(.cefState) == Self.running)
+        pump.stop()
+    }
+
+    @Test func aPumpWithNoCrashKeysStillRunsItsPasses() {
+        var passes = 0
+        let timer = Timer()
+        let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { 100 },
+                                  ledger: WakeupLedger(), crashKeys: nil)
+        pump.start()
+        timer.fire()
+        #expect(passes == 1)
         pump.stop()
     }
 }

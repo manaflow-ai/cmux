@@ -28,7 +28,7 @@ public final class CEFEngine: BrowserEngine {
     /// The App's sign-in tabs (the sign-in windows register theirs here).
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
-    let contextMenus: BrowserContextMenuBuilder
+    let contextMenus: BrowserContextMenuBuilder, crashKeys: CrashKeySlots?  // the app's crash keys: the runtime's pump names its passes
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
@@ -72,12 +72,12 @@ public final class CEFEngine: BrowserEngine {
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
-                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
+                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
-        self.contextMenus = contextMenus
+        (self.contextMenus, self.crashKeys) = (contextMenus, crashKeys)
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         CEFRuntime.shared.attachInput(input)
     }
@@ -415,13 +415,13 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
-    /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
+    /// Hands the stores, sign-in tabs, wait deadlines, crash keys and host supervisor (``CEFRuntimeSource/backend``)
+    /// to the process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
     private func adoptStores() {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
-                      hostSupervisor: runtimeSource.hostSupervisor)
+                      hostSupervisor: runtimeSource.hostSupervisor, crashKeys: crashKeys)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

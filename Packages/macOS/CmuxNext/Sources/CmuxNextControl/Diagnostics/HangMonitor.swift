@@ -48,7 +48,7 @@ struct HangMonitor {
     private let periodNanos: UInt64
 
     init(source: Source, log: HangLog, janks: HangLog, logger: Logger?) {
-        (watch, crashKeys, self.log, self.janks, self.logger) = (source.watch, source.crashKeys, log, janks, logger)
+        (self.watch, self.crashKeys, self.log, self.janks, self.logger) = (source.watch, source.crashKeys, log, janks, logger)
         #if DEBUG
         afterHangForTesting = source.afterHangForTesting
         #endif

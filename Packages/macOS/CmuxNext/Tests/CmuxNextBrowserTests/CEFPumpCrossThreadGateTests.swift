@@ -40,7 +40,7 @@ import Testing
         let clock = Clock()
         let ledger = WakeupLedger()
         let gate = CEFPumpCrossThreadGate(ledger: ledger)
-        let pump = CEFMessagePump(work: work, safetyNet: safetyNet, timer: timer, clock: { clock.seconds }, ledger: ledger, gate: gate)
+        let pump = CEFMessagePump(work: work, safetyNet: safetyNet, timer: timer, clock: { clock.seconds }, ledger: ledger, gate: gate, crashKeys: nil)
         pump.start()
         timer.fire() // the start's immediate pass
         pump.request(milliseconds: 10)

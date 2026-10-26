@@ -1,4 +1,3 @@
-import CmuxNextTrace
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
@@ -19,16 +18,22 @@ import os
 /// the next waits for that link's tick (`afterLateFrame`), then runs on the
 /// next run loop pass.
 ///
-/// Each pass runs with ``CrashKeySlot/inCEFPump`` set: the pump runs on the
-/// main thread, so a stall or hang inside it is a phase of the main thread's
-/// episode (the watchdog's records name it `cef_pump`), not a hang-watch scope.
+/// Each pass runs with the crash keys' CEF state at ``CrashKeySlots/CEFState/inPump``:
+/// the pump runs on the main thread, so a stall or hang inside it is a phase of
+/// the main thread's episode (the watchdog's records name it `cef_pump`), not a
+/// hang-watch scope. A nested run loop inside a pass (a menu, a modal panel) runs
+/// AppKit's work, not Chromium's: its first fire of the pump puts the state back
+/// until the pass returns, as Chrome tracks a phase per run level
+/// (base/task/sequence_manager/thread_controller.cc, `RunLevelTracker`).
 final class CEFMessagePump {
     private let work: () -> Void
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
-    /// Told when a pass runs (``CrashKeySlot/inCEFPump``).
-    private let crashKeys: any CrashKeyStore
+    /// The app's crash keys, told when a pass runs (nil: none).
+    private let crashKeys: CrashKeySlots?
+    /// The CEF state key before the running pass set it to `inPump`; nil between passes.
+    private var stateOutsidePass: UInt64?
     private var schedule: CEFPumpSchedule
     private var isRunning = false
     /// Why the timer is armed (for the wakeup ledger).
@@ -52,7 +57,7 @@ final class CEFMessagePump {
     /// `clock` is monotonic seconds (tests inject one). `starvation`: the app's
     /// rendering starvation guard; `CEFRuntime` passes none until the pump is
     /// on the main-thread board (p06-scheduler task 048). `crashKeys`: the
-    /// process's crash-key page (tests pass a recorder).
+    /// app's (`CEFRuntime` passes the composition root's), a test's own, or nil.
     init(
         work: @escaping () -> Void,
         safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
@@ -61,7 +66,7 @@ final class CEFMessagePump {
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
         starvation: RenderStarvationGuard? = nil,
-        crashKeys: any CrashKeyStore = TraceRuntime.shared
+        crashKeys: CrashKeySlots?
     ) {
         self.work = work
         self.crashKeys = crashKeys
@@ -147,14 +152,13 @@ final class CEFMessagePump {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
             counters.reentrantFires += 1
+            if let stateOutsidePass { crashKeys?.set(.cefState, stateOutsidePass) } // the nested loop is not the pump
             rearm()
             return
         }
         rearm()
         pumpMark("pump-start")
-        crashKeys.setCrashKey(.inCEFPump, 1)
-        work()
-        crashKeys.setCrashKey(.inCEFPump, 0)
+        runPass()
         pumpMark("pump-end")
         let finished = clock()
         let elapsed = finished - started
@@ -163,6 +167,17 @@ final class CEFMessagePump {
         if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
         schedule.endWork(now: finished, elapsed: elapsed)
         rearm()
+    }
+
+    /// One `CefDoMessageLoopWork`, with the CEF state key at `inPump` and the value before it put back after.
+    private func runPass() {
+        guard let crashKeys else { work(); return }
+        let outside = crashKeys.value(.cefState)
+        stateOutsidePass = outside
+        crashKeys.set(.cefState, CrashKeySlots.CEFState.inPump.rawValue)
+        work()
+        crashKeys.set(.cefState, outside)
+        stateOutsidePass = nil
     }
 
     private func rearm() {

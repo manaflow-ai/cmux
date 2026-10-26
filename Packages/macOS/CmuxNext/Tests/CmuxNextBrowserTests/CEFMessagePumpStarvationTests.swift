@@ -19,7 +19,7 @@ import Testing
         let timer = Timer()
         var passes = 0
         let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { media.now },
-                                  ledger: WakeupLedger(), starvation: starvation)
+                                  ledger: WakeupLedger(), starvation: starvation, crashKeys: nil)
         pump.start()
         timer.fire()
         #expect(passes == 1, "nothing is late: the start's pass runs")
@@ -57,7 +57,7 @@ import Testing
         let timer = Timer()
         var passes = 0
         let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { media.now },
-                                  ledger: WakeupLedger(), starvation: starvation)
+                                  ledger: WakeupLedger(), starvation: starvation, crashKeys: nil)
         pump.start()
         spring.activate()
         window.frameDidFire(timestamp: media.now, refreshInterval: 1.0 / 60)
