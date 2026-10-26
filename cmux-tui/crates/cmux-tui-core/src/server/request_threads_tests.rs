@@ -1,22 +1,24 @@
 //! Request dispatch threads (p02-threads task 211): request threads run at
 //! UserInitiated with blocking disallowed, so a checked blocking call on one
-//! is a recorded site; writers run at UserInitiated and accept loops at
-//! `ACCEPT_THREAD_QOS`; each is a registered `cmux_threads` row.
+//! is a recorded site; writers and accept loops run at UserInitiated; each is
+//! a registered `cmux_threads` row.
+//!
+//! The site table is process-wide, so a test reads the count of the site its
+//! own request reaches before and after it runs.
 
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cmux_threads::ThreadQos;
+use cmux_threads::{BlockingKind, ThreadQos};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
 
-use super::super::listen::ACCEPT_THREAD_QOS;
 use super::super::{
     BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, MessageWriter,
     QueuedSink, Request, serve_websocket,
 };
-use super::{REQUEST_THREAD_QOS, spawn_request_thread};
+use super::spawn_request_thread;
 
 /// The declared QoS of every live thread named `name`, waiting (bounded)
 /// until there is one. Tests running in parallel may start threads of the
@@ -42,14 +44,15 @@ fn assert_declared(name: &str, qos: ThreadQos) {
     assert!(rows.iter().all(|row| *row == qos), "{name}: {rows:?}, expected {qos}");
 }
 
-#[test]
-fn request_dispatch_runs_user_initiated_and_accept_loops_run_at_accept_qos() {
-    assert_eq!(REQUEST_THREAD_QOS, ThreadQos::UserInitiated);
-    #[cfg(target_vendor = "apple")]
-    assert_eq!(ACCEPT_THREAD_QOS, ThreadQos::Utility);
-    // A Linux accept loop at nice 5 would start every connection thread there.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    assert_eq!(ACCEPT_THREAD_QOS, REQUEST_THREAD_QOS);
+/// The recorded count of `kind` blocking sites whose file path contains
+/// `path`, summed over their lines.
+fn site_count(path: &str, kind: BlockingKind) -> u64 {
+    cmux_threads::blocking::snapshot()
+        .sites
+        .iter()
+        .filter(|site| site.file.contains(path) && site.kinds.contains(kind))
+        .map(|site| site.count)
+        .sum()
 }
 
 /// A request thread declares UserInitiated and disallows blocking for its
@@ -71,20 +74,19 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     // This file's only checked blocking call is the sleep above.
     let sites = cmux_threads::blocking::snapshot().sites;
     assert!(
-        sites
-            .iter()
-            .any(|site| site.file == file!()
-                && site.kinds.contains(cmux_threads::BlockingKind::Sleep)),
+        sites.iter().any(|site| site.file == file!() && site.kinds.contains(BlockingKind::Sleep)),
         "no sleep site in {}: {sites:?}",
         file!()
     );
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests run on `mux-control-dispatch`, a request
-/// thread.
+/// A connection's queued requests run on `mux-control-dispatch`, a
+/// UserInitiated request thread that disallows blocking: the registry read
+/// `list-workspaces` makes there is a recorded `sqlite` site in server.rs
+/// (`list_workspaces_reply`).
 #[test]
-fn the_connection_dispatcher_is_a_user_initiated_request_thread() {
+fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     let mux =
         crate::Mux::new_for_test("request-threads-dispatch", crate::SurfaceOptions::default());
     let outbound = Arc::new(BoundedOutbound::default());
@@ -92,6 +94,7 @@ fn the_connection_dispatcher_is_a_user_initiated_request_thread() {
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let before = site_count("src/server.rs", BlockingKind::Sqlite);
     let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
     assert_eq!(scheduler.dispatch(mux, client, &mut list, 0, writer), Some(true));
     // The dispatcher stays up until the scheduler finishes.
@@ -99,18 +102,50 @@ fn the_connection_dispatcher_is_a_user_initiated_request_thread() {
     scheduler.finish_and_wait();
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
+    assert!(
+        site_count("src/server.rs", BlockingKind::Sqlite) > before,
+        "list-workspaces on mux-control-dispatch records no sqlite site"
+    );
+}
+
+/// A clear-history request runs on its own `mux-surface-control` worker at
+/// UserInitiated. Its path makes no checked blocking call (its waits are
+/// unchecked `Condvar` waits), so the test holds the terminal lock the worker
+/// takes to see its row while it lives.
+#[test]
+fn a_clear_history_worker_is_a_user_initiated_request_thread() {
+    let mux = crate::Mux::new_for_test("request-threads-clear", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let mut clear = Some(Request {
+        id: Some(json!(1)),
+        cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+    });
+    let held = surface.with_terminal(|_| {
+        assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
+        assert_declared("mux-surface-control", ThreadQos::UserInitiated);
+    });
+    assert!(held.is_some(), "a PTY surface");
+    scheduler.finish_and_wait();
+    let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
+    assert_eq!(reply["id"], 1, "{reply}");
+    mux.close_surface(surface.id).unwrap();
 }
 
 fn send_json(websocket: &mut WebSocket<TcpStream>, value: Value) {
     websocket.send(Message::Text(value.to_string().into())).unwrap();
 }
 
-fn read_reply(websocket: &mut WebSocket<TcpStream>, id: u64) -> Value {
+fn read_reply(websocket: &mut WebSocket<TcpStream>, id: &Value) -> Value {
     loop {
         match websocket.read().expect("a frame") {
             Message::Text(text) => {
                 let value: Value = serde_json::from_str(&text).unwrap();
-                if value["id"] == id {
+                if value["id"] == *id {
                     return value;
                 }
             }
@@ -120,17 +155,19 @@ fn read_reply(websocket: &mut WebSocket<TcpStream>, id: u64) -> Value {
     }
 }
 
-/// The WebSocket listener: accept loop at `ACCEPT_THREAD_QOS`; the connection
-/// thread (it runs its frames' requests), its writer and an events writer at
-/// UserInitiated.
+/// The WebSocket listener: the accept loop, the connection thread, its writer
+/// and an events writer run at UserInitiated. The connection thread runs a v2
+/// resource line itself and disallows blocking: the registry read of
+/// `workspace.list` there is a recorded `sqlite` site under resource_router/
+/// (topology/workspace_order.rs).
 #[test]
-fn websocket_threads_declare_accept_and_request_classes() {
+fn websocket_threads_are_user_initiated_and_the_connection_records_its_blocking() {
     const TOKEN: &str = "request-threads-token";
     let mux = crate::Mux::new_for_test("request-threads-ws", crate::SurfaceOptions::default());
     let server =
         serve_websocket(mux, "127.0.0.1:0".parse().unwrap(), Some(TOKEN.to_string()), false)
             .expect("serve the WebSocket listener");
-    assert_declared("mux-ws-server", ACCEPT_THREAD_QOS);
+    assert_declared("mux-ws-server", ThreadQos::UserInitiated);
 
     let addr = server.local_addr();
     let stream = TcpStream::connect(addr).unwrap();
@@ -138,19 +175,37 @@ fn websocket_threads_declare_accept_and_request_classes() {
     let mut websocket = tungstenite::client(format!("ws://{addr}/"), stream).unwrap().0;
     send_json(&mut websocket, json!({"auth": {"token": TOKEN}}));
     send_json(&mut websocket, json!({"id": 1, "cmd": "subscribe"}));
-    assert_eq!(read_reply(&mut websocket, 1)["ok"], true);
+    assert_eq!(read_reply(&mut websocket, &json!(1))["ok"], true);
 
-    assert_declared("mux-ws-conn", REQUEST_THREAD_QOS);
-    assert_declared("mux-ws-out", REQUEST_THREAD_QOS);
-    assert_declared("mux-events-out", REQUEST_THREAD_QOS);
+    let before = site_count("src/resource_router/", BlockingKind::Sqlite);
+    send_json(
+        &mut websocket,
+        json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": "list",
+            "operation": "workspace.list",
+            "params": {"machine": "current", "session": "current"},
+        }),
+    );
+    let list = read_reply(&mut websocket, &json!("list"));
+    assert_eq!(list["ok"], true, "{list}");
+    assert!(
+        site_count("src/resource_router/", BlockingKind::Sqlite) > before,
+        "workspace.list on mux-ws-conn records no sqlite site"
+    );
+
+    assert_declared("mux-ws-conn", ThreadQos::UserInitiated);
+    assert_declared("mux-ws-out", ThreadQos::UserInitiated);
+    assert_declared("mux-events-out", ThreadQos::UserInitiated);
     let _ = websocket.close(None);
 }
 
-/// The Unix socket: accept loop at `ACCEPT_THREAD_QOS`, connection readers
-/// set to UserInteractive rather than inherited from it.
+/// The Unix socket's accept loop runs at UserInitiated: every connection waits
+/// on it. Task 210 owns the `mux-conn` rows it starts.
 #[cfg(unix)]
 #[test]
-fn unix_accept_loop_declares_accept_qos_and_sets_its_connection_threads() {
+fn unix_accept_loop_is_user_initiated() {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
@@ -158,7 +213,7 @@ fn unix_accept_loop_declares_accept_qos_and_sets_its_connection_threads() {
     let socket =
         std::env::temp_dir().join(format!("cmux-rq-threads-{}", std::process::id())).join("s.sock");
     super::super::serve(mux, Some(socket.clone())).expect("serve the control socket");
-    assert_declared("mux-server", ACCEPT_THREAD_QOS);
+    assert_declared("mux-server", ThreadQos::UserInitiated);
 
     let mut stream = UnixStream::connect(&socket).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -167,5 +222,4 @@ fn unix_accept_loop_declares_accept_qos_and_sets_its_connection_threads() {
     BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
     let reply: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(reply["id"], 1, "{reply}");
-    assert_declared("mux-conn", ThreadQos::UserInteractive);
 }

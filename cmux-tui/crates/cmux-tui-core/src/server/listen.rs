@@ -414,9 +414,7 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        // Set, not inherited: a thread inherits its creator's QoS on macOS, and
-        // the accept loop runs at Utility. Task 210 adds its blocking rules.
-        let _ = cmux_threads::spawn("mux-conn", ThreadQos::UserInteractive, move || {
+        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }
@@ -440,17 +438,12 @@ fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     let _ = stream.flush();
 }
 
-/// The QoS of an accept loop: Utility, since an accept waits for a client and
-/// runs no request. A Linux thread starts at its creator's nice value and an
-/// unprivileged one cannot lower it, so there the loop keeps the request class
-/// of the connection threads it starts (`cmux_threads::work` has a launcher
-/// for the same reason).
-pub(super) const ACCEPT_THREAD_QOS: ThreadQos =
-    if cfg!(any(target_os = "linux", target_os = "android")) {
-        super::connection_scheduler::REQUEST_THREAD_QOS
-    } else {
-        ThreadQos::Utility
-    };
+/// The QoS of an accept loop: the request class. Every connection (each CLI
+/// command, hook, agent call and app reconnect) waits on an accept before its
+/// own thread exists, and the threads started here inherit this class.
+/// Chromium accepts IPC connections on the browser IO thread, which serves
+/// requests (content/browser/browser_process_io_thread.cc).
+pub(super) const ACCEPT_THREAD_QOS: ThreadQos = super::connection_scheduler::REQUEST_THREAD_QOS;
 
 /// Start the accept loop for `listener`. Every accepted connection goes to
 /// `slot`: served by the session once it is attached, parked until then.
