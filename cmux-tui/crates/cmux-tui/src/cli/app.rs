@@ -202,6 +202,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                     "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
                 ));
             }
+            run_action("cloud exec", &rest[1..], ActionName::Cli)?
         }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
