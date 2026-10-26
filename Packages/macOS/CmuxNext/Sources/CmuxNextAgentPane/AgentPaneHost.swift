@@ -207,7 +207,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool {
         guard startsDaemons else { return false }
         if environment == nil { environment = resolveEnvironment() }
-        guard let environment, !environment.isAttached else { return false }
+        guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner)
     }
 

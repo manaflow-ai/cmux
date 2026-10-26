@@ -58,6 +58,7 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
         },
         exited: @Sendable (Int32) async -> Bool = { pid in await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) }
     ) async -> Bool {
+        guard owner.socketPath == environment.socketPath else { return false }
         guard let descriptor = try? AcpmuxServerPeer.connect(environment.socketPath) else { return false }
         var open = true
         defer { if open { Darwin.close(descriptor) } }

@@ -72,7 +72,12 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     private func routed(_ session: String?,
                         _ body: (any AgentPaneHostProviding) async throws -> AgentPaneHandshake) async throws -> AgentPaneHandshake {
         guard let session, await chiefOwns(session) else { return try await body(local) }
-        return try await body(chief)
+        do {
+            return try await body(chief)
+        } catch AgentPaneHostError.daemonRefused(let holder, let socketPath, let reason, let executable, _?) {
+            throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: socketPath, reason: reason,
+                                                   executable: executable, owner: nil)
+        }
     }
 
     public func prewarm() async throws {
