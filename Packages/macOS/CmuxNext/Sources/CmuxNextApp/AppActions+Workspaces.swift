@@ -198,12 +198,16 @@ extension AppActions {
         // again); a row that cannot hide says why. CLI and socket closes still fail at once.
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
-        let controller = owner.flatMap(services.windows.controller(for:))
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
-            hide: { !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty },
-            // A live terminal (and the warning on): the row stays until the person answers.
+            hide: {
+                let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
+                selected.afterPress = controller?.state.workspaceID
+                return hidden
+            },
+            // A terminal that may run a program (and the warning on): the row stays until the person answers.
             mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
@@ -233,6 +237,15 @@ extension AppActions {
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
+            },
+            // Cancel on a row that left at the press (its store read a prompt while a program ran): the row is
+            // listed again, and the window shows it again unless the person moved on meanwhile.
+            restore: { hidden in
+                guard hidden else { return }
+                ClosingWorkspaces.shared.end(id, refused: false, in: nil)
+                if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
+                    services.windows.show(workspaceID: id, in: controller.state)
+                }
             })
         if let work = flow.start(id, asks: invocation.asksIfRunning) { services.registry.track(work) }
     }

@@ -7,8 +7,9 @@ import Testing
 /// Close Workspace (`WorkspaceCloseFlow`). First Cmd-Shift-W looked like it did nothing because the
 /// row moved only after a process-info round trip per terminal; then the row left at the press and
 /// the "still running" question came up behind it, so the person watched the row animate away
-/// before being asked, and Cancel had to bring it back. Now a close that can ask keeps its row until
-/// the answer, and only a close that cannot ask leaves at the press.
+/// before being asked, and Cancel had to bring it back. Now a close whose store shows a terminal that
+/// may run a program keeps its row until the answer. Any other close leaves at the press and still
+/// asks its terminals behind it (the store can read a prompt while ssh runs).
 @MainActor @Suite(.serialized) struct WorkspaceCloseFlowTests {
     /// What the flow did, in order.
     @MainActor private final class Log {
@@ -69,6 +70,10 @@ import Testing
                     closing.end(id, refused: false, in: nil)
                     return nil
                 }
+            },
+            restore: { hidden in
+                log.steps.append("restore")
+                if hidden { closing.end(id, refused: false, in: nil) }
             })
     }
 
@@ -104,7 +109,8 @@ import Testing
                 }
             },
             exists: { true },
-            send: { _ in log.steps.append("send"); return Task { @MainActor in nil } })
+            send: { _ in log.steps.append("send"); return Task { @MainActor in nil } },
+            restore: { _ in log.steps.append("restore") })
         let work = try #require(close.start("one", asks: true))
         while !pending.isAsked { await Task.yield() }
         pending.answer(Self.running)
@@ -138,14 +144,28 @@ import Testing
         #expect(log.steps == ["ask process-info", "question", "hide", "send"])
     }
 
-    @Test func aCloseThatCannotAskLeavesAndQueuesInThePressTurn() async throws {
+    @Test func aCloseOfIdleShellsLeavesAtThePressAndStillAsksBehindIt() async throws {
         let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
         let work = try #require(flow("one", closing: closing, log: log, pending: pending, mayAsk: false).start("one", asks: true))
-        // Idle shells at their prompt: instant, no daemon read.
-        #expect(log.steps == ["hide", "send"])
+        // Shells at their prompt: the row leaves in the press's turn.
+        #expect(log.steps == ["hide"])
+        #expect(closing.ids == ["one"])
+        while !pending.isAsked { await Task.yield() }
+        pending.answer(nil)
         _ = await work.value
-        #expect(log.steps == ["hide", "send"])
-        #expect(!pending.isAsked)
+        #expect(log.steps == ["hide", "ask process-info", "send"])
+    }
+
+    @Test func aProgramBehindAPromptStillAsksAndCancelListsTheRowAgain() async throws {
+        let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
+        let work = try #require(flow("one", closing: closing, log: log, pending: pending, closes: false, mayAsk: false)
+            .start("one", asks: true))
+        while !pending.isAsked { await Task.yield() }
+        // ssh at a remote prompt: the store read a prompt, the daemon reads ssh in the foreground.
+        pending.answer(Self.running)
+        _ = await work.value
+        #expect(log.steps == ["hide", "ask process-info", "question", "restore"])
+        #expect(closing.ids.isEmpty)
     }
 
     @Test func aSecondPressDuringTheCloseSendsNothing() async throws {
