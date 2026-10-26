@@ -53,17 +53,7 @@ struct OwnerRestartWaitsForChatTests {
             await chatConnection.close()
             let outcome = try await Self.firstOutcome(of: restart, on: owner, timeout: Self.restartTimeout)
             #expect(outcome == .started)
-
-            // The owner is a new process on the same session state.
-            let deadline = ContinuousClock.now + .seconds(60)
-            var current = await owner.identity
-            while current?.pid == old.pid || current == nil {
-                if ContinuousClock.now >= deadline { break }
-                try await Task.sleep(for: .milliseconds(100))  // test harness poll of the reconnect
-                current = await owner.identity
-            }
-            #expect(current != nil && current?.pid != old.pid, "no new owner took over")
-            #expect(current?.registryID == old.registryID)
+            try await Self.expectNewOwner(after: old, on: owner)
         } catch {
             await chat?.close()
             await BranchDaemonHarness.shutDown(owner)
@@ -114,12 +104,27 @@ struct OwnerRestartWaitsForChatTests {
             cli = nil
             let outcome = try await Self.firstOutcome(of: restart, on: owner, timeout: Self.restartTimeout)
             #expect(outcome == .started)
+            // Shut down the new owner, not the old one's removed socket.
+            try await Self.expectNewOwner(after: old, on: owner)
         } catch {
             await cli?.close()
             await BranchDaemonHarness.shutDown(owner)
             throw error
         }
         await BranchDaemonHarness.shutDown(owner)
+    }
+
+    /// The owner is a new process on the same session state: the connection reconnected to it.
+    private static func expectNewOwner(after old: DaemonIdentity, on owner: DaemonConnection) async throws {
+        let deadline = ContinuousClock.now + .seconds(60)
+        var current = await owner.identity
+        while current?.pid == old.pid || current == nil {
+            if ContinuousClock.now >= deadline { break }
+            try await Task.sleep(for: .milliseconds(100))  // test harness poll of the reconnect
+            current = await owner.identity
+        }
+        #expect(current != nil && current?.pid != old.pid, "no new owner took over")
+        #expect(current?.registryID == old.registryID)
     }
 
     /// How long a test waits for the restart: the daemon's own clients without a kind (its agent
