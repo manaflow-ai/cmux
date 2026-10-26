@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -41,6 +42,7 @@ struct AgentChatsStartupTests {
     }
 
     @Test func serviceStartupResumesChatsInUnopenedWorkspaces() async throws {
+        _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]),
                                    agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
         let store = services.daemon.store
