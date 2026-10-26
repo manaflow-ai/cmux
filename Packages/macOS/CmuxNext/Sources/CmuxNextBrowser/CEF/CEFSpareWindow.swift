@@ -80,6 +80,9 @@ final class CEFSpareWindow {
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
     /// idle moment may make one (`ChromiumWarmup`).
     var onNeeded: (@MainActor () -> Void)?
+    // memory: fixed: 2 keys (`Kind`), each a list of (browser id, disposition, bounds) values of a few
+    // bytes, emptied when its spare is taken (`takeParked`) or dropped (`drop`); the spare windows
+    // themselves follow memory pressure through ChromiumWarmup's SpareMemoryConsumer.
     /// Tabs Chromium created in a spare's window before a tab took it, by the spare's kind.
     private var parked: [Kind: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)]] = [:]
     /// Windows built for a key a spare serves because no spare of its kind was ready
