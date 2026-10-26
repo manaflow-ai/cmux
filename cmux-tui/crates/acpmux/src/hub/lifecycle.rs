@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
 use super::new_request::{claude_resume_refusal, unique_name_among};
@@ -559,7 +560,7 @@ impl Hub {
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
         let claude_store = is_claude.then(|| meta.claude_store(&profile.env));
-        *session.claude_store.lock().unwrap() = claude_store.clone();
+        *session.claude_store.lock_or_recover() = claude_store.clone();
         // Claude deletes transcripts past its retention: the kept copy goes
         // back before the resume (or the fork) looks for it (claude_keep.rs).
         // A resume only to the store that ran it; a failover's other store is

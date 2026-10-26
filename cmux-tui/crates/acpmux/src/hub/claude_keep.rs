@@ -17,6 +17,7 @@
 //! turn's end. Deleting the chat deletes its folder, and the transcript with it.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -33,13 +34,13 @@ impl Hub {
                 .filter(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
                 .map(|p| meta.claude_store(&p.env))
         };
-        *session.claude_store.lock().unwrap() = store;
+        *session.claude_store.lock_or_recover() = store;
     }
 
     /// Keeps the transcript of `session`'s running Claude after a turn, off
     /// the runtime's threads: a turn's end never waits on it.
     pub(super) fn keep_claude_transcript(&self, session: &Session) {
-        let Some(store) = session.claude_store.lock().unwrap().clone() else { return };
+        let Some(store) = session.claude_store.lock_or_recover().clone() else { return };
         let Some(sid) = session.meta().agent_session_id else { return };
         let Some(dir) = self.store.session_dir(&session.id) else { return };
         let id = session.id.clone();
