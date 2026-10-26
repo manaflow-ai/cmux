@@ -452,9 +452,14 @@ extension TerminalSurface {
                     // Mac's Kitty `ESC[27u`, modified arrows, bracketed
                     // paste). Splitting it into Escape plus its tail typed
                     // the tail as text.
+                    // A bracketed paste's body is raw too: its LF must not
+                    // become Return, nor its Tab a key press.
+                    let total = isBracketedPasteStart(scalars, from: index, length: length)
+                        ? bracketedPasteLength(scalars, from: index, startLength: length)
+                        : length
                     flushBufferedText()
-                    appendRawBytes(length: length, from: index)
-                    index += length
+                    appendRawBytes(length: total, from: index)
+                    index += total
                 } else {
                     flushBufferedText()
                     appendKey(UInt32(kVK_Escape), label: "escape")
@@ -542,6 +547,30 @@ extension TerminalSurface {
             cursor += 1
         }
         return nil
+    }
+
+    private static let bracketedPasteStart = Array("\u{1B}[200~".unicodeScalars)
+    private static let bracketedPasteEnd = Array("\u{1B}[201~".unicodeScalars)
+
+    private static func isBracketedPasteStart(_ scalars: [Unicode.Scalar], from start: Int, length: Int) -> Bool {
+        scalars[start..<(start + length)].elementsEqual(bracketedPasteStart)
+    }
+
+    /// Length from `ESC [ 200 ~` through `ESC [ 201 ~`, or through the end of
+    /// the text when the paste continues in a later write.
+    private static func bracketedPasteLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int,
+        startLength: Int
+    ) -> Int {
+        var cursor = start + startLength
+        while cursor + bracketedPasteEnd.count <= scalars.count {
+            if scalars[cursor..<(cursor + bracketedPasteEnd.count)].elementsEqual(bracketedPasteEnd) {
+                return cursor + bracketedPasteEnd.count - start
+            }
+            cursor += 1
+        }
+        return scalars.count - start
     }
 
     /// Finds the terminator for 7-bit or C1 string controls without accepting partial sequences.

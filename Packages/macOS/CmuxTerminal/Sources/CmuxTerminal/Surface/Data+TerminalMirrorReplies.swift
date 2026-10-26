@@ -15,7 +15,9 @@ public import Foundation
 /// reports (`CSI I`, `CSI O`), and every terminated OSC, DCS and APC string.
 /// Keys, pastes and mouse reports pass through. A legacy Shift+F3
 /// (`CSI 1 ; 2 R`) is indistinguishable from a cursor report and is dropped
-/// with them; unterminated strings (Alt+] typed alone) pass through.
+/// with them; unterminated strings (Alt+] typed alone) pass through. A
+/// bracketed paste (`CSI 200 ~` … `CSI 201 ~`) passes through whole, so pasted
+/// text that looks like a reply stays in the paste.
 extension Data {
     private static let escape: UInt8 = 0x1B
 
@@ -25,6 +27,9 @@ extension Data {
         var output = Data()
         output.reserveCapacity(bytes.count)
         var index = 0
+        // Set once a string scan finds no terminator: none exists past that
+        // point, so later `ESC ]` prefixes in the same write skip the rescan.
+        var stringsUnterminated = false
         while index < bytes.count {
             guard bytes[index] == Self.escape, index + 1 < bytes.count else {
                 output.append(bytes[index])
@@ -38,12 +43,19 @@ extension Data {
                     index += 1
                     continue
                 }
+                if bytes[(index + 2)...final].elementsEqual(Self.pasteStart) {
+                    let end = Self.pasteEnd(bytes, from: final + 1)
+                    output.append(contentsOf: bytes[index..<end])
+                    index = end
+                    continue
+                }
                 if !Self.isReplyCSI(final: bytes[final], body: bytes[(index + 2)..<final]) {
                     output.append(contentsOf: bytes[index...final])
                 }
                 index = final + 1
             case UInt8(ascii: "]"), UInt8(ascii: "P"), UInt8(ascii: "_"):
-                guard let end = Self.stringEnd(bytes, from: index + 2) else {
+                guard !stringsUnterminated, let end = Self.stringEnd(bytes, from: index + 2) else {
+                    stringsUnterminated = true
                     output.append(bytes[index])
                     index += 1
                     continue
@@ -55,6 +67,22 @@ extension Data {
             }
         }
         return output
+    }
+
+    private static let pasteStart = Array("200~".utf8)
+    private static let pasteEndMarker = Array("\u{1B}[201~".utf8)
+
+    /// Index just past the bracketed paste's `ESC [ 201 ~`, or the end of the
+    /// bytes when the paste continues in a later write.
+    private static func pasteEnd(_ bytes: [UInt8], from start: Int) -> Int {
+        var cursor = start
+        while cursor + pasteEndMarker.count <= bytes.count {
+            if bytes[cursor..<(cursor + pasteEndMarker.count)].elementsEqual(pasteEndMarker) {
+                return cursor + pasteEndMarker.count
+            }
+            cursor += 1
+        }
+        return bytes.count
     }
 
     private static func isReplyCSI(final: UInt8, body: ArraySlice<UInt8>) -> Bool {
