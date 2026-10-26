@@ -1,3 +1,4 @@
+import { isRetryContinuation } from "./subagents/retryState";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
@@ -1536,6 +1537,8 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const capabilities = initialized?._meta?.acpmux?.capabilities;
+      this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -2260,6 +2263,16 @@ export class AcpmuxDirectClient {
       throw error;
     });
   }
+
+  /// acpmux's on-demand retry (subagents/retryState.ts `runRetry`): fires a waiting retry now, or
+  /// retries the last failed turn or subagent. Its refusals name their code (`retry.busy`).
+  retry(method: string, params: Record<string, unknown>): Promise<unknown> {
+    return this.request(method, params, 15_000);
+  }
+
+  /// The capability ids acpmux's `initialize` named (`_meta.acpmux.capabilities`), or undefined
+  /// from one that names none.
+  capabilities: ReadonlySet<string> | undefined;
 
   /// Reads the selected session's durable composer draft from acpmux.
   readDraft(sessionId: string): Promise<unknown> {
@@ -3279,6 +3292,10 @@ export class AcpmuxDirectClient {
             },
           });
         }
+      } else if (event.kind === "subagent_retry") {
+        // acpmux's step of a subagent's retry: whether it gave up (subagents/retryState.ts).
+        this.subagents.reduceRetryStep(msg);
+        this.takeSubagentRows();
       } else if (event.kind === "subsession") {
         // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
         // run, whose card stands for the call's row from now on.
@@ -3344,7 +3361,9 @@ export class AcpmuxDirectClient {
         // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
         // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
-        const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+        // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
+        // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
+        const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
         const incoming = received
           ? undefined
           : blank
