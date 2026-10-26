@@ -102,7 +102,8 @@ final class CEFHostStart {
         case .failure(let error): return .failure(error)
         }
         do {
-            let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
+            // SAFETY: `remote.symbol` is dlsym on the remote dylib, never closed, whose ABI identity `make` checked.
+            let shim = try unsafe CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",

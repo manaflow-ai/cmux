@@ -60,15 +60,20 @@ extension PageWebView {
         #if DEBUG || CMUX_BENCH_HOOKS
         if router.debugPageHidden { censusState.pushesWhileHidden &+= 1 }
         #endif
+        // The router envelopes waiting for the frame were sent before it.
+        scripts.flush()
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), the router's hidden hold
+    /// (``holdDeliveryWhileHidden(visible:)``), and the census. A frozen
     /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
     /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
     func setEngineVisible(_ visible: Bool) {
+        engineVisible = visible
         if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        holdDeliveryWhileHidden(visible: visible)
         crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
@@ -321,6 +326,8 @@ extension PageWebView {
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
+        // The router envelopes waiting for the frame were sent before it.
+        scripts.flush()
         guard let page = chromiumSession?.page else {
             // No engine view yet: a Chromium page on its way has no document to call.
             return try? await webKitPieces?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)

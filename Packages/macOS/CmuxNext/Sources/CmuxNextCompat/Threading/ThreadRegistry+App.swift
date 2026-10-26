@@ -47,6 +47,8 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.settings.watcher", qos: .utility),
         ThreadDeclaration("cmux.files.fsevents", qos: .utility),
         ThreadDeclaration("cmux.files.tree-fsevents", qos: .utility),
+        // Energy: the power-source notifications and their IOKit reads (CmuxNextEnergy PowerSourceMonitor).
+        ThreadDeclaration("com.cmuxterm.next.energy.power-source", qos: .utility),
         ThreadDeclaration("com.cmuxterm.home.cache", qos: .userInitiated),
         // Remote and mobile. The remote view's render queue is on the closed user-interactive list: a
         // compositor-class motion path (Chrome's kDisplayCritical, base/threading/platform_thread.h).

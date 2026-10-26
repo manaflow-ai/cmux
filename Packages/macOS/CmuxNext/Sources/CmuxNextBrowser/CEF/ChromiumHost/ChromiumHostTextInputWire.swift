@@ -45,7 +45,7 @@ extension ChromiumHostFrame {
         var payload: [UInt8] = []
         payload.reserveCapacity(text.utf16.count * 2 + clauses.count * 16)
         func put<T: FixedWidthInteger>(_ value: T) {
-            withUnsafeBytes(of: value.littleEndian) { payload.append(contentsOf: $0) }
+            payload.appendLittleEndian(value)
         }
         for unit in text.utf16 { put(unit) }
         for clause in clauses {

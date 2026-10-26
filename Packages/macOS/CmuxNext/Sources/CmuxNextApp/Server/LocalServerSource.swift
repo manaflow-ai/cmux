@@ -70,7 +70,7 @@ final class LocalServerSource: ServerSource {
 
     /// The App's source: the bundled CLI, the user-mode server's files, and
     /// fixes through the privileged helper.
-    static func app(fixer: ServerHealthFixer = .helper) -> LocalServerSource {
+    static func app(fixer: ServerHealthFixer) -> LocalServerSource {
         LocalServerSource(
             binary: bundledCLI(),
             hostName: (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",

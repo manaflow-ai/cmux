@@ -172,7 +172,7 @@ public final class CEFEngine: BrowserEngine {
     /// the main thread).
     public func usedRecently(within window: TimeInterval) async -> Bool {
         let record = useRecord
-        return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
+        return await Task.detached(priority: Task.currentPriority) { record.usedRecently(within: window) }.value
     }
 
     /// A user's page made now when Chromium already runs (its chrome shows in

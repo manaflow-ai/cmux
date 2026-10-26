@@ -240,10 +240,9 @@ int cmux_shim_print(int browser_id) {
 }
 
 void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
-  // CEF reports its own identifier in OnFindResult; this build ignores the
-  // caller's, so Swift matches results by browser and the latest request.
-  (void)find_id;
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
+    // Before Find, which starts the search: its results carry `find_id` (find_ids.h).
+    cmux_shim::host().find_ids.Sent(browser_id, find_id);
     host->Find(text ? text : "", forward != 0, match_case != 0, find_next != 0);
   }
 }

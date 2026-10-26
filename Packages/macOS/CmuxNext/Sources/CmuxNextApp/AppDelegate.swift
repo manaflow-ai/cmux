@@ -16,6 +16,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
@@ -142,9 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
-            // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
+            // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
-        }, then: { [self] read in finishLaunching(settings: read, launchStart: launchStart) })
+        }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
 
     /// The launch steps that need the settings, run after the settings launch read's take (`applicationDidFinishLaunching`).
@@ -177,15 +178,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
-        // screen) reveals at once.
+        // screen) reveals at once and is interrupted: its first frame records no launch sample.
         let startup = mainWork.startup
-        startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+        let presentation: StartupPhase.Presentation = NSApp.isHidden ? .hidden : .window
+        startup.noteLaunch(presentation)
+        if presentation != .window { DebugTimings.markLaunch(LaunchSlices.interruptedMark) }  // before the first window
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
         // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
+        // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
+        order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
+            guard let services else { return }
+            services.startIdleWakeups(watchdog: control.watchdog)
+            control.idleWakeups = services.idleWakeups  // the person's input ends an idle period at that input
+        }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -202,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
+        GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         DebugTimings.markLaunch("dfl.settings")

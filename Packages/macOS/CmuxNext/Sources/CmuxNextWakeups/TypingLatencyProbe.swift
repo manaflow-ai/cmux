@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextMetrics
 import CmuxNextSignposts
 import CmuxNextTrace
 
@@ -33,7 +34,7 @@ import CmuxNextTrace
 /// `commit_ms` is the end of the first main run-loop turn after dispatch, past Core Animation's commit
 /// observer: the frame that carries what the key changed in an AppKit text view (the Home composer, the
 /// omnibar). A sample that has no terminal echo to wait for (``closeAtCommit()``) is written at that
-/// commit; one whose key never reached a terminal is written there unfinished.
+/// commit; one whose key never reached a terminal, or gave Ghostty no bytes, is written there unfinished.
 ///
 /// Key-press flows (scripts/cmux-next/trace.py) start and stop at run time (``startFlows()``,
 /// ``stopFlows()``), as Chromium turns trace categories on in a running browser
@@ -48,8 +49,11 @@ import CmuxNextTrace
 /// ``TraceRuntime/isKeyTimingSuppressed``, p09-observability-128): a key-down then drops every open press
 /// unwritten and opens none, no hop is recorded and ``openFlow`` is nil, so the daemon, the terminal host and
 /// the holder write no `key.echo` hop for a key typed into a password prompt.
+///
+/// The same samples, 1 key in 16, give the field histogram `key.echo_frame` (TypingLatencyProbe+EchoFrame.swift).
 public final class TypingLatencyProbe: Sendable {
-    public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"])
+    public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
+                                                  echoFrames: Metrics(runtime: .shared))
 
     /// The launch default of ``startFlows()`` (``startFlows(launchEnvironment:)``).
     public static let flowsEnvironmentKey = "CMUX_NEXT_TRACE_FLOWS"
@@ -59,53 +63,6 @@ public final class TypingLatencyProbe: Sendable {
     public static let openCapacity = 16
 
     public static var isEnabled: Bool { shared.isRecording }
-
-    public enum Mark: Int, CaseIterable, Sendable {
-        case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
-
-        /// The `key.flow` hop this mark records.
-        var hop: KeyFlowHop {
-            switch self {
-            case .dispatchStart: .appKeyDispatch
-            case .dispatchEnd: .appKeyDispatched
-            case .ioWrite: .appIOWrite
-            case .socketSubmit: .appSend
-            case .outputDecoded: .appOutputDecoded
-            case .outputReceived: .appOutputReceived
-            case .outputParsed: .appOutputParsed
-            case .contents: .appFrameContents
-            case .commit: .appKeyCommit
-            }
-        }
-
-        var columnName: String {
-            switch self {
-            case .dispatchStart: "dispatch_start_ms"
-            case .dispatchEnd: "dispatch_end_ms"
-            case .ioWrite: "io_write_ms"
-            case .socketSubmit: "socket_submit_ms"
-            case .outputDecoded: "output_decoded_ms"
-            case .outputReceived: "output_received_ms"
-            case .outputParsed: "output_parsed_ms"
-            case .contents: "contents_ms"
-            case .commit: "commit_ms"
-            }
-        }
-
-        /// The hop that must have run first, so output from an earlier key
-        /// is not taken for this key's echo.
-        var after: Mark? {
-            switch self {
-            case .dispatchStart, .dispatchEnd, .ioWrite: nil
-            case .socketSubmit: .ioWrite
-            case .outputDecoded: .socketSubmit
-            case .outputReceived: .outputDecoded
-            case .outputParsed: .outputReceived
-            case .contents: .outputParsed
-            case .commit: .dispatchEnd
-            }
-        }
-    }
 
     struct Sample {
         var index: Int
@@ -125,8 +82,14 @@ public final class TypingLatencyProbe: Sendable {
         /// The daemon's echo named this press (``outputDecoded(flow:)``): its later output hops come with
         /// that chunk (``mark(_:flow:)``), never from the surface's other output.
         var exactEcho = false
+        /// The `key.echo_frame` sample (``keyDown(eventTimestamp:)``): its echo's frame records the histogram.
+        /// Cleared when its echo comes too late or a newer press on its surface overtakes it.
+        var echoSampled = false
 
         func has(_ mark: Mark) -> Bool { marks[mark.rawValue] != nil }
+
+        /// No echo can show this press: it reached no terminal, or its dispatch ended without Ghostty taking bytes.
+        var showsNoEcho: Bool { surface == nil || (has(.dispatchEnd) && !tookByTerminal && !has(.ioWrite)) }
 
         /// Ghostty may still write this press's bytes on `surface`: the key went there, and its dispatch
         /// has not ended without Ghostty taking it. The write runs on the IO thread and may come before
@@ -164,6 +127,9 @@ public final class TypingLatencyProbe: Sendable {
         /// The press being dispatched on the main thread.
         var newest: Int? { open.isEmpty ? nil : open.count - 1 }
 
+        /// The `key.echo_frame` sample is open (at most one is).
+        var echoSampleOpen: Bool { open.contains(where: \.echoSampled) }
+
         /// Records `mark` at `now` on `open[index]` the first time it runs and after its ``Mark/after``.
         mutating func record(_ mark: Mark, at index: Int, now: UInt64, onMain: Bool) -> Recorded? {
             var sample = open[index]
@@ -171,10 +137,14 @@ public final class TypingLatencyProbe: Sendable {
             if let after = mark.after, !sample.has(after) { return nil }
             sample.marks[mark.rawValue] = now
             if mark == .ioWrite { sample.ioWriteOnMain = onMain }
+            // An echo decoded this late is not the echo sample's (``TypingLatencyProbe/echoMaxAgeNanos``).
+            if mark == .outputDecoded, now > sample.event, now - sample.event > TypingLatencyProbe.echoMaxAgeNanos {
+                sample.echoSampled = false
+            }
             var recorded = Recorded(hop: mark.hop, flow: sample.flow,
                                     ageMicroseconds: Int64(bitPattern: now &- sample.event) / 1_000)
-            // A press that never reached a terminal has no echo to wait for: its commit ends it.
-            if mark == .contents || (mark == .commit && (sample.closesAtCommit || sample.surface == nil)) {
+            // A press that shows no echo has none to wait for: its commit ends it.
+            if mark == .contents || (mark == .commit && (sample.closesAtCommit || sample.showsNoEcho)) {
                 open.remove(at: index)
                 if mark == .contents { echoCommits.append(EchoCommit(flow: sample.flow, display: sample.display)) }
                 recorded.finished = sample
@@ -188,12 +158,16 @@ public final class TypingLatencyProbe: Sendable {
 
     private let output: FileHandle?
     /// Whether a CSV is written (`CMUX_NEXT_TYPING_PROBE`).
-    private let writesCSV: Bool
-    /// Key flows are on (``startFlows()``).
-    private let flowsOn = Atomic<Bool>(false)
+    let writesCSV: Bool
+    /// What records, in one word so a key-down reads it with one load: ``Modes``.
+    let modes = Atomic<UInt8>(0)
+    /// Where `key.echo_frame` samples go; nil: echo sampling is off.
+    let echoMetrics: Metrics?
+    /// Key-downs counted while no echo sample was open (``echoSampleInterval``).
+    let echoKeys = Atomic<UInt32>(0)
     /// The commit observer is on the main run loop (added once, at the first recording).
     private let observing = Atomic<Bool>(false)
-    /// The last ``SurfaceKey`` handed out (``makeSurfaceKey()``).
+    /// The last ``SurfaceKey`` handed out (``makeSurfaceKey(route:)``).
     let surfaceIDs = Atomic<UInt64>(0)
     /// The `key.flow` signposter, gated by ``trace``'s keystroke-timing gate.
     private let signposter: Signposter
@@ -208,8 +182,11 @@ public final class TypingLatencyProbe: Sendable {
     ///   - path: The CSV to write, or nil for none.
     ///   - trace: The runtime whose keystroke-timing gate stops sampling.
     ///   - hopRecorder: Hears every `key.flow` hop emitted while flows are on (tests).
-    init(path: String?, trace: TraceRuntime = .shared, hopRecorder: (@Sendable (_ hop: String, _ flow: UInt64) -> Void)? = nil) {
+    ///   - echoFrames: Where `key.echo_frame` samples go once ``startEchoSampling()`` runs; nil: never.
+    init(path: String?, trace: TraceRuntime = .shared, hopRecorder: (@Sendable (_ hop: String, _ flow: UInt64) -> Void)? = nil,
+         echoFrames: Metrics? = nil) {
         self.trace = trace
+        echoMetrics = echoFrames
         signposter = Signposter(category: .key, trace: trace)
         self.hopRecorder = hopRecorder
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
@@ -224,18 +201,19 @@ public final class TypingLatencyProbe: Sendable {
         if writesCSV { observeCommits() }
     }
 
-    /// Whether the probe records: a CSV is written or key flows are on. One relaxed load while neither.
-    public var isRecording: Bool { writesCSV || flowsOn.load(ordering: .relaxed) }
+    /// Whether the probe records: a CSV is written, key flows are on or an echo sample is open. One relaxed load
+    /// while none.
+    public var isRecording: Bool { writesCSV || modes.load(ordering: .relaxed) & Modes.recording != 0 }
 
     /// Whether a hop is recorded now: the probe records and the keystroke-timing gate is open.
     var isSampling: Bool { isRecording && !trace.isKeyTimingSuppressed }
 
     /// Whether key flows are on.
-    public var flowsStarted: Bool { flowsOn.load(ordering: .relaxed) }
+    public var flowsStarted: Bool { modes.load(ordering: .relaxed) & Modes.flows != 0 }
 
     /// Starts key flows: each later key-down gets a flow id, and its hops become `key.flow` events.
     public func startFlows() {
-        flowsOn.store(true, ordering: .relaxed)
+        setModes(Modes.flows, on: true)
         observeCommits()
     }
 
@@ -247,18 +225,18 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Stops key flows. Without a CSV the open presses are dropped unwritten.
     public func stopFlows() {
-        flowsOn.store(false, ordering: .relaxed)
+        setModes(Modes.flows, on: false)
         guard !writesCSV else { return }
-        state.withLock { state in
+        withState { state in
             state.open.removeAll()
             state.echoCommits.removeAll()
         }
     }
 
     /// The commit mark: the end of each main run-loop turn, after Core Animation's commit observer
-    /// (order 2000000). A run-loop observer has no async equivalent; it is added at the first recording
-    /// and does nothing while the probe is off.
-    private func observeCommits() {
+    /// (order 2000000). A run-loop observer has no async equivalent; it is added at the first recording (or
+    /// with echo sampling) and does one load while the probe is off.
+    func observeCommits() {
         guard observing.compareExchange(expected: false, desired: true, ordering: .relaxed).exchanged else { return }
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
                                                           true, 2_000_100) { [weak self] _, _ in
@@ -287,24 +265,36 @@ public final class TypingLatencyProbe: Sendable {
         for commit in commits { emitHop(.appFrameCommit, flow: commit.flow) }
     }
 
-    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`. While the keystroke-timing
-    /// gate is closed it only drops every open press, unwritten, and opens none.
-    public func keyDown(eventTimestamp: Double) {
-        guard isRecording else { return }
+    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`: while the probe records, or when
+    /// it is the key the echo sampler takes (``echoSampleDue(_:)``). While the keystroke-timing gate is closed it
+    /// only drops every open press, unwritten, and opens none. With nothing recording and echo sampling off it is
+    /// one load.
+    ///
+    /// - Returns: Whether a sample opened, so the caller marks its dispatch end.
+    @discardableResult
+    public func keyDown(eventTimestamp: Double) -> Bool {
+        let current = modes.load(ordering: .relaxed)
+        let recording = writesCSV || current & Modes.recording != 0
+        guard recording || current & Modes.echoSampling != 0 else { return false }
         guard !trace.isKeyTimingSuppressed else {
-            state.withLock { state in
-                state.open.removeAll()
-                state.echoCommits.removeAll()
+            if recording {
+                withState { state in
+                    state.open.removeAll()
+                    state.echoCommits.removeAll()
+                }
             }
-            return
+            return false
         }
+        let echoSample = echoSampleDue(current)
+        guard recording || echoSample else { return false }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let event = eventTimestamp > 0 ? UInt64(eventTimestamp * 1_000_000_000) : now
         let flowBase = UInt64(UInt32(truncatingIfNeeded: getpid())) << 32
-        let (unfinished, flow) = state.withLock { state -> (Sample?, UInt64) in
+        let (unfinished, flow) = withState { state -> (Sample?, UInt64) in
             let oldest = state.open.count >= Self.openCapacity ? state.open.removeFirst() : nil
             var sample = Sample(index: state.next, flow: flowBase | UInt64(UInt32(truncatingIfNeeded: state.next)), event: event)
             sample.marks[Mark.dispatchStart.rawValue] = now
+            sample.echoSampled = echoSample && !state.echoSampleOpen
             state.next += 1
             state.open.append(sample)
             return (oldest, sample.flow)
@@ -313,6 +303,7 @@ public final class TypingLatencyProbe: Sendable {
         if flowsStarted {
             emitHop(Mark.dispatchStart.hop, flow: flow, ageMicroseconds: Int64(bitPattern: now &- event) / 1_000)
         }
+        return true
     }
 
     /// Records a dispatch hop (``Mark/dispatchStart``, ``Mark/dispatchEnd``) for the newest press, whose
@@ -322,7 +313,7 @@ public final class TypingLatencyProbe: Sendable {
     public func mark(_ mark: Mark) {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let recorded = state.withLock { state -> [Recorded] in
+        let recorded = withState { state -> [Recorded] in
             switch mark {
             case .dispatchStart, .dispatchEnd:
                 guard let newest = state.newest else { return [] }
@@ -345,7 +336,7 @@ public final class TypingLatencyProbe: Sendable {
     /// went to a text view, so no terminal echo follows (`debug.key` with `probe: "commit"`).
     public func closeAtCommit() {
         guard isSampling else { return }
-        let finished = state.withLock { state -> Sample? in
+        let finished = withState { state -> Sample? in
             guard var sample = state.open.last else { return nil }
             if sample.has(.commit) {
                 state.open.removeLast()
@@ -363,12 +354,14 @@ public final class TypingLatencyProbe: Sendable {
         writes.blockingSync {}
     }
 
-    /// Emits each recorded hop (while flows are on) and writes each finished sample.
+    /// Emits each recorded hop (while flows are on), records the echo sample's frame and writes each finished sample.
     func finish(_ recorded: [Recorded]) {
         let flows = flowsStarted
         for one in recorded {
             if flows { emitHop(one.hop, flow: one.flow, ageMicroseconds: one.ageMicroseconds) }
-            if let finished = one.finished { emit(finished, complete: one.complete) }
+            guard let finished = one.finished else { continue }
+            if finished.echoSampled, one.hop == Mark.contents.hop { recordEchoFrame(finished, micros: one.ageMicroseconds) }
+            emit(finished, complete: one.complete)
         }
     }
 

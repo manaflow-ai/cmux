@@ -27,6 +27,7 @@ import Testing
     /// A drawing session in a window, with `residency` as its switch.
     private func shownSession(_ residency: RecordingResidency) throws -> (TerminalSession, NSWindow, ScriptedTerminalIO) {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()
         let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), gpuResidency: residency)
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")

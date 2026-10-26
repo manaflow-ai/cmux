@@ -22,6 +22,12 @@ public nonisolated struct LaunchSlices: Sendable {
     /// `NSApplication.run` turns the main run loop for the first time. It is Chrome's message-loop start
     /// (`RecordBrowserMainMessageLoopStart`, after the browser's main-thread setup, before its loop runs).
     public static let temperatureMark = "did_finish_launching_end"
+    /// The launch mark of an interrupted launch, sent before the first window's frame: a hidden or windowless
+    /// launch (`StartupPhase.Presentation`), where no one waits for a frame and the first window may open
+    /// minutes later. It is Chrome's `WasMainWindowStartupInterrupted`: `ShouldLogStartupHistogram` then
+    /// records no startup duration (components/startup_metric_utils/browser/startup_metric_utils.cc), and
+    /// the bench reads the same mark (scripts/cmux-next/bench-startup.py `INTERRUPTED`).
+    public static let interruptedMark = "launch.interrupted"
 
     /// A milestone a `launch.*` slice ends at.
     public nonisolated enum Milestone: Sendable, Hashable, CaseIterable {
@@ -93,6 +99,9 @@ public nonisolated struct LaunchSlices: Sendable {
     public private(set) var temperature: LaunchClock.Temperature?
     /// The page-ins the temperature was read from, nil until then or when they could not be read.
     public private(set) var pageins: UInt64?
+    /// Whether the launch was interrupted (``interruptedMark``): nobody waited for its first frame, so its
+    /// duration histograms take no sample. Its slices are still written.
+    public private(set) var interrupted = false
     /// The milestones reached so far.
     private var reached: Set<Milestone> = []
     /// The milestones reached before the temperature, with their times.
@@ -126,6 +135,11 @@ public nonisolated struct LaunchSlices: Sendable {
         self.pageins = pageins
         defer { waiting = [] }
         return waiting.map { slice($0.milestone, endNanos: $0.endNanos, temperature: temperature) }
+    }
+
+    /// Marks the launch interrupted (``interruptedMark``), for good.
+    public mutating func interrupt() {
+        interrupted = true
     }
 
     private func slice(_ milestone: Milestone, endNanos: UInt64, temperature: LaunchClock.Temperature) -> Slice {
