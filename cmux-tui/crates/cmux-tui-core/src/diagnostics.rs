@@ -22,6 +22,8 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod requests;
+pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -549,6 +551,14 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Arrival to reply queued by request class; present only when the
+    /// request names `requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_latency_us: Option<RequestLatencySnapshot>,
+    /// Parse to handler start, every class (`daemon.dispatch.queue_us`);
+    /// present only when the request names `requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_queue_us: Option<HistogramSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

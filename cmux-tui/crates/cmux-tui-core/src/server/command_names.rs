@@ -7,7 +7,10 @@
 //! against serde's own list of tags.
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "read by daemon request spans and hang-watch (p09 014, 073)")
+    expect(
+        dead_code,
+        reason = "the hang deadlines and wire names are read by hang-watch (p09 073)"
+    )
 )]
 
 use std::time::Duration;
@@ -122,6 +125,19 @@ macro_rules! command_table {
                     $(Self::$variant { .. } => MethodClass::$class,)*
                 }
             }
+
+            /// This command's row in [`COMMANDS`]: the method id its
+            /// `daemon.request` trace slice carries.
+            pub(super) fn method_id(&self) -> u16 {
+                match self {
+                    $(Self::$variant { .. } => MethodIndex::$variant as u16,)*
+                }
+            }
+        }
+
+        /// Each variant's index in [`COMMANDS`], numbered by the compiler.
+        enum MethodIndex {
+            $($variant,)*
         }
 
         /// Every command, in the enum's order.

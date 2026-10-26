@@ -6023,6 +6023,22 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "request_latency_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRequestLatency"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "dispatch_queue_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6031,7 +6047,8 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6230,6 +6247,80 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsRequestLatency": {
+   "kind": "object",
+   "fields": {
+    "topology": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_io": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "create": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "query": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "browser": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "agent": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cloud": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "other": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Each histogram is one request class (the daemon's MethodClass): microseconds from a request line's arrival at its connection's reader to its reply entering the connection's outbound queue.",
+    "A request a worker answers later (url-open, chief-inspect, cloud commands) counts when the worker's reply is queued."
    ]
   },
   "GuestUrlOpenResult": {

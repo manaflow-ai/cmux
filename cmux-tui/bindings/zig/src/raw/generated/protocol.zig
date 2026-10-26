@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+pub const ir_sha256 = "84c01b26d73f9acd388eacb7623a04af3c7a2f653df06f41a8adc6c5fbb8dd98";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,17 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestLatency = struct {
+    agent: ServerStatsHistogram,
+    browser: ServerStatsHistogram,
+    cloud: ServerStatsHistogram,
+    create: ServerStatsHistogram,
+    other: ServerStatsHistogram,
+    query: ServerStatsHistogram,
+    terminal_io: ServerStatsHistogram,
+    topology: ServerStatsHistogram,
+};
+
 pub const ServerStatsResourceProjection = struct {
     commit_apply_us: ServerStatsHistogram,
     commit_journal_us: ServerStatsHistogram,
@@ -1915,14 +1926,18 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    dispatch_queue_us: ?ServerStatsHistogram = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_latency_us: ?ServerStatsRequestLatency = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dispatch_queue_us",
+        "request_latency_us",
         "resource_projection",
         "write_path",
     };

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 84c01b26d73f9acd388eacb7623a04af3c7a2f653df06f41a8adc6c5fbb8dd98. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1064,6 +1064,17 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestLatency = {
+  "agent": ServerStatsHistogram;
+  "browser": ServerStatsHistogram;
+  "cloud": ServerStatsHistogram;
+  "create": ServerStatsHistogram;
+  "other": ServerStatsHistogram;
+  "query": ServerStatsHistogram;
+  "terminal_io": ServerStatsHistogram;
+  "topology": ServerStatsHistogram;
+};
+
 export type ServerStatsResourceProjection = {
   "commit_apply_us": ServerStatsHistogram;
   "commit_journal_us": ServerStatsHistogram;
@@ -1086,8 +1097,10 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "dispatch_queue_us"?: ServerStatsHistogram;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_latency_us"?: ServerStatsRequestLatency;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;

@@ -11,7 +11,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Command, MessageWriter, Mux, Response, handle_command_with_cancellation, responses};
+use super::{
+    AsyncReply, Command, MessageWriter, Mux, Response, handle_command_with_cancellation, responses,
+};
 use crate::cloud_conversations::{
     CloudConversations, CloudError, InboxOpRequest, OpRequest, SessionParams, Target,
 };
@@ -568,6 +570,7 @@ pub(super) fn start(
     client: u64,
     id: Option<Value>,
     cmd: Command,
+    reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
     let precheck = || {
@@ -606,6 +609,7 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
+        let _reply = reply;
         let _permit = permit;
         let result =
             handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);

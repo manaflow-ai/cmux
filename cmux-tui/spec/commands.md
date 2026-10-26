@@ -580,7 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path` and `requests`; unknown names
+are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -618,7 +619,13 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
-  }
+  },
+  request_latency_us?:object{
+    topology:histogram, terminal_io:histogram, create:histogram,
+    query:histogram, browser:histogram, agent:histogram, cloud:histogram,
+    other:histogram
+  },
+  dispatch_queue_us?:histogram
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -659,6 +666,20 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`requests` adds `request_latency_us` and `dispatch_queue_us`, over every
+control connection's requests (Chrome's per-task queue and run timing).
+`request_latency_us.<class>` is the time from a request line's arrival at its
+connection's reader to its reply entering the connection's outbound queue, by
+the request's method class (the daemon's `MethodClass`). A request a worker
+answers later (`url-open`, `chief-inspect`, the cloud commands) counts when
+the worker's reply is queued. `dispatch_queue_us` is the time from a
+request's parse to its handler's start: the wait in the connection's request
+queue. In a trace, each request is the slice `daemon.request` (method id,
+request id hash) with the instants `daemon.request.parsed`,
+`daemon.request.dispatched`, `daemon.request.reply.queued` and
+`daemon.request.reply.sent`; a worker's reply is the async slice
+`daemon.request.async`.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

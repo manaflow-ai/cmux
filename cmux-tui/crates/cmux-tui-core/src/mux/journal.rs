@@ -260,6 +260,10 @@ impl Mux {
         &self.connection_stats
     }
 
+    pub(crate) fn request_stats(&self) -> &Arc<crate::diagnostics::RequestStats> {
+        &self.request_stats
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }

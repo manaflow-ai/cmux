@@ -1536,6 +1536,19 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequestLatency:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestLatency'
+    agent: ServerStatsHistogram
+    browser: ServerStatsHistogram
+    cloud: ServerStatsHistogram
+    create: ServerStatsHistogram
+    other: ServerStatsHistogram
+    query: ServerStatsHistogram
+    terminal_io: ServerStatsHistogram
+    topology: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsResourceProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
     commit_apply_us: ServerStatsHistogram
@@ -1565,6 +1578,8 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -6109,6 +6124,7 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsRequestLatency',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',

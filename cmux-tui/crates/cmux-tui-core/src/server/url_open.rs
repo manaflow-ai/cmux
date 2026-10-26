@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Command, MessageWriter, Mux, Response, send_response};
+use super::{AsyncReply, Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -176,6 +176,7 @@ pub(super) fn start(
     id: Option<Value>,
     terminal: String,
     url: String,
+    reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
     let terminal_id = TerminalPublicId::parse(terminal.clone()).ok();
@@ -191,6 +192,7 @@ pub(super) fn start(
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
     let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
+        let _reply = reply;
         let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
         worker_mux.control_clients.url_opens.cancel(&request_id);
         respond(&worker_writer, worker_id, opened);

@@ -18,6 +18,8 @@ pub(super) fn handle_connection_frame(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // The reader calls this as the line arrives: its request span starts here.
+    let arrived = Instant::now();
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
@@ -110,11 +112,21 @@ pub(super) fn handle_connection_frame(
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    let arrival = RequestArrival::parsed_now(arrived);
     let mut pending = Some(request);
-    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
+    match scheduler.dispatch_at(
+        mux.clone(),
+        client,
+        &mut pending,
+        arrival,
+        message.len(),
+        writer.clone(),
+    ) {
         Some(keep_open) => keep_open,
         None => match pending.take() {
-            Some(request) => handle_request(mux, client, request, writer),
+            Some(request) => {
+                handle_request_with_cancellation(mux, client, request, arrival, writer, None)
+            }
             None => true,
         },
     }
@@ -126,25 +138,27 @@ pub(super) fn handle_request(
     request: Request,
     writer: &MessageWriter,
 ) -> bool {
-    handle_request_with_cancellation(mux, client, request, writer, None)
+    handle_request_with_cancellation(mux, client, request, RequestArrival::now(), writer, None)
 }
 
 pub(super) fn handle_request_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
     request: Request,
+    arrival: RequestArrival,
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
     if let Command::UrlOpen { terminal_id, url } = cmd {
-        return url_open::start(mux, client, id, terminal_id, url, writer);
+        return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }
     if let Command::ChiefInspect(params) = cmd {
-        return chief_inspect::start(mux, client, id, params, writer);
+        return chief_inspect::start(mux, client, id, params, span.start_async(), writer);
     }
     if cloud_conversations::is_network(&cmd) {
-        return cloud_conversations::start(mux, client, id, cmd, writer);
+        return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);
     }
     if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
         return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
@@ -152,13 +166,16 @@ pub(super) fn handle_request_with_cancellation(
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
-        return send_request_error(writer, id, "server lifecycle is not ready");
+        return span.reply(|| send_request_error(writer, id, "server lifecycle is not ready"));
     }
     if let Command::VtState { surface } = &cmd {
-        return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
-            Ok(()) => true,
-            Err(error) => send_request_error(writer, id, &error.to_string()),
-        };
+        let surface = *surface;
+        return span.reply(|| {
+            match send_vt_state_command_response(mux, id.clone(), surface, writer) {
+                Ok(()) => true,
+                Err(error) => send_request_error(writer, id, &error.to_string()),
+            }
+        });
     }
 
     let detach_self = match &cmd {
@@ -203,7 +220,9 @@ pub(super) fn handle_request_with_cancellation(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    let sent = span.reply(|| {
+        responses::send_response_with_details(writer, response, reason, retryable, details)
+    });
     // The reply is out; the request's registry commits (already in the WAL)
     // go to disk now, in one flush that none of them waited for.
     mux.request_registry_flush();

@@ -12,8 +12,10 @@ import java.util.Objects;
 
 public final class ServerStatsResult implements WireValue {
     private final ServerStatsConnections connections;
+    private final Field<ServerStatsHistogram> dispatchQueueUs;
     private final ServerStatsJournalWriter journalWriter;
     private final ServerStatsRegistryLock registryLock;
+    private final Field<ServerStatsRequestLatency> requestLatencyUs;
     private final Field<ServerStatsResourceProjection> resourceProjection;
     private final long schema;
     private final UInt64 uptimeMs;
@@ -22,10 +24,12 @@ public final class ServerStatsResult implements WireValue {
     private ServerStatsResult(Builder builder) {
         if (!builder.connectionsSet) throw new IllegalArgumentException("connections is required");
         this.connections = Wire.nonNull(builder.connections, "connections");
+        this.dispatchQueueUs = builder.dispatchQueueUs;
         if (!builder.journalWriterSet) throw new IllegalArgumentException("journal_writer is required");
         this.journalWriter = builder.journalWriter;
         if (!builder.registryLockSet) throw new IllegalArgumentException("registry_lock is required");
         this.registryLock = Wire.nonNull(builder.registryLock, "registry_lock");
+        this.requestLatencyUs = builder.requestLatencyUs;
         this.resourceProjection = builder.resourceProjection;
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
@@ -37,8 +41,10 @@ public final class ServerStatsResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public ServerStatsConnections connections() { return connections; }
+    public Field<ServerStatsHistogram> dispatchQueueUs() { return dispatchQueueUs; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
+    public Field<ServerStatsRequestLatency> requestLatencyUs() { return requestLatencyUs; }
     public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
     public long schema() { return schema; }
     public UInt64 uptimeMs() { return uptimeMs; }
@@ -49,10 +55,18 @@ public final class ServerStatsResult implements WireValue {
         Builder builder = builder();
         Object rawConnections = Wire.required(object, "connections");
         builder.connections(ServerStatsConnections.fromWire(rawConnections));
+        Object rawDispatchQueueUs = Wire.optional(object, "dispatch_queue_us");
+        if (!Wire.isMissing(rawDispatchQueueUs)) {
+            builder.dispatchQueueUs(ServerStatsHistogram.fromWire(rawDispatchQueueUs));
+        }
         Object rawJournalWriter = Wire.required(object, "journal_writer");
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
         Object rawRegistryLock = Wire.required(object, "registry_lock");
         builder.registryLock(ServerStatsRegistryLock.fromWire(rawRegistryLock));
+        Object rawRequestLatencyUs = Wire.optional(object, "request_latency_us");
+        if (!Wire.isMissing(rawRequestLatencyUs)) {
+            builder.requestLatencyUs(ServerStatsRequestLatency.fromWire(rawRequestLatencyUs));
+        }
         Object rawResourceProjection = Wire.optional(object, "resource_projection");
         if (!Wire.isMissing(rawResourceProjection)) {
             builder.resourceProjection(ServerStatsResourceProjection.fromWire(rawResourceProjection));
@@ -72,8 +86,10 @@ public final class ServerStatsResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "connections", connections);
+        Wire.put(object, "dispatch_queue_us", dispatchQueueUs);
         Wire.put(object, "journal_writer", journalWriter);
         Wire.put(object, "registry_lock", registryLock);
+        Wire.put(object, "request_latency_us", requestLatencyUs);
         Wire.put(object, "resource_projection", resourceProjection);
         Wire.put(object, "schema", schema);
         Wire.put(object, "uptime_ms", uptimeMs);
@@ -84,11 +100,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, journalWriter, registryLock, resourceProjection, schema, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, journalWriter, registryLock, requestLatencyUs, resourceProjection, schema, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -96,10 +112,12 @@ public final class ServerStatsResult implements WireValue {
     public static final class Builder {
         private ServerStatsConnections connections;
         private boolean connectionsSet;
+        private Field<ServerStatsHistogram> dispatchQueueUs = Field.omitted();
         private ServerStatsJournalWriter journalWriter;
         private boolean journalWriterSet;
         private ServerStatsRegistryLock registryLock;
         private boolean registryLockSet;
+        private Field<ServerStatsRequestLatency> requestLatencyUs = Field.omitted();
         private Field<ServerStatsResourceProjection> resourceProjection = Field.omitted();
         private Long schema;
         private boolean schemaSet;
@@ -112,6 +130,10 @@ public final class ServerStatsResult implements WireValue {
             this.connectionsSet = true;
             return this;
         }
+        public Builder dispatchQueueUs(ServerStatsHistogram value) {
+            this.dispatchQueueUs = Field.of(value);
+            return this;
+        }
         public Builder journalWriter(ServerStatsJournalWriter value) {
             this.journalWriter = value;
             this.journalWriterSet = true;
@@ -120,6 +142,10 @@ public final class ServerStatsResult implements WireValue {
         public Builder registryLock(ServerStatsRegistryLock value) {
             this.registryLock = value;
             this.registryLockSet = true;
+            return this;
+        }
+        public Builder requestLatencyUs(ServerStatsRequestLatency value) {
+            this.requestLatencyUs = Field.of(value);
             return this;
         }
         public Builder resourceProjection(ServerStatsResourceProjection value) {

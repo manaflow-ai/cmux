@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{ClientTransport, MessageWriter, Mux, Response, send_response};
+use super::{AsyncReply, ClientTransport, MessageWriter, Mux, Response, send_response};
 use crate::conversation_store::LOCAL_USER;
 use crate::request_origin::ORIGIN_FORBIDDEN;
 
@@ -214,6 +214,7 @@ pub(super) fn start(
     client: u64,
     id: Option<Value>,
     params: Params,
+    reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
     // Refuse at once, on this thread, before any thread or socket.
@@ -224,6 +225,7 @@ pub(super) fn start(
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
+        let _reply = reply;
         respond(&thread_writer, reply_id, inspect_with(&mux, client, params, None));
     });
     spawned.is_ok()

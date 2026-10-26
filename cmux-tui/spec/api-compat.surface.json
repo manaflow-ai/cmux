@@ -18970,6 +18970,33 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/dispatch_queue_us": {
+        "ty": "object"
+      },
+      "/data/dispatch_queue_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dispatch_queue_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dispatch_queue_us/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dispatch_queue_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dispatch_queue_us/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dispatch_queue_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
@@ -19247,6 +19274,233 @@
         "required": true
       },
       "/data/registry_lock/wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us": {
+        "ty": "object"
+      },
+      "/data/request_latency_us/agent": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/agent/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/agent/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/agent/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/agent/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/agent/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/agent/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/browser/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/browser/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/cloud/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/create/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/create/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/other/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/other/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/query/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/query/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/terminal_io/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/request_latency_us/topology/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology/mean": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology/p90": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_latency_us/topology/p99": {
         "ty": "uint64",
         "required": true
       },

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+inline constexpr std::string_view kProtocolIrSha256 = "84c01b26d73f9acd388eacb7623a04af3c7a2f653df06f41a8adc6c5fbb8dd98";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -162,6 +162,7 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsRequestLatency;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsWritePath;
@@ -4879,6 +4880,18 @@ struct ServerStatsRequest {
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
+struct ServerStatsRequestLatency {
+    ServerStatsHistogram agent{};
+    ServerStatsHistogram browser{};
+    ServerStatsHistogram cloud{};
+    ServerStatsHistogram create{};
+    ServerStatsHistogram other{};
+    ServerStatsHistogram query{};
+    ServerStatsHistogram terminal_io{};
+    ServerStatsHistogram topology{};
+    friend bool operator==(const ServerStatsRequestLatency&, const ServerStatsRequestLatency&) = default;
+};
+
 struct ServerStatsResourceProjection {
     ServerStatsHistogram commit_apply_us{};
     ServerStatsHistogram commit_journal_us{};
@@ -4911,8 +4924,10 @@ struct ServerStatsWritePath {
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
+    std::optional<ServerStatsHistogram> dispatch_queue_us{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsRequestLatency> request_latency_us{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
@@ -6858,6 +6873,12 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequestLatency> {
+    static Result<Json> encode(const ServerStatsRequestLatency& value);
+    static Result<ServerStatsRequestLatency> decode(const Json& value);
 };
 
 template <>
