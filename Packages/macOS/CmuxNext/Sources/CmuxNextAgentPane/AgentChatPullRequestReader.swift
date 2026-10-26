@@ -28,7 +28,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// and restoring many chats offline must not fill the pool (cx-mb1e0).
     private static let queue: OperationQueue = {
         let queue = OperationQueue()
-        queue.name = "header-pull-request"
+        queue.name = "com.cmuxterm.app.next.agent-pane.pull-request"
         queue.maxConcurrentOperationCount = 2
         queue.qualityOfService = .utility
         return queue
