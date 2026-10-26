@@ -41,6 +41,23 @@ Per session and phase:
   drain (--hidden)     debug.drain_cost over the phase: the daemon store's drain of one batch of events (most of them
                        from the storm's hidden workspaces), its p50/p95/p99/max ms and buckets, with p99 against
                        DRAIN_P99_BUDGET_MS (1 ms), and its sidebar flattenings and workspace-list changes.
+
+--hidden N (p06-scheduler-150; bare --hidden is N=50): N hidden workspaces (the --background workspaces: no window
+shows them) and one more phase, `hidden`, after the others. In it the person does nothing: the script process sends
+HIDDEN_OPS (1000) CLI ops, the daemon kinds of --rates only (reorder, move, column, rename; app-rename and batch are
+control-socket ops, not CLI ops), each kind its share by rate, all into the hidden workspaces, and waits for every
+reply. The window runs from the counters' reset to HIDDEN_SETTLE_S after the last reply (the app applies the last
+events, and the hidden surfaces' 1 s aligned frontend flush lands). Then, after the script closed its panes, an idle
+window of the same length on the same counters. Per window, numbers only (no budget is read against them):
+  main_ms_per_op       app main-thread busy time in run-loop turns (debug.main_budget turn_ms scheduled + render +
+                       input + unattributed totals) over the applied ops; `net_*` is the storm minus the idle window
+  hidden_node_tasks    finished main-thread tasks whose visibility node was hidden (and occluded) when they ran, by
+                       class (debug.main_budget owners' node states), with the owners that ran them
+  hidden_workspace_layouts / hidden_workspace_applies   debug.layout_counters deltas (p06-scheduler-229)
+  frontend_events_per_hidden_surface_per_s   the daemon events the app's store drained (debug.drain_cost `events`:
+                       what the frontend mailbox delivered) over the hidden surfaces (the prepared tabs) and seconds
+  hidden_body_evaluations   SwiftUI hosting bodies evaluated while hidden (debug.observations)
+A number whose debug method or field the build lacks is null and named in `missing` (a base build runs it too).
 A phase is reported "invalid" with its reasons and no key numbers when: its storm was not applied during the person's
 window (an applied rate, overall or in any second of the window, under MIN_APPLIED_SHARE of the asked one, refusals
 over MAX_REFUSED_SHARE); any key was censored (no probe row within KEY_DEADLINE_S: its wait is reported as a lower
@@ -60,8 +77,9 @@ script phase refuse to start when the PTYs in use plus the ones they open would 
 and the column load checks the PTYs in use before each create.
 
   script-storm-bench.py --app APP --out DIR [--sessions light,stress] [--seconds 15] [--samples 120]
-      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10] [--background 50] [--hidden]
+      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10] [--background 50] [--hidden [N]]
       [--json FILE]
+  script-storm-bench.py --app APP --out DIR --sessions light --phases hidden --hidden 50   # the hidden storm only
 
 The STRESS session is built by perf-stress-session.py, which checks its shape: a session of another shape reports
 "STRESS shape missed" and no numbers. The app launches through bench_launch.py.
@@ -101,6 +119,15 @@ KEY_COLUMN = "contents_ms"
 # --hidden: the store's drain of one batch of daemon events (most of them from the storm's hidden workspaces) under
 # 1 ms at p99 (p06-scheduler-033). A measurement, reported next to the phase, never a gate.
 DRAIN_P99_BUDGET_MS = 1.0
+# --hidden N: the hidden phase's CLI ops (plans/cmux-next/chrome-parity/p06-scheduler.md, done check 4), the daemon op
+# kinds that make them, and the settle after the last reply: the app applies the last events, and the frontend
+# mailbox's 1 s aligned flush of hidden surfaces' field events (p06-scheduler-227) lands inside the window.
+HIDDEN_OPS = 1000
+HIDDEN_KINDS = ("reorder", "move", "column", "rename")
+HIDDEN_SETTLE_S = 2.0
+HIDDEN_WORKSPACES_BARE = 50
+# The debug.layout_counters fields the hidden phase reads as deltas (p06-scheduler-229).
+HIDDEN_LAYOUT_FIELDS = ("hidden_workspace_layouts", "hidden_workspace_applies")
 SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}
 
 
@@ -124,6 +151,125 @@ def drain_report(reply):
         return {"error": f"debug.drain_cost answered {str(reply)[:200]}"}
     over = reply["batches"] > 0 and reply["p99_ms"] > DRAIN_P99_BUDGET_MS
     return {**reply, "budget_ms": DRAIN_P99_BUDGET_MS, "over_budget": over}
+
+
+def op_shares(rates, total):
+    """`total` ops split over the kinds with a rate, in proportion to it (the largest remainders take the rest)."""
+    asked = {kind: rate for kind, rate in rates.items() if rate and rate > 0}
+    if not asked or total <= 0:
+        return {}
+    whole = sum(asked.values())
+    exact = {kind: total * rate / whole for kind, rate in asked.items()}
+    shares = {kind: int(value) for kind, value in exact.items()}
+    for kind in sorted(exact, key=lambda k: (shares[k] - exact[k], k))[: total - sum(shares.values())]:
+        shares[kind] += 1
+    return shares
+
+
+def number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def main_busy_ms(budget):
+    """The main thread's busy time in run-loop turns from a debug.main_budget reply (the sum of its turn_ms split
+    totals), or None when the reply has no such totals."""
+    turns = budget.get("turn_ms") if isinstance(budget, dict) else None
+    if not isinstance(turns, dict):
+        return None
+    parts = [number(turns.get(k)) for k in ("scheduled_total", "render_total", "input_total", "unattributed_total")]
+    return None if None in parts else round(sum(parts), 3)
+
+
+def node_tasks(budget):
+    """Finished main-thread tasks whose visibility node was hidden (or occluded) when they ran, by class (the
+    debug.main_budget `owners` rows' node states), and the owners that ran hidden ones, most first; None when the reply
+    has no owners."""
+    owners = budget.get("owners") if isinstance(budget, dict) else None
+    if not isinstance(owners, list):
+        return None
+    by_state = {"hidden": {}, "occluded": {}}
+    hidden_owners = []
+    for row in owners:
+        nodes = row.get("nodes") or {}
+        work_class = str(row.get("class"))
+        for state, classes in by_state.items():
+            count = number(nodes.get(state)) or 0
+            if count:
+                classes[work_class] = classes.get(work_class, 0) + count
+        if number(nodes.get("hidden")):
+            hidden_owners.append({"owner": row.get("owner"), "class": work_class, "tasks": nodes["hidden"]})
+    hidden_owners.sort(key=lambda r: (-r["tasks"], str(r["owner"])))
+    return {"hidden_by_class": by_state["hidden"], "occluded_by_class": by_state["occluded"],
+            "hidden_total": sum(by_state["hidden"].values()), "hidden_owners": hidden_owners[:20],
+            "owner_ledger": budget.get("owner_ledger")}
+
+
+def counter_deltas(before, after, fields):
+    """after - before per field (debug.layout_counters: `reset` leaves some of its counters, so it is read as a
+    delta), None for a field either reply lacks."""
+    def read(reply, field):
+        return number(reply.get(field)) if isinstance(reply, dict) else None
+    deltas = {}
+    for field in fields:
+        a, b = read(before, field), read(after, field)
+        deltas[field] = None if a is None or b is None else b - a
+    return deltas
+
+
+def hidden_numbers(window, ops, surfaces):
+    """One window of the hidden phase in numbers. `window` holds its `seconds`, the debug replies read at its end
+    (`budget`: debug.main_budget, `layout`: debug.layout_counters, `drain`: debug.drain_cost, `observations`:
+    debug.observations) and `layout_before`; `ops` is the applied CLI ops and `surfaces` the hidden surfaces. A number
+    whose source is missing is None and named in `missing`."""
+    seconds = number(window.get("seconds")) or 0
+    busy = main_busy_ms(window.get("budget"))
+    tasks = node_tasks(window.get("budget"))
+    layouts = counter_deltas(window.get("layout_before"), window.get("layout"), HIDDEN_LAYOUT_FIELDS)
+    drain = window.get("drain") if isinstance(window.get("drain"), dict) else None
+    events = number((drain or {}).get("events"))
+    observations = window.get("observations")
+    totals = observations.get("totals") if isinstance(observations, dict) else None
+    bodies = number(totals.get("hidden_body_evaluations")) if isinstance(totals, dict) else None
+    found = {"main_busy_ms": busy, "hidden_node_tasks": tasks, "frontend_events": events,
+             "hidden_body_evaluations": bodies, **layouts}
+    return {"seconds": round(seconds, 3), "ops": ops, "main_busy_ms": busy,
+            "main_ms_per_op": round(busy / ops, 4) if busy is not None and ops else None,
+            "hidden_node_tasks": tasks, **layouts, "frontend_events": events,
+            "frontend_events_per_hidden_surface_per_s":
+                round(events / surfaces / seconds, 3) if events is not None and surfaces and seconds else None,
+            "hidden_body_evaluations": bodies, "drain": drain_report(drain) if drain is not None else None,
+            "missing": [name for name, value in found.items() if value is None]}
+
+
+def hidden_net(storm, idle):
+    """The storm window minus the idle one (scaled to the storm's length): the main ms per op and the frontend events
+    per hidden surface per second that the storm itself caused."""
+    scale = storm["seconds"] / idle["seconds"] if idle.get("seconds") else None
+    busy, idle_busy = storm.get("main_busy_ms"), idle.get("main_busy_ms")
+    net_busy = None if busy is None or idle_busy is None or scale is None else busy - idle_busy * scale
+    rate, idle_rate = (storm.get("frontend_events_per_hidden_surface_per_s"),
+                       idle.get("frontend_events_per_hidden_surface_per_s"))
+    return {"net_main_ms_per_op": round(net_busy / storm["ops"], 4) if net_busy is not None and storm.get("ops") else None,
+            "net_frontend_events_per_hidden_surface_per_s":
+                round(rate - idle_rate, 3) if rate is not None and idle_rate is not None else None}
+
+
+def hidden_summary(run):
+    """A hidden phase's summary row: its numbers, the idle window's next to them, and what the build lacked."""
+    storm, idle = run["storm"], run.get("idle") or {}
+    tasks = storm.get("hidden_node_tasks") or {}
+    return {"shape": run.get("shape"), "invalid": run.get("invalid") or None,
+            "hidden_workspaces": run.get("hidden_workspaces"), "hidden_surfaces": run.get("hidden_surfaces"),
+            "ops": storm.get("ops"), "seconds": storm.get("seconds"),
+            "main_ms_per_op": storm.get("main_ms_per_op"), "net_main_ms_per_op": run.get("net_main_ms_per_op"),
+            "hidden_node_tasks_by_class": tasks.get("hidden_by_class"),
+            "idle_hidden_node_tasks_by_class": (idle.get("hidden_node_tasks") or {}).get("hidden_by_class"),
+            "hidden_workspace_layouts": storm.get("hidden_workspace_layouts"),
+            "hidden_workspace_applies": storm.get("hidden_workspace_applies"),
+            "frontend_events_per_hidden_surface_per_s": storm.get("frontend_events_per_hidden_surface_per_s"),
+            "net_frontend_events_per_hidden_surface_per_s": run.get("net_frontend_events_per_hidden_surface_per_s"),
+            "hidden_body_evaluations": storm.get("hidden_body_evaluations"),
+            "drain_p99_ms": (storm.get("drain") or {}).get("p99_ms"), "missing": storm.get("missing") or None}
 
 
 def error_code(message):
@@ -307,15 +453,17 @@ def applied_in(ok_times, window):
 
 
 class Paced(threading.Thread):
-    """Calls `step(i)` at `rate` per second, open loop (behind schedule: it catches up, never sleeps), until stopped."""
+    """Calls `step(i)` at `rate` per second, open loop (behind schedule: it catches up, never sleeps), until stopped or,
+    with a `limit`, until it made that many calls."""
 
     def __init__(self, rate, step, on_error):
         super().__init__(daemon=True)
         self.rate, self.step, self.on_error, self.flag, self.calls = rate, step, on_error, threading.Event(), 0
+        self.limit = None
 
     def run(self):
         start = time.perf_counter()
-        while not self.flag.is_set():
+        while not self.flag.is_set() and (self.limit is None or self.calls < self.limit):
             due = start + self.calls / self.rate
             rest = due - time.perf_counter()
             if rest > 0:
@@ -522,14 +670,21 @@ def storm_worker(plan_path):
     """The script: once every kind's connection has answered a ping, paces every kind until a line (or EOF) on stdin,
     then closes what it made and prints its report as one JSON line on stdout. The stop line is JSON `{"window":
     [start, end]}` (uptime seconds of the person's keys and splits): each kind's applied rate is also reported over
-    that window. Nothing is paced (so nothing is made) when a connection does not answer."""
+    that window. Nothing is paced (so nothing is made) when a connection does not answer.
+
+    With `ops` in the plan (the hidden phase), each kind makes only its share of them (op_shares), and once every kind
+    made its share and every reply came back (or STORM_DRAIN_DEADLINE_S passed) the worker prints one more line,
+    `{"paced_done": true, "answered": ..., "seconds": ...}`, before it waits for the stop line."""
     with open(plan_path) as handle:
         plan = json.load(handle)
+    shares = op_shares(plan["rates"], plan["ops"]) if plan.get("ops") else None
     loads = []
     try:
         for index, (kind, rate) in enumerate(sorted(plan["rates"].items())):
-            if rate:
+            if rate and (shares is None or shares.get(kind)):
                 loads.append(LOADS[kind](plan, random.Random(7 + index)))
+                if shares is not None:
+                    loads[-1].thread.limit = shares[kind]
         silent = [load.kind for load in loads if not load.connection.warm(STORM_START_DEADLINE_S)]
     except OSError as error:
         print(json.dumps({"running": False, "error": repr(error)[:300]}), flush=True)
@@ -541,14 +696,27 @@ def storm_worker(plan_path):
         for load in loads:
             load.connection.close()
         return 1
-    started = time.perf_counter()
-    for load in loads:
-        load.thread.start()
     print(json.dumps({"running": True, "kinds": [load.kind for load in loads]}), flush=True)
-    line = sys.stdin.readline()
+    # A counted storm waits for `go` (the bench resets its counters first); any other line is the stop line.
+    line = sys.stdin.readline() if shares is not None else "go"
+    pacing = line.strip() == "go"
+    started = time.perf_counter()
+    if pacing:
+        for load in loads:
+            load.thread.start()
+    if pacing and shares is not None:
+        for load in loads:
+            load.thread.join(timeout=load.thread.limit / load.rate + STORM_DRAIN_DEADLINE_S)
+        paced = not any(load.thread.is_alive() for load in loads)
+        answered = [load.connection.drain(STORM_DRAIN_DEADLINE_S) for load in loads]
+        print(json.dumps({"paced_done": True, "answered": paced and all(answered),
+                          "seconds": round(time.perf_counter() - started, 3)}), flush=True)
+    if pacing:
+        line = sys.stdin.readline()
     seconds = time.perf_counter() - started
     for load in loads:
-        load.thread.stop()
+        if pacing:
+            load.thread.stop()
     try:
         window = json.loads(line).get("window") if line.strip() else None
     except (ValueError, AttributeError):
@@ -583,16 +751,35 @@ parser.add_argument("--interval", type=float, default=0.1,
                     help="the person's pace: at least this many seconds between key sends (each also waits for the last key's row)")
 parser.add_argument("--splits", type=int, default=10, help="Cmd-D then Cmd-W pairs per phase")
 parser.add_argument("--rates", default="reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10")
-parser.add_argument("--background", type=int, default=50, help="background workspaces the script works in")
+parser.add_argument("--background", type=int, help="background workspaces the script works in (default 50; with --hidden N, N)")
 parser.add_argument("--live-columns", type=int, default=2, help="script-made panes alive per workspace before closing")
 # STRESS plus the setup's two terminals per background workspace hold about 190 PTYs; 40 more keeps the host under
 # MAX_PTY_LIMIT (300) with room for other agents' sessions. The PTY check refuses a phase that would pass it.
 parser.add_argument("--max-live-terminals", type=int, default=40, help="script-made terminals alive in the whole storm")
 parser.add_argument("--max-inflight", type=int, default=512, help="unanswered requests per op kind")
-parser.add_argument("--hidden", action="store_true",
-                    help=f"also report per phase the store's drain cost (debug.drain_cost): the drain time's p99 against "
-                         f"{DRAIN_P99_BUDGET_MS:g} ms, sidebar flattenings and workspace-list changes")
+parser.add_argument("--hidden", type=int, nargs="?", const=HIDDEN_WORKSPACES_BARE, metavar="N",
+                    help=f"N hidden workspaces (the background ones; bare: {HIDDEN_WORKSPACES_BARE}) and a last phase "
+                         f"`hidden`: {HIDDEN_OPS} CLI ops ({', '.join(HIDDEN_KINDS)} at their --rates shares) into them "
+                         f"while the person does nothing, then an idle window as long; reports main ms/op, hidden-node "
+                         f"tasks by class, hidden_workspace_layouts, frontend mailbox events per hidden surface per "
+                         f"second and hidden SwiftUI bodies, numbers only. Every phase also reports the store's drain "
+                         f"cost (debug.drain_cost): its p99 against {DRAIN_P99_BUDGET_MS:g} ms, sidebar flattenings and "
+                         f"workspace-list changes")
 opts = parser.parse_args()
+HIDDEN = opts.hidden is not None
+if HIDDEN and opts.hidden < 1:
+    parser.error("--hidden N: N is at least 1")
+if HIDDEN and opts.background not in (None, opts.hidden):
+    parser.error(f"--hidden {opts.hidden} sets the background workspaces; --background {opts.background} differs")
+opts.background = opts.hidden if HIDDEN else (50 if opts.background is None else opts.background)
+PHASES = [p for p in opts.phases.split(",") if p]
+if HIDDEN and "hidden" not in PHASES:
+    PHASES.append("hidden")
+if "hidden" in PHASES and not HIDDEN:
+    parser.error("--phases hidden needs --hidden N")
+unknown_phases = sorted(set(PHASES) - {"idle", "script", "hidden"})
+if unknown_phases:
+    parser.error(f"--phases: unknown phases {unknown_phases} (known: idle, script, hidden)")
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(OUT, "typing.csv")
@@ -600,6 +787,10 @@ RATES = {k: float(v) for k, v in (item.split("=") for item in opts.rates.split("
 unknown = sorted(set(RATES) - set(LOADS))
 if unknown:
     parser.error(f"--rates: unknown op kinds {unknown} (known: {sorted(LOADS)})")
+# The hidden phase's CLI ops: the daemon kinds of --rates.
+HIDDEN_RATES = {kind: RATES[kind] for kind in HIDDEN_KINDS if RATES.get(kind)}
+if HIDDEN and not HIDDEN_RATES:
+    parser.error(f"--hidden needs a rate for at least one CLI op kind ({', '.join(HIDDEN_KINDS)}) in --rates")
 results = {"host": os.uname().nodename, "opts": vars(opts), "key_column": KEY_COLUMN, "session_shapes": SESSION_SHAPE,
            "log": [], "runs": []}
 
@@ -832,13 +1023,15 @@ class Session:
 
     # The script.
 
-    def start_storm(self, phase):
-        """Starts the script process; returns it once each of its connections has a first reply."""
-        live = min(opts.max_live_terminals, opts.live_columns * len(self.background)) if RATES.get("column") else 0
+    def start_storm(self, phase, rates=None, ops=None):
+        """Starts the script process (at `rates`, default --rates; with `ops`, that many in all); returns it once each
+        of its connections has a first reply."""
+        rates = RATES if rates is None else rates
+        live = min(opts.max_live_terminals, opts.live_columns * len(self.background)) if rates.get("column") else 0
         pty_guard(f"the {phase} storm", live)
-        plan = {"daemon": self.daemon_path, "control": self.app.socket, "rates": RATES, "background": self.background,
+        plan = {"daemon": self.daemon_path, "control": self.app.socket, "rates": rates, "background": self.background,
                 "workspaces": len(self.topology().get("workspaces") or []), "live_columns": opts.live_columns,
-                "max_live_terminals": opts.max_live_terminals, "max_inflight": opts.max_inflight}
+                "max_live_terminals": opts.max_live_terminals, "max_inflight": opts.max_inflight, "ops": ops}
         plan_path = os.path.join(OUT, self.name, f"storm-{phase}.plan.json")
         with open(plan_path, "w") as handle:
             json.dump(plan, handle)
@@ -1106,7 +1299,7 @@ class Session:
             worker = self.start_storm(phase) if phase == "script" else None
             self.rpc("debug.hangs", {"clear": True})
             self.rpc("debug.queue", {"reset": True})
-            if opts.hidden:
+            if HIDDEN:
                 self.rpc("debug.drain_cost", {"reset": True})
             self.rpc("debug.frames", {"action": "start"})
             started = time.perf_counter()
@@ -1127,7 +1320,7 @@ class Session:
             frames = self.rpc("debug.frames", {"action": "stop"}, timeout=20)
             hangs = self.rpc("debug.hangs", {"limit": 12}, timeout=20)
             queue = self.rpc("debug.queue", timeout=20)
-            drain = self.rpc("debug.drain_cost", timeout=20) if opts.hidden else None
+            drain = self.rpc("debug.drain_cost", timeout=20) if HIDDEN else None
             script = self.stop_storm(worker, window) if worker else None
             worker = None
         finally:
@@ -1162,7 +1355,7 @@ class Session:
                  "frames": frames,
                  "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms", "records")}
                  if isinstance(hangs, dict) else hangs,
-                 "queue": queue, "script": script, "drain": drain_report(drain) if opts.hidden else None}
+                 "queue": queue, "script": script, "drain": drain_report(drain) if HIDDEN else None}
         k = entry["key_to_contents_ms"] or {}
         applied = {kind: ((v.get("window") or {}).get("applied_per_s"), (v.get("window") or {}).get("slowest_second_per_s"),
                           v.get("asked_per_s"), v.get("refused"))
@@ -1175,8 +1368,99 @@ class Session:
              f"{f.get('main_p95_ms')} max {f.get('main_max_ms')} ms, over 8.3 ms {f.get('main_over_8_3_ms')}; "
              f"stalls {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}"
              + (f"; split input-to-commit INVALID ({'; '.join(split_invalid)})" if split_invalid else "")
-             + (f"; drain {json.dumps(entry['drain'])}" if opts.hidden else "")
+             + (f"; drain {json.dumps(entry['drain'])}" if HIDDEN else "")
              + (f"; script applied in window/slowest second/asked/refused per kind {json.dumps(applied)}" if script else ""))
+        results["runs"].append(entry)
+        if opts.json:
+            json.dump(results, open(opts.json, "w"), indent=1)
+
+    # The hidden storm (--hidden N).
+
+    def hidden_reset(self):
+        """Zeroes the hidden numbers' counters; returns the layout counters to subtract (`reset` leaves some)."""
+        for method in ("debug.main_budget", "debug.drain_cost", "debug.observations"):
+            self.rpc(method, {"reset": True}, timeout=20)
+        return self.rpc("debug.layout_counters", timeout=20)
+
+    def hidden_read(self, layout_before, seconds):
+        """The window's debug replies, debug.main_budget first, so the later reads' own main work is not in it."""
+        budget = self.rpc("debug.main_budget", timeout=20)
+        return {"seconds": seconds, "layout_before": layout_before, "budget": budget,
+                "layout": self.rpc("debug.layout_counters", timeout=20), "drain": self.rpc("debug.drain_cost", timeout=20),
+                "observations": self.rpc("debug.observations", timeout=20)}
+
+    @staticmethod
+    def hidden_problems(paced, script):
+        """Why the counted storm is not HIDDEN_OPS answered CLI ops, if it is not."""
+        problems = []
+        if not (paced or {}).get("answered"):
+            problems.append(f"the script did not get every reply to its {HIDDEN_OPS} ops in time ({paced})")
+        for kind in HIDDEN_RATES:
+            report = (script or {}).get(kind)
+            if not isinstance(report, dict):
+                problems.append(f"{kind}: no report")
+                continue
+            if report.get("refused", 0) > MAX_REFUSED_SHARE * max(report.get("sent", 0), 1):
+                problems.append(f"{kind}: {report.get('refused')} of {report.get('sent')} refused {report.get('refusals')}")
+            if report.get("terminals_left_open"):
+                problems.append(f"{kind}: {report['terminals_left_open']} script terminals left open")
+        return problems
+
+    def measure_hidden(self):
+        """HIDDEN_OPS CLI ops into the N hidden workspaces while the person does nothing, from the counters' reset to
+        HIDDEN_SETTLE_S after the last reply; then, once the script closed its panes and HIDDEN_SETTLE_S passed, an idle
+        window as long on the same counters. Numbers only."""
+        invalid = []
+        if len(self.background) < opts.hidden:
+            invalid.append(f"{len(self.background)} hidden workspaces prepared of {opts.hidden} asked")
+        shown = {w.get("workspace") for w in self.topology().get("windows") or []}
+        surfaces = sum(len(ws["tabs"]) for ws in self.background)
+        worker = self.start_storm("hidden", rates=HIDDEN_RATES, ops=HIDDEN_OPS)
+        try:
+            layout_before = self.hidden_reset()
+            started, window_start = time.perf_counter(), uptime()
+            worker.stdin.write("go\n")
+            worker.stdin.flush()
+            line = worker.stdout.readline()  # the worker's own deadlines bound it
+            try:
+                paced = json.loads(line) if line.strip() else {}
+            except ValueError:
+                paced = {"unparsed": line[:200]}
+            time.sleep(HIDDEN_SETTLE_S)  # bench script: the last events apply and the 1 s aligned hidden flush lands
+            seconds = time.perf_counter() - started
+            window = [window_start, uptime()]
+            storm_counters = self.hidden_read(layout_before, seconds)
+            script = self.stop_storm(worker, window)
+            worker = None
+        finally:
+            if worker:
+                self.abort_storm(worker)
+        invalid += self.hidden_problems(paced, script)
+        shown_after = {w.get("workspace") for w in self.topology().get("windows") or []}
+        if shown_after != shown:
+            invalid.append(f"the shown workspaces changed during the storm ({sorted(map(str, shown))} to "
+                           f"{sorted(map(str, shown_after))}): the storm's workspaces were not all hidden")
+        time.sleep(HIDDEN_SETTLE_S)  # bench script: the closes' events land before the idle window
+        layout_before = self.hidden_reset()
+        time.sleep(seconds)  # bench script: the idle window is as long as the storm's
+        idle_counters = self.hidden_read(layout_before, seconds)
+        ops = sum((script.get(kind) or {}).get("ok", 0) for kind in HIDDEN_RATES if isinstance(script.get(kind), dict))
+        storm = hidden_numbers(storm_counters, ops, surfaces)
+        idle = hidden_numbers(idle_counters, 0, surfaces)
+        entry = {"session": self.name, "shape": SESSION_SHAPE.get(self.name, self.name), "phase": "hidden",
+                 "invalid": invalid, "hidden_workspaces": len(self.background), "hidden_surfaces": surfaces,
+                 "shown_workspaces": sorted(map(str, shown)), "ops_asked": HIDDEN_OPS,
+                 "shares": op_shares(HIDDEN_RATES, HIDDEN_OPS), "paced": paced, "storm": storm, "idle": idle,
+                 **hidden_net(storm, idle), "script": script}
+        tasks = storm["hidden_node_tasks"] or {}
+        note(f"{self.name}.hidden ({entry['shape']}, {len(self.background)} hidden workspaces, {surfaces} surfaces): "
+             + (f"INVALID ({'; '.join(invalid)}); " if invalid else "")
+             + f"{ops} CLI ops in {storm['seconds']} s; main {storm['main_ms_per_op']} ms/op (net "
+             f"{entry['net_main_ms_per_op']}); hidden-node tasks by class {json.dumps(tasks.get('hidden_by_class'))}; "
+             f"hidden_workspace_layouts {storm['hidden_workspace_layouts']}; frontend events per hidden surface per s "
+             f"{storm['frontend_events_per_hidden_surface_per_s']} (net {entry['net_frontend_events_per_hidden_surface_per_s']}); "
+             f"hidden bodies {storm['hidden_body_evaluations']}"
+             + (f"; missing {storm['missing']}" if storm["missing"] else ""))
         results["runs"].append(entry)
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
@@ -1190,7 +1474,9 @@ class Session:
         try:
             time.sleep(3)  # bench script: launch work settles
             methods = (self.rpc("system.capabilities") or {}).get("methods") or []
-            needed = ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames") + (("debug.drain_cost",) if opts.hidden else ())
+            # The --hidden numbers' debug methods are not needed: a build without one (a base run) reports that number
+            # null and names it in `missing`.
+            needed = ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames")
             missing = [m for m in needed if m not in methods]
             if missing:
                 note(f"{self.name}: the app has no {missing}; nothing measured")
@@ -1215,13 +1501,16 @@ class Session:
                 note(f"{self.name}: background not prepared: {error}; nothing measured")
                 results["runs"].append({"session": self.name, "phase": "build", "background_problem": str(error)[:2000]})
                 return
-            for phase in opts.phases.split(","):
+            for phase in PHASES:
                 if self.broken:
                     note(f"{self.name}.{phase}: not measured: an earlier phase broke the layout ({self.broken})")
                     results["runs"].append({"session": self.name, "phase": phase, "invalid": [f"not measured: {self.broken}"]})
                     continue
                 try:
-                    self.measure(phase)
+                    if phase == "hidden":
+                        self.measure_hidden()
+                    else:
+                        self.measure(phase)
                 except Exception as error:  # one phase failing must not hide the others; it is reported
                     note(f"{self.name}.{phase}: failed: {error!r}")
                     results["runs"].append({"session": self.name, "phase": phase, "invalid": [f"failed: {error!r}"[:2000]]})
@@ -1237,6 +1526,9 @@ def main():
         Session(name).run()
     summary = {}
     for r in results["runs"]:
+        if r.get("phase") == "hidden" and isinstance(r.get("storm"), dict):
+            summary[f"{r['session']}.hidden"] = hidden_summary(r)
+            continue
         script = r.get("script") or {}
         evidence = r.get("frame_evidence") or {}
         summary[f"{r['session']}.{r['phase']}"] = {
