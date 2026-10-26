@@ -44,6 +44,11 @@ pub(crate) struct ReopenRequest {
     /// plans/cmux-next/durable-links-DESIGN.md). Excludes `closed` and
     /// `members`.
     pub(crate) tab: Option<String>,
+    /// A `ws_` id: reopen the newest closed workspace member that had this
+    /// id (a `cmux://workspace/` link to a closed workspace). It reopens as
+    /// a new workspace, like any reopened workspace. Excludes `closed`,
+    /// `members` and `tab`.
+    pub(crate) workspace: Option<String>,
     /// A `pane_` id: where a reopened tab goes when its own pane and
     /// workspace are gone, instead of the session's focused pane.
     pub(crate) fallback_pane: Option<String>,
@@ -62,6 +67,9 @@ impl ReopenRequest {
         }
         if let Some(tab) = &self.tab {
             fingerprint["tab"] = serde_json::json!(tab);
+        }
+        if let Some(workspace) = &self.workspace {
+            fingerprint["workspace"] = serde_json::json!(workspace);
         }
         if let Some(pane) = &self.fallback_pane {
             fingerprint["fallback_pane"] = serde_json::json!(pane);
@@ -349,6 +357,27 @@ impl Mux {
                 Some(found.ok_or_else(|| state_not_found("tab", tab))?)
             }
             None => None,
+        };
+        let by_tab = match &request.workspace {
+            Some(workspace) => {
+                if request.closed.is_some() || request.members.is_some() || by_tab.is_some() {
+                    anyhow::bail!("bad request: workspace excludes closed, members and tab");
+                }
+                let live = self.with_state(|state| {
+                    state.workspaces.iter().any(|open| open.public_id.as_str() == workspace)
+                });
+                let found = if live {
+                    None
+                } else {
+                    self.read_registry_state(|connection| {
+                        crate::state::closed_history_query::group_member_holding_workspace(
+                            connection, workspace,
+                        )
+                    })?
+                };
+                Some(found.ok_or_else(|| state_not_found("workspace", workspace))?)
+            }
+            None => by_tab,
         };
         let closed_id = match (&by_tab, &request.closed) {
             (Some((closed, _)), _) => closed.clone(),

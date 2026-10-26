@@ -972,10 +972,13 @@ fn capture_workspace(
     // `workspace_key`: reopen moves the closed workspace's personal row
     // (group, place, theme) to the new workspace. `presentation`: its
     // shared color, icon, title and pin, which reopen sets again.
+    // `closed_workspace_id`: its `ws_` id, so `closed.reopen {workspace}`
+    // (a `cmux://workspace/` link to it) finds it.
     capture.members.push(json!({
         "kind": "workspace",
         "name": name,
         "workspace_key": workspace_key,
+        "closed_workspace_id": workspace_id,
         "workspace_id": null,
         "pane_id": null,
         "index": position.unwrap_or(0),

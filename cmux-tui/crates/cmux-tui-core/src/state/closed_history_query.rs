@@ -365,6 +365,40 @@ pub(crate) fn keep_members(
     Ok(public_item_in(&record, &evicted))
 }
 
+/// The newest group whose workspace member recorded closed workspace
+/// `workspace` (a `ws_` id), and that member's index. None when no group
+/// holds it (live, closed before its id was recorded, or deleted from the
+/// history). For `closed.reopen {workspace}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_workspace(
+    connection: &Connection,
+    workspace: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `ws_` id is lowercase hex after its prefix: no LIKE wildcard in it.
+    if !workspace.starts_with("ws_") || !workspace[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([workspace], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["kind"] == "workspace"
+                && member["closed_workspace_id"].as_str() == Some(workspace)
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
+}
+
 /// The newest group that holds tab `tab` (a `tab_` id) and the index of its
 /// member that recreates it: a tab member, or the screen or workspace member
 /// whose screens hold it. None when no group holds it (live, or deleted from
