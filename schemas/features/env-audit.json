@@ -1,0 +1,4255 @@
+{
+ "$comment": "GENERATED sites and builds by scripts/features/env_audit.py --write; class, effect and followup are reviewed by hand. Queries: app = \"CMUX_*\" literals in Packages/macOS/CmuxNext/Sources/**/*.swift, daemon = \"CMUX_TUI_*\" literals in cmux-tui/crates/**/*.rs.",
+ "classes": {
+  "releasePerf": "Read in a shipped build (Release or Nightly) and changes a perf path (latency, frames, memory, threads, process model). Open until it is a feature in schemas/features/features.d/ or its read moves under #if DEBUG / cfg(debug_assertions).",
+  "releaseProbe": "Read in a shipped build only to add measurement for a bench, a trace or a report; unset in normal use, and it changes no product behavior (Chromium's --enable-benchmarking and --trace-startup).",
+  "releaseConfig": "Read in a shipped build; selects identity, paths, sockets, channel, auth, a test harness's placement or another non-perf behavior.",
+  "releaseTestHook": "Read in a shipped build as a test seam (fault injection or a shorter bound) that does nothing unless set and touches no perf path. Prefer cfg(debug_assertions) when the tests allow it.",
+  "childEnv": "Set, passed on or stripped for a child process or a shell; this process does not branch on it.",
+  "debugOnly": "Every site compiles only into Debug or bench builds (#if DEBUG, #if DEBUG || CMUX_BENCH_HOOKS, cfg(debug_assertions)) or tests.",
+  "testOnly": "Every site is test code (cfg(test), #[test], tests/, benches/).",
+  "notEnv": "The literal is not an env name the process reads: a prefix, a key in a document, a list of names to strip, docs."
+ },
+ "names": {
+  "app CMUX_AGENTS_DISABLED": {
+   "scope": "app",
+   "name": "CMUX_AGENTS_DISABLED",
+   "class": "releaseConfig",
+   "effect": "Turns agent launch off in acpmux's environment (AcpmuxEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:69 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:75 release read"
+   ]
+  },
+  "app CMUX_API_BASE_URL": {
+   "scope": "app",
+   "name": "CMUX_API_BASE_URL",
+   "class": "releaseConfig",
+   "effect": "Cloud API base URL override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:103 release read"
+   ]
+  },
+  "app CMUX_APPS_FIRST_PARTY_DIR": {
+   "scope": "app",
+   "name": "CMUX_APPS_FIRST_PARTY_DIR",
+   "class": "childEnv",
+   "effect": "Set in the daemon's launch snapshot: where first-party apps and page bundles are (DaemonService+LaunchSnapshot).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/DaemonService+LaunchSnapshot.swift:62 release write"
+   ]
+  },
+  "app CMUX_APP_DAEMON_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_APP_DAEMON_SOCKET",
+   "class": "childEnv",
+   "effect": "Set for the chief's tools: the app daemon socket link (ChiefAppLinks).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:19 release write"
+   ]
+  },
+  "app CMUX_AUTH_CALLBACK_SCHEME": {
+   "scope": "app",
+   "name": "CMUX_AUTH_CALLBACK_SCHEME",
+   "class": "releaseConfig",
+   "effect": "Auth callback URL scheme override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:92 release read"
+   ]
+  },
+  "app CMUX_AUTH_CREDENTIALS_FILE": {
+   "scope": "app",
+   "name": "CMUX_AUTH_CREDENTIALS_FILE",
+   "class": "releaseConfig",
+   "effect": "A dogfood credentials file for sign-in (CloudAuth, DogfoodCredentials).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:41 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:87 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:98 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:41 release read"
+   ]
+  },
+  "app CMUX_AUTH_ENVIRONMENT": {
+   "scope": "app",
+   "name": "CMUX_AUTH_ENVIRONMENT",
+   "class": "releaseConfig",
+   "effect": "Selects the production auth stack in a Debug build (CloudConfiguration); Release is always production.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:89 release read"
+   ]
+  },
+  "app CMUX_AUTH_WWW_ORIGIN": {
+   "scope": "app",
+   "name": "CMUX_AUTH_WWW_ORIGIN",
+   "class": "releaseConfig",
+   "effect": "Auth web origin override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:107 release read"
+   ]
+  },
+  "app CMUX_BLOCKING_TRAP": {
+   "scope": "app",
+   "name": "CMUX_BLOCKING_TRAP",
+   "class": "debugOnly",
+   "effect": "The blocking detector traps instead of recording (BlockingViolationTable).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift:85 debug read [#if DEBUG || CMUX_BLOCKING_CHECKS ; #if DEBUG]"
+   ]
+  },
+  "app CMUX_BUNDLED_CLI_PATH": {
+   "scope": "app",
+   "name": "CMUX_BUNDLED_CLI_PATH",
+   "class": "childEnv",
+   "effect": "Set for shells and acpmux: the bundled cmux CLI path; the chief passes it on as bundled_cli.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:146 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:65 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefConversationOwner+Brains.swift:32 release read"
+   ]
+  },
+  "app CMUX_BUNDLE_ID": {
+   "scope": "app",
+   "name": "CMUX_BUNDLE_ID",
+   "class": "childEnv",
+   "effect": "Set for terminals and agents to reach this app's control socket (LaunchIdentity, ChiefAppLinks); also a marker of a launch from another cmux.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:50 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:100 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:25 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift:39 release other"
+   ]
+  },
+  "app CMUX_CHAT_OPEN_TRACE_LAUNCH": {
+   "scope": "app",
+   "name": "CMUX_CHAT_OPEN_TRACE_LAUNCH",
+   "class": "debugOnly",
+   "effect": "Traces chat open at launch (ChatOpenTrace).",
+   "builds": [
+    "bench"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ChatOpenTrace.swift:24 bench read [#if DEBUG || CMUX_BENCH_HOOKS]"
+   ]
+  },
+  "app CMUX_CHIEF_HOME": {
+   "scope": "app",
+   "name": "CMUX_CHIEF_HOME",
+   "class": "childEnv",
+   "effect": "Set for terminals and the home brain host: the chief home directory.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppEnvironment.swift:151 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeBrainHost.swift:121 release write"
+   ]
+  },
+  "app CMUX_CHIEF_OWN_ACPMUX": {
+   "scope": "app",
+   "name": "CMUX_CHIEF_OWN_ACPMUX",
+   "class": "releaseConfig",
+   "effect": "The chief home owns its acpmux (ChiefHome).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:99 release read"
+   ]
+  },
+  "app CMUX_CHIEF_VIEWS_FLEET_URL": {
+   "scope": "app",
+   "name": "CMUX_CHIEF_VIEWS_FLEET_URL",
+   "class": "releaseConfig",
+   "effect": "Fleet URL for the chief views page (ChiefViewsPageProvider).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews/ChiefViewsPageProvider.swift:30 release decl [via fleetURLEnvironment at Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews/ChiefViewsPageProvider.swift:114]"
+   ]
+  },
+  "app CMUX_CLI_BASH_ENV": {
+   "scope": "app",
+   "name": "CMUX_CLI_BASH_ENV",
+   "class": "childEnv",
+   "effect": "Set for shells: the bundled CLI's shell integration files (BundledCLIEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:39 release decl [via bashNextEnvKey at Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:86]"
+   ]
+  },
+  "app CMUX_CLI_FISH_XDG_DIR": {
+   "scope": "app",
+   "name": "CMUX_CLI_FISH_XDG_DIR",
+   "class": "childEnv",
+   "effect": "Set for shells: the bundled CLI's shell integration files (BundledCLIEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:41 release decl [via fishDataDirKey at Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:90]"
+   ]
+  },
+  "app CMUX_CLI_ZSH_ZDOTDIR": {
+   "scope": "app",
+   "name": "CMUX_CLI_ZSH_ZDOTDIR",
+   "class": "childEnv",
+   "effect": "Set for shells: the bundled CLI's shell integration files (BundledCLIEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:37 release decl [via zshNextZDOTDIRKey at Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift:79]"
+   ]
+  },
+  "app CMUX_CLOUD_LINK": {
+   "scope": "app",
+   "name": "CMUX_CLOUD_LINK",
+   "class": "releaseConfig",
+   "effect": "Selects the cloud link source, app server or legacy (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:117 release read"
+   ]
+  },
+  "app CMUX_COMPLETE_DUMP": {
+   "scope": "app",
+   "name": "CMUX_COMPLETE_DUMP",
+   "class": "childEnv",
+   "effect": "Passed to the zsh completion helper the agent pane runs (AgentPaneShellCompletion).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShellCompletion.swift:111 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShellCompletion.swift:115 release write"
+   ]
+  },
+  "app CMUX_COMPLETE_SETUP": {
+   "scope": "app",
+   "name": "CMUX_COMPLETE_SETUP",
+   "class": "childEnv",
+   "effect": "Passed to the zsh completion helper the agent pane runs (AgentPaneShellCompletion).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShellCompletion.swift:115 release write"
+   ]
+  },
+  "app CMUX_CUA_CURSOR_LABEL": {
+   "scope": "app",
+   "name": "CMUX_CUA_CURSOR_LABEL",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:243 release write"
+   ]
+  },
+  "app CMUX_CUA_EXTERNAL_PERMISSION_FLOW": {
+   "scope": "app",
+   "name": "CMUX_CUA_EXTERNAL_PERMISSION_FLOW",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:238 release write"
+   ]
+  },
+  "app CMUX_CUA_PERMISSIONS_GATE": {
+   "scope": "app",
+   "name": "CMUX_CUA_PERMISSIONS_GATE",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:239 release write"
+   ]
+  },
+  "app CMUX_CUA_RESPONSIBILITY_DISCLAIMED": {
+   "scope": "app",
+   "name": "CMUX_CUA_RESPONSIBILITY_DISCLAIMED",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:240 release write"
+   ]
+  },
+  "app CMUX_CUA_SOCKET_AUTH_TOKEN": {
+   "scope": "app",
+   "name": "CMUX_CUA_SOCKET_AUTH_TOKEN",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:245 release write"
+   ]
+  },
+  "app CMUX_CUA_SOCKET_HOST_AUTH_TOKEN": {
+   "scope": "app",
+   "name": "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:246 release write"
+   ]
+  },
+  "app CMUX_CUA_STATE_DIR": {
+   "scope": "app",
+   "name": "CMUX_CUA_STATE_DIR",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:244 release write"
+   ]
+  },
+  "app CMUX_CUA_TELEMETRY_ENABLED": {
+   "scope": "app",
+   "name": "CMUX_CUA_TELEMETRY_ENABLED",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:241 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/CuaHelperManifestReader.swift:107 release write"
+   ]
+  },
+  "app CMUX_CUA_UPDATE_CHECK": {
+   "scope": "app",
+   "name": "CMUX_CUA_UPDATE_CHECK",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the Computer Use helper (ComputerUseHelperDaemon); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperDaemon.swift:242 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/CuaHelperManifestReader.swift:108 release write"
+   ]
+  },
+  "app CMUX_DEV_AUTH_ACCOUNT": {
+   "scope": "app",
+   "name": "CMUX_DEV_AUTH_ACCOUNT",
+   "class": "releaseConfig",
+   "effect": "Dogfood sign-in: the expected account (DogfoodCredentials).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:41 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:40 release read"
+   ]
+  },
+  "app CMUX_DEV_AUTH_PROFILE": {
+   "scope": "app",
+   "name": "CMUX_DEV_AUTH_PROFILE",
+   "class": "releaseConfig",
+   "effect": "Dogfood sign-in: which credential set, personal or agent (DogfoodCredentials).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:41 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:98 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:51 release read"
+   ]
+  },
+  "app CMUX_DEV_AUTH_REPLACE_SESSION": {
+   "scope": "app",
+   "name": "CMUX_DEV_AUTH_REPLACE_SESSION",
+   "class": "releaseConfig",
+   "effect": "Dogfood sign-in replaces the stored session (CloudAuth).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:41 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:97 release read"
+   ]
+  },
+  "app CMUX_DEV_BACKEND_URL": {
+   "scope": "app",
+   "name": "CMUX_DEV_BACKEND_URL",
+   "class": "releaseConfig",
+   "effect": "Development backend URL (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:101 release read"
+   ]
+  },
+  "app CMUX_DISABLE_FEATURES": {
+   "scope": "app",
+   "name": "CMUX_DISABLE_FEATURES",
+   "class": "releaseConfig",
+   "effect": "Turns features off by name, step 2 of the feature resolution order (FeatureOverrides; Chrome's --disable-features).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/FeatureOverrides.swift:17 release decl [via disableVariable at Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/FeatureOverrides.swift:56]"
+   ]
+  },
+  "app CMUX_DOGFOOD_STACK": {
+   "scope": "app",
+   "name": "CMUX_DOGFOOD_STACK",
+   "class": "notEnv",
+   "effect": "A prefix: DogfoodCredentials reads the <prefix>_EMAIL and <prefix>_PASSWORD pair.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:44 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:52 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:53 release other"
+   ]
+  },
+  "app CMUX_DOGFOOD_STACK_EMAIL": {
+   "scope": "app",
+   "name": "CMUX_DOGFOOD_STACK_EMAIL",
+   "class": "childEnv",
+   "effect": "Dogfood and UI-test Stack credentials: stripped from children, written for a UI-test launch (CloudAuth).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:42 release other"
+   ]
+  },
+  "app CMUX_DOGFOOD_STACK_PASSWORD": {
+   "scope": "app",
+   "name": "CMUX_DOGFOOD_STACK_PASSWORD",
+   "class": "childEnv",
+   "effect": "Dogfood and UI-test Stack credentials: stripped from children, written for a UI-test launch (CloudAuth).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:42 release other"
+   ]
+  },
+  "app CMUX_ENABLE_FEATURES": {
+   "scope": "app",
+   "name": "CMUX_ENABLE_FEATURES",
+   "class": "releaseConfig",
+   "effect": "Turns features on by name, step 2 of the feature resolution order (FeatureOverrides; Chrome's --enable-features).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/FeatureOverrides.swift:19 release decl [via enableVariable at Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/FeatureOverrides.swift:57]"
+   ]
+  },
+  "app CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER": {
+   "scope": "app",
+   "name": "CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER",
+   "class": "childEnv",
+   "effect": "Passed through to the iOS pairing helper when set (AppControl+Mobile).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Mobile.swift:68 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Mobile.swift:69 release write"
+   ]
+  },
+  "app CMUX_IROH_V2_ENVIRONMENT": {
+   "scope": "app",
+   "name": "CMUX_IROH_V2_ENVIRONMENT",
+   "class": "releaseConfig",
+   "effect": "Selects the iroh v2 relay environment for the phone host (MobileHostService).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileHostService.swift:156 release read"
+   ]
+  },
+  "app CMUX_MEMORY_INSPECTOR_WEB": {
+   "scope": "app",
+   "name": "CMUX_MEMORY_INSPECTOR_WEB",
+   "class": "releaseConfig",
+   "effect": "The chief memory inspector opens its web page (ChiefInspectorHandlers).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefInspectorHandlers.swift:32 release read"
+   ]
+  },
+  "app CMUX_MOBILE_AGENT_TAB_HOST": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_AGENT_TAB_HOST",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:114 release write"
+   ]
+  },
+  "app CMUX_MOBILE_BASE_URL": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_BASE_URL",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:98 release write"
+   ]
+  },
+  "app CMUX_MOBILE_BROWSER_HOSTS": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_BROWSER_HOSTS",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:117 release write"
+   ]
+  },
+  "app CMUX_MOBILE_CHIEF_SESSION": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_CHIEF_SESSION",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:115 release write"
+   ]
+  },
+  "app CMUX_MOBILE_CHIEF_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_CHIEF_SOCKET",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:116 release write"
+   ]
+  },
+  "app CMUX_MOBILE_CONTROL": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_CONTROL",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:97 release write"
+   ]
+  },
+  "app CMUX_MOBILE_DEVICE_ID": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_DEVICE_ID",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:101 release write"
+   ]
+  },
+  "app CMUX_MOBILE_DEVICE_NAME": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_DEVICE_NAME",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:102 release write"
+   ]
+  },
+  "app CMUX_MOBILE_EXCLUDE_CGNAT": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_EXCLUDE_CGNAT",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:111 release write"
+   ]
+  },
+  "app CMUX_MOBILE_FILE_ROOTS": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_FILE_ROOTS",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:107 release write"
+   ]
+  },
+  "app CMUX_MOBILE_MACHINE_ID": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_MACHINE_ID",
+   "class": "debugOnly",
+   "effect": "Set for the mobile host from the rig's machine id (MobileHostLaunch).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:90 debug write [#if DEBUG]"
+   ]
+  },
+  "app CMUX_MOBILE_OWNER_USER_ID": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_OWNER_USER_ID",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:100 release write"
+   ]
+  },
+  "app CMUX_MOBILE_STACK_PROJECT_ID": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_STACK_PROJECT_ID",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:108 release write"
+   ]
+  },
+  "app CMUX_MOBILE_STATE_DIR": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_STATE_DIR",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:103 release write"
+   ]
+  },
+  "app CMUX_MOBILE_SURFACE_HOSTS": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_SURFACE_HOSTS",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:118 release write"
+   ]
+  },
+  "app CMUX_MOBILE_TEAM_ID": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_TEAM_ID",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:99 release write"
+   ]
+  },
+  "app CMUX_MOBILE_TUI_SESSION": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_TUI_SESSION",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:106 release write"
+   ]
+  },
+  "app CMUX_MOBILE_TUI_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_TUI_SOCKET",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:104 release write"
+   ]
+  },
+  "app CMUX_MOBILE_TUI_SOCKET_DIR": {
+   "scope": "app",
+   "name": "CMUX_MOBILE_TUI_SOCKET_DIR",
+   "class": "childEnv",
+   "effect": "Set in the launch environment of the mobile host child (MobileHostLaunch); the app does not read it.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:105 release write"
+   ]
+  },
+  "app CMUX_MOCK_KEYCHAIN": {
+   "scope": "app",
+   "name": "CMUX_MOCK_KEYCHAIN",
+   "class": "releaseConfig",
+   "effect": "CEF uses its mock keychain, as a dev bundle does (CEFSwitches).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:162 release read"
+   ]
+  },
+  "app CMUX_MUX_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_MUX_SOCKET",
+   "class": "childEnv",
+   "effect": "Stripped from an inherited login environment and from a local PTY's environment so a shell never talks to another cmux (LoginEnvironment, LocalPTYTerminalIO).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:24 release other"
+   ]
+  },
+  "app CMUX_NEXT_": {
+   "scope": "app",
+   "name": "CMUX_NEXT_",
+   "class": "notEnv",
+   "effect": "A prefix: LaunchIdentity and TerminalEnvironment filter inherited CMUX_NEXT_* keys.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:107 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:119 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/TerminalEnvironment.swift:64 release read"
+   ]
+  },
+  "app CMUX_NEXT_ACCOUNTS_HOME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_ACCOUNTS_HOME",
+   "class": "releaseConfig",
+   "effect": "Accounts fixture home for tests (AccountsService).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift:35 release decl [via fixtureHomeKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift:45]"
+   ]
+  },
+  "app CMUX_NEXT_ACPMUX_ATTACH": {
+   "scope": "app",
+   "name": "CMUX_NEXT_ACPMUX_ATTACH",
+   "class": "releaseConfig",
+   "effect": "Attach to an existing acpmux instead of spawning one (AcpmuxEnvironment+Attach).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+Attach.swift:16 release decl [via attachKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+Attach.swift:27]"
+   ]
+  },
+  "app CMUX_NEXT_ACPMUX_BIN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_ACPMUX_BIN",
+   "class": "debugOnly",
+   "effect": "acpmux executable override (AcpmuxEnvironment+DebugOverride).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift:18 debug decl [via executableOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift:32]"
+   ]
+  },
+  "app CMUX_NEXT_ACPMUX_ROOT": {
+   "scope": "app",
+   "name": "CMUX_NEXT_ACPMUX_ROOT",
+   "class": "debugOnly",
+   "effect": "acpmux root for build-home adoption (AcpmuxEnvironment).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift:53 debug other [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:159 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_AGENT_ACTIVITY_MOCK": {
+   "scope": "app",
+   "name": "CMUX_NEXT_AGENT_ACTIVITY_MOCK",
+   "class": "releaseConfig",
+   "effect": "Agent activity page shows mock data when DevTools is on (AgentActivityPageService).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageService.swift:116 release read"
+   ]
+  },
+  "app CMUX_NEXT_AGENT_PANE_DEV_URL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_AGENT_PANE_DEV_URL",
+   "class": "releaseConfig",
+   "effect": "Agent pane loads from a dev server URL (AgentPaneSource).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSource.swift:56 release decl [via devURLVariable at Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSource.swift:70]"
+   ]
+  },
+  "app CMUX_NEXT_AGENT_PANE_FULL_RATE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_AGENT_PANE_FULL_RATE",
+   "class": "debugOnly",
+   "effect": "Agent pane frame rate override (AgentTabs).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs.swift:231 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_AGENT_PANE_MOCK": {
+   "scope": "app",
+   "name": "CMUX_NEXT_AGENT_PANE_MOCK",
+   "class": "releaseConfig",
+   "effect": "Agent pane uses a mock source; quit skips the agent check (AgentTabs+PaneSource, QuitAgents).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+PaneSource.swift:27 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitAgents.swift:16 release other"
+   ]
+  },
+  "app CMUX_NEXT_BROWSER_IMPORT_HOME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_BROWSER_IMPORT_HOME",
+   "class": "releaseConfig",
+   "effect": "Browser import fixture home for tests (ImportEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Sources/ImportEnvironment.swift:31 release decl [via fixtureHomeKey at Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Sources/ImportEnvironment.swift:52]"
+   ]
+  },
+  "app CMUX_NEXT_BROWSER_IMPORT_KEYS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_BROWSER_IMPORT_KEYS",
+   "class": "releaseConfig",
+   "effect": "Browser import fixture safe-storage keys for tests (FixtureSafeStorage).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/FixtureSafeStorage.swift:7 release decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/FixtureSafeStorage.swift:16]"
+   ]
+  },
+  "app CMUX_NEXT_BROWSER_IMPORT_OFFER": {
+   "scope": "app",
+   "name": "CMUX_NEXT_BROWSER_IMPORT_OFFER",
+   "class": "releaseConfig",
+   "effect": "Forces the browser import offer (BrowserImportOfferService).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserImportOfferService.swift:31 release decl [via forceKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserImportOfferService.swift:49]"
+   ]
+  },
+  "app CMUX_NEXT_CEF_EMBEDDED_DEVTOOLS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CEF_EMBEDDED_DEVTOOLS",
+   "class": "debugOnly",
+   "effect": "CEF devtools open embedded (CEFDevToolsSupport).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsSupport.swift:20 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_CEF_EXTRA_SWITCHES": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CEF_EXTRA_SWITCHES",
+   "class": "debugOnly",
+   "effect": "Extra Chromium switches for a dev bundle (CEFSwitches).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:168 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_CEF_LOAD_EXTENSIONS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CEF_LOAD_EXTENSIONS",
+   "class": "releasePerf",
+   "effect": "Colon-separated unpacked Chromium extensions CEF loads at startup (CEFSwitches): browser startup, memory and per-page script work.",
+   "followup": "Move the read under #if DEBUG || CMUX_BENCH_HOOKS, as CMUX_NEXT_CEF_EXTRA_SWITCHES is, or make it a labs feature (process chromium).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:163 release read"
+   ]
+  },
+  "app CMUX_NEXT_CEF_RUNTIME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CEF_RUNTIME",
+   "class": "releaseConfig",
+   "effect": "Path of the CEF runtime to load (CEFRuntimeLayout).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntimeLayout.swift:64 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHIEF_ACCOUNT": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHIEF_ACCOUNT",
+   "class": "releaseConfig",
+   "effect": "Chief home account component (ChiefHome).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:131 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHIEF_BUILD_ID": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHIEF_BUILD_ID",
+   "class": "releaseConfig",
+   "effect": "Chief home build id; Release ignores it (isDebugBuild checks in AppEnvironment and ChiefHome).",
+   "builds": [
+    "release",
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift:52 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppEnvironment.swift:72 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:132 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHIEF_HOME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHIEF_HOME",
+   "class": "releaseConfig",
+   "effect": "Chief home directory override (ChiefHome).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:119 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHIEF_ISOLATED": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHIEF_ISOLATED",
+   "class": "releaseConfig",
+   "effect": "Isolated chief home for a test launch (ChiefHome).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:124 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHIEF_ROOT": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHIEF_ROOT",
+   "class": "releaseConfig",
+   "effect": "Chief root directory override (ChiefHome).",
+   "builds": [
+    "release",
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift:53 debug other [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:122 release read"
+   ]
+  },
+  "app CMUX_NEXT_CHROME_POLICY_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CHROME_POLICY_FILE",
+   "class": "debugOnly",
+   "effect": "Chrome policy plist override (ManagedPolicyKey.defaultReader).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/Chrome/ChromePolicyDocument.swift:30 debug decl [via fileOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPolicyKey.swift:30]"
+   ]
+  },
+  "app CMUX_NEXT_CLASSIC_HOME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CLASSIC_HOME",
+   "class": "releaseConfig",
+   "effect": "Launch with the classic home dock (HomeDock).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeDock.swift:42 release read"
+   ]
+  },
+  "app CMUX_NEXT_CLASSIC_MIGRATION": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CLASSIC_MIGRATION",
+   "class": "releaseConfig",
+   "effect": "Forces or skips the classic settings migration offer (AppOnboardingServices+ClassicMigration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift:46 release read"
+   ]
+  },
+  "app CMUX_NEXT_CLOUD_LINK": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CLOUD_LINK",
+   "class": "releaseConfig",
+   "effect": "Selects the cloud link source, app server or legacy (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:117 release read"
+   ]
+  },
+  "app CMUX_NEXT_CONFIG_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CONFIG_FILE",
+   "class": "releaseConfig",
+   "effect": "Settings file path override (CmuxConfigFile).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift:70 release decl [via overrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift:26]"
+   ]
+  },
+  "app CMUX_NEXT_COOKIE_BACKUP_KEY_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_COOKIE_BACKUP_KEY_FILE",
+   "class": "debugOnly",
+   "effect": "Cookie backup key file (AppBrowserHost).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserHost/AppBrowserHost.swift:43 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_CUA_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CUA_SOCKET",
+   "class": "releaseConfig",
+   "effect": "Computer Use socket path for agent activity and acpmux (AgentActivitySocketSource, AcpmuxComputerUse).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:35 release decl [via socketEnvironmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:52]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxComputerUse.swift:14 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:52 release other"
+   ]
+  },
+  "app CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN",
+   "class": "releaseConfig",
+   "effect": "Computer Use agent auth token (AgentActivitySocketSource, AcpmuxComputerUse).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:36 release decl [via authTokenEnvironmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:44]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxComputerUse.swift:15 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:52 release other"
+   ]
+  },
+  "app CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN",
+   "class": "releaseConfig",
+   "effect": "Computer Use host auth token (AgentActivitySocketSource, AcpmuxEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:37 release decl [via hostAuthTokenEnvironmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift:45]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift:53 release decl [via computerUseHostKey at Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxDaemonLauncher.swift:51]"
+   ]
+  },
+  "app CMUX_NEXT_CUA_V2_DIR": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CUA_V2_DIR",
+   "class": "releaseConfig",
+   "effect": "Computer Use v2 endpoint directory (ComputerUseHelperV2).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift:40 release decl [via endpointDirectoryKey at Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift:125]"
+   ]
+  },
+  "app CMUX_NEXT_CURSOR_KEEPER": {
+   "scope": "app",
+   "name": "CMUX_NEXT_CURSOR_KEEPER",
+   "class": "debugOnly",
+   "effect": "Turns the arrow cursor keeper off (ArrowCursorView).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ArrowCursorView.swift:130 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_BROWSER_EVAL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_BROWSER_EVAL",
+   "class": "releaseConfig",
+   "effect": "A script the browser debug window evaluates (BrowserDebugWindow).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDebugWindow.swift:25 release read"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_BROWSER_OPEN_EXTENSION": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_BROWSER_OPEN_EXTENSION",
+   "class": "releaseConfig",
+   "effect": "The browser debug window opens the extension page (BrowserDebugWindow).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDebugWindow.swift:28 release read"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_LEGACY_DICTATION": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_LEGACY_DICTATION",
+   "class": "debugOnly",
+   "effect": "Forces the legacy dictation recognizer (OnDeviceDictationTranscriber).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDictation/OnDeviceDictationTranscriber.swift:72 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_LEGACY_MATERIAL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_LEGACY_MATERIAL",
+   "class": "debugOnly",
+   "effect": "Forces the pre-Liquid-Glass material (Glass).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift:24 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS",
+   "class": "debugOnly",
+   "effect": "Native observation stream diagnostics (ObservationStream).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/ObservationStream.swift:325 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_SLOW_ATTACH": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_SLOW_ATTACH",
+   "class": "debugOnly",
+   "effect": "Delays terminal attach to test the waiting state (DebugSlowAttach).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/DebugSlowAttach.swift:11 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_DEBUG_TUNABLES_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEBUG_TUNABLES_FILE",
+   "class": "releaseConfig",
+   "effect": "Tunables file override for TunableStore, which is active in DEV and NIGHTLY only (DebugSettingsService); perf-path tunables are MQ6's queue.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift:68 release decl [via fileOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift:111]"
+   ]
+  },
+  "app CMUX_NEXT_DEV_HANG_REPORTS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEV_HANG_REPORTS",
+   "class": "releaseConfig",
+   "effect": "Opts a dev build in to hang report upload (HangReportsController).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/HangReportsController.swift:33 release decl [via devOptInKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/HangReportsController.swift:60]"
+   ]
+  },
+  "app CMUX_NEXT_DEV_SENTRY": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DEV_SENTRY",
+   "class": "releaseConfig",
+   "effect": "Opts a dev build in to Sentry (CrashReportingPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashReportingPolicy.swift:48 release decl [via devOptInKey at Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashReportingPolicy.swift:82]"
+   ]
+  },
+  "app CMUX_NEXT_DICTATION_AUDIO_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_DICTATION_AUDIO_FILE",
+   "class": "debugOnly",
+   "effect": "Dictation reads a recorded clip instead of the microphone (RecordedDictationInput).",
+   "builds": [
+    "bench"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDictation/RecordedDictationInput.swift:15 bench decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextDictation/RecordedDictationInput.swift:19]"
+   ]
+  },
+  "app CMUX_NEXT_FEED_API_URL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_FEED_API_URL",
+   "class": "releaseConfig",
+   "effect": "Feed API URL; Release ignores it (isDebugBuild check in CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:126 release read"
+   ]
+  },
+  "app CMUX_NEXT_GHOSTTY_CONFIG": {
+   "scope": "app",
+   "name": "CMUX_NEXT_GHOSTTY_CONFIG",
+   "class": "releaseConfig",
+   "effect": "Ghostty config file override (GhosttyRuntime).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift:152 release decl [via configOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift:198]"
+   ]
+  },
+  "app CMUX_NEXT_HANG_REPORTS_URL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_HANG_REPORTS_URL",
+   "class": "releaseConfig",
+   "effect": "Hang report endpoint for a dev build (HangReportsController).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/HangReportsController.swift:34 release decl [via devEndpointKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/HangReportsController.swift:67]"
+   ]
+  },
+  "app CMUX_NEXT_HANG_THRESHOLD_MS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_HANG_THRESHOLD_MS",
+   "class": "releaseProbe",
+   "effect": "Main-thread stall threshold for watchdog records, default 50 ms (MainThreadWatchdog).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift:44 release read"
+   ]
+  },
+  "app CMUX_NEXT_HOSTED_CHIEF_COPY": {
+   "scope": "app",
+   "name": "CMUX_NEXT_HOSTED_CHIEF_COPY",
+   "class": "releaseConfig",
+   "effect": "A Debug build copies the hosted chief; Release always copies (HostedChiefMigration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/HostedChiefMigration.swift:39 release read"
+   ]
+  },
+  "app CMUX_NEXT_INPUT_JOURNAL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_INPUT_JOURNAL",
+   "class": "releaseProbe",
+   "effect": "Input journal on or off; default on in Debug and tagged builds, off in Release (InputJournalPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/InputJournal.swift:158 release decl [via enableKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/InputJournal.swift:170]"
+   ]
+  },
+  "app CMUX_NEXT_INPUT_JOURNAL_CHARACTERS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_INPUT_JOURNAL_CHARACTERS",
+   "class": "releaseProbe",
+   "effect": "The input journal also records typed characters, Debug builds only (InputJournalPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/InputJournal.swift:159 release decl [via charactersKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/InputJournal.swift:175]"
+   ]
+  },
+  "app CMUX_NEXT_IPHONE_PAIRING_SEED": {
+   "scope": "app",
+   "name": "CMUX_NEXT_IPHONE_PAIRING_SEED",
+   "class": "debugOnly",
+   "effect": "Seeds iPhone pairing for tests (IPhonePairingSeed).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhonePairingSeed.swift:19 debug decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhonePairingSeed.swift:29]"
+   ]
+  },
+  "app CMUX_NEXT_LAG_REPORT_MS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_LAG_REPORT_MS",
+   "class": "releaseProbe",
+   "effect": "Lag spike report threshold (LagSpikeReporter).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/LagSpikeReporter.swift:25 release decl [via thresholdEnvironmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/LagSpikeReporter.swift:80]"
+   ]
+  },
+  "app CMUX_NEXT_LAUNCH_MARKS_FD": {
+   "scope": "app",
+   "name": "CMUX_NEXT_LAUNCH_MARKS_FD",
+   "class": "releaseProbe",
+   "effect": "A file descriptor that receives launch marks for the launch bench (LaunchMarkSink).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift:15 release decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift:24]"
+   ]
+  },
+  "app CMUX_NEXT_MAIN_TASK_DIAGNOSTICS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS",
+   "class": "releaseProbe",
+   "effect": "Records main-thread tasks over their class budget with a stack; perturbs timing, so no bench runs with it (MainThreadWatchdog+TaskBudget).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog+TaskBudget.swift:9 release decl [via taskDiagnosticsVariable at Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog+TaskBudget.swift:20]"
+   ]
+  },
+  "app CMUX_NEXT_MANAGED_PREFS_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MANAGED_PREFS_FILE",
+   "class": "debugOnly",
+   "effect": "Managed preferences plist override (ManagedPolicyKey.defaultReader).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferences.swift:38 debug decl [via fileOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPolicyKey.swift:35]"
+   ]
+  },
+  "app CMUX_NEXT_MOBILE_API_URL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MOBILE_API_URL",
+   "class": "debugOnly",
+   "effect": "Mobile service URL override (IPhoneHostService+Wiring).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Wiring.swift:46 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_MOBILE_DEVICE_NAME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MOBILE_DEVICE_NAME",
+   "class": "debugOnly",
+   "effect": "Device name phones list this Mac by (IPhoneHostService+Wiring).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Wiring.swift:49 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_MOBILE_HOST_BIN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MOBILE_HOST_BIN",
+   "class": "debugOnly",
+   "effect": "Mobile host executable override (IPhoneHostService+Wiring).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Wiring.swift:45 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_MOBILE_MACHINE_ID": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MOBILE_MACHINE_ID",
+   "class": "debugOnly",
+   "effect": "Rig machine id passed to the mobile host as CMUX_MOBILE_MACHINE_ID (MobileHostLaunch).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:77 debug decl [via rigMachineIDKey at Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift:89]"
+   ]
+  },
+  "app CMUX_NEXT_MOCK_DEFAULT_HANDLERS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MOCK_DEFAULT_HANDLERS",
+   "class": "releaseConfig",
+   "effect": "Mock default-app registries for onboarding tests (DefaultAppRegistries).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/DefaultAppRegistries.swift:35 release decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/OnboardingService.swift:70]"
+   ]
+  },
+  "app CMUX_NEXT_MUX_HOME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MUX_HOME",
+   "class": "releaseConfig",
+   "effect": "Chief home directory override, old name (ChiefHome).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:119 release read"
+   ]
+  },
+  "app CMUX_NEXT_MUX_HOST": {
+   "scope": "app",
+   "name": "CMUX_NEXT_MUX_HOST",
+   "class": "releaseConfig",
+   "effect": "Home brain host executable override (HomeBrainHost, ChiefUsageTool).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefUsageTool.swift:41 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeBrainHost.swift:58 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeBrainHost.swift:77 release read"
+   ]
+  },
+  "app CMUX_NEXT_NO_ACTIVATE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_NO_ACTIVATE",
+   "class": "releaseConfig",
+   "effect": "A test or bench launch never activates or steals focus; the watchdog keeps its evidence (CmuxNextApp, AppEnvironment, MainThreadWatchdog, LastAppCLIPointer).",
+   "builds": [
+    "release",
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppEnvironment.swift:87 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp.swift:59 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift:53 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LastAppCLIPointer.swift:24 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowDrawPolicy.swift:81 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:124 release read"
+   ]
+  },
+  "app CMUX_NEXT_ONBOARDING_COMPUTER_USE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_ONBOARDING_COMPUTER_USE",
+   "class": "debugOnly",
+   "effect": "Mock Computer Use permission source in onboarding (AppOnboardingServices).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift:113 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_PAGES_DEV_URL": {
+   "scope": "app",
+   "name": "CMUX_NEXT_PAGES_DEV_URL",
+   "class": "releaseConfig",
+   "effect": "Pages load from a dev server URL (PageDevServer).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDevServer.swift:13 release decl [via variable at Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDevServer.swift:37]"
+   ]
+  },
+  "app CMUX_NEXT_PAGES_WEBKIT_OCCLUSION": {
+   "scope": "app",
+   "name": "CMUX_NEXT_PAGES_WEBKIT_OCCLUSION",
+   "class": "debugOnly",
+   "effect": "WebKit pages render when covered, for a live check (PageWebView+Debug).",
+   "builds": [
+    "bench"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Debug.swift:245 bench read [#if DEBUG || CMUX_BENCH_HOOKS]"
+   ]
+  },
+  "app CMUX_NEXT_PAGE_ROOT_": {
+   "scope": "app",
+   "name": "CMUX_NEXT_PAGE_ROOT_",
+   "class": "notEnv",
+   "effect": "A prefix: CMUX_NEXT_PAGE_ROOT_<page id> points a page at a local folder (Debug only).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView.swift:215 release decl [via name at Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView.swift:192]"
+   ]
+  },
+  "app CMUX_NEXT_PASSWORDS_SAMPLE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_PASSWORDS_SAMPLE",
+   "class": "debugOnly",
+   "effect": "Passwords page uses a sample store (PasswordsPage).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Passwords/PasswordsPage.swift:39 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": {
+   "scope": "app",
+   "name": "CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY",
+   "class": "debugOnly",
+   "effect": "Password import mock keychain key (CEFRuntime+PasswordImport).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntime+PasswordImport.swift:39 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_RB_HOST": {
+   "scope": "app",
+   "name": "CMUX_NEXT_RB_HOST",
+   "class": "releaseConfig",
+   "effect": "Local remote-browser host executable (LocalRemoteBrowserHostLocator).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHostLocator.swift:28 release decl [via environmentKey at Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHostLocator.swift:42]"
+   ]
+  },
+  "app CMUX_NEXT_RD_DEBUG_PORT": {
+   "scope": "app",
+   "name": "CMUX_NEXT_RD_DEBUG_PORT",
+   "class": "debugOnly",
+   "effect": "Remote desktop debug host loopback port (RemoteViewDebugRdHost).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewDebugRdHost.swift:31 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewDebugRdHost.swift:61 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_RD_DEBUG_TOKEN_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_RD_DEBUG_TOKEN_FILE",
+   "class": "debugOnly",
+   "effect": "Remote desktop debug host token file (RemoteViewDebugRdHost).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewDebugRdHost.swift:33 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewDebugRdHost.swift:65 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_RD_DEBUG_USER": {
+   "scope": "app",
+   "name": "CMUX_NEXT_RD_DEBUG_USER",
+   "class": "debugOnly",
+   "effect": "Remote desktop debug host user (RemoteViewDebugRdHost).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewDebugRdHost.swift:36 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET",
+   "class": "debugOnly",
+   "effect": "Remote localhost service debug socket (RemoteLocalhostService).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/RemoteLocalhostService.swift:34 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_SHOWCASE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_SHOWCASE",
+   "class": "releaseConfig",
+   "effect": "Showcase launch: isolated chief home and fixture data (ChiefHome; the AppEnvironment read is Debug only).",
+   "builds": [
+    "release",
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppEnvironment.swift:89 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:125 release read"
+   ]
+  },
+  "app CMUX_NEXT_SOCKET_MODE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_SOCKET_MODE",
+   "class": "releaseConfig",
+   "effect": "Control socket access mode (ControlService).",
+   "builds": [
+    "release",
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlService.swift:120 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowDrawPolicy.swift:81 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_SOCKET_PATH": {
+   "scope": "app",
+   "name": "CMUX_NEXT_SOCKET_PATH",
+   "class": "releaseConfig",
+   "effect": "Control socket path override (LaunchIdentity).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:21 release decl [via socketOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:75]"
+   ]
+  },
+  "app CMUX_NEXT_STRICT_CHILD_WINDOWS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_STRICT_CHILD_WINDOWS",
+   "class": "releaseConfig",
+   "effect": "Child window policy violations fail instead of log (ChildWindowPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/ChildWindowPolicy.swift:26 release read"
+   ]
+  },
+  "app CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS",
+   "class": "debugOnly",
+   "effect": "External opens are recorded instead of opened (BrowserExternalApps, LinkRouter).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserExternalApps.swift:31 debug read [#if DEBUG]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/LinkRouter.swift:31 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_TEST_WINDOW_FRAME": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TEST_WINDOW_FRAME",
+   "class": "releaseConfig",
+   "effect": "Test launch window frame (TestWindowPlacement).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TestWindowPlacement.swift:25 release decl [via frameKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/TestWindowPlacement.swift:38]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:126 release read"
+   ]
+  },
+  "app CMUX_NEXT_TEST_WINDOW_SCREEN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TEST_WINDOW_SCREEN",
+   "class": "releaseConfig",
+   "effect": "Test launch window screen (TestWindowPlacement).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TestWindowPlacement.swift:24 release decl [via screenKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/TestWindowPlacement.swift:37]",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHome.swift:126 release read"
+   ]
+  },
+  "app CMUX_NEXT_TRACE_FLOWS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TRACE_FLOWS",
+   "class": "releaseProbe",
+   "effect": "Adds flow ids to typing-probe records (TypingLatencyProbe) and is passed to the daemon as CMUX_TRACE_FLOWS; measurement only.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:19 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/TypingLatencyProbe.swift:38 release read"
+   ]
+  },
+  "app CMUX_NEXT_TUI_BIN": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TUI_BIN",
+   "class": "releaseConfig",
+   "effect": "Daemon executable override (DaemonLauncher).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:92 release decl [via binaryOverrideKey at Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:219]"
+   ]
+  },
+  "app CMUX_NEXT_TUI_DEBUG_SPANS": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TUI_DEBUG_SPANS",
+   "class": "childEnv",
+   "effect": "Passed on to the daemon as its own knob (DaemonDiagnosticKnobs); CMUX_NEXT_TRACE_FLOWS also turns on flow ids in the typing probe, which only measures.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:20 release read"
+   ]
+  },
+  "app CMUX_NEXT_TYPING_PROBE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_TYPING_PROBE",
+   "class": "releaseProbe",
+   "effect": "Typing latency probe output path; unset, the probe records nothing (TypingLatencyProbe).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/TypingLatencyProbe.swift:37 release read"
+   ]
+  },
+  "app CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE": {
+   "scope": "app",
+   "name": "CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE",
+   "class": "debugOnly",
+   "effect": "VNC credentials from a file (RemoteVNCCredentialStore).",
+   "builds": [
+    "debug"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift:26 debug read [#if DEBUG]"
+   ]
+  },
+  "app CMUX_NEXT_WHATS_NEW_DIR": {
+   "scope": "app",
+   "name": "CMUX_NEXT_WHATS_NEW_DIR",
+   "class": "releaseConfig",
+   "effect": "What's New folder for the development track only (UpdaterService+ReleaseNotes).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+ReleaseNotes.swift:51 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+ReleaseNotes.swift:67 release read"
+   ]
+  },
+  "app CMUX_OPTCHAT_CHIEF": {
+   "scope": "app",
+   "name": "CMUX_OPTCHAT_CHIEF",
+   "class": "releaseConfig",
+   "effect": "Chief executable for the usage tool (ChiefUsageTool).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefUsageTool.swift:39 release read"
+   ]
+  },
+  "app CMUX_PANEL_ID": {
+   "scope": "app",
+   "name": "CMUX_PANEL_ID",
+   "class": "childEnv",
+   "effect": "Placement ids the daemon gives a terminal's shell (DaemonConnection+Placement); stripped from an inherited login environment (LoginEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Placement.swift:31 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:26 release other"
+   ]
+  },
+  "app CMUX_PANE_ID": {
+   "scope": "app",
+   "name": "CMUX_PANE_ID",
+   "class": "childEnv",
+   "effect": "Placement ids the daemon gives a terminal's shell (DaemonConnection+Placement); stripped from an inherited login environment (LoginEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:26 release other"
+   ]
+  },
+  "app CMUX_PORT": {
+   "scope": "app",
+   "name": "CMUX_PORT",
+   "class": "releaseConfig",
+   "effect": "Local backend port for the dev backend URL (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:105 release read"
+   ]
+  },
+  "app CMUX_RB_CACHE_DIR": {
+   "scope": "app",
+   "name": "CMUX_RB_CACHE_DIR",
+   "class": "childEnv",
+   "effect": "Set for the local remote-browser host: its cache directory.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift:88 release write"
+   ]
+  },
+  "app CMUX_REMOTE_STATE_DIR": {
+   "scope": "app",
+   "name": "CMUX_REMOTE_STATE_DIR",
+   "class": "childEnv",
+   "effect": "Set for the cloud machine link process: its state directory.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineLink.swift:135 release write"
+   ]
+  },
+  "app CMUX_RESTORE_SCROLLBACK_FILE": {
+   "scope": "app",
+   "name": "CMUX_RESTORE_SCROLLBACK_FILE",
+   "class": "releaseConfig",
+   "effect": "Set for a restored terminal: the scrollback file it replays (WorkspaceBlueprintBuilder).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WorkspaceBlueprintBuilder.swift:95 release decl [via replayKey at Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WorkspaceBlueprintBuilder.swift:92]"
+   ]
+  },
+  "app CMUX_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_SOCKET",
+   "class": "childEnv",
+   "effect": "Stripped from an inherited login environment and from a local PTY's environment so a shell never talks to another cmux (LoginEnvironment, LocalPTYTerminalIO).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:25 release other"
+   ]
+  },
+  "app CMUX_SOCKET_ENABLE": {
+   "scope": "app",
+   "name": "CMUX_SOCKET_ENABLE",
+   "class": "childEnv",
+   "effect": "Stripped from an inherited login environment and from a local PTY's environment so a shell never talks to another cmux (LoginEnvironment, LocalPTYTerminalIO).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:25 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift:39 release other"
+   ]
+  },
+  "app CMUX_SOCKET_PATH": {
+   "scope": "app",
+   "name": "CMUX_SOCKET_PATH",
+   "class": "childEnv",
+   "effect": "Set for terminals and agents to reach this app's control socket (LaunchIdentity, ChiefAppLinks); also a marker of a launch from another cmux.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:49 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:100 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:25 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:19 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift:39 release other"
+   ]
+  },
+  "app CMUX_STACK_BASE_URL": {
+   "scope": "app",
+   "name": "CMUX_STACK_BASE_URL",
+   "class": "releaseConfig",
+   "effect": "Stack auth base URL override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:94 release read"
+   ]
+  },
+  "app CMUX_STACK_PROJECT_ID": {
+   "scope": "app",
+   "name": "CMUX_STACK_PROJECT_ID",
+   "class": "releaseConfig",
+   "effect": "Stack auth project id override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:111 release read"
+   ]
+  },
+  "app CMUX_STACK_PUBLISHABLE_CLIENT_KEY": {
+   "scope": "app",
+   "name": "CMUX_STACK_PUBLISHABLE_CLIENT_KEY",
+   "class": "releaseConfig",
+   "effect": "Stack auth client key override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:112 release read"
+   ]
+  },
+  "app CMUX_SURFACE_ID": {
+   "scope": "app",
+   "name": "CMUX_SURFACE_ID",
+   "class": "childEnv",
+   "effect": "Placement ids the daemon gives a terminal's shell (DaemonConnection+Placement); stripped from an inherited login environment (LoginEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Placement.swift:31 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:26 release other"
+   ]
+  },
+  "app CMUX_TAB_ID": {
+   "scope": "app",
+   "name": "CMUX_TAB_ID",
+   "class": "childEnv",
+   "effect": "Placement ids the daemon gives a terminal's shell (DaemonConnection+Placement); stripped from an inherited login environment (LoginEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:26 release other"
+   ]
+  },
+  "app CMUX_TAG": {
+   "scope": "app",
+   "name": "CMUX_TAG",
+   "class": "releaseConfig",
+   "effect": "The tagged build's tag: auth scheme, identity and child environments (LaunchIdentity, BuildIdentity, CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Mobile.swift:67 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:90 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift:124 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:53 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:72 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift:100 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift:39 release other"
+   ]
+  },
+  "app CMUX_TASKS_HOME": {
+   "scope": "app",
+   "name": "CMUX_TASKS_HOME",
+   "class": "releaseConfig",
+   "effect": "Tasks home directory (SocketTasksSource).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift:40 release read"
+   ]
+  },
+  "app CMUX_TEST_PROCESS": {
+   "scope": "app",
+   "name": "CMUX_TEST_PROCESS",
+   "class": "releaseConfig",
+   "effect": "Marks a test process: crash reporting stays off (CrashReportingPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashReportingPolicy.swift:116 release read"
+   ]
+  },
+  "app CMUX_TEST_REQUIRE_GUI": {
+   "scope": "app",
+   "name": "CMUX_TEST_REQUIRE_GUI",
+   "class": "releaseConfig",
+   "effect": "Desktop notifications require a GUI session in tests (DesktopNotifier).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/DesktopNotifier.swift:189 release other"
+   ]
+  },
+  "app CMUX_TEST_SENTRY_ENABLED": {
+   "scope": "app",
+   "name": "CMUX_TEST_SENTRY_ENABLED",
+   "class": "releaseConfig",
+   "effect": "A test turns crash reporting on (CrashReportingPolicy).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashReportingPolicy.swift:115 release read"
+   ]
+  },
+  "app CMUX_TRACE_FLOWS": {
+   "scope": "app",
+   "name": "CMUX_TRACE_FLOWS",
+   "class": "childEnv",
+   "effect": "The daemon-side name DaemonDiagnosticKnobs passes the app's CMUX_NEXT_* knob on as.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:13 comment doc",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:19 release other"
+   ]
+  },
+  "app CMUX_TUI_CHIEF_BRAINS": {
+   "scope": "app",
+   "name": "CMUX_TUI_CHIEF_BRAINS",
+   "class": "childEnv",
+   "effect": "Set for the chief's daemon (ChiefConversationOwner) and kept by the daemon's minimal environment (DaemonLauncher).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:186 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefConversationOwner.swift:61 release write"
+   ]
+  },
+  "app CMUX_TUI_CHIEF_TOOLS_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+   "class": "childEnv",
+   "effect": "Set for the chief's daemon (ChiefConversationOwner) and kept by the daemon's minimal environment (DaemonLauncher).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:185 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefConversationOwner.swift:60 release write"
+   ]
+  },
+  "app CMUX_TUI_CONFIG": {
+   "scope": "app",
+   "name": "CMUX_TUI_CONFIG",
+   "class": "childEnv",
+   "effect": "Set for the daemon: the config file it reads (DaemonLauncher).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:298 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:355 release write"
+   ]
+  },
+  "app CMUX_TUI_DEBUG_SPANS": {
+   "scope": "app",
+   "name": "CMUX_TUI_DEBUG_SPANS",
+   "class": "childEnv",
+   "effect": "The daemon-side name DaemonDiagnosticKnobs passes the app's CMUX_NEXT_* knob on as.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:20 release other"
+   ]
+  },
+  "app CMUX_TUI_HOST_NOFILE_SOFT": {
+   "scope": "app",
+   "name": "CMUX_TUI_HOST_NOFILE_SOFT",
+   "class": "childEnv",
+   "effect": "The app's original RLIMIT_NOFILE soft limit, passed so terminal hosts give shells the user's limit (OpenFileLimit).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Process/OpenFileLimit.swift:21 release decl [via originalSoftLimitKey at Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Process/OpenFileLimit.swift:59]"
+   ]
+  },
+  "app CMUX_TUI_PAGES_DIR": {
+   "scope": "app",
+   "name": "CMUX_TUI_PAGES_DIR",
+   "class": "childEnv",
+   "effect": "Set in the daemon's launch snapshot: where first-party apps and page bundles are (DaemonService+LaunchSnapshot).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/DaemonService+LaunchSnapshot.swift:63 release write"
+   ]
+  },
+  "app CMUX_TUI_SESSION": {
+   "scope": "app",
+   "name": "CMUX_TUI_SESSION",
+   "class": "childEnv",
+   "effect": "Stripped from an inherited login environment and from a local PTY's environment so a shell never talks to another cmux (LoginEnvironment, LocalPTYTerminalIO).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:24 release other"
+   ]
+  },
+  "app CMUX_TUI_SOCKET": {
+   "scope": "app",
+   "name": "CMUX_TUI_SOCKET",
+   "class": "childEnv",
+   "effect": "Stripped from an inherited login environment and from a local PTY's environment so a shell never talks to another cmux (LoginEnvironment, LocalPTYTerminalIO).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:24 release other"
+   ]
+  },
+  "app CMUX_TUI_STATE_DIR": {
+   "scope": "app",
+   "name": "CMUX_TUI_STATE_DIR",
+   "class": "childEnv",
+   "effect": "Set for the daemon, the cloud link and the server reach helper: the daemon state directory; ServerReachPlan reads an inherited one to find the socket.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerReachPlan.swift:117 release read",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerReachService+App.swift:35 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift:115 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:149 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:297 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift:354 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/StoreSchemaProbe.swift:33 release write"
+   ]
+  },
+  "app CMUX_UITEST_STACK": {
+   "scope": "app",
+   "name": "CMUX_UITEST_STACK",
+   "class": "notEnv",
+   "effect": "A prefix: DogfoodCredentials reads the <prefix>_EMAIL and <prefix>_PASSWORD pair.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:44 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:52 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/DogfoodCredentials.swift:54 release other"
+   ]
+  },
+  "app CMUX_UITEST_STACK_EMAIL": {
+   "scope": "app",
+   "name": "CMUX_UITEST_STACK_EMAIL",
+   "class": "childEnv",
+   "effect": "Dogfood and UI-test Stack credentials: stripped from children, written for a UI-test launch (CloudAuth).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:42 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:95 release write"
+   ]
+  },
+  "app CMUX_UITEST_STACK_PASSWORD": {
+   "scope": "app",
+   "name": "CMUX_UITEST_STACK_PASSWORD",
+   "class": "childEnv",
+   "effect": "Dogfood and UI-test Stack credentials: stripped from children, written for a UI-test launch (CloudAuth).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:42 release other",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/CloudAuth.swift:96 release write"
+   ]
+  },
+  "app CMUX_UI_TEST_": {
+   "scope": "app",
+   "name": "CMUX_UI_TEST_",
+   "class": "notEnv",
+   "effect": "A prefix: any CMUX_UI_TEST_* key marks a test process for crash reporting.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashReportingPolicy.swift:121 release read"
+   ]
+  },
+  "app CMUX_VM_API_BASE_URL": {
+   "scope": "app",
+   "name": "CMUX_VM_API_BASE_URL",
+   "class": "releaseConfig",
+   "effect": "Cloud VM API base URL override (CloudConfiguration).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift:102 release read"
+   ]
+  },
+  "app CMUX_WORKSPACE_ID": {
+   "scope": "app",
+   "name": "CMUX_WORKSPACE_ID",
+   "class": "childEnv",
+   "effect": "Placement ids the daemon gives a terminal's shell (DaemonConnection+Placement); stripped from an inherited login environment (LoginEnvironment).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Placement.swift:32 release write",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:26 release other"
+   ]
+  },
+  "daemon CMUX_TUI_ADOPT_TEMPLATE_TERMINAL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+   "class": "childEnv",
+   "effect": "Cloud template inputs for a server daemon (daemon_spec); startup_env takes them out of the process environment before any thread starts so no child inherits them.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/src/daemon_spec.rs:94 release other",
+    "cmux-tui/crates/cmux-tui/src/startup_env.rs:60 release other",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:239 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5014 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_AGENT_ARGS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_AGENT_ARGS",
+   "class": "releaseConfig",
+   "effect": "Extra agent arguments for a relaunched agent (agent_launch, claude_wrapper).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/workspace_registry/relaunch_store/agent_launch.rs:25 release decl [via SHIM_ARGS_ENV at cmux-tui/crates/cmux-tui-core/src/workspace_registry/relaunch_store/agent_launch.rs:28]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:36 release decl [via AGENT_ARGS_ENV at cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:74]"
+   ]
+  },
+  "daemon CMUX_TUI_AGENT_BROWSER_PROVIDER": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_AGENT_BROWSER_PROVIDER",
+   "class": "releaseConfig",
+   "effect": "The agent browser provider a terminal's agent uses (agent_browser_provider).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:36 release other",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:21 test write [test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:155 test other [test file]",
+    "cmux-tui/crates/cmux-tui-core/src/surface/options.rs:218 release other",
+    "cmux-tui/crates/cmux-tui-core/src/surface/tests/lifecycle.rs:116 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:26 release decl [via INTEGRATION_MARKER at cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:44]"
+   ]
+  },
+  "daemon CMUX_TUI_AGENT_SHIMS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_AGENT_SHIMS",
+   "class": "childEnv",
+   "effect": "Set for shells: the agent shim directory shells keep first in PATH (shell_integration, daemon_env).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:43 release other",
+    "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs:80 release decl [via AGENT_SHIMS_ENV at cmux-tui/crates/cmux-tui/src/main.rs:2344]"
+   ]
+  },
+  "daemon CMUX_TUI_BROWSER_HOST_DIR": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_BROWSER_HOST_DIR",
+   "class": "releaseConfig",
+   "effect": "Browser host executable directory (browser_runtime).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/server/browser_runtime.rs:50 release decl [via HOST_DIR_ENV at cmux-tui/crates/cmux-tui-core/src/server/browser_runtime.rs:120]"
+   ]
+  },
+  "daemon CMUX_TUI_BROWSER_TAB_ID": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_BROWSER_TAB_ID",
+   "class": "childEnv",
+   "effect": "Set for a terminal's agent browser provider (agent_browser_provider).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:27 release other",
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:749 test read [#[test] ; #[cfg(test)]]"
+   ]
+  },
+  "daemon CMUX_TUI_BUILD_COMMIT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_BUILD_COMMIT",
+   "class": "releaseConfig",
+   "effect": "Build commit, set at compile time by build.rs and reported by version and relay.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-build-identity/build.rs:7 release decl [via BUILD_COMMIT_ENV at cmux-tui/crates/cmux-build-identity/build.rs:17]",
+    "cmux-tui/crates/cmux-build-identity/tests/build_identity.rs:9 test decl [via BUILD_COMMIT_ENV at cmux-tui/crates/cmux-build-identity/tests/build_identity.rs:127]",
+    "cmux-tui/crates/cmux-relay/src/lib.rs:29 release read",
+    "cmux-tui/crates/cmux-tui/src/main.rs:979 release read"
+   ]
+  },
+  "daemon CMUX_TUI_BUILD_IDENTITY": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_BUILD_IDENTITY",
+   "class": "releaseConfig",
+   "effect": "Build identity, set at compile time by build.rs.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-build-identity/build.rs:8 release decl [via BUILD_IDENTITY_ENV at cmux-tui/crates/cmux-build-identity/build.rs:28]",
+    "cmux-tui/crates/cmux-build-identity/src/lib.rs:17 release read"
+   ]
+  },
+  "daemon CMUX_TUI_BUILD_TIME": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_BUILD_TIME",
+   "class": "releaseConfig",
+   "effect": "Build time, set at compile time by build.rs.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-build-identity/build.rs:11 release decl [via BUILD_TIME_ENV at cmux-tui/crates/cmux-build-identity/build.rs:29]",
+    "cmux-tui/crates/cmux-build-identity/src/lib.rs:25 release read"
+   ]
+  },
+  "daemon CMUX_TUI_CHIEF_BRAINS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CHIEF_BRAINS",
+   "class": "releaseConfig",
+   "effect": "The chief's brains configuration (chief_brains).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:59 release decl [via ENV at cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:109]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_adopt.rs:335 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:202 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:229 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:351 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:420 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:484 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:530 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:645 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:796 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:938 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:1007 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/participant_avatars.rs:397 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CHIEF_TOOLS_SOCKET": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+   "class": "releaseConfig",
+   "effect": "The chief's tools socket (chief_inspect, startup_env).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/server/chief_inspect.rs:38 release decl [via TOOLS_SOCKET_ENV at cmux-tui/crates/cmux-tui-core/src/server/chief_inspect.rs:112]",
+    "cmux-tui/crates/cmux-tui-core/tests/chief_tools_socket_env.rs:10 test decl [via KEY at cmux-tui/crates/cmux-tui-core/tests/chief_tools_socket_env.rs:12]",
+    "cmux-tui/crates/cmux-tui/src/local_owner.rs:747 release write",
+    "cmux-tui/crates/cmux-tui/src/startup_env.rs:84 release read",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:646 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:939 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/ensure_chief_tools_socket.rs:75 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CLAUDE_HOOKS_DISABLED": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CLAUDE_HOOKS_DISABLED",
+   "class": "releaseConfig",
+   "effect": "The claude wrapper installs no hooks (claude_wrapper).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:45 release decl [via HOOKS_DISABLED_ENV at cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:128]",
+    "cmux-tui/crates/cmux-tui/tests/claude_wrapper_data_home.rs:38 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CLAUDE_WRAPPER_ACTIVE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE",
+   "class": "childEnv",
+   "effect": "Set by the agent wrapper for its child so a nested wrapper does not wrap again.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:40 release other",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:165 test other [test file]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:33 release decl [via WRAPPER_ACTIVE_ENV at cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:80]",
+    "cmux-tui/crates/cmux-tui/tests/claude_wrapper_data_home.rs:37 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CODEX_HOOKS_DISABLED": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CODEX_HOOKS_DISABLED",
+   "class": "releaseConfig",
+   "effect": "The codex wrapper installs no hooks (codex_wrapper).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/codex_wrapper.rs:24 release decl [via HOOKS_DISABLED_ENV at cmux-tui/crates/cmux-tui/src/codex_wrapper.rs:110]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:300 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CODEX_WRAPPER_ACTIVE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CODEX_WRAPPER_ACTIVE",
+   "class": "childEnv",
+   "effect": "Set by the agent wrapper for its child so a nested wrapper does not wrap again.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/codex_wrapper.rs:56 release write",
+    "cmux-tui/crates/cmux-tui/src/codex_wrapper.rs:113 release read",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:302 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_COHORT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_COHORT",
+   "class": "releaseConfig",
+   "effect": "Feature flag cohort for the signed flags document (feature_flags).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/feature_flags.rs:121 release read",
+    "cmux-tui/crates/cmux-tui/src/feature_flags.rs:227 test other [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:102 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_CONFIG": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_CONFIG",
+   "class": "releaseConfig",
+   "effect": "Config file path (platform).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-platform/src/platform.rs:482 release read",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:11 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:36 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:48 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:66 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:110 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:124 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:143 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:194 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_config_files.rs:206 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:38 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:45 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:51 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:63 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:81 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:87 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:549 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:550 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:552 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:558 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:559 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:561 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:575 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:576 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:578 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:591 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:592 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:594 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:626 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:632 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:648 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/sections.rs:649 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/status_and_sidebar_chrome.rs:178 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/status_and_sidebar_chrome.rs:184 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/status_and_sidebar_chrome.rs:187 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/status_and_sidebar_chrome.rs:194 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/config/tests/status_and_sidebar_chrome.rs:197 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/local_owner.rs:953 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/local_owner.rs:968 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/tests/agent_interop_cli.rs:45 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:177 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:221 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:52 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:213 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/bundled_cli.rs:66 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:103 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1574 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3450 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agent_session_start.rs:103 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_chat_tools.rs:145 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:74 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:253 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/app_workspaces.rs:43 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs:55 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/attach_and_raw.rs:272 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_script.rs:328 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:366 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/cloud_lease_gate.rs:60 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/conversation_inbox_state.rs:144 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/explicit_socket.rs:103 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:41 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/session_shutdown.rs:27 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:102 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/ws_conversations.rs:175 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli_audit.rs:42 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli_audit.rs:73 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli_audit.rs:327 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:409 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:67 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/detached_owner.rs:38 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ensure_chief_tools_socket.rs:41 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:97 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/history_trail.rs:72 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:116 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/idle_wakeups.rs:69 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/install_key_handoff.rs:42 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/journal_effect_intents.rs:54 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/journey_support/mod.rs:106 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/legacy_registry_maintenance.rs:52 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/lifecycle_latency.rs:112 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_verifier_env.rs:45 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:297 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_tab_spans.rs:40 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:80 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_identity.rs:47 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_record_sync.rs:84 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/open_file_limit.rs:48 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/owner_panic.rs:32 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/page_router.rs:48 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/paired_server_link.rs:368 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/plugin_data_home.rs:60 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/projects_daemon.rs:34 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/registry_recovery.rs:34 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_forward_parent_lifecycle.rs:120 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_link_state_dir.rs:62 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/replace_unresponsive_owner.rs:41 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/replace_unresponsive_owner.rs:68 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_resources.rs:44 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/tty_hangup_exit.rs:91 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/update_notice.rs:81 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/windows_terminal_hosts.rs:69 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_cloud_conversations.rs:75 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_listen.rs:50 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_scoped_page_credential.rs:52 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS",
+   "class": "releasePerf",
+   "effect": "Adds N ms to every discovery-file sync (barrier_sync), for new-terminal-100x.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix/barrier_sync.rs:44 release read",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:204 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_record_sync.rs:85 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS",
+   "class": "releasePerf",
+   "effect": "Adds N ms to every registry WAL flush (registry_connection), for new-terminal-100x.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/workspace_registry/registry_connection.rs:96 release read",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:180 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_DEBUG_SPANS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_DEBUG_SPANS",
+   "class": "releaseProbe",
+   "effect": "Records debug timing spans (debug_spans); measurement only.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-util/src/debug_spans.rs:75 release read",
+    "cmux-tui/crates/cmux-tui/tests/new_tab_spans.rs:41 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:81 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_record_sync.rs:86 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_DISTRIBUTION_VERSION": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_DISTRIBUTION_VERSION",
+   "class": "releaseConfig",
+   "effect": "Distribution version, set at compile time and reported (release, version_report, ssh_bootstrap).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-remote/src/ssh_bootstrap.rs:36 release read",
+    "cmux-tui/crates/cmux-tui-core/src/release.rs:12 release read",
+    "cmux-tui/crates/cmux-tui/src/version_report.rs:16 release read",
+    "cmux-tui/crates/cmux-tui/tests/version_report.rs:26 test read [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_GHOSTTY_COMMIT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_GHOSTTY_COMMIT",
+   "class": "releaseConfig",
+   "effect": "Ghostty commit, set at compile time and reported (main).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/main.rs:982 release read"
+   ]
+  },
+  "daemon CMUX_TUI_HOLDER_EXE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOLDER_EXE",
+   "class": "releaseConfig",
+   "effect": "Holder executable override (host_exe).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-platform/src/host_exe.rs:48 release decl [via HOLDER_ENV at cmux-tui/crates/cmux-tui-platform/src/host_exe.rs:64]",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:362 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:379 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:849 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_HOOK": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOOK",
+   "class": "childEnv",
+   "effect": "Set for a terminal's shell: the hook binary (daemon_env, terminal_records).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:32 release other",
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_records.rs:15 release other",
+    "cmux-tui/crates/cmux-tui-core/src/mux/tests/terminal_registry.rs:14 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/mux/tests/terminal_registry.rs:25 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:20 test write [test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:152 test other [test file]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3055 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3977 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3989 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:4003 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:4083 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:82 release write",
+    "cmux-tui/crates/cmux-tui/src/main.rs:2325 release other",
+    "cmux-tui/crates/cmux-tui/tests/claude_wrapper_data_home.rs:36 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:189 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:615 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:236 test read [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_HOOK_ROUTE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOOK_ROUTE",
+   "class": "releaseConfig",
+   "effect": "Route the cmux-tui-hook binary takes (cmux-tui-hook).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:172 release decl [via HOOK_ROUTE_ENV at cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:185]"
+   ]
+  },
+  "daemon CMUX_TUI_HOST_EXE_DIR": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOST_EXE_DIR",
+   "class": "releaseConfig",
+   "effect": "Terminal host executable directory on macOS (host_exe/macos).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-platform/src/host_exe/macos.rs:16 release decl [via ROOT_ENV at cmux-tui/crates/cmux-tui-platform/src/host_exe/macos.rs:171]",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:966 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:210 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_HOST_NOFILE_SOFT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOST_NOFILE_SOFT",
+   "class": "childEnv",
+   "effect": "The original RLIMIT_NOFILE soft limit a terminal host restores for its shell (holder, host_session).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-holder-v3/src/lib.rs:163 release decl [via NOFILE_SOFT_ENV at cmux-tui/crates/cmux-holder-v3/src/lib.rs:189]",
+    "cmux-tui/crates/cmux-holder/src/lib.rs:162 release decl [via NOFILE_SOFT_ENV at cmux-tui/crates/cmux-holder/src/lib.rs:236]",
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_session.rs:24 release decl [via NOFILE_SOFT_ENV at cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_session.rs:29]"
+   ]
+  },
+  "daemon CMUX_TUI_HOST_ORPHAN_GRACE_SECS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOST_ORPHAN_GRACE_SECS",
+   "class": "releaseConfig",
+   "effect": "How long a terminal host outlives a lost daemon before it exits (host_state); unset, no grace.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_state.rs:76 release decl [via HOST_ORPHAN_GRACE_ENV at cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_state.rs:97]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/host_orphan.rs:16 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/host_orphan.rs:83 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/host_orphan.rs:127 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/terminal_respawn.rs:276 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_HOST_SCOPES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_HOST_SCOPES",
+   "class": "releaseConfig",
+   "effect": "Linux: `systemd` puts each terminal host in a systemd scope under cmuxhosts.slice (host_scope).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs:31 release decl [via HOST_SCOPES_ENV at cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs:43]"
+   ]
+  },
+  "daemon CMUX_TUI_JOURNAL_DURABLE_WAIT_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_JOURNAL_DURABLE_WAIT_MS",
+   "class": "releaseConfig",
+   "effect": "Deadline before a pending journal commit counts as failed, 5 s to 5 min, default 30 s (journal_ingress); a failure deadline, not a wait on the input path.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs:48 release decl [via JOURNAL_DURABLE_WAIT_ENV at cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs:72]"
+   ]
+  },
+  "daemon CMUX_TUI_LOGIN_SHELL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_LOGIN_SHELL",
+   "class": "releaseConfig",
+   "effect": "Login shell path override (login_shell).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:30 release decl [via MARKER at cmux-tui/crates/cmux-tui-core/src/login_shell.rs:50]"
+   ]
+  },
+  "daemon CMUX_TUI_LOG_FILE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_LOG_FILE",
+   "class": "releaseConfig",
+   "effect": "Log file path (platform, client_log, remote_cli).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-platform/src/platform.rs:469 release read",
+    "cmux-tui/crates/cmux-tui/src/client_log.rs:99 release read",
+    "cmux-tui/crates/cmux-tui/src/remote_cli.rs:2694 release read",
+    "cmux-tui/crates/cmux-tui/src/remote_cli.rs:2696 release write",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:69 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:99 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/legacy_registry_maintenance.rs:53 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/owner_panic.rs:33 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/registry_recovery.rs:35 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/update_notice.rs:83 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_NO_LOGIN_SHELL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_NO_LOGIN_SHELL",
+   "class": "releaseConfig",
+   "effect": "Shells start as non-login shells (login_shell).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/login_shell.rs:33 release decl [via DISABLE at cmux-tui/crates/cmux-tui-core/src/login_shell.rs:45]"
+   ]
+  },
+  "daemon CMUX_TUI_NPM_BOOTSTRAP_VERSION": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_NPM_BOOTSTRAP_VERSION",
+   "class": "releaseConfig",
+   "effect": "npm package version the ssh bootstrap installs, set at compile time (ssh_bootstrap).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-remote/src/ssh_bootstrap.rs:40 release read"
+   ]
+  },
+  "daemon CMUX_TUI_PAGES_DIR": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_PAGES_DIR",
+   "class": "releaseConfig",
+   "effect": "Page bundle directory (page_files).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/server/page_files.rs:222 release read",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:53 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:214 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_PREVIOUS_BIN": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_PREVIOUS_BIN",
+   "class": "testOnly",
+   "effect": "The previous build's binary for upgrade tests (terminal_host_recovery).",
+   "builds": [
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/kitty_budget_resync.rs:202 test read [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/upgrade.rs:15 test read [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_PROCESS_SCOPE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_PROCESS_SCOPE",
+   "class": "childEnv",
+   "effect": "Marker set on every process a scope spawns, so cleanup finds them (unix_process_scope).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs:1419 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs:1428 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs:44 release decl [via PROCESS_SCOPE_ENV at cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs:368]"
+   ]
+  },
+  "daemon CMUX_TUI_PROJECTION_CROSSCHECK": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_PROJECTION_CROSSCHECK",
+   "class": "releasePerf",
+   "effect": "`1` makes a Release daemon recompute and compare each scoped projection on every commit (scoped_projection); Debug always does.",
+   "followup": "Drop the Release env read; Debug already crosschecks.",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/resource_content/scoped_projection.rs:87 release read"
+   ]
+  },
+  "daemon CMUX_TUI_REMOTE_WS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_REMOTE_WS",
+   "class": "releaseConfig",
+   "effect": "Remote websocket listener for a server role (daemon_spec, role_spec).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/src/daemon_spec.rs:137 release read",
+    "cmux-tui/crates/cmux-host/tests/linux_agent.rs:303 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-host/tests/linux_agent.rs:397 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-server-core/src/role_spec.rs:224 release read"
+   ]
+  },
+  "daemon CMUX_TUI_REMOTE_WS_BIND": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_REMOTE_WS_BIND",
+   "class": "testOnly",
+   "effect": "A bind address a test sets to prove it does not reach the session host (linux_agent).",
+   "builds": [
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/tests/linux_agent.rs:124 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER",
+   "class": "releaseConfig",
+   "effect": "Trusts the remote websocket's carrier for auth (main).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/tests/linux_agent.rs:125 test write [test file]",
+    "cmux-tui/crates/cmux-tui/src/main.rs:2783 release read"
+   ]
+  },
+  "daemon CMUX_TUI_SESSION": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_SESSION",
+   "class": "childEnv",
+   "effect": "Set for code mode's child: the session (code_mode).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/cli/code_mode.rs:59 release write",
+    "cmux-tui/crates/cmux-tui/tests/app_daemon_build_names.rs:48 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/foreign_app_terminal.rs:69 test other [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_SESSION_ID": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_SESSION_ID",
+   "class": "childEnv",
+   "effect": "Set for a terminal's shell and journal plugins: the session id.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:34 release other",
+    "cmux-tui/crates/cmux-tui-core/src/journal_plugin.rs:600 release write",
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_records.rs:16 release other",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:175 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/surface/construct.rs:112 release other"
+   ]
+  },
+  "daemon CMUX_TUI_SHELL_INTEGRATION": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_SHELL_INTEGRATION",
+   "class": "releaseConfig",
+   "effect": "`none` launches shells without cmux shell integration (shell_integration).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs:83 release decl [via OPT_OUT_ENV at cmux-tui/crates/cmux-tui-core/src/shell_integration.rs:183]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:77 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:228 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_SOCKET": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_SOCKET",
+   "class": "releaseConfig",
+   "effect": "Daemon socket path for the CLI, hooks, agents and hosts.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/acpmux/src/agent/session_tmp.rs:209 release read",
+    "cmux-tui/crates/acpmux/src/agent/session_tmp.rs:560 test other [#[test] ; #[cfg(all(test, unix))]]",
+    "cmux-tui/crates/acpmux/src/config/chief_builtins.rs:35 release other",
+    "cmux-tui/crates/acpmux/src/launch_credential.rs:18 release decl [via SESSION_SOCKET_ENV at cmux-tui/crates/acpmux/src/launch_credential.rs:37]",
+    "cmux-tui/crates/acpmux/tests/chief_builtin_presets.rs:128 test write [test file]",
+    "cmux-tui/crates/acpmux/tests/chief_builtin_presets.rs:239 test other [#[tokio::test] ; test file]",
+    "cmux-tui/crates/acpmux/tests/launch_credential.rs:31 test write [#[tokio::test] ; test file]",
+    "cmux-tui/crates/acpmux/tests/session_env.rs:120 test other [#[tokio::test] ; test file]",
+    "cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs:425 release read",
+    "cmux-tui/crates/cmux-browser-host/tests/cli.rs:101 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:29 release other",
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:67 release other",
+    "cmux-tui/crates/cmux-tui-core/src/journal_plugin.rs:598 release write",
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_records.rs:13 release other",
+    "cmux-tui/crates/cmux-tui-core/src/mux/tests/terminal_registry.rs:13 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/mux/tests/terminal_registry.rs:24 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/browser_host_provider_tests.rs:180 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:18 test write [test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:150 test other [test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:189 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:190 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:199 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:201 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3054 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3971 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3976 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:3988 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui-hooks/src/lib.rs:4002 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:159 release other",
+    "cmux-tui/crates/cmux-tui/src/app_identity.rs:189 release other",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:203 release read",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:336 release read",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:854 release write",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:931 release write",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:1014 test write [#[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/ancestor_route.rs:98 release other",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs:75 release read",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:136 release read",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:849 test other [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:872 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:873 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/cli/app.rs:895 release other",
+    "cmux-tui/crates/cmux-tui/src/cli/code_mode.rs:56 release write",
+    "cmux-tui/crates/cmux-tui/src/cli/launch_credential.rs:35 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/wire/socket.rs:110 release other",
+    "cmux-tui/crates/cmux-tui/src/link/access_cli/requests.rs:164 release read",
+    "cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs:324 release read",
+    "cmux-tui/crates/cmux-tui/tests/access_request_journey.rs:54 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/access_request_journey.rs:364 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/acpmux_build_homes.rs:47 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/action_machine_arg_app.rs:92 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/action_session_arg_app.rs:70 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_brand_coverage.rs:40 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_interop_cli.rs:46 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_interop_cli.rs:131 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_launch_credential.rs:37 test write [#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_launch_credential.rs:61 test write [#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:444 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:462 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agents_doctor.rs:96 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agents_doctor.rs:128 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_daemon_build_names.rs:46 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/browser_app_route.rs:159 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/browser_open_app.rs:347 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/bundled_cli.rs:108 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/bundled_cli.rs:118 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/classic_agent_hooks.rs:27 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/claude_wrapper_data_home.rs:34 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:188 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:223 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:445 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:932 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1039 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1803 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1861 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1878 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1896 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1924 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1945 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1984 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2002 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2036 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2054 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2080 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2102 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2127 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2149 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2173 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2194 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2221 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2242 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2276 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2307 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2325 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2357 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2376 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2403 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2529 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2584 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2882 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:2940 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3091 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3104 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3114 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3123 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3451 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3491 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3501 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:3512 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_chat_tools.rs:146 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_cli_receipt.rs:22 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_events_cli.rs:28 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_wait_cli.rs:24 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:91 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:105 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:146 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:166 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:254 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/attach_and_raw.rs:319 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/attach_and_raw.rs:735 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_devices.rs:18 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_profiles.rs:16 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_profiles.rs:151 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:187 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:306 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:641 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:728 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:777 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief.rs:832 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_autostart.rs:144 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:808 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_build_homes.rs:39 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_chat_kind.rs:72 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_registry.rs:409 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_script.rs:78 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_script.rs:337 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:90 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:112 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:780 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/explicit_socket.rs:221 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/explicit_socket.rs:273 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/git_branches.rs:33 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/git_write.rs:35 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/history.rs:18 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/keybindings_owner.rs:65 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/launch_credential.rs:69 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/launch_credential.rs:129 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/lone_width.rs:58 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/participant_avatars.rs:135 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/settings_owner.rs:72 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/state_helpers.rs:25 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/state_helpers.rs:28 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:33 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:37 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:338 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:365 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:518 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status_wait.rs:31 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status_wait.rs:213 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/tab_group_hex.rs:15 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/terminal_wait_until.rs:53 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/workspace_resource_deltas.rs:82 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli_audit.rs:43 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli_audit.rs:328 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cmux_surface.rs:33 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_config_lock.rs:73 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:53 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:187 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:240 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:264 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:310 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:315 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:439 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:616 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/foreign_app_terminal.rs:91 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/history_trail.rs:82 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/journal_hook_detach.rs:23 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/journal_hook_detach.rs:127 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/journal_hook_detach.rs:149 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_list_cloud.rs:124 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:611 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/mcp_caller_session.rs:123 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/mcp_render_update.rs:111 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:57 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:243 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:385 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_identity.rs:72 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/next_home_adoption.rs:44 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/plugin_data_home.rs:61 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_link_state_dir.rs:64 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:267 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:682 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:723 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:776 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:808 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:823 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:838 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:857 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:872 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:897 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:908 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:978 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1033 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1084 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1163 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1241 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1355 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/resource_cli_v2.rs:1456 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/command_activity.rs:724 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/terminal_respawn.rs:369 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_STARTUP_BENCH_TERMINALS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_STARTUP_BENCH_TERMINALS",
+   "class": "testOnly",
+   "effect": "Terminal count for the restart-within-budget test (terminal_host_recovery).",
+   "builds": [
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5349 test read [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_STARTUP_BUDGET_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_STARTUP_BUDGET_MS",
+   "class": "testOnly",
+   "effect": "Budget for the restart-within-budget test (terminal_host_recovery).",
+   "builds": [
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5353 test read [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_STATE_DIR": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_STATE_DIR",
+   "class": "releaseConfig",
+   "effect": "State directory (platform).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-platform/src/platform.rs:186 release read",
+    "cmux-tui/crates/cmux-tui/tests/access_request_journey.rs:52 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/access_request_journey.rs:362 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_cli_job_journey.rs:130 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:165 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:220 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:51 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_page_listener.rs:212 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/bring_back_journey.rs:124 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/bring_back_journey.rs:161 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli.rs:1448 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agent_session_start.rs:102 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/all_sessions_scope.rs:252 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs:54 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs:625 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_script.rs:327 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/cloud_lease_gate.rs:59 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:40 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:515 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:554 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cloud_move_journey.rs:119 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:66 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/detached_owner.rs:37 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ensure_chief_tools_socket.rs:40 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:96 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/history_trail.rs:71 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/install_key_handoff.rs:41 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/journey_support/mod.rs:105 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/legacy_registry_maintenance.rs:51 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_access.rs:89 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_access.rs:424 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_ensure.rs:74 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_sync.rs:118 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_sync.rs:351 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/link_sync.rs:739 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:58 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:136 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:147 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:296 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:425 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_update_journey.rs:668 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/owner_panic.rs:31 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/page_router.rs:47 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/paired_server_link.rs:88 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/paired_server_link.rs:369 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/registry_recovery.rs:33 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_link_state_dir.rs:61 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_link_state_dir.rs:382 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/remote_link_state_dir.rs:391 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/replace_unresponsive_owner.rs:40 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/replace_unresponsive_owner.rs:67 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/setup.rs:160 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/support/private_state.rs:26 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/update_notice.rs:80 test write [#![cfg(all(unix, debug_assertions))] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_cloud_conversations.rs:74 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_listen.rs:49 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/ws_scoped_page_credential.rs:51 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TELEMETRY": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TELEMETRY",
+   "class": "releaseConfig",
+   "effect": "Turns crash forwarding off (crash_forward).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:96 release read",
+    "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:97 release read",
+    "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:433 test other [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:436 test read [#[test] ; #[cfg(test)]]"
+   ]
+  },
+  "daemon CMUX_TUI_TEMPLATE_BOUND_FILE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEMPLATE_BOUND_FILE",
+   "class": "childEnv",
+   "effect": "Cloud template inputs for a server daemon (daemon_spec); startup_env takes them out of the process environment before any thread starts so no child inherits them.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/src/daemon_spec.rs:95 release other",
+    "cmux-tui/crates/cmux-tui/src/startup_env.rs:61 release other",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:240 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5015 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEMPLATE_WORKSPACE_NAME": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+   "class": "childEnv",
+   "effect": "Cloud template inputs for a server daemon (daemon_spec); startup_env takes them out of the process environment before any thread starts so no child inherits them.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-host/src/daemon_spec.rs:96 release other",
+    "cmux-tui/crates/cmux-tui/src/startup_env.rs:62 release other",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:241 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5016 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TERM": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TERM",
+   "class": "releaseConfig",
+   "effect": "TERM value for new terminals (surface/options).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/surface/options.rs:88 release read"
+   ]
+  },
+  "daemon CMUX_TUI_TERMINAL_HOST_MODEL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TERMINAL_HOST_MODEL",
+   "class": "releasePerf",
+   "effect": "`holder` runs new session-owned terminals on the holder instead of the host (holder_runtime): the terminal process model.",
+   "followup": "Make it a perfPath feature (process daemon) in schemas/features/features.d/; it is an MQ6 seed.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/holder_runtime.rs:31 release read",
+    "cmux-tui/crates/cmux-tui/tests/holder_terminals.rs:117 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:134 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_terminal_first_text.rs:222 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TERMINAL_ID": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TERMINAL_ID",
+   "class": "releaseConfig",
+   "effect": "The terminal a CLI call, hook or agent belongs to.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/acpmux/src/agent_tools.rs:71 release other",
+    "cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs:568 release read",
+    "cmux-tui/crates/cmux-tui-core/src/daemon_env.rs:33 release other",
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_records.rs:17 release other",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:169 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/server/daemon_env_tests.rs:182 test read [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui-core/src/surface/construct.rs:108 release other",
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:182 release read",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:204 release read",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs:1014 test write [#[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/ancestor_route.rs:99 release other",
+    "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs:76 release read",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:131 release read",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:848 test other [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/claude_wrapper.rs:871 test write [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/cli/agent_message.rs:145 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/app.rs:981 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/app/open.rs:171 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/app/tests.rs:979 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/cli/app/tests.rs:1290 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/src/cli/command.rs:1381 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/command.rs:1529 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/command.rs:3743 test read [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/cli/command/state.rs:267 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/frontend_browser.rs:120 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/mcp/transport.rs:392 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/status.rs:126 release read",
+    "cmux-tui/crates/cmux-tui/src/cli/terminal_talk/send.rs:170 release read",
+    "cmux-tui/crates/cmux-tui/tests/action_machine_arg_app.rs:90 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/action_path_app.rs:66 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/action_session_arg_app.rs:68 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_brand_coverage.rs:42 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_interop_cli.rs:52 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:445 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:464 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agents_doctor.rs:94 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/agents_doctor.rs:126 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_dropped_connection_resend.rs:49 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_dropped_connection_resend.rs:87 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_refusal_note.rs:34 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/app_wait_progress.rs:28 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/browser_app_route.rs:162 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/browser_open_app.rs:349 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/browser_open_app.rs:351 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/claude_wrapper_data_home.rs:35 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/agents_chat_tools.rs:147 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_devices.rs:19 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_profiles.rs:17 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/browser_profiles.rs:153 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:91 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:113 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:781 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:516 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/feed_local.rs:555 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/git_branches.rs:34 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/git_write.rs:36 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/history.rs:19 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/keybindings_owner.rs:66 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/launch_credential.rs:71 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/lone_width.rs:59 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/settings_owner.rs:73 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/state_helpers.rs:19 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/state_helpers.rs:25 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:25 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:34 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:339 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:366 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status.rs:519 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status_wait.rs:32 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/status_wait.rs:214 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/tab_group_hex.rs:14 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/cli/terminal_wait_until.rs:54 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_config_lock.rs:75 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:54 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:188 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:211 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:241 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:265 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:440 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:617 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/codex_wrapper.rs:641 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/machine_list_cloud.rs:124 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/mcp_caller_session.rs:124 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/mcp_render_update.rs:112 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:59 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:243 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/muse_agent_hooks.rs:386 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_identity.rs:73 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/open_url_app.rs:236 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/open_url_app.rs:243 test write [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/command_activity.rs:725 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/terminal_respawn.rs:370 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TERMINAL_PERSISTENCE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TERMINAL_PERSISTENCE",
+   "class": "releasePerf",
+   "effect": "Overrides the terminal persistence mode, which sets disk writes per output (output_store); the setting terminal.persistence is the user's control.",
+   "followup": "Move the read under cfg(debug_assertions); the setting covers Release.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/output_store.rs:55 release decl [via PERSISTENCE_MODE_ENV at cmux-tui/crates/cmux-tui-core/src/output_store.rs:154]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/output_store.rs:41 test other [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES",
+   "class": "releasePerf",
+   "effect": "Overrides the scrollback RAM budget across terminals, default 256 MB (memory_budget); the setting terminal.scrollback.maxTotalMemoryBytes is the user's control.",
+   "followup": "Move the read under cfg(debug_assertions); the setting covers Release.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/output_store/memory_budget.rs:26 release decl [via MEMORY_TOTAL_ENV at cmux-tui/crates/cmux-tui-core/src/output_store.rs:168]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/output_store.rs:349 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_ADOPTION_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_ADOPTION_DELAY_MS",
+   "class": "debugOnly",
+   "effect": "Delays a terminal adoption (terminal_adoption).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_adoption.rs:854 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/cli/closed_delete.rs:271 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES",
+   "class": "releaseTestHook",
+   "effect": "Fault injection: the first N terminal adoption inserts fail (mux/construct).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/construct.rs:363 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:222 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_AGENT_MESSAGE_CLOCK_FILE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_AGENT_MESSAGE_CLOCK_FILE",
+   "class": "debugOnly",
+   "effect": "Agent message policy clock offset from a file (agent_message_policy).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/state/agent_message_policy.rs:337 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/agent_message_policy/harness.rs:179 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CHIEF_BRAINS_GATE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CHIEF_BRAINS_GATE",
+   "class": "debugOnly",
+   "effect": "The chief brains read blocks on a test gate (chief_brains).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/chief_brains.rs:526 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/cli/chief_brains.rs:797 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CONTENT_PUBLIC_KEY": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CONTENT_PUBLIC_KEY",
+   "class": "debugOnly",
+   "effect": "Public key for the test flags document (feature_flags).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/feature_flags.rs:35 debug decl [via TEST_PUBLIC_KEY_ENV at cmux-tui/crates/cmux-tui/src/feature_flags.rs:75]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:101 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CREATE_BIND_GATE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CREATE_BIND_GATE",
+   "class": "debugOnly",
+   "effect": "Created-terminal bind waits on a test gate folder (terminal_create).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_create.rs:479 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_identity.rs:177 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CREATE_BIND_GATE_KEY": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CREATE_BIND_GATE_KEY",
+   "class": "debugOnly",
+   "effect": "Workspace key the create-bind gate applies to (terminal_create).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_create.rs:478 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/new_workspace_identity.rs:178 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS",
+   "class": "releasePerf",
+   "effect": "Shortens how long a creating terminal queues input (creating_input).",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/creating_input.rs:26 release decl [via EXPIRY_OVERRIDE_ENV at cmux-tui/crates/cmux-tui-core/src/mux/creating_input.rs:281]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/creating_input.rs:209 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS",
+   "class": "releasePerf",
+   "effect": "Delays the flush of queued input after a terminal is created (creating_input): the typing path.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/creating_input.rs:29 release decl [via FLUSH_DELAY_ENV at cmux-tui/crates/cmux-tui-core/src/mux/creating_input.rs:229]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/creating_input.rs:265 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS",
+   "class": "debugOnly",
+   "effect": "Departed grid hold time (grid_hold).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_sizing/grid_hold.rs:220 debug decl [via DEPARTED_GRID_HOLD_ENV at cmux-tui/crates/cmux-tui-core/src/mux/terminal_sizing/grid_hold.rs:227]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:109 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:166 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:228 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:303 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:582 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS",
+   "class": "debugOnly",
+   "effect": "DEV orphan exit delay (dev_orphan_exit).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:40 debug decl [via TEST_DELAY_ENV at cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:66]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/owner_idle_exit.rs:31 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DEV_ORPHAN_OWNER": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DEV_ORPHAN_OWNER",
+   "class": "debugOnly",
+   "effect": "Treats the owner as a DEV owner for the orphan exit (dev_orphan_exit).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:37 debug decl [via TEST_DEV_OWNER_ENV at cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:79]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/owner_idle_exit.rs:30 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS",
+   "class": "debugOnly",
+   "effect": "DEV orphan recheck interval (dev_orphan_exit).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:43 debug decl [via TEST_RECHECK_ENV at cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs:67]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/owner_idle_exit.rs:32 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DISABLE_RESPAWN": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DISABLE_RESPAWN",
+   "class": "releaseTestHook",
+   "effect": "Turns terminal respawn off for tests of dead tabs (terminal_respawn).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn.rs:55 release decl [via DISABLE_ENV at cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn.rs:134]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:236 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS",
+   "class": "debugOnly",
+   "effect": "Disconnects a host this long after spawn (mux/construct).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/construct.rs:282 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:219 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_FLAGS_URL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_FLAGS_URL",
+   "class": "debugOnly",
+   "effect": "Flags document URL (feature_flags, background_checks).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/feature_flags.rs:33 debug decl [via TEST_URL_ENV at cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs:24]",
+    "cmux-tui/crates/cmux-tui/tests/feature_flags.rs:100 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS",
+   "class": "releasePerf",
+   "effect": "Delays applying hosted output, up to 5 s (hosted_reader): the output path.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/surface/hosted_reader.rs:80 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:5208 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT",
+   "class": "releaseTestHook",
+   "effect": "Fault injection: hosted surface setup fails after it attaches (surface).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/surface.rs:670 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:149 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_ABORT_ONCE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_ABORT_ONCE",
+   "class": "debugOnly",
+   "effect": "A host aborts once to test recovery (host_crash).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_crash.rs:27 debug decl [via ABORT_ONCE_TEST_ENV at cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_crash.rs:89]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/loss_causes.rs:126 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_EXITED_DRAIN_LIMIT_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_EXITED_DRAIN_LIMIT_MS",
+   "class": "releaseTestHook",
+   "effect": "Shortens how long a host drains its PTY after the child exits, never longer than 30 s (exited_drain).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/exited_drain.rs:29 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/stray_signals.rs:178 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_EXIT_GATE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_EXIT_GATE",
+   "class": "debugOnly",
+   "effect": "Host exit waits on a test gate (host_serve/stdio).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_serve/stdio.rs:296 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/tab_restart.rs:158 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT",
+   "class": "debugOnly",
+   "effect": "Hosts install the shared endpoint (sys/unix).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix.rs:133 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/shared_endpoint_dir.rs:95 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/shared_endpoint_dir.rs:99 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS",
+   "class": "debugOnly",
+   "effect": "Delays the host loss log (terminal_exit).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_exit.rs:616 debug read [#[cfg(all(any(unix, windows), debug_assertions))]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/restored_end.rs:66 test other [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/restored_end.rs:109 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_READY_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_READY_DELAY_MS",
+   "class": "releasePerf",
+   "effect": "Sleeps before a terminal host reports Ready, up to 5 s (host_serve/stdio): terminal startup.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_serve/stdio.rs:146 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:212 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_HOST_READY_GATE": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_HOST_READY_GATE",
+   "class": "debugOnly",
+   "effect": "Host Ready waits on a test gate (host_serve/stdio).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_serve/stdio.rs:155 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/parallel_new_tabs.rs:21 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_INSTALL_CHANNEL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_INSTALL_CHANNEL",
+   "class": "debugOnly",
+   "effect": "Install channel for the update notice (update_notice).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:26 debug decl [via TEST_CHANNEL_ENV at cmux-tui/crates/cmux-tui/src/update_notice.rs:262]",
+    "cmux-tui/crates/cmux-tui/tests/update_notice.rs:85 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_JOURNAL_CHECKPOINT_INTERVAL_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_JOURNAL_CHECKPOINT_INTERVAL_MS",
+   "class": "debugOnly",
+   "effect": "Journal checkpoint interval (journal_retention).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/journal_retention.rs:200 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/reconnect_checkpoints.rs:20 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS",
+   "class": "debugOnly",
+   "effect": "Journal maintenance interval (journal_maintenance).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/journal_maintenance.rs:53 debug decl [via JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV at cmux-tui/crates/cmux-tui-core/src/mux/journal_maintenance.rs:57]",
+    "cmux-tui/crates/cmux-tui/tests/legacy_registry_maintenance.rs:54 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES",
+   "class": "debugOnly",
+   "effect": "Legacy registry auto-vacuum threshold (workspace_registry).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs:3607 debug other [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/legacy_registry_maintenance.rs:55 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_MEMORY_INTERVAL_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_MEMORY_INTERVAL_MS",
+   "class": "debugOnly",
+   "effect": "Memory guard sampling interval (memory_guard).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/owner_start/memory_guard.rs:25 debug decl [via TEST_INTERVAL_ENV at cmux-tui/crates/cmux-tui/src/owner_start/memory_guard.rs:131]",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:204 test write [#![cfg(all(unix, debug_assertions))] ; #[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_MEMORY_THRESHOLD_BYTES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_MEMORY_THRESHOLD_BYTES",
+   "class": "debugOnly",
+   "effect": "Memory guard threshold (memory_guard).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/owner_start/memory_guard.rs:23 debug decl [via TEST_THRESHOLD_ENV at cmux-tui/crates/cmux-tui/src/owner_start/memory_guard.rs:130]",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:203 test write [#![cfg(all(unix, debug_assertions))] ; #[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS",
+   "class": "releasePerf",
+   "effect": "Sets how often a changed terminal's snapshot is written, default 30 s (output_store): disk writes.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/output_store.rs:57 release decl [via SNAPSHOT_INTERVAL_ENV at cmux-tui/crates/cmux-tui-core/src/output_store.rs:258]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/output_store.rs:44 test other [test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/output_store.rs:345 test other [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_OWNER_PANIC": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_OWNER_PANIC",
+   "class": "debugOnly",
+   "effect": "The owner panics to test the panic log (owner_panic).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/owner_start/owner_panic.rs:20 debug decl [via TEST_PANIC_ENV at cmux-tui/crates/cmux-tui/src/owner_start/owner_panic.rs:80]",
+    "cmux-tui/crates/cmux-tui/tests/owner_panic.rs:61 test write [#![cfg(all(unix, debug_assertions))] ; #[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES",
+   "class": "debugOnly",
+   "effect": "The first N host reconnect completions fail (mux/construct).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/construct.rs:275 debug read [#[cfg(debug_assertions)]]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:218 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_REGISTRY_URL": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_REGISTRY_URL",
+   "class": "debugOnly",
+   "effect": "npm registry URL for the update notice (update_notice).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:24 debug decl [via TEST_URL_ENV at cmux-tui/crates/cmux-tui/src/update_notice.rs:77]",
+    "cmux-tui/crates/cmux-tui/tests/update_notice.rs:84 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_RESPAWN_BACKOFF_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_RESPAWN_BACKOFF_MS",
+   "class": "debugOnly",
+   "effect": "Respawn backoff schedule (respawn supervisor).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn/supervisor.rs:37 debug decl [via BACKOFF_ENV at cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn/supervisor.rs:55]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/host_supervisor.rs:23 test decl [via BACKOFF_ENV at cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/host_supervisor.rs:28]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/tab_restart.rs:24 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_RESPAWN_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_RESPAWN_DELAY_MS",
+   "class": "releasePerf",
+   "effect": "Holds a scheduled respawn before it starts (terminal_respawn): recovery latency.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn.rs:58 release decl [via DELAY_ENV at cmux-tui/crates/cmux-tui-core/src/mux/terminal_respawn.rs:135]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/terminal_respawn.rs:718 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_SENTRY_DSN": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_SENTRY_DSN",
+   "class": "debugOnly",
+   "effect": "Sentry DSN for crash forwarding tests (crash_forward).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:31 debug decl [via TEST_DSN_ENV at cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs:301]",
+    "cmux-tui/crates/cmux-tui/tests/crash_forward.rs:83 test write [#![cfg(all(unix, debug_assertions))] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS",
+   "class": "debugOnly",
+   "effect": "Session shutdown lead time (session_shutdown).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/session_shutdown.rs:59 debug decl [via SESSION_SHUTDOWN_LEAD_TEST_ENV at cmux-tui/crates/cmux-tui-core/src/session_shutdown.rs:261]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:215 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_SIZE_LEASE_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_SIZE_LEASE_MS",
+   "class": "debugOnly",
+   "effect": "Size lease duration (size_lease).",
+   "builds": [
+    "debug",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/server/size_lease.rs:42 debug decl [via SIZE_LEASE_ENV at cmux-tui/crates/cmux-tui-core/src/server/size_lease.rs:49]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/sized_attach.rs:301 test other [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES",
+   "class": "releaseTestHook",
+   "effect": "Fault injection: the first N template completions fail (mux/construct).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/mux/construct.rs:369 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs:225 test write [test file]"
+   ]
+  },
+  "daemon CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS",
+   "class": "releasePerf",
+   "effect": "Sleeps before a host sends a termination receipt, up to 5 s (host_serve): close latency.",
+   "followup": "Move the read under cfg(debug_assertions) (the integration tests run a debug daemon), or into a bench-hooks cargo feature if a Release bench needs it.",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/shared/host_serve.rs:530 release read",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/close_path.rs:15 test write [#[test] ; test file]",
+    "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/close_path.rs:53 test write [#[test] ; test file]"
+   ]
+  },
+  "daemon CMUX_TUI_UPDATE_CHECK": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_UPDATE_CHECK",
+   "class": "releaseConfig",
+   "effect": "Turns the CLI update notice off (update_notice).",
+   "builds": [
+    "release",
+    "test"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:62 release read",
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:63 release read",
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:346 test other [#[test] ; #[cfg(test)]]",
+    "cmux-tui/crates/cmux-tui/src/update_notice.rs:349 test read [#[test] ; #[cfg(test)]]"
+   ]
+  },
+  "daemon CMUX_TUI_WARM_MACHINES": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_WARM_MACHINES",
+   "class": "releasePerf",
+   "effect": "How many machine connections stay warm, default 5 (machine_runtime): switch latency against memory.",
+   "followup": "Make it a FeatureParam of a daemon feature, or move the read under cfg(debug_assertions).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/machine_runtime.rs:445 release read"
+   ]
+  },
+  "daemon CMUX_TUI_WORKSPACE_ID": {
+   "scope": "daemon",
+   "name": "CMUX_TUI_WORKSPACE_ID",
+   "class": "childEnv",
+   "effect": "Set for a terminal's agent browser provider (agent_browser_provider).",
+   "builds": [
+    "release"
+   ],
+   "sites": [
+    "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs:28 release other"
+   ]
+  }
+ }
+}
