@@ -295,6 +295,14 @@ pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
     if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
+fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
+    if rc < 0 {
+        Err(io::Error::from_raw_os_error(errno))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod unsupported_tests {
     #[test]
@@ -432,12 +440,40 @@ mod tests {
         for nr in denied {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), EPERM_ACTION, "nr {nr}");
         }
+        assert_eq!(
+            evaluate(&filter, ARCH, SYS_seccomp as u32, [0; 6]),
+            EPERM_ACTION
+        );
         for nr in [SYS_clone3, SYS_openat2] {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), ENOSYS_ACTION);
         }
         for nr in [SYS_openat, SYS_write, SYS_getpid, SYS_execve, SYS_close] {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW);
         }
+    }
+
+    #[test]
+    fn prctl_set_seccomp_is_denied_but_other_options_are_allowed() {
+        let filter = deny_filter().unwrap();
+        assert_eq!(
+            evaluate(&filter, ARCH, SYS_prctl as u32, [PR_SET_SECCOMP as u64, 0, 0, 0, 0, 0]),
+            EPERM_ACTION
+        );
+        assert_eq!(
+            evaluate(&filter, ARCH, SYS_prctl as u32, [PR_SET_NO_NEW_PRIVS as u64, 0, 0, 0, 0, 0]),
+            SECCOMP_RET_ALLOW
+        );
+    }
+
+    #[test]
+    fn classify_install_result_rejects_unsynchronized_thread() {
+        assert_eq!(classify_install_result(0, 0), Ok(()));
+        assert_eq!(
+            classify_install_result(-1, EACCES).unwrap_err().raw_os_error(),
+            Some(EACCES)
+        );
+        let error = classify_install_result(4242, 0).unwrap_err();
+        assert!(error.to_string().contains("thread 4242 not synchronized"));
     }
 
     #[test]
@@ -531,6 +567,16 @@ mod tests {
                 };
             }
             require!(socket(AF_UNIX, SOCK_STREAM, 0) == -1 && *__errno_location() == EPERM, 10);
+            require!(
+                syscall(SYS_seccomp, SECCOMP_GET_ACTION_AVAIL, 0usize, 0usize) == -1
+                    && *__errno_location() == EPERM,
+                33
+            );
+            require!(
+                syscall(SYS_prctl, PR_SET_SECCOMP as c_long, 2, 0usize, 0usize, 0usize) == -1
+                    && *__errno_location() == EPERM,
+                34
+            );
             let inet = socket(AF_INET, SOCK_STREAM, 0);
             require!(inet >= 0, 11);
             let route = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
