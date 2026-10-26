@@ -402,20 +402,87 @@ fn fetch_missing(
 
 /// Removes a worktree [`make_worktree`] made, and its branch.
 pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
-    // Another folder at its path (renamed in, a copy of its `.git` file): git would remove that
-    // one by path. It is left alone, and so is the worktree's registration and branch.
-    if worktree.root_pin.is_some()
-        && crate::cwd_pin::CwdPin::of(&worktree.root) != worktree.root_pin
-    {
-        tracing::warn!(root = %worktree.root.display(), "worktree not removed: another folder is at its path");
+    // A worktree this made is removed through its held folder, never by path: whatever took its
+    // path (renamed in, a copy of its `.git` file), before or during the removal, is left alone.
+    #[cfg(unix)]
+    if let Some(held) = &worktree.root_held {
+        if let Err(e) = empty_held(held) {
+            tracing::warn!(root = %worktree.root.display(), "worktree not removed: {e}");
+            return;
+        }
+        #[cfg(test)]
+        before_path_removal(&worktree.root);
+        // Only an empty folder goes by path. Its registration goes once its `.git` is gone, and
+        // the branch only then: git refuses to delete a branch a registered worktree is on.
+        let _ = std::fs::remove_dir(&worktree.root);
+        let _ = git(folder, &["worktree", "prune"]);
+        if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
+            let _ = git(
+                folder,
+                &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
+            );
+        }
         return;
     }
-    #[cfg(test)]
-    before_path_removal(&worktree.root);
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
     let _ = git(folder, &["branch", "-D", &worktree.branch]);
     let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
+}
+
+/// Removes everything in the open folder `dir` through its handle (`openat`/`unlinkat`, never a
+/// path, links not followed), leaving it empty.
+#[cfg(unix)]
+fn empty_held(dir: &std::fs::File) -> std::io::Result<()> {
+    use std::ffi::{CStr, CString};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let names: Vec<CString> = {
+        // SAFETY: dup of an open descriptor; fdopendir owns the copy and closedir closes it.
+        let fd = unsafe { libc::dup(dir.as_raw_fd()) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            let e = std::io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(e);
+        }
+        let mut names = Vec::new();
+        // SAFETY: `stream` is open until closedir; each entry is read before the next readdir.
+        unsafe {
+            libc::rewinddir(stream);
+            loop {
+                let entry = libc::readdir(stream);
+                if entry.is_null() {
+                    break;
+                }
+                let name = CStr::from_ptr((*entry).d_name.as_ptr());
+                if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                    names.push(name.to_owned());
+                }
+            }
+            libc::closedir(stream);
+        }
+        names
+    };
+    let at = dir.as_raw_fd();
+    for name in names {
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: `at` is open for the call; a descriptor opened here is owned at once.
+        let child = unsafe { libc::openat(at, name.as_ptr(), flags) };
+        let removed = if child >= 0 {
+            let child = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(child) });
+            empty_held(&child)?;
+            unsafe { libc::unlinkat(at, name.as_ptr(), libc::AT_REMOVEDIR) }
+        } else {
+            unsafe { libc::unlinkat(at, name.as_ptr(), 0) }
+        };
+        if removed != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 /// Lowercase ASCII letters and digits, every other run one `-`, at most 48
