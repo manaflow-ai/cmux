@@ -212,7 +212,8 @@ class WakeupAuditTests(unittest.TestCase):
         lines = self.audit.run("--lang", "rust", "--queue").stdout.splitlines()
         self.assertTrue(lines)
         for line in lines:
-            group, where, rule, shape = line.split("\t")
+            group, where, rule, shape, *status = line.split("\t")
+            self.assertIn(status, ([], ["bad-escape"], ["no-reason"], ["periodic-unlisted"]), line)
             self.assertTrue(group.startswith("rust:demo/"), group)
             self.assertRegex(where, r"^cmux-tui/crates/demo/src/\S+\.rs:\d+$")
             self.assertIn(shape, ("loop", "oneshot"))
@@ -225,8 +226,8 @@ class WakeupAuditTests(unittest.TestCase):
         line = self.line_of(lib, "because it is short")
         hit = next(h for h in self.audit.at("demo/src/lib.rs", "--lang", "rust") if h["line"] == line)
         self.assertEqual((hit["status"], hit["escape"]), ("bad-escape", "because"))
-        # Not strict: a bad escape is not an open hit in the queue.
-        self.assertNotIn(f"{lib}:{line}\t", self.audit.run("--lang", "rust", "--queue").stdout)
+        # The work list holds what --strict refuses: the escape to reword, marked in a 5th column.
+        self.assertIn(f"{lib}:{line}\tthread-sleep\toneshot\tbad-escape\n", self.audit.run("--lang", "rust", "--queue").stdout)
         strict = self.audit.run("--lang", "rust", "--strict")
         self.assertEqual(strict.returncode, 1)
         self.assertIn(f"{lib}:{line}: thread-sleep", strict.stdout)
@@ -453,6 +454,30 @@ class FocusedFixtureTests(unittest.TestCase):
             """)
         self.assertEqual([(h["line"], h["rule"]) for h in hits], [(9, "recv-timeout")])
 
+    def test_cfg_predicates_that_need_test_are_test_only(self) -> None:
+        write(self.root, "cmux-tui/crates/demo/src/unix_tests.rs", "fn t() { std::thread::sleep(D); }\n")
+        write(self.root, "cmux-tui/crates/demo/src/any_tests.rs", "fn t() { std::thread::sleep(D); }\n")
+        write(self.root, "cmux-tui/crates/demo/src/shipped.rs", "fn s() { std::thread::sleep(D); }\n")
+        write(self.root, "cmux-tui/crates/demo/src/not_test.rs", "fn s() { std::thread::sleep(D); }\n")
+        hits = self.rust("""\
+            #[cfg(all(unix, test))]
+            mod unix_tests;
+            #[cfg(all(any(unix, windows), test))]
+            mod t {
+                fn w(rx: std::sync::mpsc::Receiver<u8>) { let _ = rx.recv_timeout(D); }
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            mod any_tests;
+            #[cfg(any(unix, test))]
+            mod shipped;
+            #[cfg(not(test))]
+            mod not_test;
+            fn live(rx: std::sync::mpsc::Receiver<u8>) { let _ = rx.recv_timeout(D); }
+            """)
+        self.assertEqual([(h["line"], h["rule"]) for h in hits], [(13, "recv-timeout")])
+        files = {h["file"].rsplit("/", 1)[-1] for h in self.audit.hits("--lang", "rust")}
+        self.assertEqual(files, {"lib.rs", "shipped.rs", "not_test.rs"})
+
     def test_mod_declared_after_a_cfg_test_field_is_audited(self) -> None:
         write(self.root, "cmux-tui/crates/demo/src/worker.rs", "pub fn w() { std::thread::sleep(std::time::Duration::ZERO); }\n")
         self.rust("""\
@@ -563,6 +588,131 @@ class FocusedFixtureTests(unittest.TestCase):
             """)
         self.assertEqual(self.shapes(hits), {(7, "thread-sleep"): "loop"})
 
+    # select!: a timed arm races the other arms; an arm that leaves the loop is not on the looping path -------
+
+    def test_select_timer_with_a_stop_arm_that_returns_is_a_loop(self) -> None:
+        hits = self.rust("""\
+            async fn usage(stop: Notify, d: std::time::Duration) {
+                loop {
+                    tokio::select! {
+                        _ = stop.notified() => return,
+                        _ = tokio::time::sleep(d) => {}
+                    }
+                    poll().await;
+                }
+            }
+            async fn braced(stop: Notify, d: std::time::Duration) {
+                loop {
+                    tokio::select! {
+                        _ = stop.notified() => {
+                            return;
+                        }
+                        _ = tokio::time::sleep(d) => {}
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(5, "tokio-sleep"): "loop", (16, "tokio-sleep"): "loop"})
+
+    def test_select_heartbeat_and_poll_raced_against_an_event_are_loops(self) -> None:
+        hits = self.rust("""\
+            async fn heartbeat(mut close: tokio::sync::watch::Receiver<bool>, d: std::time::Duration) {
+                loop {
+                    tokio::select! {
+                        _ = tokio::time::sleep(d) => {}
+                        _ = close.changed() => return,
+                    }
+                    beat();
+                }
+            }
+            async fn show(mut finished: tokio::sync::watch::Receiver<bool>) {
+                loop {
+                    print();
+                    tokio::select! {
+                        _ = finished.changed() => {},
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(4, "tokio-sleep"): "loop", (15, "tokio-sleep"): "loop"})
+
+    def test_select_timer_whose_arm_returns_is_a_oneshot_deadline(self) -> None:
+        hits = self.rust("""\
+            async fn read(mut rx: tokio::sync::mpsc::Receiver<u8>, d: std::time::Duration) -> Result<(), E> {
+                loop {
+                    tokio::select! {
+                        m = rx.recv() => handle(m),
+                        _ = tokio::time::sleep(d) => return Err(E),
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(5, "tokio-sleep"): "oneshot"})
+
+    def test_pinned_timer_raced_in_an_async_block_is_a_loop(self) -> None:
+        # acpmux server/wait.rs: a 1 s re-evaluate made again on every turn, raced against an event.
+        hits = self.rust("""\
+            async fn wait(mut events: tokio::sync::broadcast::Receiver<u8>, deadline: Option<tokio::time::Instant>) {
+                loop {
+                    if done() {
+                        return;
+                    }
+                    let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
+                    tokio::pin!(poll);
+                    let wake = async {
+                        tokio::select! {
+                            _ = &mut poll => {}
+                            r = events.recv() => {
+                                note(r);
+                            }
+                        }
+                    };
+                    match deadline {
+                        Some(d) => {
+                            if tokio::time::timeout_at(d, wake).await.is_err() {
+                                return;
+                            }
+                        }
+                        None => wake.await,
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(6, "tokio-sleep"): "loop"})
+
+    def test_a_wait_in_a_spawned_body_does_not_make_the_loop_evented(self) -> None:
+        hits = self.rust("""\
+            fn threads(rx: std::sync::mpsc::Receiver<u8>) {
+                loop {
+                    let h = std::thread::spawn(move || {
+                        rx.recv()
+                    });
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+            async fn tasks(mut x: tokio::sync::mpsc::Receiver<u8>) {
+                loop {
+                    tokio::spawn(async move {
+                        x.recv().await
+                    });
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+            async fn awaited(mut x: tokio::sync::mpsc::Receiver<u8>) {
+                loop {
+                    let w = async {
+                        x.recv().await
+                    };
+                    w.await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (6, "thread-sleep"): "loop", (14, "tokio-sleep"): "loop", (23, "tokio-sleep"): "oneshot",
+        })
+
     def test_swift_loop_after_a_statement_is_a_loop(self) -> None:
         hits = self.swift("""\
             func poll() async {
@@ -627,6 +777,24 @@ class FocusedFixtureTests(unittest.TestCase):
         self.assertIn("lib.rs:3: recv-timeout (oneshot) no-reason deadline", strict.stdout)
         self.assertNotIn("lib.rs:8:", strict.stdout)
 
+    def test_an_escape_on_one_match_arm_does_not_cover_the_next_arm(self) -> None:
+        hits = self.rust("""\
+            fn a(x: u8) {
+                match x {
+                    1 => std::thread::sleep(std::time::Duration::from_secs(1)), // wakeup-allow: bounded three tries
+                    2 => std::thread::sleep(std::time::Duration::from_secs(5)),
+                    // wakeup-allow: deadline the peer answers within 2 s or it is gone
+                    _ => std::thread::sleep(std::time::Duration::from_secs(2)),
+                }
+                let v = vec![
+                    1, // wakeup-allow: debug a comment on the entry above
+                    std::thread::sleep(std::time::Duration::from_secs(3)),
+                ];
+            }
+            """)
+        self.assertEqual([(h["line"], h["status"]) for h in hits],
+                         [(3, "escaped"), (4, "hit"), (6, "escaped"), (10, "hit")])
+
     def test_escape_inside_a_string_literal_does_not_count(self) -> None:
         hits = self.rust("""\
             fn a() {
@@ -674,19 +842,31 @@ class FocusedFixtureTests(unittest.TestCase):
         listed = self.audit.run("--lang", "rust", "--strict")
         self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
 
-    def test_strict_queue_keeps_the_four_columns(self) -> None:
+    def test_queue_lists_what_strict_refuses_with_the_escape_status_in_a_fifth_column(self) -> None:
         self.rust("""\
             fn a(rx: std::sync::mpsc::Receiver<u8>) {
                 let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
                 std::thread::sleep(std::time::Duration::from_secs(1)); // wakeup-allow: because short
+                // wakeup-allow: deadline
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                // wakeup-allow: periodic Unlisted.tick every 60 s
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                // wakeup-allow: bounded three tries, then the caller reports it
+                std::thread::sleep(std::time::Duration::from_secs(3));
             }
             """)
-        result = self.audit.run("--lang", "rust", "--strict", "--queue")
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout.splitlines(), [
+        expected = [
             "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:2\trecv-timeout\toneshot",
-            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:3\tthread-sleep\toneshot",
-        ])
+            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:3\tthread-sleep\toneshot\tbad-escape",
+            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:5\tthread-sleep\toneshot\tno-reason",
+            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:7\tthread-sleep\toneshot\tperiodic-unlisted",
+        ]
+        strict = self.audit.run("--lang", "rust", "--strict", "--queue")
+        self.assertEqual(strict.returncode, 1)
+        self.assertEqual(strict.stdout.splitlines(), expected)
+        plain = self.audit.run("--lang", "rust", "--queue")
+        self.assertEqual(plain.returncode, 0)
+        self.assertEqual(plain.stdout.splitlines(), expected)
 
     # Q13 ------------------------------------------------------------------------------------------------------
 
