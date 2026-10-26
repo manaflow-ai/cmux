@@ -231,6 +231,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (p03-rendering-044, Track B): makes the browser's
+    /// `RenderWidgetHostViewCocoa` a subview of `parent_view` (an NSView*) and returns it unretained; NULL when
+    /// refused. Nil without the export and in host mode, where no view pointer crosses the process.
+    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -298,25 +302,6 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
-    }
-
-    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
-    private struct Resolver {
-        let symbol: (String) -> UnsafeMutableRawPointer?
-        /// Host mode: the optional exports the Chromium Host's shim defines (its hello). Nil takes
-        /// every optional export `symbol` finds.
-        var hostExports: Set<String>?
-
-        func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
-            return unsafeBitCast(symbol, to: T.self)
-        }
-
-        /// A function only newer shims export: nil when this one has none.
-        func optional<T>(_ name: String) -> T? {
-            guard hostExports?.contains(name) ?? true else { return nil }
-            return symbol(name).map { unsafeBitCast($0, to: T.self) }
-        }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
@@ -455,6 +440,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        browserAttachView = r.hostExports == nil ? r.optional("cmux_shim_browser_attach_view") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")

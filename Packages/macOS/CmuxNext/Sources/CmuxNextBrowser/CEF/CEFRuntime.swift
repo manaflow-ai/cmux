@@ -78,8 +78,8 @@ final class CEFRuntime {
     var pointerFrames: FrameInputCoalescers?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
-    /// The last `CEFEngine`'s feature `cefLayerHosting`: nil while off, else the Track A calls the app makes.
-    var layerHostingTrackA: CEFLayerHosting.TrackA?
+    /// The last `CEFEngine`'s features `cefLayerHosting` and `cefAttachedPages` (`CEFLayerHosting.Policy`).
+    var pageHosting = CEFLayerHosting.Policy()
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
