@@ -88,7 +88,6 @@
    "CmuxNextBrowserImport": 1,
    "CmuxNextDictation": 6,
    "CmuxNextServerHelper": 5,
-   "CmuxNextTerminal": 7,
    "MessagesLabSidebar": 1
   }
  },
@@ -166,6 +165,7 @@
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTasks": 1,
+    "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
     "CmuxSafeConcurrency": 1,
