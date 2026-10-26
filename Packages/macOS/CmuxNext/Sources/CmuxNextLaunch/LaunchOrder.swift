@@ -75,7 +75,6 @@ public struct LaunchOrder {
     public init(fence: BestEffortFence, input: any InputObserving, mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
-        FrameScheduler.install(displays: displays)
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
         displays.presents.pendingCommits = { TypingLatencyProbe.shared.takePresentCommits() }
         displays.presents.observeCommits()
@@ -88,6 +87,8 @@ public struct LaunchOrder {
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, signposts: true, starvation: starvation),
                                          displays: displays, startup: phase)
+        // The app and window schedulers run on that clock and follow the app's one Energy Saver policy.
+        FrameScheduler.install(displays: displays, energy: mainWork.energy)
         starvation.watch(mainWork.frames, FrameScheduler.app)
         self.init(fence: fence, mainWork: mainWork,
                   startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock()), mark: mark)

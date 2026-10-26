@@ -28,9 +28,9 @@ public import QuartzCore
 /// ```swift
 /// // The composition root, with the app's one display clock:
 /// let displays = DisplayClock()
-/// FrameScheduler.install(displays: displays)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true),
 ///                                  displays: displays)
+/// FrameScheduler.install(displays: displays, energy: mainWork.energy)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
@@ -83,7 +83,7 @@ public final class MainWorkScheduler {
     ///     commit estimate (``MainCommitMeter``) that ends each frame's budgeted work before the
     ///     tick's `targetTimestamp`, and the charge on a frame with no target.
     ///   - displays: The composition root's display clock, which it shares with ``FrameScheduler/app``
-    ///     and the windows (``FrameScheduler/install(displays:)``).
+    ///     and the windows (``FrameScheduler/install(displays:energy:)``).
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
     ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
     ///     wired; the default is settled, so a scheduler made after launch holds nothing.
@@ -108,6 +108,8 @@ public final class MainWorkScheduler {
         let energy = EnergyPolicySource()
         self.energy = energy
         wakeUps = MainWakeUpQueue(energy: energy)
+        // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
+        frames.follow(energy)
         self.renderPasses = renderPasses
         inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
