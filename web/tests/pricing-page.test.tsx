@@ -445,6 +445,19 @@ describe("localized pricing page", () => {
     expect(individual).not.toContain("Early supporter price");
   });
 
+  test("a subscriber whose own price is unknown is not told a billing period", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_no_price", plan: "pro", status: "active" }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toContain("Manage billing");
+    expect(individual).toContain(">$50<");
+    // The Max card beside it still states its own yearly list bill.
+    expect(individual).not.toContain("Billed monthly");
+  });
+
   test("a yearly early supporter sees both the discount and the yearly bill", async () => {
     stackConfigured = true;
     stripeSubscriptionRows = [{
