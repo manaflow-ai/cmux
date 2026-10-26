@@ -87,8 +87,16 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
-    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    /// Layout motion the CPU step does not own has not ended yet: a user pan of this screen stepped the
+    /// layout (`applyPresentation`), or render-server springs run (``renderSpringsInFlight``).
     var userMotionActive = false
+    /// Render-server spring calls of this screen's panes and dividers that have not landed
+    /// (`ScreenContentView+RenderMotion.swift`).
+    var renderSpringsInFlight = 0
+    /// A close on the render server that has not landed and still owns the camera (`springCloseOnRenderServer`).
+    var renderClose: RenderClose?
+    /// The render-server springs still carrying panes and dividers, what a later change starts from.
+    var renderTracks = RenderTracks()
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
@@ -211,6 +219,8 @@ final class ScreenContentView: NSView {
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
+        // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).
+        if structural { takeRenderSpringsBack() }
         // One style read per pass: it is resolved from the settings.
         let style = context.style
         reconcilePasses += 1
