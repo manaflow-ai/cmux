@@ -94,6 +94,9 @@ pub const CATALOG: &[CatalogName] = &[
     name(74, STALL, "stall.render_starved"),
     name(75, LAUNCH, "launch.startup_task"),
     name(76, LAUNCH, "launch.startup_complete"),
+    name(77, DAEMON, "daemon.step"),
+    name(78, WEBUI, "webui.agent_pane_step"),
+    name(79, STALL, "stall.ghostty_runtime_phase"),
 ];
 
 // `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its

@@ -164,12 +164,106 @@ class ReportSections(unittest.TestCase):
         self.assertEqual(markdown.count("None recorded."), 3)
 
 
+# The probe's launch window dumps (<dump>.window, CMUX_BLOCKING_PROBE_UNTIL_MARK): each app launch's main-thread
+# entries copied when the app sent the mark. Launch 100 and 101 sent startup_complete; 102 sent only another mark.
+def window_dump(mark, ms, rows):
+    return "\n".join([f"#window\t{mark}", f"#window_ms\t{ms}", "#threads\tmain", "#process\tcmux DEV", *rows]) + "\n"
+
+
+LAUNCH_OPEN = ("file-io:open\tmain\t1\t3000000\t3000000\tlibsystem_kernel.dylib|0x10|open;"
+               "cmux DEV.debug.dylib|0x100|$s13CmuxNextStore4loadyyF;cmux DEV.debug.dylib|0x180|$s13CmuxNextStore4mainyyF;")
+LAUNCH_CHROMIUM = ("sync-wait:dispatch_semaphore_wait\tmain\t1\t2000000\t2000000\tlibdispatch.dylib|0x20|wait;"
+                   "Chromium Embedded Framework|0x5000|cef_do_message_loop_work;"
+                   "cmux DEV.debug.dylib|0x200|$s15CmuxNextBrowser4pumpyyF;")
+LAUNCH_SELFTEST = "selftest\tmain\t3\t300\t100\tlibsystem_kernel.dylib|0x1|open;"
+
+
+class LaunchWindow(unittest.TestCase):
+    def run_report(self, dumps, windows, *extra, code=0):
+        """dumps: texts named probe-run-<100 + i>.tsv; windows: {index: text} written as that dump's .window."""
+        work = tempfile.mkdtemp(prefix="blocking-probe-window-")
+        self.addCleanup(shutil.rmtree, work, True)
+        app = os.path.join(work, "cmux DEV.app")
+        for relative in ("Contents/MacOS/cmux DEV", "Contents/MacOS/cmux DEV.debug.dylib",
+                         "Contents/Resources/bin/cmux-tui"):
+            path = os.path.join(app, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "w").close()
+        paths = write_dumps(work, dumps)
+        for index, text in windows.items():
+            with open(paths[index] + ".window", "w") as f:
+                f.write(text)
+            paths.append(paths[index] + ".window")
+        out = os.path.join(work, "out")
+        run = report_cli("--app", app, "--launches", str(len(dumps)), *extra, "--out", out, *paths)
+        self.assertEqual(run.returncode, code, run.stderr)
+        with open(os.path.join(out, "blocking-probe.json")) as f:
+            report = json.load(f)
+        with open(os.path.join(out, "blocking-probe.md")) as f:
+            markdown = f.read()
+        return report, markdown, run
+
+    def test_launch_section_lists_main_thread_calls_before_the_mark(self):
+        windows = {0: window_dump("startup_complete", 900, [LAUNCH_SELFTEST, LAUNCH_OPEN, LAUNCH_CHROMIUM]),
+                   1: window_dump("startup_complete", 1100, [LAUNCH_OPEN]),
+                   2: window_dump("first_window_frame_committed", 300, [LAUNCH_OPEN])}
+        report, markdown, _ = self.run_report([APP_DUMP, APP_DUMP, APP_DUMP, DAEMON_DUMP], windows,
+                                              "--until-mark", "startup_complete")
+        sections = report["sections"]
+        self.assertEqual(list(sections)[0], "launch")
+        self.assertIn("## launch: App main thread before the startup_complete mark", markdown)
+        self.assertLess(markdown.index("## launch:"), markdown.index("## app_main:"))
+        cmux, chromium = sections["launch"]  # worst first
+        self.assertEqual((cmux["by"], cmux["module"], cmux["launches"], cmux["count"], cmux["total_ms"]),
+                         ("cmux", "CmuxNextStore", 2, 2, 6.0))
+        self.assertEqual((chromium["by"], chromium["launches"]), ("chromium", 1))
+        self.assertIn("Chromium Embedded Framework+0x5000", chromium["site"])
+        self.assertIn("CmuxNextBrowser", chromium["via"])
+        self.assertNotIn("selftest", json.dumps(sections["launch"]))
+        launch = report["summary"]["launch"]
+        self.assertEqual((launch["windows"], launch["app_dumps"]), (2, 3))
+        self.assertEqual(launch["missing"], ["probe-run-102.tsv"])  # its app never sent startup_complete
+        self.assertEqual(launch["other_marks"], ["probe-run-102.tsv.window"])
+        self.assertEqual(launch["mark_ms"], {"p50": 1100, "max": 1100})
+        self.assertIn("Missing (the app never sent the mark", markdown)
+        # The whole-run sections still read the process dumps only, as without --until-mark.
+        self.assertEqual(report["summary"]["dumps"], {"final": 3, "periodic only": 1, "daemon": 1})
+        self.assertEqual(sections["app_main"][0]["count"], 6)
+
+    def test_without_until_mark_the_report_is_unchanged(self):
+        windows = {0: window_dump("startup_complete", 900, [LAUNCH_OPEN])}
+        with_windows, markdown, _ = self.run_report([APP_DUMP, DAEMON_DUMP], windows)
+        plain, plain_markdown, _ = self.run_report([APP_DUMP, DAEMON_DUMP], {})
+        self.assertEqual(with_windows, plain)
+        self.assertEqual(markdown, plain_markdown)
+        self.assertEqual(set(plain["sections"]), {"app_main", "app_chromium", "daemon_request", "daemon_input_wait"})
+        self.assertNotIn("launch", plain["summary"])
+
+    def test_no_window_for_the_mark_fails_and_says_so(self):
+        _, markdown, run = self.run_report([APP_DUMP], {}, "--until-mark", "startup_complete", code=1)
+        self.assertIn("no launch window ends at startup_complete", run.stderr)
+        self.assertIn("0 launch windows of 1 app dumps", markdown)
+
+    def test_select_never_picks_a_window(self):
+        work = tempfile.mkdtemp(prefix="blocking-probe-window-select-")
+        self.addCleanup(shutil.rmtree, work, True)
+        (app,) = write_dumps(work, [APP_DUMP])
+        with open(app + ".window", "w") as f:
+            f.write(window_dump("startup_complete", 900, [LAUNCH_OPEN]))
+        self.assertEqual(report_cli("--select", "main", app, app + ".window").stdout.split(), [app])
+
+
 # blocking-probe.sh's preflight program: the app, an inert hop (one wanted argument), the owner (both).
 PREFLIGHT_APP = "#final\t1\n#threads\tmain\n#process\tpreflight\nselftest\tmain\t3\t300\t100\tlibc|0x1|open;\n"
 PREFLIGHT_OWNER = ("#final\t1\n#threads\tprobe-test-*-host\n#process\tpreflight\n"
                    "selftest\tprobe\t3\t300\t100\tlibc|0x1|open;\n"
                    "file-io:stat\tprobe-test-*-host\t1\t500\t500\tlibc|0x2|stat;\n"
                    "input-wait:read\tprobe-test-*-host\t1\t500\t500\tlibc|0x3|read;\n")
+# With a launch window: the app spawns its chain, sends preflight_mark, then checks access("/").
+PREFLIGHT_APP_MARKED = (PREFLIGHT_APP + "process-spawn:posix_spawn\tmain\t1\t900\t900\tlibc|0x6|posix_spawn;\n"
+                        "file-io:access\tmain\t1\t500\t500\tlibc|0x5|access;\n")
+PREFLIGHT_WINDOW = window_dump("preflight_mark", 5, ["process-spawn:posix_spawn\tmain\t1\t900\t900\tlibc|0x6|posix_spawn;",
+                                                     "process-wait:waitpid\tmain\t1\t900\t900\tlibc|0x7|wait4;"])
 
 
 class Preflight(unittest.TestCase):
@@ -193,6 +287,52 @@ class Preflight(unittest.TestCase):
     def test_a_pipe_read_counted_as_blocking_fails(self):
         owner = PREFLIGHT_OWNER.replace("input-wait:read", "io:read")
         self.assertIn("input-wait:read", self.check([PREFLIGHT_APP, owner]).stderr)
+
+    def check_window(self, window, app=None):
+        work = tempfile.mkdtemp(prefix="blocking-probe-preflight-window-")
+        self.addCleanup(shutil.rmtree, work, True)
+        paths = write_dumps(work, [app or PREFLIGHT_APP_MARKED, PREFLIGHT_OWNER])
+        if window is not None:
+            with open(paths[0] + ".window", "w") as f:
+                f.write(window)
+            paths.append(paths[0] + ".window")
+        return report_cli("--preflight", "--until-mark", "preflight_mark", *paths)
+
+    def test_launch_window_chain_passes(self):
+        run = self.check_window(PREFLIGHT_WINDOW)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_a_missing_launch_window_fails(self):
+        self.assertIn("did not see the app's preflight_mark mark", self.check_window(None).stderr)
+
+    def test_a_launch_window_with_calls_after_the_mark_fails(self):
+        late = PREFLIGHT_WINDOW + "file-io:access\tmain\t1\t500\t500\tlibc|0x5|access;\n"
+        self.assertIn("calls made after the mark", self.check_window(late).stderr)
+
+    def test_a_launch_window_with_calls_on_the_probes_mark_descriptor_fails(self):
+        # The preflight app makes LaunchMarkSink's fcntls and writes an earlier mark before the launch mark: on the
+        # descriptor the probe opened, so they must not reach the window as if the app blocked on them.
+        for row in ("io:write\tmain\t1\t400\t400\tlibsystem_kernel.dylib|0x8|write;preflight|0x40|send_marks;",
+                    "file-io:fcntl\tmain\t3\t300\t100\tlibsystem_kernel.dylib|0x9|fcntl;preflight|0x40|send_marks;"):
+            with self.subTest(row=row.split("\t")[0]):
+                self.assertIn("calls on its own mark descriptor",
+                              self.check_window(PREFLIGHT_WINDOW + row + "\n").stderr)
+
+    def test_a_launch_window_without_the_spawn_fails(self):
+        empty = window_dump("preflight_mark", 5, [])
+        self.assertIn("lacks the app's spawn", self.check_window(empty).stderr)
+
+    def test_an_app_dump_without_the_access_after_the_mark_fails(self):
+        self.assertIn("lacks its access after the mark", self.check_window(PREFLIGHT_WINDOW, PREFLIGHT_APP).stderr)
+
+    def test_a_window_without_until_mark_fails(self):
+        work = tempfile.mkdtemp(prefix="blocking-probe-preflight-stray-")
+        self.addCleanup(shutil.rmtree, work, True)
+        app, owner = write_dumps(work, [PREFLIGHT_APP, PREFLIGHT_OWNER])
+        with open(app + ".window", "w") as f:
+            f.write(PREFLIGHT_WINDOW)
+        self.assertIn("without a launch window asked for",
+                      report_cli("--preflight", app, owner, app + ".window").stderr)
 
     def test_select_splits_app_and_daemon_dumps(self):
         work = tempfile.mkdtemp(prefix="blocking-probe-select-")
