@@ -361,11 +361,12 @@ impl Hub {
         session: &Arc<Session>,
         spawn: &super::spawn::Spawn,
         checked: Option<&CheckedFolder>,
+        stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let Some(checked) = checked else { return self.ensure_child(session, spawn).await };
+        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
-        let pinned = self.ensure_child(session, spawn);
+        let pinned = self.ensure_child(session, spawn, stops);
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
